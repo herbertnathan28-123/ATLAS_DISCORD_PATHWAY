@@ -1,0 +1,7 @@
+services:
+  - type: worker
+    name: atlas-fx-discord-bot
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
