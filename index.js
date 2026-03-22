@@ -9,15 +9,10 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const axios = require('axios');
 
 const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
-const N8N_API_KEY = process.env.N8N_API_KEY;
-const N8N_EXECUTE_URL = 'https://atlas-nathan28.app.n8n.cloud/api/v1/workflows/fQIE0VRzm2cRs0cO/execute';
+const N8N_WEBHOOK_URL = 'https://atlas-nathan28.app.n8n.cloud/webhook/atlas-fx';
 
 if (!DISCORD_BOT_TOKEN) {
   console.error('Missing DISCORD_BOT_TOKEN environment variable.');
-  process.exit(1);
-}
-if (!N8N_API_KEY) {
-  console.error('Missing N8N_API_KEY environment variable.');
   process.exit(1);
 }
 
@@ -31,7 +26,6 @@ const client = new Client({
   ],
 });
 
-// ✅ Fixed: clientReady instead of ready
 client.once('clientReady', () => {
   console.log(`ATLAS FX bot online as ${client.user.tag}`);
 });
@@ -45,17 +39,14 @@ client.on('messageCreate', async (message) => {
 
   try {
     await axios.post(
-      N8N_EXECUTE_URL,
+      N8N_WEBHOOK_URL,
       {
         command: raw,
         user: message.author.username,
         channel: message.channel.id,
       },
       {
-        headers: {
-          'X-N8N-API-KEY': N8N_API_KEY,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         timeout: 30000,
       }
     );
@@ -65,7 +56,6 @@ client.on('messageCreate', async (message) => {
   }
 });
 
-// ✅ Reconnection handling
 client.on('shardDisconnect', (event, shardId) => {
   console.warn(`Shard ${shardId} disconnected. Code: ${event.code}`);
 });
@@ -76,7 +66,6 @@ client.on('shardResume', (shardId, replayedEvents) => {
   console.log(`Shard ${shardId} resumed. Replayed ${replayedEvents} events.`);
 });
 
-// ✅ Keep-alive to prevent Render from idling the process
 setInterval(() => {
   console.log('[keep-alive]', new Date().toISOString());
 }, 5 * 60 * 1000);
