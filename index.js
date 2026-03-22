@@ -137,4 +137,42 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.customId.startsWith('share_')) {
     const parts = interaction.customId.split('_');
     const symbol = parts[1];
-    const userId = parts[2]
+    const userId = parts[2];
+
+    try {
+      const charts = generateCharts(symbol);
+      await postChartEmbed(SHARED_MACROS_WEBHOOK, symbol, charts, interaction.user.username);
+      await interaction.update({
+        content: `✅ **${symbol}** charts shared in #shared-macros!`,
+        components: []
+      });
+      console.log(`[SHARED] ${symbol} shared to #shared-macros by ${interaction.user.username}`);
+    } catch (err) {
+      console.error('[SHARE ERROR]', err.message);
+      await interaction.update({ content: '❌ Failed to share. Try again.', components: [] });
+    }
+  }
+
+  if (interaction.customId === 'no_share') {
+    await interaction.update({
+      content: '👍 Charts kept private.',
+      components: []
+    });
+  }
+});
+
+client.on('shardDisconnect', (event, shardId) => {
+  console.warn(`Shard ${shardId} disconnected. Code: ${event.code}`);
+});
+client.on('shardReconnecting', (shardId) => {
+  console.log(`Shard ${shardId} reconnecting...`);
+});
+client.on('shardResume', (shardId, replayedEvents) => {
+  console.log(`Shard ${shardId} resumed. Replayed ${replayedEvents} events.`);
+});
+
+setInterval(() => {
+  console.log('[keep-alive]', new Date().toISOString());
+}, 5 * 60 * 1000);
+
+client.login(DISCORD_BOT_TOKEN);
