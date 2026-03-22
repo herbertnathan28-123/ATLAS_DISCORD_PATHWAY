@@ -1,3 +1,10 @@
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION:', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
+
 const { Client, GatewayIntentBits } = require('discord.js');
 const axios = require('axios');
 
@@ -9,7 +16,6 @@ if (!DISCORD_BOT_TOKEN) {
   console.error('Missing DISCORD_BOT_TOKEN environment variable.');
   process.exit(1);
 }
-
 if (!N8N_API_KEY) {
   console.error('Missing N8N_API_KEY environment variable.');
   process.exit(1);
@@ -25,16 +31,15 @@ const client = new Client({
   ],
 });
 
-client.once('ready', () => {
+// ✅ Fixed: clientReady instead of ready
+client.once('clientReady', () => {
   console.log(`ATLAS FX bot online as ${client.user.tag}`);
 });
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
-
   const raw = (message.content || '').trim();
   if (!raw.startsWith('!')) return;
-
   const commandWord = raw.split(/\s+/)[0].toLowerCase();
   if (!supportedCommands.has(commandWord)) return;
 
@@ -54,11 +59,26 @@ client.on('messageCreate', async (message) => {
         timeout: 30000,
       }
     );
-
     console.log(`[OK] user=${message.author.username} command="${raw}"`);
   } catch (error) {
     console.error('[N8N ERROR]', error.message);
   }
 });
+
+// ✅ Reconnection handling
+client.on('shardDisconnect', (event, shardId) => {
+  console.warn(`Shard ${shardId} disconnected. Code: ${event.code}`);
+});
+client.on('shardReconnecting', (shardId) => {
+  console.log(`Shard ${shardId} reconnecting...`);
+});
+client.on('shardResume', (shardId, replayedEvents) => {
+  console.log(`Shard ${shardId} resumed. Replayed ${replayedEvents} events.`);
+});
+
+// ✅ Keep-alive to prevent Render from idling the process
+setInterval(() => {
+  console.log('[keep-alive]', new Date().toISOString());
+}, 5 * 60 * 1000);
 
 client.login(DISCORD_BOT_TOKEN);
