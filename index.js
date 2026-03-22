@@ -1,3 +1,7 @@
+client.on('messageCreate', async (message) => {
+  console.log(`[MSG] ${message.author.username}: ${message.content}`);  // ADD THIS LINE
+  if (message.author.bot) return;
+  const raw = (message.content || '').trim();
 process.on('unhandledRejection', (reason) => {
   console.error('UNHANDLED REJECTION:', reason);
 });
