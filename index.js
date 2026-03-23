@@ -17,7 +17,7 @@ const {
 const axios = require('axios');
 
 // ===== HARD-CODED (WORKING) =====
-const DISCORD_BOT_TOKEN = "MTQ4Mjc4NTY2OTY2NjU3MDI2MA.Gn6pFM.IzXDKE2sIt7OXXD_K06bmnll7tywBolV2C246s";
+const DISCORD_BOT_TOKEN = "PASTE_YOUR_NEW_BOT_TOKEN_HERE";
 
 const SHARED_MACROS_WEBHOOK = "https://discord.com/api/webhooks/1484946852976656516/3Hkehm9GXGm-5sFBHxY_MUrM1PEY1ducOUvWLe4biFW1ka5DHDS23_sH0fglKugWIYCI";
 
