@@ -45,7 +45,7 @@ const USER_WEBHOOKS = {
 
 // Premium users -- add Discord user IDs to enable 4K
 const PREMIUM_USERS = new Set([
-  // '690861328507731978', // AT -- uncomment to enable
+ '690861328507731978',
 ]);
 
 // ============================================================
