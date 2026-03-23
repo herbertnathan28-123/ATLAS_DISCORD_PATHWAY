@@ -19,7 +19,7 @@ const axios = require('axios');
 // ===== HARD-CODED (WORKING) =====
 const DISCORD_BOT_TOKEN = "PASTE_YOUR_NEW_BOT_TOKEN_HERE";
 
-const SHARED_MACROS_WEBHOOK = "https://discord.com/api/webhooks/1484946852976656516/3Hkehm9GXGm-5sFBHxY_MUrM1PEY1ducOUvWLe4biFW1ka5DHDS23_sH0fglKugWIYCI";
+const SHARED_MACROS_WEBHOOK = "https://discordapp.com/api/webhooks/1484946852976656516/3Hkehm9GXGm-5sFBHxY_MUrM1PEY1ducOUvWLe4biFW1ka5DHDS23_sH0fglKugWIYCI";
 
 const USER_WEBHOOKS = {
   '690861328507731978': "https://discordapp.com/api/webhooks/1433501396967358666/hCQBGuiNfF4MWcPGXNtHeh-4kRdYmd0W---Wgt2WOHQWi3xF8fGAVhMqgG4Xo_ff8_sb",
