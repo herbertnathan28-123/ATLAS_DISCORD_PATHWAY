@@ -1,6 +1,10 @@
 // ============================================================
 // ATLAS FX DISCORD BOT
 // Pipeline: SOURCE -> FRAME -> RENDER -> FILE -> POST
+//
+// COMMANDS:
+//   !chart EURUSDH  -- High timeframes: Weekly + Daily
+//   !chart EURUSDL  -- Low timeframes:  4H + 1H
 // ============================================================
 
 process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED REJECTION]', reason); });
@@ -56,19 +60,41 @@ const FOREX       = new Set(['EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','NZDUS
 const INDICES     = new Set(['SPX','NDX','DJI','DAX','NAS100','US30','UK100','GER40']);
 const COMMODITIES = new Set(['CL','BRENT','UKOIL','NATGAS','NG']);
 
+// Timeframe sets
+const TIMEFRAMES_HIGH = [
+  { key: 'W', label: 'Weekly', interval: 'W' },
+  { key: 'D', label: 'Daily',  interval: 'D' },
+];
+
+const TIMEFRAMES_LOW = [
+  { key: '4H', label: '4H', interval: '240' },
+  { key: '1H', label: '1H', interval: '60'  },
+];
+
+const TIMEFRAMES_ALL = [...TIMEFRAMES_HIGH, ...TIMEFRAMES_LOW];
+
+// Parse command input:
+//   "EURUSDH"  -> { symbol: "EURUSD", set: "H", timeframes: TIMEFRAMES_HIGH }
+//   "EURUSDL"  -> { symbol: "EURUSD", set: "L", timeframes: TIMEFRAMES_LOW  }
+//   "EURUSD"   -> { symbol: "EURUSD", set: "ALL", timeframes: TIMEFRAMES_ALL } (fallback)
+function parseSymbolInput(raw) {
+  var upper = raw.toUpperCase();
+
+  if (upper.endsWith('H')) {
+    return { symbol: upper.slice(0, -1), set: 'H', timeframes: TIMEFRAMES_HIGH };
+  }
+  if (upper.endsWith('L')) {
+    return { symbol: upper.slice(0, -1), set: 'L', timeframes: TIMEFRAMES_LOW };
+  }
+  return { symbol: upper, set: 'ALL', timeframes: TIMEFRAMES_ALL };
+}
+
 function getTVSymbol(symbol) {
   if (FOREX.has(symbol))       return 'FX:' + symbol;
   if (INDICES.has(symbol))     return 'INDEX:' + symbol;
   if (COMMODITIES.has(symbol)) return 'NYMEX:' + symbol + '1!';
   return 'NASDAQ:' + symbol;
 }
-
-const TIMEFRAMES = [
-  { key: 'W',  label: 'Weekly', interval: 'W'   },
-  { key: 'D',  label: 'Daily',  interval: 'D'   },
-  { key: '4H', label: '4H',     interval: '240' },
-  { key: '1H', label: '1H',     interval: '60'  },
-];
 
 function buildChartUrl(symbol, interval) {
   return 'https://www.tradingview.com/chart/' + TV_LAYOUT_ID + '/?symbol=' + getTVSymbol(symbol) + '&interval=' + interval;
@@ -105,11 +131,7 @@ async function renderChart4K(symbol, interval, tfKey) {
 
       // STAGE 2: FRAME -- load and wait for full chart paint
       await page.goto(url, { waitUntil: 'networkidle', timeout: 45000 });
-
-      // Wait for canvas element
       await page.waitForSelector('canvas', { timeout: 20000 });
-
-      // Additional wait for chart data to fully render
       await page.waitForTimeout(4000);
 
       // Attempt fullscreen -- fallback silently if unavailable
@@ -120,24 +142,20 @@ async function renderChart4K(symbol, interval, tfKey) {
         console.warn('[WARN] Fullscreen trigger failed, continuing without it.');
       }
 
-      // Extra settle time after fullscreen
       await page.waitForTimeout(1000);
 
       // STAGE 3: RENDER -- native 4K capture
       const rawPng   = await page.screenshot({ type: 'png', fullPage: false });
       const metadata = await sharp(rawPng).metadata();
 
-      // Validate dimensions
       if (metadata.width !== 3840 || metadata.height !== 2160) {
         throw new Error('Dimension mismatch: ' + metadata.width + 'x' + metadata.height + ' (expected 3840x2160)');
       }
 
-      // Optimise -- lossless first
       let optimised = await sharp(rawPng)
         .png({ compressionLevel: 9, adaptiveFiltering: true })
         .toBuffer();
 
-      // Fallback compression if over Discord ceiling
       if (optimised.length > DISCORD_MAX_BYTES) {
         console.warn('[WARN] ' + symbol + ' ' + tfKey + ' over ceiling (' + (optimised.length / 1024 / 1024).toFixed(1) + 'MB), applying fallback compression.');
         optimised = await sharp(rawPng)
@@ -198,8 +216,8 @@ function saveToArchive(buffer, symbol, tfKey) {
 // ============================================================
 
 // Standard URL embed (free tier)
-async function postChartEmbed(webhookUrl, symbol, username) {
-  var links = TIMEFRAMES.map(function(tf) {
+async function postChartEmbed(webhookUrl, symbol, timeframes, username) {
+  var links = timeframes.map(function(tf) {
     return '[' + tf.label + '](' + buildChartUrl(symbol, tf.interval) + ')';
   }).join(' | ');
 
@@ -239,7 +257,7 @@ async function post4KChart(webhookUrl, symbol, tfKey, imageBuffer, username) {
 }
 
 // Post archived 4K files to a webhook (used for share -- avoids re-render)
-async function postArchivedCharts(webhookUrl, symbol, username) {
+async function postArchivedCharts(webhookUrl, symbol, timeframes, username) {
   var dir    = buildArchiveDir(symbol);
   var posted = 0;
 
@@ -248,8 +266,8 @@ async function postArchivedCharts(webhookUrl, symbol, username) {
     return false;
   }
 
-  for (var i = 0; i < TIMEFRAMES.length; i++) {
-    var tf       = TIMEFRAMES[i];
+  for (var i = 0; i < timeframes.length; i++) {
+    var tf       = timeframes[i];
     var filename = buildFilename(symbol, tf.key);
     var filepath = path.join(dir, filename);
 
@@ -291,12 +309,12 @@ async function postArchivedCharts(webhookUrl, symbol, username) {
 // ============================================================
 // BATCH DISPATCHER
 // ============================================================
-async function dispatchCharts(webhookUrl, symbol, username, userId) {
+async function dispatchCharts(webhookUrl, symbol, timeframes, username, userId) {
   var isPremium = ENABLE_4K_SCREENSHOTS && PREMIUM_USERS.has(userId);
 
   if (!isPremium) {
-    await postChartEmbed(webhookUrl, symbol, username);
-    return { mode: 'standard', success: TIMEFRAMES.length, failed: 0 };
+    await postChartEmbed(webhookUrl, symbol, timeframes, username);
+    return { mode: 'standard', success: timeframes.length, failed: 0 };
   }
 
   var batchStart = new Date().toISOString();
@@ -304,8 +322,8 @@ async function dispatchCharts(webhookUrl, symbol, username, userId) {
 
   console.log('[BATCH START] ' + symbol + ' -- ' + batchStart);
 
-  for (var i = 0; i < TIMEFRAMES.length; i++) {
-    var tf = TIMEFRAMES[i];
+  for (var i = 0; i < timeframes.length; i++) {
+    var tf = timeframes[i];
     try {
       var buffer   = await renderChart4K(symbol, tf.interval, tf.key);
       var filepath = saveToArchive(buffer, symbol, tf.key);
@@ -319,7 +337,7 @@ async function dispatchCharts(webhookUrl, symbol, username, userId) {
     }
   }
 
-  console.log('[BATCH DONE] ' + symbol + ' -- ' + results.success + '/' + TIMEFRAMES.length + ' succeeded, ' + results.failed + ' failed.');
+  console.log('[BATCH DONE] ' + symbol + ' -- ' + results.success + '/' + timeframes.length + ' succeeded, ' + results.failed + ' failed.');
   return results;
 }
 
@@ -355,25 +373,30 @@ client.on('messageCreate', async function(message) {
     return;
   }
 
-  var parts  = raw.split(/\s+/);
-  var symbol = (parts[1] || '').toUpperCase();
+  var parts     = raw.split(/\s+/);
+  var rawSymbol = parts[1] || '';
 
-  if (!symbol) {
-    await message.reply('Please provide a symbol. Example: !chart EURUSD');
+  if (!rawSymbol) {
+    await message.reply('Please provide a symbol. Example: `!chart EURUSDH` (Weekly+Daily) or `!chart EURUSDL` (4H+1H)');
     return;
   }
 
-  try {
-    var results = await dispatchCharts(privateWebhook, symbol, message.author.username, userId);
-    var modeTag = results.mode === '4K' ? '[4K] 4K' : '[CHART]';
-    console.log('[CHART] ' + message.author.username + ' -> ' + symbol + ' (' + results.mode + ')');
+  var parsed   = parseSymbolInput(rawSymbol);
+  var setLabel = parsed.set === 'H' ? 'HTF' : parsed.set === 'L' ? 'LTF' : 'ALL';
 
+  console.log('[CHART] ' + message.author.username + ' -> ' + parsed.symbol + ' ' + setLabel);
+
+  try {
+    var results = await dispatchCharts(privateWebhook, parsed.symbol, parsed.timeframes, message.author.username, userId);
+    var modeTag = results.mode === '4K' ? '[4K] 4K' : '[CHART]';
+
+    // customId encodes symbol + set + userId so the share handler knows which timeframes to re-post
     await message.reply({
-      content: modeTag + ' **' + symbol + '** charts sent to your channel! Want to share with the group?',
+      content: modeTag + ' **' + parsed.symbol + '** ' + setLabel + ' charts sent to your channel! Want to share with the group?',
       components: [
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
-            .setCustomId('share_' + symbol + '_' + userId)
+            .setCustomId('share_' + parsed.symbol + '_' + parsed.set + '_' + userId)
             .setLabel('Share in #shared-macros')
             .setStyle(ButtonStyle.Primary),
           new ButtonBuilder()
@@ -409,9 +432,18 @@ client.on('interactionCreate', async function(interaction) {
       return;
     }
 
+    // customId format: share_SYMBOL_SET_USERID
+    // e.g. share_EURUSD_H_690861328507731978
     var parts  = interaction.customId.split('_');
     var symbol = parts[1];
-    var userId = parts[2];
+    var set    = parts[2];
+    var userId = parts[3];
+
+    var timeframes = set === 'H' ? TIMEFRAMES_HIGH
+                   : set === 'L' ? TIMEFRAMES_LOW
+                   : TIMEFRAMES_ALL;
+
+    var setLabel = set === 'H' ? 'HTF' : set === 'L' ? 'LTF' : 'ALL';
 
     try {
       // Serve from today's archive first -- fast, no Playwright required.
@@ -419,21 +451,22 @@ client.on('interactionCreate', async function(interaction) {
       var served = await postArchivedCharts(
         SHARED_MACROS_WEBHOOK,
         symbol,
+        timeframes,
         interaction.user.username
       );
 
       if (!served) {
-        console.warn('[SHARE] Archive miss for ' + symbol + ', falling back to re-render...');
-        await dispatchCharts(SHARED_MACROS_WEBHOOK, symbol, interaction.user.username, userId);
+        console.warn('[SHARE] Archive miss for ' + symbol + ' ' + setLabel + ', falling back to re-render...');
+        await dispatchCharts(SHARED_MACROS_WEBHOOK, symbol, timeframes, interaction.user.username, userId);
       }
 
       // editReply() is required after deferUpdate() -- update() will throw
       await interaction.editReply({
-        content:    '[OK] **' + symbol + '** charts shared in #shared-macros!',
+        content:    '[OK] **' + symbol + '** ' + setLabel + ' charts shared in #shared-macros!',
         components: [],
       });
 
-      console.log('[SHARED] ' + symbol + ' by ' + interaction.user.username
+      console.log('[SHARED] ' + symbol + ' ' + setLabel + ' by ' + interaction.user.username
         + (served ? ' (from archive)' : ' (re-rendered)'));
 
     } catch (err) {
