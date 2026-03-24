@@ -7,9 +7,10 @@ process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED REJECTI
 process.on('uncaughtException',  (err)    => { console.error('[UNCAUGHT EXCEPTION]', err); });
 
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const axios = require('axios');
-const fs    = require('fs');
-const path  = require('path');
+const axios    = require('axios');
+const fs       = require('fs');
+const path     = require('path');
+const FormData = require('form-data');
 
 // ============================================================
 // CONFIG
@@ -47,7 +48,6 @@ const USER_WEBHOOKS = {
 const PREMIUM_USERS = new Set([
   '690861328507731978',
 ]);
-
 
 // ============================================================
 // STAGE 1: SOURCE -- Symbol routing
@@ -167,10 +167,14 @@ function buildFilename(symbol, tfKey) {
   return date + '_' + symbol + '_' + tfKey + '_4K.png';
 }
 
-function ensureExportDir(symbol) {
+function buildArchiveDir(symbol) {
   var now     = new Date();
   var dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-  var dir     = path.join(EXPORT_DIR, symbol, dateStr);
+  return path.join(EXPORT_DIR, symbol, dateStr);
+}
+
+function ensureExportDir(symbol) {
+  var dir = buildArchiveDir(symbol);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -214,7 +218,6 @@ async function postChartEmbed(webhookUrl, symbol, username) {
 
 // 4K image upload (premium tier)
 async function post4KChart(webhookUrl, symbol, tfKey, imageBuffer, username) {
-  var FormData = require('form-data');
   var filename = buildFilename(symbol, tfKey);
   var form     = new FormData();
 
@@ -233,6 +236,56 @@ async function post4KChart(webhookUrl, symbol, tfKey, imageBuffer, username) {
     maxBodyLength: Infinity,
     timeout:       45000,
   });
+}
+
+// Post archived 4K files to a webhook (used for share -- avoids re-render)
+async function postArchivedCharts(webhookUrl, symbol, username) {
+  var dir    = buildArchiveDir(symbol);
+  var posted = 0;
+
+  if (!fs.existsSync(dir)) {
+    console.warn('[ARCHIVE MISS] Directory not found: ' + dir);
+    return false;
+  }
+
+  for (var i = 0; i < TIMEFRAMES.length; i++) {
+    var tf       = TIMEFRAMES[i];
+    var filename = buildFilename(symbol, tf.key);
+    var filepath = path.join(dir, filename);
+
+    if (!fs.existsSync(filepath)) {
+      console.warn('[ARCHIVE MISS] File not found: ' + filepath);
+      continue;
+    }
+
+    try {
+      var buffer = fs.readFileSync(filepath);
+      var form   = new FormData();
+
+      form.append('file', buffer, { filename: filename, contentType: 'image/png' });
+      form.append('payload_json', JSON.stringify({
+        embeds: [{
+          title:  '[CHART] ' + symbol + ' -- ' + tf.key + ' (4K)',
+          color:  16711680,
+          image:  { url: 'attachment://' + filename },
+          footer: { text: 'Shared by ' + username + ' - ATLAS FX Premium' },
+        }],
+      }));
+
+      await axios.post(webhookUrl, form, {
+        headers:       form.getHeaders(),
+        maxBodyLength: Infinity,
+        timeout:       45000,
+      });
+
+      console.log('[ARCHIVE POST OK] ' + symbol + ' ' + tf.key);
+      posted++;
+    } catch (err) {
+      console.error('[ARCHIVE POST FAIL] ' + symbol + ' ' + tf.key + ': ' + err.message);
+    }
+  }
+
+  return posted > 0;
 }
 
 // ============================================================
@@ -343,27 +396,68 @@ client.on('messageCreate', async function(message) {
 client.on('interactionCreate', async function(interaction) {
   if (!interaction.isButton()) return;
 
+  // ── Share button ──────────────────────────────────────────
   if (interaction.customId.startsWith('share_')) {
+
+    // CRITICAL: Defer immediately -- Discord requires a response within 3 seconds.
+    // deferUpdate() acknowledges the interaction and removes the timeout.
+    // All async work (archive reads / re-renders) happens after this.
+    try {
+      await interaction.deferUpdate();
+    } catch (deferErr) {
+      console.error('[DEFER FAIL] Interaction already expired: ' + deferErr.message);
+      return;
+    }
+
     var parts  = interaction.customId.split('_');
     var symbol = parts[1];
     var userId = parts[2];
 
     try {
-      await dispatchCharts(SHARED_MACROS_WEBHOOK, symbol, interaction.user.username, userId);
-      await interaction.update({
+      // Serve from today's archive first -- fast, no Playwright required.
+      // Falls back to full re-render if archive files are missing (e.g. date rollover).
+      var served = await postArchivedCharts(
+        SHARED_MACROS_WEBHOOK,
+        symbol,
+        interaction.user.username
+      );
+
+      if (!served) {
+        console.warn('[SHARE] Archive miss for ' + symbol + ', falling back to re-render...');
+        await dispatchCharts(SHARED_MACROS_WEBHOOK, symbol, interaction.user.username, userId);
+      }
+
+      // editReply() is required after deferUpdate() -- update() will throw
+      await interaction.editReply({
         content:    '[OK] **' + symbol + '** charts shared in #shared-macros!',
         components: [],
       });
-      console.log('[SHARED] ' + symbol + ' by ' + interaction.user.username);
+
+      console.log('[SHARED] ' + symbol + ' by ' + interaction.user.username
+        + (served ? ' (from archive)' : ' (re-rendered)'));
+
     } catch (err) {
       console.error('[SHARE ERROR] ' + err.message);
-      await interaction.update({ content: 'Failed to share. Try again.', components: [] });
+      try {
+        await interaction.editReply({
+          content:    'Failed to share charts. Try again.',
+          components: [],
+        });
+      } catch (replyErr) {
+        console.error('[EDIT REPLY FAIL] ' + replyErr.message);
+      }
     }
+
     return;
   }
 
+  // ── No thanks button ──────────────────────────────────────
   if (interaction.customId === 'no_share') {
-    await interaction.update({ content: 'Charts kept private.', components: [] });
+    try {
+      await interaction.update({ content: 'Charts kept private.', components: [] });
+    } catch (err) {
+      console.error('[NO_SHARE ERROR] ' + err.message);
+    }
   }
 });
 
