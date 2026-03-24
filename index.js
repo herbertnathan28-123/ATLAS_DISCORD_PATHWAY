@@ -45,8 +45,9 @@ const USER_WEBHOOKS = {
 
 // Premium users -- add Discord user IDs to enable 4K
 const PREMIUM_USERS = new Set([
- '690861328507731978',
+  '690861328507731978',
 ]);
+
 
 // ============================================================
 // STAGE 1: SOURCE -- Symbol routing
