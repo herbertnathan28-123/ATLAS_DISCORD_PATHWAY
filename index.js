@@ -197,7 +197,33 @@ async function renderChart(symbol, interval, tfKey) {
 
       page.setDefaultNavigationTimeout(45000);
       page.setDefaultTimeout(25000);
+// ============================================================
+// 🔴 FORCE TIMEFRAME (CRITICAL FIX)
+// ============================================================
 
+const tfMap = {
+  '1W': '1 week',
+  '1D': '1 day',
+  '240': '4 hours',
+  '60': '1 hour',
+  '15': '15 minutes',
+  '1': '1 minute'
+};
+
+try {
+  await page.click('[data-name="header-intervals-button"]');
+  await page.waitForTimeout(800);
+
+  const label = tfMap[interval];
+
+  if (label) {
+    await page.click(`text=${label}`);
+    await page.waitForTimeout(1500);
+    console.log(`[TF SET] ${symbol} -> ${label}`);
+  }
+} catch (err) {
+  console.log('[TF CLICK FAIL - fallback to URL]');
+}
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(5000);
 
