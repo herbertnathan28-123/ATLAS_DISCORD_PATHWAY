@@ -6,4 +6,7 @@ services:
     buildCommand: rm -rf node_modules && npm install && npx playwright install chromium
     startCommand: npm start
     autoDeploy: true
-    cache: false
+    disk:
+      name: atlas-fx-exports
+      mountPath: /opt/render/project/src/exports
+      sizeGB: 1
