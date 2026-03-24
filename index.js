@@ -68,13 +68,17 @@ const COMMODITIES = new Set([
 ]);
 
 const TIMEFRAMES_HIGH = [
-  { key: 'W', label: 'Weekly', interval: 'W' },
-  { key: 'D', label: 'Daily', interval: 'D' },
+  { key: '1W', label: 'Weekly', interval: '1W' },
+  { key: '1D', label: 'Daily', interval: '1D' },
+  { key: '4H', label: '4H', interval: '240' },
+  { key: '1H', label: '1H', interval: '60' },
 ];
 
 const TIMEFRAMES_LOW = [
   { key: '4H', label: '4H', interval: '240' },
   { key: '1H', label: '1H', interval: '60' },
+  { key: '15M', label: '15M', interval: '15' },
+  { key: '1M', label: '1M', interval: '1' },
 ];
 
 const TIMEFRAMES_ALL = [...TIMEFRAMES_HIGH, ...TIMEFRAMES_LOW];
