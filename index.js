@@ -1,11 +1,11 @@
 // ============================================================
-// ATLAS FX DISCORD BOT — CLEAN VERSION
+// ATLAS FX DISCORD BOT — STABLE BUILD
 // ============================================================
 
-process.on('unhandledRejection', (reason) => console.error('[UNHANDLED REJECTION]', reason));
-process.on('uncaughtException',  (err)    => console.error('[UNCAUGHT EXCEPTION]', err));
+process.on('unhandledRejection', (r) => console.error('[UNHANDLED]', r));
+process.on('uncaughtException',  (e) => console.error('[EXCEPTION]', e));
 
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
 // ============================================================
 // CONFIG
@@ -19,7 +19,7 @@ if (!DISCORD_BOT_TOKEN) {
 }
 
 // ============================================================
-// CLIENT SETUP
+// CLIENT
 // ============================================================
 
 const client = new Client({
@@ -31,28 +31,86 @@ const client = new Client({
 });
 
 // ============================================================
-// READY EVENT
+// READY
 // ============================================================
 
 client.once('clientReady', () => {
-  console.log('[READY] Bot connected as ' + client.user.tag);
+  console.log('[READY] ATLAS FX LIVE as ' + client.user.tag);
 });
 
 // ============================================================
-// MESSAGE HANDLER (TEST VERSION)
+// MESSAGE HANDLER
 // ============================================================
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  console.log('[MESSAGE]', message.author.username, message.content);
+  const raw = message.content.trim();
 
-  if (message.content === '!ping') {
-    await message.reply('pong');
+  console.log('[MESSAGE]', message.author.username, raw);
+
+  // ============================
+  // BASIC TEST
+  // ============================
+  if (raw === '!ping') {
+    return message.reply('pong');
   }
 
-  if (message.content.startsWith('!chart')) {
-    await message.reply('Chart command received ✅');
+  // ============================
+  // CHART COMMAND
+  // ============================
+  if (raw.startsWith('!chart')) {
+
+    const parts = raw.split(' ');
+    const symbol = (parts[1] || '').toUpperCase();
+
+    if (!symbol) {
+      return message.reply('Provide symbol → Example: `!chart EURUSD`');
+    }
+
+    console.log('[CHART]', message.author.username, '->', symbol);
+
+    return message.reply({
+      content: `📊 **${symbol}** chart request received`,
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('share_' + symbol)
+            .setLabel('Share')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId('no_share')
+            .setLabel('No thanks')
+            .setStyle(ButtonStyle.Secondary),
+        )
+      ]
+    });
+  }
+});
+
+// ============================================================
+// BUTTON HANDLER
+// ============================================================
+
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  if (interaction.customId.startsWith('share_')) {
+    const symbol = interaction.customId.split('_')[1];
+
+    await interaction.update({
+      content: `✅ ${symbol} shared`,
+      components: []
+    });
+
+    console.log('[SHARED]', symbol);
+  }
+
+  if (interaction.customId === 'no_share') {
+    await interaction.update({
+      content: 'Charts kept private.',
+      components: []
+    });
   }
 });
 
