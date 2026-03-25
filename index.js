@@ -1,4 +1,4 @@
-// ============================================================
+In reality sticks// ============================================================
 // ATLAS FX DISCORD BOT — UNIFIED FINAL BUILD
 // ============================================================
 //
@@ -11,7 +11,7 @@
 //
 // GROUPS: AT | SK | NM | BR
 // Rendering: 2560x1440 CMC-style, light theme, no volume bars
-// Safety: per-symbol lock, hard timeout, immediate error fallback
+// Safety: lock before enqueue, sequential renders, hard timeout
 // ============================================================
 
 process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED REJECTION]', reason); });
@@ -35,7 +35,7 @@ const TOKEN       = process.env.DISCORD_BOT_TOKEN;
 const EXPORT_DIR  = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
 const MAX_RETRIES = Number(process.env.MAX_RENDER_RETRIES || 2);
 const STATE_TTL   = 1000 * 60 * 60 * 2; // 2 hours
-const RENDER_TIMEOUT_MS = 30000;         // 30s hard timeout per chart
+const RENDER_TIMEOUT_MS = 60000;         // 60s hard timeout per chart
 
 if (!TOKEN) {
   console.error('[FATAL] Missing DISCORD_BOT_TOKEN');
@@ -49,12 +49,10 @@ console.log('[BOOT] ATLAS FX Bot starting...');
 // ============================================================
 
 const CHANNEL_GROUP_MAP = {
-  // Roadmap macro request channels (primary command channels)
   '1432642672287547453': 'AT',
   '1432643496375881748': 'SK',
   '1432644116868501595': 'NM',
   '1482450651765149816': 'BR',
-  // Combined channels (also accept commands)
   '1432080184458350672': 'AT',
   '1430950313484878014': 'SK',
   '1431192381029482556': 'NM',
@@ -174,7 +172,6 @@ function parseCommand(content) {
 
 // ============================================================
 // HARD TIMEOUT WRAPPER
-// Prevents Playwright from hanging indefinitely
 // ============================================================
 
 function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
@@ -188,14 +185,14 @@ function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
 
 // ============================================================
 // PER-SYMBOL LOCK
-// Prevents duplicate runs of the same symbol
+// Applied BEFORE enqueue to block duplicate commands immediately
 // ============================================================
 
 const RUNNING = {};
 
-function isLocked(symbol) { return !!RUNNING[symbol]; }
-function lock(symbol)     { RUNNING[symbol] = true; }
-function unlock(symbol)   { RUNNING[symbol] = false; }
+function isLocked(symbol)  { return !!RUNNING[symbol]; }
+function lock(symbol)      { RUNNING[symbol] = true; }
+function unlock(symbol)    { RUNNING[symbol] = false; }
 
 // ============================================================
 // STATE MACHINE
@@ -211,9 +208,9 @@ function ensureState(group, symbol) {
   return STATE[group][symbol];
 }
 
-function touch(s) { s.ts = Date.now(); }
-function isFresh(s) { return s.ts && (Date.now() - s.ts < STATE_TTL); }
-function isReadyToCombine(s) { return s.ltf && s.macro && isFresh(s); }
+function touch(s)              { s.ts = Date.now(); }
+function isFresh(s)            { return s.ts && (Date.now() - s.ts < STATE_TTL); }
+function isReadyToCombine(s)   { return s.ltf && s.macro && isFresh(s); }
 
 // ============================================================
 // ARCHIVE
@@ -290,7 +287,7 @@ async function getBrowser() {
 
 // ============================================================
 // RENDER — CMC STYLE
-// 2560x1440 | Light theme | No volume | Clean UI | Hard timeout
+// Sequential per chart, hard timeout, 2560x1440, light theme
 // ============================================================
 
 async function renderChart(symbol, interval, tfKey) {
@@ -305,21 +302,21 @@ async function renderChart(symbol, interval, tfKey) {
 
       context = await b.newContext({
         viewport:          { width: 2560, height: 1440 },
-        deviceScaleFactor: 2, // Retina sharpness
+        deviceScaleFactor: 2,
       });
 
       const page = await context.newPage();
-      page.setDefaultNavigationTimeout(15000);
-      page.setDefaultTimeout(15000);
+      page.setDefaultNavigationTimeout(30000);
+      page.setDefaultTimeout(30000);
 
-      // Force light theme via localStorage BEFORE page loads
+      // Force light theme before page loads
       await page.addInitScript(() => {
         localStorage.setItem('theme', 'light');
       });
 
-      // domcontentloaded only — never networkidle (causes hangs on TradingView)
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await page.waitForTimeout(4000);
+      // domcontentloaded only — networkidle hangs on TradingView
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(5000);
 
       // Dismiss popups / cookie banners
       const dismissSelectors = [
@@ -340,7 +337,7 @@ async function renderChart(symbol, interval, tfKey) {
       }
 
       // Wait for chart canvas
-      try { await page.waitForSelector('canvas', { timeout: 10000 }); } catch (_) {}
+      try { await page.waitForSelector('canvas', { timeout: 15000 }); } catch (_) {}
 
       // Force timeframe via UI click
       try {
@@ -356,7 +353,7 @@ async function renderChart(symbol, interval, tfKey) {
         console.warn(`[TF CLICK FAIL] ${symbol} ${tfKey} — using URL interval`);
       }
 
-      // Reset zoom (Ctrl+0) + fit chart (Alt+R)
+      // Reset zoom + fit chart
       try {
         await page.keyboard.down('Control');
         await page.keyboard.press('0');
@@ -366,7 +363,7 @@ async function renderChart(symbol, interval, tfKey) {
         await page.waitForTimeout(400);
       } catch (_) {}
 
-      // ESC to restore any hidden panels
+      // ESC to restore panels
       try {
         await page.keyboard.press('Escape');
         await page.waitForTimeout(300);
@@ -387,7 +384,6 @@ async function renderChart(symbol, interval, tfKey) {
           });
         });
 
-        // Remove volume pane
         const hideVolume = () => {
           document.querySelectorAll('[class*="pane"]').forEach((p) => {
             if (p.innerText && p.innerText.includes('Vol')) {
@@ -429,18 +425,24 @@ async function renderChart(symbol, interval, tfKey) {
 }
 
 // ============================================================
-// RENDER BATCH (parallel, with hard timeout per chart)
+// RENDER BATCH — SEQUENTIAL (not parallel)
+// Parallel renders share one browser and crash it under load
+// Sequential is slower but stable
 // ============================================================
 
 async function renderBatch(symbol, tfs) {
-  const buffers = await Promise.all(
-    tfs.map((tf) => withTimeout(renderChart(symbol, tf.interval, tf.key), RENDER_TIMEOUT_MS))
-  );
+  const files = [];
 
-  return buffers.map((buf, i) => {
-    saveToArchive(buf, symbol, tfs[i].key);
-    return { buf, name: buildFilename(symbol, tfs[i].key), label: tfs[i].label };
-  });
+  for (const tf of tfs) {
+    const buf = await withTimeout(
+      renderChart(symbol, tf.interval, tf.key),
+      RENDER_TIMEOUT_MS
+    );
+    saveToArchive(buf, symbol, tf.key);
+    files.push({ buf, name: buildFilename(symbol, tf.key), label: tf.label });
+  }
+
+  return files;
 }
 
 // ============================================================
@@ -558,7 +560,7 @@ client.on('messageCreate', async (msg) => {
 
   const { action, symbol, mode } = parsed;
 
-  if (action !== 'ping' && !VALID_SYMBOLS.has(symbol)) {
+  if (!VALID_SYMBOLS.has(symbol)) {
     await msg.reply(`Invalid symbol: **${symbol}**`);
     return;
   }
@@ -568,22 +570,23 @@ client.on('messageCreate', async (msg) => {
 
   // ── CHART ──────────────────────────────────────────────────
   if (action === 'chart') {
+
+    // Lock BEFORE enqueue — blocks duplicates immediately at message level
+    if (isLocked(symbol)) {
+      await msg.reply(`⚠️ **${symbol}** is already being generated — please wait.`);
+      return;
+    }
+
+    lock(symbol);
+
     enqueue(async () => {
-
-      // Per-symbol lock — prevent duplicate runs
-      if (isLocked(symbol)) {
-        await msg.reply(`⚠️ **${symbol}** is already being generated — please wait.`);
-        return;
-      }
-
-      lock(symbol);
       console.log(`[CHART] ${msg.author.username} ${group} -> ${symbol} ${setLabel}`);
       const progress = await msg.reply(`⏳ Generating **${symbol}** ${setLabel} charts...`);
 
       try {
         const files = await renderBatch(symbol, tfs);
 
-        // Send each chart as a separate message — Discord allows full-screen expand per image
+        // Send each chart as a separate message for full Discord expand
         for (const f of files) {
           await msg.channel.send({
             content: `📊 **${symbol}** · ${f.label}`,
@@ -604,9 +607,10 @@ client.on('messageCreate', async (msg) => {
         console.error('[CHART ERROR]', err.message);
         await progress.edit(`❌ **${symbol}** chart failed — retry`);
       } finally {
-        unlock(symbol);
+        unlock(symbol); // Always release, even on failure
       }
     });
+
     return;
   }
 
