@@ -1,683 +1,336 @@
-// ============================================================
-// ATLAS FX DISCORD BOT — UNIFIED FINAL BUILD
-// ============================================================
-//
-// COMMANDS (in group channels only):
-//   !EURUSDH          — Render HTF charts (Weekly, Daily, 4H, 1H)
-//   !EURUSDL          — Render LTF charts (4H, 1H, 15M, 1M)
-//   !EURUSDL /macro   — Generate macro analysis
-//   !EURUSDL /roadmap — Generate weekly roadmap
-//   !ping             — Health check
-//
-// GROUPS: AT | SK | NM | BR
-// Rendering: 2560x1440 CMC-style, light theme, no volume bars
-// Safety: lock before enqueue, sequential renders, hard timeout
-// ============================================================
+// ================================
+// ATLAS FX DISCORD BOT — FINAL BUILD
+// ================================
 
-process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED REJECTION]', reason); });
-process.on('uncaughtException',  (err)    => { console.error('[UNCAUGHT EXCEPTION]', err); });
+require("dotenv").config();
+const { Client, GatewayIntentBits } = require("discord.js");
+const fetch = require("node-fetch");
 
-const {
-  Client,
-  GatewayIntentBits,
-  AttachmentBuilder,
-} = require('discord.js');
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+});
 
-const sharp = require('sharp');
-const path  = require('path');
-const fs    = require('fs');
-
-// ============================================================
+// ================================
 // CONFIG
-// ============================================================
+// ================================
 
-const TOKEN       = process.env.DISCORD_BOT_TOKEN;
-const EXPORT_DIR  = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
-const MAX_RETRIES = Number(process.env.MAX_RENDER_RETRIES || 2);
-const STATE_TTL   = 1000 * 60 * 60 * 2; // 2 hours
-const RENDER_TIMEOUT_MS = 60000;         // 60s hard timeout per chart
-
-if (!TOKEN) {
-  console.error('[FATAL] Missing DISCORD_BOT_TOKEN');
-  process.exit(1);
-}
-
-console.log('[BOOT] ATLAS FX Bot starting...');
-
-// ============================================================
-// GROUP + CHANNEL CONFIG
-// ============================================================
-
+// 🔒 CHANNEL → GROUP MAP
 const CHANNEL_GROUP_MAP = {
-  '1432642672287547453': 'AT',
-  '1432643496375881748': 'SK',
-  '1432644116868501595': 'NM',
-  '1482450651765149816': 'BR',
-  '1432080184458350672': 'AT',
-  '1430950313484878014': 'SK',
-  '1431192381029482556': 'NM',
-  '1482451091630194868': 'BR',
+  "1432080184458350672": "AT",
+  "1430950313484878014": "SK",
+  "1431192381029482556": "NM",
+  "1482451091630194868": "BR"
 };
 
+// 🔒 WEBHOOKS (SET IN .env)
 const COMBINED_WEBHOOKS = {
   AT: process.env.AT_COMBINED_WEBHOOK,
   SK: process.env.SK_COMBINED_WEBHOOK,
   NM: process.env.NM_COMBINED_WEBHOOK,
-  BR: process.env.BR_COMBINED_WEBHOOK,
+  BR: process.env.BR_COMBINED_WEBHOOK
 };
 
-// ============================================================
-// VALID SYMBOLS
-// ============================================================
+// 🔒 STATE
+const STATE = {};
+const MAX_AGE = 1000 * 60 * 60 * 2; // 2 hours
 
-const VALID_SYMBOLS = new Set([
-  'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF',
-  'XAUUSD', 'XAGUSD',
-  'NAS100', 'US500', 'GER40', 'SPX', 'NDX', 'DJI', 'DAX', 'US30', 'UK100',
-  'CL', 'BRENT', 'UKOIL', 'NATGAS', 'NG',
-  'MICRON', 'MU', 'AMD', 'ASML',
-]);
-
-// ============================================================
-// SYMBOL ROUTING
-// ============================================================
-
-const SYMBOL_OVERRIDES = {
-  'MICRON': 'NASDAQ:MU',
-  'MU':     'NASDAQ:MU',
-  'AMD':    'NASDAQ:AMD',
-  'ASML':   'NASDAQ:ASML',
-  'NAS100': 'OANDA:NAS100USD',
-  'US500':  'OANDA:SPX500USD',
-  'GER40':  'OANDA:DE30EUR',
-  'SPX':    'INDEX:SPX',
-  'NDX':    'INDEX:NDX',
-  'DJI':    'INDEX:DJI',
-  'DAX':    'INDEX:DAX',
-  'US30':   'INDEX:US30',
-  'UK100':  'INDEX:UK100',
-  'CL':     'NYMEX:CL1!',
-  'BRENT':  'NYMEX:BB1!',
-  'NATGAS': 'NYMEX:NG1!',
-  'NG':     'NYMEX:NG1!',
-};
-
-function getTVSymbol(symbol) {
-  if (SYMBOL_OVERRIDES[symbol]) return SYMBOL_OVERRIDES[symbol];
-  if (/^[A-Z]{6}$/.test(symbol)) return `OANDA:${symbol}`;
-  return `NASDAQ:${symbol}`;
-}
-
-function buildChartUrl(symbol, interval) {
-  const tvSymbol = encodeURIComponent(getTVSymbol(symbol));
-  return `https://www.tradingview.com/chart/?symbol=${tvSymbol}&interval=${interval}&theme=light`;
-}
-
-// ============================================================
-// TIMEFRAMES
-// ============================================================
-
-const TF_HIGH = [
-  { key: '1W',  label: 'Weekly', interval: '1W'  },
-  { key: '1D',  label: 'Daily',  interval: '1D'  },
-  { key: '4H',  label: '4H',     interval: '240' },
-  { key: '1H',  label: '1H',     interval: '60'  },
+// 🔒 VALID SYMBOLS
+const VALID_SYMBOLS = [
+  "EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","USDCHF",
+  "NAS100","US500","GER40",
+  "MICRON","AMD","ASML"
 ];
 
-const TF_LOW = [
-  { key: '4H',  label: '4H',  interval: '240' },
-  { key: '1H',  label: '1H',  interval: '60'  },
-  { key: '15M', label: '15M', interval: '15'  },
-  { key: '1M',  label: '1M',  interval: '1'   },
-];
+// ================================
+// HELPERS
+// ================================
 
-const TF_INTERVAL_MAP = {
-  '1W':  '1 week',
-  '1D':  '1 day',
-  '240': '4 hours',
-  '60':  '1 hour',
-  '15':  '15 minutes',
-  '1':   '1 minute',
-};
+function getGroup(channelId) {
+  return CHANNEL_GROUP_MAP[channelId] || null;
+}
 
-// ============================================================
-// COMMAND PARSER
-// ============================================================
+function ensureState(group, symbol) {
+  if (!STATE[group]) STATE[group] = {};
+  if (!STATE[group][symbol]) {
+    STATE[group][symbol] = {
+      ltf: null,
+      htf: null,
+      macro: null,
+      roadmap: null,
+      ts: null
+    };
+  }
+  return STATE[group][symbol];
+}
+
+function touch(s) {
+  s.ts = Date.now();
+}
+
+function isFresh(s) {
+  return s.ts && (Date.now() - s.ts < MAX_AGE);
+}
+
+function isReady(s) {
+  return s.ltf && s.macro && isFresh(s);
+}
+
+// ================================
+// PARSER
+// ================================
 
 function parseCommand(content) {
-  const trimmed = (content || '').trim();
+  const trimmed = content.trim();
 
-  if (trimmed === '!ping') return { action: 'ping' };
-
-  const chartOnly = trimmed.match(/^!([A-Z0-9]{2,10})([LH])$/i);
+  // !EURUSDL
+  const chartOnly = trimmed.match(/^!([A-Z]{6,10})([LH])$/i);
   if (chartOnly) {
     return {
-      action: 'chart',
       symbol: chartOnly[1].toUpperCase(),
-      mode:   chartOnly[2].toUpperCase(),
+      mode: chartOnly[2].toUpperCase(),
+      action: "chart"
     };
   }
 
-  const withAction = trimmed.match(/^!([A-Z0-9]{2,10})([LH])\s*\/(macro|roadmap)$/i);
-  if (withAction) {
+  // !EURUSDL /macro
+  const full = trimmed.match(/^!([A-Z]{6,10})([LH])\s*\/(macro|roadmap)$/i);
+  if (full) {
     return {
-      action: withAction[3].toLowerCase(),
-      symbol: withAction[1].toUpperCase(),
-      mode:   withAction[2].toUpperCase(),
+      symbol: full[1].toUpperCase(),
+      mode: full[2].toUpperCase(),
+      action: full[3].toLowerCase()
     };
   }
 
   return null;
 }
 
-// ============================================================
-// HARD TIMEOUT WRAPPER
-// ============================================================
-
-function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Render timeout after ${ms}ms`)), ms)
-    ),
-  ]);
+function isValidSymbol(symbol) {
+  return VALID_SYMBOLS.includes(symbol);
 }
 
-// ============================================================
-// PER-SYMBOL LOCK
-// Applied BEFORE enqueue to block duplicate commands immediately
-// ============================================================
-
-const RUNNING = {};
-
-function isLocked(symbol)  { return !!RUNNING[symbol]; }
-function lock(symbol)      { RUNNING[symbol] = true; }
-function unlock(symbol)    { RUNNING[symbol] = false; }
-
-// ============================================================
-// STATE MACHINE
-// ============================================================
-
-const STATE = {};
-
-function ensureState(group, symbol) {
-  if (!STATE[group])         STATE[group] = {};
-  if (!STATE[group][symbol]) {
-    STATE[group][symbol] = { ltf: null, htf: null, macro: null, roadmap: null, ts: null };
-  }
-  return STATE[group][symbol];
-}
-
-function touch(s)              { s.ts = Date.now(); }
-function isFresh(s)            { return s.ts && (Date.now() - s.ts < STATE_TTL); }
-function isReadyToCombine(s)   { return s.ltf && s.macro && isFresh(s); }
-
-// ============================================================
-// ARCHIVE
-// ============================================================
-
-function buildArchiveDir(symbol) {
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  return path.join(EXPORT_DIR, symbol, dateStr);
-}
-
-function buildFilename(symbol, tfKey) {
-  const date = new Date().toISOString().slice(0, 10);
-  return `${date}_${symbol}_${tfKey}.jpg`;
-}
-
-function saveToArchive(buffer, symbol, tfKey) {
-  try {
-    const dir = buildArchiveDir(symbol);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, buildFilename(symbol, tfKey)), buffer);
-    console.log('[ARCHIVE]', symbol, tfKey);
-  } catch (err) {
-    console.error('[ARCHIVE ERROR]', err.message);
-  }
-}
-
-// ============================================================
-// QUEUE
-// ============================================================
+// ================================
+// QUEUE SYSTEM
+// ================================
 
 const queue = [];
-let queueRunning = false;
+let running = false;
 
-function enqueue(job) {
+async function enqueue(job) {
   queue.push(job);
   processQueue();
 }
 
 async function processQueue() {
-  if (queueRunning) return;
-  queueRunning = true;
+  if (running) return;
+  running = true;
+
   while (queue.length > 0) {
     const job = queue.shift();
-    try { await job(); } catch (err) { console.error('[QUEUE ERROR]', err.message); }
-  }
-  queueRunning = false;
-}
-
-// ============================================================
-// BROWSER (persistent, auto-reset on crash)
-// ============================================================
-
-let browser = null;
-
-async function getBrowser() {
-  if (!browser) {
-    const { chromium } = require('playwright');
-    browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
-    browser.on('disconnected', () => {
-      console.warn('[BROWSER] Disconnected — will relaunch on next render');
-      browser = null;
-    });
-  }
-  return browser;
-}
-
-// ============================================================
-// RENDER — CMC STYLE
-// Sequential per chart, hard timeout, 2560x1440, light theme
-// ============================================================
-
-async function renderChart(symbol, interval, tfKey) {
-  const url = buildChartUrl(symbol, interval);
-
-  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    let context;
-    try {
-      console.log(`[RENDER] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES}`);
-
-      const b = await getBrowser();
-
-      context = await b.newContext({
-        viewport:          { width: 2560, height: 1440 },
-        deviceScaleFactor: 2,
-      });
-
-      const page = await context.newPage();
-      page.setDefaultNavigationTimeout(30000);
-      page.setDefaultTimeout(30000);
-
-      // Force light theme before page loads
-      await page.addInitScript(() => {
-        localStorage.setItem('theme', 'light');
-      });
-
-      // domcontentloaded only — networkidle hangs on TradingView
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await page.waitForTimeout(5000);
-
-      // Dismiss popups / cookie banners
-      const dismissSelectors = [
-        'button[aria-label="Close"]',
-        'button[title="Close"]',
-        'button:has-text("Accept")',
-        'button:has-text("I Accept")',
-        'button:has-text("Got it")',
-      ];
-      for (const sel of dismissSelectors) {
-        try {
-          const btn = page.locator(sel).first();
-          if (await btn.isVisible({ timeout: 800 })) {
-            await btn.click({ timeout: 800 });
-            await page.waitForTimeout(400);
-          }
-        } catch (_) {}
-      }
-
-      // Wait for chart canvas
-      try { await page.waitForSelector('canvas', { timeout: 15000 }); } catch (_) {}
-
-      // Force timeframe via UI click
-      try {
-        await page.click('[data-name="header-intervals-button"]');
-        await page.waitForTimeout(600);
-        const label = TF_INTERVAL_MAP[interval];
-        if (label) {
-          await page.click(`text=${label}`);
-          await page.waitForTimeout(1500);
-          console.log(`[TF SET] ${symbol} -> ${label}`);
-        }
-      } catch (_) {
-        console.warn(`[TF CLICK FAIL] ${symbol} ${tfKey} — using URL interval`);
-      }
-
-      // Reset zoom + fit chart
-      try {
-        await page.keyboard.down('Control');
-        await page.keyboard.press('0');
-        await page.keyboard.up('Control');
-        await page.waitForTimeout(400);
-        await page.keyboard.press('Alt+R');
-        await page.waitForTimeout(400);
-      } catch (_) {}
-
-      // ESC to restore panels
-      try {
-        await page.keyboard.press('Escape');
-        await page.waitForTimeout(300);
-      } catch (_) {}
-
-      // Remove UI chrome + volume bars
-      await page.evaluate(() => {
-        [
-          '.chart-controls-bar',
-          '.layout__area--left',
-          '.layout__area--right',
-          '.header-chart-panel',
-          '[data-name="legend"]',
-          '.tv-floating-toolbar',
-        ].forEach((sel) => {
-          document.querySelectorAll(sel).forEach((el) => {
-            el.style.display = 'none';
-          });
-        });
-
-        const hideVolume = () => {
-          document.querySelectorAll('[class*="pane"]').forEach((p) => {
-            if (p.innerText && p.innerText.includes('Vol')) {
-              p.style.display = 'none';
-            }
-          });
-        };
-        hideVolume();
-        setTimeout(hideVolume, 1500);
-      });
-
-      // Wait for clean render
-      await page.waitForTimeout(3000);
-
-      // Fullscreen
-      try {
-        await page.keyboard.press('Shift+F');
-        await page.waitForTimeout(1000);
-      } catch (_) {}
-
-      const raw = await page.screenshot({ type: 'png', fullPage: false });
-      await context.close();
-
-      const optimised = await sharp(raw)
-        .resize(2560, 1440, { fit: 'cover' })
-        .jpeg({ quality: 90, mozjpeg: true })
-        .toBuffer();
-
-      console.log(`[RENDER OK] ${symbol} ${tfKey} ${(optimised.length / 1024 / 1024).toFixed(2)}MB`);
-      return optimised;
-
-    } catch (err) {
-      console.error(`[RENDER FAIL] ${symbol} ${tfKey} attempt ${attempt}: ${err.message}`);
-      if (context) { try { await context.close(); } catch (_) {} }
-      if (attempt === MAX_RETRIES) throw err;
-      await new Promise((r) => setTimeout(r, 2500));
-    }
-  }
-}
-
-// ============================================================
-// RENDER BATCH — SEQUENTIAL (not parallel)
-// Parallel renders share one browser and crash it under load
-// Sequential is slower but stable
-// ============================================================
-
-async function renderBatch(symbol, tfs) {
-  const files = [];
-
-  for (const tf of tfs) {
-    const buf = await withTimeout(
-      renderChart(symbol, tf.interval, tf.key),
-      RENDER_TIMEOUT_MS
-    );
-    saveToArchive(buf, symbol, tf.key);
-    files.push({ buf, name: buildFilename(symbol, tf.key), label: tf.label });
+    await job();
   }
 
-  return files;
+  running = false;
 }
 
-// ============================================================
-// MACRO + ROADMAP (placeholders — replace with live source)
-// ============================================================
+// ================================
+// CHART ENGINE (PLACEHOLDER)
+// ================================
 
-function generateMacro(symbol) {
+async function generateCharts(symbol, mode) {
+  // Replace with your Playwright logic
+  return [
+    `Chart ${symbol} ${mode} TF1`,
+    `Chart ${symbol} ${mode} TF2`,
+    `Chart ${symbol} ${mode} TF3`,
+    `Chart ${symbol} ${mode} TF4`
+  ];
+}
+
+// ================================
+// MACRO ENGINE
+// ================================
+
+function generateMacro(symbol, level = 3) {
+  const base = {
+    bias: "Bearish",
+    draw: "1.1550 liquidity",
+    state: "Post-sweep → pullback",
+    levels: ["1.1625","1.1580","1.1550"]
+  };
+
+  if (level === 1) {
+    return `**${symbol} Macro**
+
+Bias: ${base.bias}
+
+Liquidity means areas where stop losses sit.
+Price is likely moving toward ${base.draw}.
+
+State:
+${base.state}
+
+Levels:
+${base.levels.join(" / ")}
+`;
+  }
+
+  if (level === 5) {
+    return `**${symbol}**
+
+Bias: ${base.bias}
+Draw: ${base.draw}
+State: ${base.state}`;
+  }
+
   return `**${symbol} Macro**
 
-Bias: Bearish
-Draw: 1.1550 liquidity
-State: Post-sweep → pullback
+Bias: ${base.bias}
+Draw: ${base.draw}
+State: ${base.state}
 
-Levels: 1.1625 / 1.1580 / 1.1550`;
+Levels:
+${base.levels.join(" / ")}`;
 }
+
+// ================================
+// ROADMAP ENGINE
+// ================================
 
 function generateRoadmap(symbol) {
   return `**${symbol} Weekly Roadmap**
 
 Range: 1.1700 – 1.1450
 Primary Draw: Downside liquidity
-HTF Supply: Holding`;
+HTF Supply: Holding
+`;
 }
 
-// ============================================================
-// COMBINE + SEND TO GROUP WEBHOOK
-// ============================================================
+// ================================
+// COMBINE
+// ================================
 
-function buildCombinedText(symbol, s) {
-  let out = `📊 **${symbol} — ATLAS VIEW**\n\n`;
-  out += `__Macro__\n${s.macro}\n\n`;
-  if (s.roadmap) out += `__Weekly Context__\n${s.roadmap}\n\n`;
-  out += `_Updated: ${new Date(s.ts).toUTCString()}_`;
+function buildCombined(symbol, s) {
+  let out = `**${symbol} — ATLAS VIEW**\n\n`;
+
+  out += `__LTF Charts__\n${s.ltf.join("\n")}\n\n`;
+
+  out += `__Macro (Today)__\n${s.macro}\n\n`;
+
+  if (s.roadmap) {
+    out += `__Weekly Context__\n${s.roadmap}\n\n`;
+  }
+
+  out += `_Updated: ${new Date(s.ts).toLocaleTimeString()}_`;
+
   return out;
 }
 
-async function sendToWebhook(webhookUrl, content, files) {
-  if (!webhookUrl) return;
-
-  const FormData = require('form-data');
-  const axios    = require('axios');
-
-  if (files && files.length > 0) {
-    const form = new FormData();
-    form.append('payload_json', JSON.stringify({ content }));
-    files.forEach((f, i) => {
-      form.append(`files[${i}]`, f.buf, { filename: f.name, contentType: 'image/jpeg' });
-    });
-    await axios.post(webhookUrl, form, {
-      headers:       form.getHeaders(),
-      maxBodyLength: Infinity,
-      timeout:       60000,
-    });
-  } else {
-    const axios = require('axios');
-    await axios.post(webhookUrl, { content }, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 10000,
-    });
-  }
-}
-
-async function tryCombine(group, symbol, s) {
-  if (!isReadyToCombine(s)) return;
-
+async function sendCombined(group, content) {
   const webhook = COMBINED_WEBHOOKS[group];
-  if (!webhook) {
-    console.warn(`[COMBINE] No webhook for group ${group}`);
-    return;
-  }
+  if (!webhook) return;
 
-  await sendToWebhook(webhook, buildCombinedText(symbol, s), null);
-  if (s.ltf && s.ltf.length > 0) await sendToWebhook(webhook, `📉 **${symbol}** LTF Charts`, s.ltf);
-  if (s.htf && s.htf.length > 0) await sendToWebhook(webhook, `📈 **${symbol}** HTF Charts`, s.htf);
-
-  console.log(`[COMBINED] ${group} ${symbol} posted`);
+  await fetch(webhook, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content })
+  });
 }
 
-// ============================================================
-// DISCORD CLIENT
-// ============================================================
+async function tryCombine(group, symbol) {
+  const s = ensureState(group, symbol);
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-});
+  if (!isReady(s)) return;
 
-client.once('clientReady', () => {
-  console.log('[READY] ATLAS FX Bot online as ' + client.user.tag);
-});
+  const combined = buildCombined(symbol, s);
+  await sendCombined(group, combined);
+}
 
-// ============================================================
-// MESSAGE HANDLER
-// ============================================================
+// ================================
+// MAIN BOT LOGIC
+// ================================
 
-client.on('messageCreate', async (msg) => {
-  if (msg.author.bot) return;
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
 
-  const raw = (msg.content || '').trim();
-  if (!raw) return;
-
-  if (raw === '!ping') {
-    await msg.reply('pong');
-    return;
-  }
-
-  const group = CHANNEL_GROUP_MAP[msg.channel.id];
+  const group = getGroup(message.channel.id);
   if (!group) return;
 
-  const parsed = parseCommand(raw);
+  const parsed = parseCommand(message.content);
   if (!parsed) return;
 
-  const { action, symbol, mode } = parsed;
+  const { symbol, mode, action } = parsed;
 
-  if (!VALID_SYMBOLS.has(symbol)) {
-    await msg.reply(`Invalid symbol: **${symbol}**`);
-    return;
+  if (!isValidSymbol(symbol)) {
+    return message.reply(`Invalid symbol: ${symbol}`);
   }
 
-  const tfs      = mode === 'L' ? TF_LOW : TF_HIGH;
-  const setLabel = mode === 'L' ? 'LTF' : 'HTF';
-
-  // ── CHART ──────────────────────────────────────────────────
-  if (action === 'chart') {
-
-    // Lock BEFORE enqueue — blocks duplicates immediately at message level
-    if (isLocked(symbol)) {
-      await msg.reply(`⚠️ **${symbol}** is already being generated — please wait.`);
-      return;
-    }
-
-    lock(symbol);
-
+  // ========================
+  // CHART
+  // ========================
+  if (action === "chart") {
     enqueue(async () => {
-      console.log(`[CHART] ${msg.author.username} ${group} -> ${symbol} ${setLabel}`);
-      const progress = await msg.reply(`⏳ Generating **${symbol}** ${setLabel} charts...`);
+      const charts = await generateCharts(symbol, mode);
 
-      try {
-        const files = await renderBatch(symbol, tfs);
+      const s = ensureState(group, symbol);
 
-        // Send each chart as a separate message for full Discord expand
-        for (const f of files) {
-          await msg.channel.send({
-            content: `📊 **${symbol}** · ${f.label}`,
-            files:   [new AttachmentBuilder(f.buf, { name: f.name })],
-          });
-        }
+      if (mode === "L") s.ltf = charts;
+      if (mode === "H") s.htf = charts;
 
-        await progress.edit(`✅ **${symbol}** ${setLabel} charts delivered`);
-
-        const s = ensureState(group, symbol);
-        if (mode === 'L') s.ltf = files;
-        if (mode === 'H') s.htf = files;
-        touch(s);
-
-        await tryCombine(group, symbol, s);
-
-      } catch (err) {
-        console.error('[CHART ERROR]', err.message);
-        await progress.edit(`❌ **${symbol}** chart failed — retry`);
-      } finally {
-        unlock(symbol); // Always release, even on failure
-      }
+      touch(s);
+      await tryCombine(group, symbol);
     });
 
     return;
   }
 
-  // ── MACRO ──────────────────────────────────────────────────
-  if (action === 'macro') {
+  // ========================
+  // MACRO
+  // ========================
+  if (action === "macro") {
     enqueue(async () => {
-      console.log(`[MACRO] ${msg.author.username} ${group} -> ${symbol}`);
       const s = ensureState(group, symbol);
 
       if (!s.htf) {
-        await msg.reply(`**${symbol}** — HTF charts missing. Run \`!${symbol}H\` first.`);
-        return;
+        return message.reply(
+          `${symbol} — HTF Missing\nRun: !${symbol}H`
+        );
       }
 
-      try {
-        const macro = generateMacro(symbol);
-        s.macro = macro;
-        touch(s);
-        await msg.reply(macro);
-        await tryCombine(group, symbol, s);
-      } catch (err) {
-        console.error('[MACRO ERROR]', err.message);
-        await msg.reply(`❌ **${symbol}** macro failed — retry`);
-      }
+      const macro = generateMacro(symbol, 3);
+      s.macro = macro;
+
+      touch(s);
+      await tryCombine(group, symbol);
     });
+
     return;
   }
 
-  // ── ROADMAP ────────────────────────────────────────────────
-  if (action === 'roadmap') {
+  // ========================
+  // ROADMAP
+  // ========================
+  if (action === "roadmap") {
     enqueue(async () => {
-      console.log(`[ROADMAP] ${msg.author.username} ${group} -> ${symbol}`);
+      const roadmap = generateRoadmap(symbol);
 
-      try {
-        const roadmap = generateRoadmap(symbol);
-        const s = ensureState(group, symbol);
-        s.roadmap = roadmap;
-        touch(s);
-        await msg.reply(roadmap);
-        await tryCombine(group, symbol, s);
-      } catch (err) {
-        console.error('[ROADMAP ERROR]', err.message);
-        await msg.reply(`❌ **${symbol}** roadmap failed — retry`);
-      }
+      const s = ensureState(group, symbol);
+      s.roadmap = roadmap;
+
+      touch(s);
+      await tryCombine(group, symbol);
     });
+
     return;
   }
 });
 
-// ============================================================
-// SHARD EVENTS
-// ============================================================
-
-client.on('shardDisconnect',   (e, id) => console.warn(`[SHARD] ${id} disconnected. Code: ${e.code}`));
-client.on('shardReconnecting', (id)    => console.log(`[SHARD] ${id} reconnecting...`));
-client.on('shardResume',       (id, n) => console.log(`[SHARD] ${id} resumed. Replayed ${n} events.`));
-
-// ============================================================
-// KEEP ALIVE
-// ============================================================
-
-setInterval(() => {
-  console.log('[KEEP-ALIVE]', new Date().toISOString());
-}, 5 * 60 * 1000);
-
-// ============================================================
+// ================================
 // START
-// ============================================================
+// ================================
 
-client.login(TOKEN);
+client.once("ready", () => {
+  console.log(`ATLAS FX Bot Ready`);
+});
+
+client.login(process.env.DISCORD_BOT_TOKEN);
