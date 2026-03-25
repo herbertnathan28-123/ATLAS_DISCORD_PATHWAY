@@ -534,8 +534,11 @@ client.once('clientReady', () => {
 
 client.on('messageCreate', async (msg) => {
   if (msg.author.bot) return;
+
+  // Atomic dedupe — check AND add synchronously before any await
   if (PROCESSED_MESSAGES.has(msg.id)) return;
-  rememberMessage(msg.id);
+  PROCESSED_MESSAGES.add(msg.id);
+  setTimeout(() => PROCESSED_MESSAGES.delete(msg.id), MESSAGE_DEDUPE_TTL_MS);
 
   const raw = (msg.content || '').trim();
   if (!raw) return;
