@@ -532,7 +532,38 @@ const client = new Client({
 client.once('clientReady', () => {
   console.log('[READY] ATLAS FX Bot online as ' + client.user.tag);
 });
+client.on('messageCreate', async (message) => {
+  // ignore bots
+  if (message.author.bot) return;
 
+  console.log('MESSAGE RECEIVED:', message.content);
+
+  if (!message.content.startsWith('!')) return;
+
+  const cmd = message.content.replace('!', '').trim().toUpperCase();
+
+  console.log('COMMAND:', cmd);
+
+  const symbolMap = {
+    EURUSD: "OANDA:EURUSD",
+    GBPUSD: "OANDA:GBPUSD",
+    USDJPY: "OANDA:USDJPY",
+    AUDJPY: "OANDA:AUDJPY",
+    BCOUSD: "TVC:BCOUSD",
+  };
+
+  const symbol = symbolMap[cmd];
+
+  if (!symbol) {
+    return message.reply(`❌ Invalid symbol: ${cmd}`);
+  }
+
+  message.reply(`✅ Running ${symbol}`);
+
+  // 🔥 CALL YOUR EXISTING RENDER FUNCTION HERE
+  // example:
+  // await generateAndSendChart(symbol, message.channel);
+});
 // ============================================================
 // MESSAGE HANDLER
 // ============================================================
