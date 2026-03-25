@@ -1,12 +1,18 @@
 // ============================================================
-// ATLAS FX DISCORD BOT — FINAL
-// Pipeline: SOURCE -> FRAME -> RENDER -> FILE -> POST
+// ATLAS FX DISCORD BOT — UNIFIED FINAL BUILD
+// ============================================================
 //
-// COMMANDS:
-//   !ping
-//   !chart EURUSDH  -- High timeframes: Weekly, Daily, 4H, 1H
-//   !chart EURUSDL  -- Low timeframes:  4H, 1H, 15M, 1M
-//   !chart EURUSD   -- High timeframes (default)
+// COMMANDS (in group channels only):
+//   !EURUSDH          — Render HTF charts (Weekly, Daily, 4H, 1H)
+//   !EURUSDL          — Render LTF charts (4H, 1H, 15M, 1M)
+//   !EURUSDL /macro   — Generate macro analysis
+//   !EURUSDL /roadmap — Generate weekly roadmap
+//   !ping             — Health check
+//
+// GROUPS: AT | SK | NM | BR
+// Each group has its own combined output channel
+// State machine tracks LTF + HTF + macro + roadmap per group/symbol
+// Combined post fires automatically when LTF + macro are both ready
 // ============================================================
 
 process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED REJECTION]', reason); });
@@ -15,9 +21,6 @@ process.on('uncaughtException',  (err)    => { console.error('[UNCAUGHT EXCEPTIO
 const {
   Client,
   GatewayIntentBits,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   AttachmentBuilder,
 } = require('discord.js');
 
@@ -29,10 +32,10 @@ const fs    = require('fs');
 // CONFIG
 // ============================================================
 
-const TOKEN                 = process.env.DISCORD_BOT_TOKEN;
-const SHARED_MACROS_CHANNEL = process.env.SHARED_MACROS_CHANNEL_ID || '';
-const EXPORT_DIR            = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
-const MAX_RETRIES           = Number(process.env.MAX_RENDER_RETRIES || 2);
+const TOKEN   = process.env.DISCORD_BOT_TOKEN;
+const EXPORT_DIR = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
+const MAX_RETRIES = Number(process.env.MAX_RENDER_RETRIES || 2);
+const STATE_TTL   = 1000 * 60 * 60 * 2; // 2 hours
 
 if (!TOKEN) {
   console.error('[FATAL] Missing DISCORD_BOT_TOKEN');
@@ -42,12 +45,63 @@ if (!TOKEN) {
 console.log('[BOOT] ATLAS FX Bot starting...');
 
 // ============================================================
+// GROUP + CHANNEL CONFIG
+// ============================================================
+
+// Maps Discord channel ID -> group name
+// These are the channels the bot listens for commands in
+const CHANNEL_GROUP_MAP = {
+  '1432080184458350672': 'AT',
+  '1430950313484878014': 'SK',
+  '1431192381029482556': 'NM',
+  '1482451091630194868': 'BR',
+};
+
+// Combined output webhooks per group (set in Render environment variables)
+const COMBINED_WEBHOOKS = {
+  AT: process.env.AT_COMBINED_WEBHOOK,
+  SK: process.env.SK_COMBINED_WEBHOOK,
+  NM: process.env.NM_COMBINED_WEBHOOK,
+  BR: process.env.BR_COMBINED_WEBHOOK,
+};
+
+// Shared macros channel ID (set in Render environment variables)
+const SHARED_MACROS_CHANNEL = process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
+
+// ============================================================
+// VALID SYMBOLS
+// ============================================================
+
+const VALID_SYMBOLS = new Set([
+  'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF',
+  'XAUUSD', 'XAGUSD',
+  'NAS100', 'US500', 'GER40', 'SPX', 'NDX', 'DJI', 'DAX', 'US30', 'UK100',
+  'CL', 'BRENT', 'UKOIL', 'NATGAS', 'NG',
+  'MICRON', 'MU', 'AMD', 'ASML',
+]);
+
+// ============================================================
 // SYMBOL ROUTING
 // ============================================================
 
 const SYMBOL_OVERRIDES = {
   'MICRON': 'NASDAQ:MU',
   'MU':     'NASDAQ:MU',
+  'AMD':    'NASDAQ:AMD',
+  'ASML':   'NASDAQ:ASML',
+  'NAS100': 'OANDA:NAS100USD',
+  'US500':  'OANDA:SPX500USD',
+  'GER40':  'OANDA:DE30EUR',
+  'SPX':    'INDEX:SPX',
+  'NDX':    'INDEX:NDX',
+  'DJI':    'INDEX:DJI',
+  'DAX':    'INDEX:DAX',
+  'US30':   'INDEX:US30',
+  'UK100':  'INDEX:UK100',
+  'CL':     'NYMEX:CL1!',
+  'BRENT':  'NYMEX:BB1!',
+  'NATGAS': 'NYMEX:NG1!',
+  'NG':     'NYMEX:NG1!',
 };
 
 function getTVSymbol(symbol) {
@@ -73,10 +127,10 @@ const TF_HIGH = [
 ];
 
 const TF_LOW = [
-  { key: '4H',  label: '4H',     interval: '240' },
-  { key: '1H',  label: '1H',     interval: '60'  },
-  { key: '15M', label: '15M',    interval: '15'  },
-  { key: '1M',  label: '1M',     interval: '1'   },
+  { key: '4H',  label: '4H',  interval: '240' },
+  { key: '1H',  label: '1H',  interval: '60'  },
+  { key: '15M', label: '15M', interval: '15'  },
+  { key: '1M',  label: '1M',  interval: '1'   },
 ];
 
 const TF_INTERVAL_MAP = {
@@ -89,21 +143,66 @@ const TF_INTERVAL_MAP = {
 };
 
 // ============================================================
-// PARSER
+// COMMAND PARSER
 // ============================================================
 
-function parse(input) {
-  const upper = (input || '').toUpperCase().trim();
+function parseCommand(content) {
+  const trimmed = (content || '').trim();
 
-  if (upper.endsWith('L')) {
-    return { symbol: upper.slice(0, -1), tfs: TF_LOW, setLabel: 'LTF' };
+  if (trimmed === '!ping') return { action: 'ping' };
+
+  // !EURUSDL or !EURUSDH
+  const chartOnly = trimmed.match(/^!([A-Z0-9]{2,10})([LH])$/i);
+  if (chartOnly) {
+    return {
+      action: 'chart',
+      symbol: chartOnly[1].toUpperCase(),
+      mode:   chartOnly[2].toUpperCase(),
+    };
   }
 
-  if (upper.endsWith('H')) {
-    return { symbol: upper.slice(0, -1), tfs: TF_HIGH, setLabel: 'HTF' };
+  // !EURUSDL /macro or !EURUSDH /roadmap
+  const withAction = trimmed.match(/^!([A-Z0-9]{2,10})([LH])\s*\/(macro|roadmap)$/i);
+  if (withAction) {
+    return {
+      action: withAction[3].toLowerCase(),
+      symbol: withAction[1].toUpperCase(),
+      mode:   withAction[2].toUpperCase(),
+    };
   }
 
-  return { symbol: upper, tfs: TF_HIGH, setLabel: 'HTF' };
+  return null;
+}
+
+// ============================================================
+// STATE MACHINE
+// ============================================================
+
+// STATE[group][symbol] = { ltf, htf, macro, roadmap, ts }
+const STATE = {};
+
+function ensureState(group, symbol) {
+  if (!STATE[group])         STATE[group] = {};
+  if (!STATE[group][symbol]) {
+    STATE[group][symbol] = {
+      ltf:     null,
+      htf:     null,
+      macro:   null,
+      roadmap: null,
+      ts:      null,
+    };
+  }
+  return STATE[group][symbol];
+}
+
+function touch(s) { s.ts = Date.now(); }
+
+function isFresh(s) {
+  return s.ts && (Date.now() - s.ts < STATE_TTL);
+}
+
+function isReadyToCombine(s) {
+  return s.ltf && s.macro && isFresh(s);
 }
 
 // ============================================================
@@ -132,17 +231,26 @@ function saveToArchive(buffer, symbol, tfKey) {
 }
 
 // ============================================================
-// IN-MEMORY CACHE (share button, 15 min TTL)
+// QUEUE SYSTEM
 // ============================================================
 
-const requestCache = new Map();
+const queue = [];
+let queueRunning = false;
 
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, val] of requestCache.entries()) {
-    if (val.expiresAt < now) requestCache.delete(key);
+function enqueue(job) {
+  queue.push(job);
+  processQueue();
+}
+
+async function processQueue() {
+  if (queueRunning) return;
+  queueRunning = true;
+  while (queue.length > 0) {
+    const job = queue.shift();
+    try { await job(); } catch (err) { console.error('[QUEUE ERROR]', err.message); }
   }
-}, 60 * 1000);
+  queueRunning = false;
+}
 
 // ============================================================
 // BROWSER (persistent, auto-reset on crash)
@@ -183,7 +291,6 @@ async function renderChart(symbol, interval, tfKey) {
       console.log(`[RENDER] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES}`);
 
       const b = await getBrowser();
-
       context = await b.newContext({
         viewport:          { width: 1920, height: 1080 },
         deviceScaleFactor: 1,
@@ -215,9 +322,7 @@ async function renderChart(symbol, interval, tfKey) {
       }
 
       // Wait for chart canvas
-      try {
-        await page.waitForSelector('canvas', { timeout: 15000 });
-      } catch (_) {}
+      try { await page.waitForSelector('canvas', { timeout: 15000 }); } catch (_) {}
 
       // Force timeframe via UI click
       try {
@@ -233,24 +338,37 @@ async function renderChart(symbol, interval, tfKey) {
         console.warn(`[TF CLICK FAIL] ${symbol} ${tfKey} — using URL interval`);
       }
 
+      // Reset zoom
+      try {
+        await page.keyboard.down('Control');
+        await page.keyboard.press('0');
+        await page.keyboard.up('Control');
+        await page.waitForTimeout(500);
+      } catch (_) {}
+
+      // ESC to restore any hidden panels
+      try {
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(300);
+      } catch (_) {}
+
       // Hide UI chrome — bottom bar, toolbars, side panels
       await page.evaluate(() => {
-        const selectors = [
-          '.chart-controls-bar',         // bottom timeframe bar
-          '.layout__area--left',          // left toolbar
-          '.layout__area--right',         // right toolbar
-          '.header-chart-panel',          // top header
-          '[data-name="legend"]',         // legend
-          '.tv-floating-toolbar',         // floating toolbar
-        ];
-        selectors.forEach((sel) => {
+        [
+          '.chart-controls-bar',
+          '.layout__area--left',
+          '.layout__area--right',
+          '.header-chart-panel',
+          '[data-name="legend"]',
+          '.tv-floating-toolbar',
+        ].forEach((sel) => {
           document.querySelectorAll(sel).forEach((el) => {
             el.style.display = 'none';
           });
         });
       });
 
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(1500);
 
       // Fullscreen
       try {
@@ -279,6 +397,122 @@ async function renderChart(symbol, interval, tfKey) {
 }
 
 // ============================================================
+// RENDER BATCH
+// ============================================================
+
+async function renderBatch(symbol, tfs) {
+  // Parallel render all timeframes simultaneously
+  const buffers = await Promise.all(
+    tfs.map((tf) => renderChart(symbol, tf.interval, tf.key))
+  );
+
+  const files = buffers.map((buf, i) => {
+    saveToArchive(buf, symbol, tfs[i].key);
+    return {
+      buf,
+      name:     buildFilename(symbol, tfs[i].key),
+      label:    tfs[i].label,
+      tfKey:    tfs[i].key,
+    };
+  });
+
+  return files;
+}
+
+// ============================================================
+// MACRO ENGINE
+// ============================================================
+
+function generateMacro(symbol) {
+  // Placeholder — replace with live data source or AI call
+  return `**${symbol} Macro**
+
+Bias: Bearish
+Draw: 1.1550 liquidity
+State: Post-sweep → pullback
+
+Levels: 1.1625 / 1.1580 / 1.1550`;
+}
+
+// ============================================================
+// ROADMAP ENGINE
+// ============================================================
+
+function generateRoadmap(symbol) {
+  // Placeholder — replace with live data source or AI call
+  return `**${symbol} Weekly Roadmap**
+
+Range: 1.1700 – 1.1450
+Primary Draw: Downside liquidity
+HTF Supply: Holding`;
+}
+
+// ============================================================
+// COMBINE + SEND
+// ============================================================
+
+function buildCombinedText(symbol, s) {
+  let out = `📊 **${symbol} — ATLAS VIEW**\n\n`;
+  out += `__Macro__\n${s.macro}\n\n`;
+  if (s.roadmap) out += `__Weekly Context__\n${s.roadmap}\n\n`;
+  out += `_Updated: ${new Date(s.ts).toUTCString()}_`;
+  return out;
+}
+
+async function sendToWebhook(webhookUrl, content, files) {
+  const FormData = require('form-data');
+  const axios    = require('axios');
+
+  if (!webhookUrl) return;
+
+  if (files && files.length > 0) {
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify({ content }));
+    files.forEach((f, i) => {
+      form.append(`files[${i}]`, f.buf, { filename: f.name, contentType: 'image/jpeg' });
+    });
+    await axios.post(webhookUrl, form, {
+      headers:       form.getHeaders(),
+      maxBodyLength: Infinity,
+      timeout:       60000,
+    });
+  } else {
+    const axios = require('axios');
+    await axios.post(webhookUrl, { content }, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000,
+    });
+  }
+}
+
+async function tryCombine(group, symbol, s) {
+  if (!isReadyToCombine(s)) return;
+
+  const text    = buildCombinedText(symbol, s);
+  const webhook = COMBINED_WEBHOOKS[group];
+
+  if (!webhook) {
+    console.warn(`[COMBINE] No webhook configured for group ${group}`);
+    return;
+  }
+
+  // Send text macro first
+  await sendToWebhook(webhook, text, null);
+
+  // Send LTF charts
+  if (s.ltf && s.ltf.length > 0) {
+    await sendToWebhook(webhook, `📉 **${symbol}** LTF Charts`, s.ltf);
+  }
+
+  // Send HTF charts if available
+  if (s.htf && s.htf.length > 0) {
+    await sendToWebhook(webhook, `📈 **${symbol}** HTF Charts`, s.htf);
+  }
+
+  console.log(`[COMBINED] ${group} ${symbol} posted`);
+}
+
+// ============================================================
 // DISCORD CLIENT
 // ============================================================
 
@@ -304,157 +538,101 @@ client.on('messageCreate', async (msg) => {
   const raw = (msg.content || '').trim();
   if (!raw) return;
 
+  // Ping — works anywhere
   if (raw === '!ping') {
     await msg.reply('pong');
     return;
   }
 
-  if (!raw.toLowerCase().startsWith('!chart')) return;
+  // All other commands restricted to group channels
+  const group = CHANNEL_GROUP_MAP[msg.channel.id];
+  if (!group) return;
 
-  const parts = raw.split(/\s+/);
-  const input = parts[1] || '';
+  const parsed = parseCommand(raw);
+  if (!parsed) return;
 
-  if (!input) {
-    await msg.reply('Usage: `!chart EURUSDH` (HTF) or `!chart EURUSDL` (LTF)');
+  const { action, symbol, mode } = parsed;
+
+  if (action !== 'ping' && !VALID_SYMBOLS.has(symbol)) {
+    await msg.reply(`Invalid symbol: **${symbol}**`);
     return;
   }
 
-  const { symbol, tfs, setLabel } = parse(input);
+  const tfs      = mode === 'L' ? TF_LOW : TF_HIGH;
+  const setLabel = mode === 'L' ? 'LTF' : 'HTF';
 
-  if (!symbol) {
-    await msg.reply('Invalid symbol.');
+  // ── CHART ──────────────────────────────────────────────────
+  if (action === 'chart') {
+    enqueue(async () => {
+      console.log(`[CHART] ${msg.author.username} ${group} -> ${symbol} ${setLabel}`);
+
+      const progress = await msg.reply(`⏳ Generating **${symbol}** ${setLabel} charts...`);
+
+      try {
+        const files = await renderBatch(symbol, tfs);
+
+        const attachments = files.map((f) =>
+          new AttachmentBuilder(f.buf, { name: f.name })
+        );
+
+        await progress.edit({
+          content: `✅ **${symbol}** ${setLabel} charts`,
+          files:   attachments,
+        });
+
+        // Update state
+        const s = ensureState(group, symbol);
+        if (mode === 'L') s.ltf = files;
+        if (mode === 'H') s.htf = files;
+        touch(s);
+
+        // Attempt combined post
+        await tryCombine(group, symbol, s);
+
+      } catch (err) {
+        console.error('[CHART ERROR]', err.message);
+        await progress.edit(`❌ Failed to generate **${symbol}** charts.\nReason: ${err.message}`);
+      }
+    });
     return;
   }
 
-  console.log(`[CHART] ${msg.author.username} -> ${symbol} ${setLabel}`);
+  // ── MACRO ──────────────────────────────────────────────────
+  if (action === 'macro') {
+    enqueue(async () => {
+      console.log(`[MACRO] ${msg.author.username} ${group} -> ${symbol}`);
 
-  const progress = await msg.reply(`⏳ Generating **${symbol}** ${setLabel} charts...`);
+      const s = ensureState(group, symbol);
 
-  try {
-    // Render all timeframes in parallel
-    const buffers = await Promise.all(
-      tfs.map((tf) => renderChart(symbol, tf.interval, tf.key))
-    );
-
-    // Archive and build attachments
-    const files = buffers.map((buf, i) => {
-      saveToArchive(buf, symbol, tfs[i].key);
-      return new AttachmentBuilder(buf, { name: buildFilename(symbol, tfs[i].key) });
-    });
-
-    // Cache for share button (15 min TTL)
-    const cacheKey = `${msg.id}_${Date.now()}`;
-    requestCache.set(cacheKey, {
-      symbol,
-      setLabel,
-      buffers: buffers.map((buf, i) => ({
-        buf,
-        name: buildFilename(symbol, tfs[i].key),
-      })),
-      expiresAt: Date.now() + 15 * 60 * 1000,
-    });
-
-    // Share buttons
-    const components = [];
-    if (SHARED_MACROS_CHANNEL) {
-      components.push(
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`share_${cacheKey}`)
-            .setLabel('Share in #shared-macros')
-            .setStyle(ButtonStyle.Primary),
-          new ButtonBuilder()
-            .setCustomId(`no_share_${cacheKey}`)
-            .setLabel('No thanks')
-            .setStyle(ButtonStyle.Secondary)
-        )
-      );
-    }
-
-    await progress.edit({
-      content:    `✅ **${symbol}** ${setLabel} charts`,
-      files,
-      components,
-    });
-
-  } catch (err) {
-    console.error('[CHART ERROR]', err.message);
-    await progress.edit(`❌ Failed to generate **${symbol}** charts.\nReason: ${err.message}`);
-  }
-});
-
-// ============================================================
-// BUTTON HANDLER
-// ============================================================
-
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton()) return;
-
-  // No thanks
-  if (interaction.customId.startsWith('no_share_')) {
-    try {
-      await interaction.update({ content: 'Charts kept private.', components: [] });
-    } catch (err) {
-      console.error('[NO_SHARE ERROR]', err.message);
-    }
-    return;
-  }
-
-  // Share
-  if (interaction.customId.startsWith('share_')) {
-
-    // Defer immediately — Discord 3s timeout
-    try {
-      await interaction.deferUpdate();
-    } catch (err) {
-      console.error('[DEFER FAIL] Interaction expired:', err.message);
-      return;
-    }
-
-    const cacheKey = interaction.customId.replace('share_', '');
-    const cached   = requestCache.get(cacheKey);
-
-    if (!cached) {
-      await interaction.editReply({ content: 'Share expired — run the command again.', components: [] });
-      return;
-    }
-
-    if (!SHARED_MACROS_CHANNEL) {
-      await interaction.editReply({ content: 'Shared channel not configured.', components: [] });
-      return;
-    }
-
-    try {
-      const channel = await client.channels.fetch(SHARED_MACROS_CHANNEL).catch(() => null);
-
-      if (!channel || !channel.isTextBased()) {
-        await interaction.editReply({ content: 'Shared channel not found.', components: [] });
+      if (!s.htf) {
+        await msg.reply(`**${symbol}** — HTF charts missing. Run \`!${symbol}H\` first.`);
         return;
       }
 
-      const attachments = cached.buffers.map((f) =>
-        new AttachmentBuilder(f.buf, { name: f.name })
-      );
+      const macro = generateMacro(symbol);
+      s.macro = macro;
+      touch(s);
 
-      await channel.send({
-        content: `📊 **${cached.symbol}** ${cached.setLabel} charts shared by **${interaction.user.username}**`,
-        files:   attachments,
-      });
+      await msg.reply(macro);
+      await tryCombine(group, symbol, s);
+    });
+    return;
+  }
 
-      await interaction.editReply({
-        content:    `✅ **${cached.symbol}** ${cached.setLabel} charts shared in #shared-macros`,
-        components: [],
-      });
+  // ── ROADMAP ────────────────────────────────────────────────
+  if (action === 'roadmap') {
+    enqueue(async () => {
+      console.log(`[ROADMAP] ${msg.author.username} ${group} -> ${symbol}`);
 
-      console.log('[SHARED]', cached.symbol, cached.setLabel, 'by', interaction.user.username);
+      const roadmap = generateRoadmap(symbol);
 
-    } catch (err) {
-      console.error('[SHARE ERROR]', err.message);
-      try {
-        await interaction.editReply({ content: 'Failed to share charts.', components: [] });
-      } catch (_) {}
-    }
+      const s = ensureState(group, symbol);
+      s.roadmap = roadmap;
+      touch(s);
 
+      await msg.reply(roadmap);
+      await tryCombine(group, symbol, s);
+    });
     return;
   }
 });
