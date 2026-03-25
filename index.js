@@ -1,3 +1,4 @@
+require('dotenv').config();
 // ============================================================
 // ATLAS FX DISCORD BOT — DEFINITIVE FINAL BUILD
 // ============================================================
@@ -48,6 +49,7 @@ const fs    = require('fs');
 // ============================================================
 
 const TOKEN                 = process.env.DISCORD_BOT_TOKEN;
+console.log('TOKEN LOADED:', TOKEN ? 'YES' : 'NO');
 const EXPORT_DIR            = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
 const MAX_RETRIES           = Number(process.env.MAX_RENDER_RETRIES  || 2);
 const STATE_TTL             = 1000 * 60 * 60 * 2;
