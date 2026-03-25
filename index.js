@@ -342,7 +342,9 @@ async function renderChart(symbol, interval, tfKey) {
       });
 
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      await page.waitForTimeout(CHART_LOAD_WAIT_MS);
+      // Short timeframes need extra time to load candle data
+      const tfWait = (interval === '1' || interval === '15') ? CHART_LOAD_WAIT_MS + 2000 : CHART_LOAD_WAIT_MS;
+      await page.waitForTimeout(tfWait);
 
       // Dismiss popups
       for (const sel of ['button[aria-label="Close"]', 'button:has-text("Accept")', 'button:has-text("Got it")']) {
@@ -385,6 +387,9 @@ async function renderChart(symbol, interval, tfKey) {
       const raw = await page.screenshot({ type: 'png', fullPage: false });
       await context.close();
       context = null;
+
+      // Blank render check — retry if chart did not load
+      if (raw.length < 50000) throw new Error(`Blank render (${raw.length}B) for ${symbol} ${tfKey}`);
 
       console.log(`[RENDER OK] ${symbol} ${tfKey}`);
       return raw;
