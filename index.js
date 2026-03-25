@@ -51,6 +51,12 @@ console.log('[BOOT] ATLAS FX Bot starting...');
 // Maps Discord channel ID -> group name
 // These are the channels the bot listens for commands in
 const CHANNEL_GROUP_MAP = {
+  // Roadmap macro request channels (primary command channels)
+  '1432642672287547453': 'AT',
+  '1432643496375881748': 'SK',
+  '1432644116868501595': 'NM',
+  '1482450651765149816': 'BR',
+  // Combined channels (also accept commands)
   '1432080184458350672': 'AT',
   '1430950313484878014': 'SK',
   '1431192381029482556': 'NM',
