@@ -1,5 +1,5 @@
 // ============================================================
-// ATLAS FX DISCORD BOT — UNIFIED FINAL BUILD (FAST MODE)
+// ATLAS FX DISCORD BOT — UNIFIED FINAL BUILD (FAST MODE CLEAN)
 // ============================================================
 //
 // COMMANDS (in group channels only):
@@ -9,32 +9,55 @@
 //   !EURUSDL /roadmap — Generate weekly roadmap
 //   !ping             — Health check
 //
-// GROUPS: AT | SK | NM | BR
-// Rendering: FAST MODE, 2560x1440, light theme
-// Safety: lock before enqueue, per-group+symbol lock, hard timeout, dedupe
+// REQUIRED ENV VARS:
+//   DISCORD_BOT_TOKEN
+//   AT_COMBINED_WEBHOOK
+//   SK_COMBINED_WEBHOOK
+//   NM_COMBINED_WEBHOOK
+//   BR_COMBINED_WEBHOOK
+//
+// OPTIONAL ENV VARS:
+//   EXPORT_DIR
+//   MAX_RENDER_RETRIES
+//   RENDER_TIMEOUT_MS
+//   CHART_LOAD_WAIT_MS
+//
+// DEPENDENCIES:
+//   discord.js
+//   playwright
+//   sharp
+//
+// NOTES:
+// - No axios
+// - No form-data package
+// - Uses native fetch / FormData / Blob
+// - Fast render mode for stability
+// - Per-group + per-symbol locks
+// - Message dedupe
+// - Auto combine when LTF + macro exist
 // ============================================================
 
-process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED REJECTION]', reason); });
-process.on('uncaughtException',  (err)    => { console.error('[UNCAUGHT EXCEPTION]', err); });
+process.on('unhandledRejection', (reason) => {
+  console.error('[UNHANDLED REJECTION]', reason);
+});
 
-const {
-  Client,
-  GatewayIntentBits,
-  AttachmentBuilder,
-} = require('discord.js');
+process.on('uncaughtException', (err) => {
+  console.error('[UNCAUGHT EXCEPTION]', err);
+});
 
+const { Client, GatewayIntentBits, AttachmentBuilder } = require('discord.js');
 const sharp = require('sharp');
-const path  = require('path');
-const fs    = require('fs');
+const path = require('path');
+const fs = require('fs');
 
 // ============================================================
 // CONFIG
 // ============================================================
 
-const TOKEN       = process.env.DISCORD_BOT_TOKEN;
-const EXPORT_DIR  = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
+const TOKEN = process.env.DISCORD_BOT_TOKEN;
+const EXPORT_DIR = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
 const MAX_RETRIES = Number(process.env.MAX_RENDER_RETRIES || 2);
-const STATE_TTL   = 1000 * 60 * 60 * 2; // 2 hours
+const STATE_TTL = 1000 * 60 * 60 * 2; // 2 hours
 const RENDER_TIMEOUT_MS = Number(process.env.RENDER_TIMEOUT_MS || 15000);
 const CHART_LOAD_WAIT_MS = Number(process.env.CHART_LOAD_WAIT_MS || 2000);
 const MESSAGE_DEDUPE_TTL_MS = 30000;
@@ -50,18 +73,33 @@ console.log('[BOOT] ATLAS FX Bot starting...');
 // GROUP + CHANNEL CONFIG
 // ============================================================
 
+// Request channels
 const CHANNEL_GROUP_MAP = {
-  // request channels
-  '1432642672287547453': 'AT',
-  '1432643496375881748': 'SK',
-  '1432644116868501595': 'NM',
-  '1482450651765149816': 'BR',
+  '1432642672287547453': 'AT', // at-roadmap-macro-request
+  '1432643496375881748': 'SK', // sk-roadmap-macro-request
+  '1432644116868501595': 'NM', // nm-roadmap-macro-request
+  '1482450651765149816': 'BR', // br-roadmap-macro-request
 
-  // combined channels if commands are ever run there
-  '1432080184458350672': 'AT',
-  '1430950313484878014': 'SK',
-  '1431192381029482556': 'NM',
-  '1482451091630194868': 'BR',
+  // Combined channels (safe fallback if command is run there)
+  '1432080184458350672': 'AT', // at-combined
+  '1430950313484878014': 'SK', // sk-combined
+  '1431192381029482556': 'NM', // nm-combined
+  '1482451091630194868': 'BR', // br-combined
+};
+
+// Optional direct macro / roadmap channels
+const MACRO_CHANNELS = {
+  AT: '1432356169140193481', // at-roadmap-macro
+  SK: '1432355456818610258', // sk-roadmap-macro
+  NM: '1432356868956880947', // nm-roadmap-macro
+  BR: '1484205266219307009', // br-roadmap-macro
+};
+
+const COMBINED_CHANNELS = {
+  AT: '1432080184458350672',
+  SK: '1430950313484878014',
+  NM: '1431192381029482556',
+  BR: '1482451091630194868',
 };
 
 const COMBINED_WEBHOOKS = {
@@ -69,21 +107,6 @@ const COMBINED_WEBHOOKS = {
   SK: process.env.SK_COMBINED_WEBHOOK,
   NM: process.env.NM_COMBINED_WEBHOOK,
   BR: process.env.BR_COMBINED_WEBHOOK,
-};
-
-// Optional direct output channels
-const MACRO_CHANNELS = {
-  AT: process.env.AT_MACRO_CHANNEL_ID || null,
-  SK: process.env.SK_MACRO_CHANNEL_ID || null,
-  NM: process.env.NM_MACRO_CHANNEL_ID || null,
-  BR: process.env.BR_MACRO_CHANNEL_ID || null,
-};
-
-const ROADMAP_CHANNELS = {
-  AT: process.env.AT_ROADMAP_CHANNEL_ID || null,
-  SK: process.env.SK_ROADMAP_CHANNEL_ID || null,
-  NM: process.env.NM_ROADMAP_CHANNEL_ID || null,
-  BR: process.env.BR_ROADMAP_CHANNEL_ID || null,
 };
 
 // ============================================================
@@ -103,23 +126,24 @@ const VALID_SYMBOLS = new Set([
 // ============================================================
 
 const SYMBOL_OVERRIDES = {
-  'MICRON': 'NASDAQ:MU',
-  'MU':     'NASDAQ:MU',
-  'AMD':    'NASDAQ:AMD',
-  'ASML':   'NASDAQ:ASML',
-  'NAS100': 'OANDA:NAS100USD',
-  'US500':  'OANDA:SPX500USD',
-  'GER40':  'OANDA:DE30EUR',
-  'SPX':    'INDEX:SPX',
-  'NDX':    'INDEX:NDX',
-  'DJI':    'INDEX:DJI',
-  'DAX':    'INDEX:DAX',
-  'US30':   'INDEX:US30',
-  'UK100':  'INDEX:UK100',
-  'CL':     'NYMEX:CL1!',
-  'BRENT':  'NYMEX:BB1!',
-  'NATGAS': 'NYMEX:NG1!',
-  'NG':     'NYMEX:NG1!',
+  MICRON: 'NASDAQ:MU',
+  MU: 'NASDAQ:MU',
+  AMD: 'NASDAQ:AMD',
+  ASML: 'NASDAQ:ASML',
+  NAS100: 'OANDA:NAS100USD',
+  US500: 'OANDA:SPX500USD',
+  GER40: 'OANDA:DE30EUR',
+  SPX: 'INDEX:SPX',
+  NDX: 'INDEX:NDX',
+  DJI: 'INDEX:DJI',
+  DAX: 'INDEX:DAX',
+  US30: 'INDEX:US30',
+  UK100: 'INDEX:UK100',
+  CL: 'NYMEX:CL1!',
+  BRENT: 'NYMEX:BB1!',
+  UKOIL: 'NYMEX:BB1!',
+  NATGAS: 'NYMEX:NG1!',
+  NG: 'NYMEX:NG1!',
 };
 
 function getTVSymbol(symbol) {
@@ -138,34 +162,36 @@ function buildChartUrl(symbol, interval) {
 // ============================================================
 
 const TF_HIGH = [
-  { key: '1W',  label: 'Weekly', interval: '1W'  },
-  { key: '1D',  label: 'Daily',  interval: '1D'  },
-  { key: '4H',  label: '4H',     interval: '240' },
-  { key: '1H',  label: '1H',     interval: '60'  },
+  { key: '1W', label: 'Weekly', interval: '1W' },
+  { key: '1D', label: 'Daily', interval: '1D' },
+  { key: '4H', label: '4H', interval: '240' },
+  { key: '1H', label: '1H', interval: '60' },
 ];
 
 const TF_LOW = [
-  { key: '4H',  label: '4H',  interval: '240' },
-  { key: '1H',  label: '1H',  interval: '60'  },
-  { key: '15M', label: '15M', interval: '15'  },
-  { key: '1M',  label: '1M',  interval: '1'   },
+  { key: '4H', label: '4H', interval: '240' },
+  { key: '1H', label: '1H', interval: '60' },
+  { key: '15M', label: '15M', interval: '15' },
+  { key: '1M', label: '1M', interval: '1' },
 ];
 
 // ============================================================
-// COMMAND PARSER
+// PARSER
 // ============================================================
 
 function parseCommand(content) {
   const trimmed = (content || '').trim();
 
-  if (trimmed === '!ping') return { action: 'ping' };
+  if (trimmed === '!ping') {
+    return { action: 'ping' };
+  }
 
   const chartOnly = trimmed.match(/^!([A-Z0-9]{2,10})([LH])$/i);
   if (chartOnly) {
     return {
       action: 'chart',
       symbol: chartOnly[1].toUpperCase(),
-      mode:   chartOnly[2].toUpperCase(),
+      mode: chartOnly[2].toUpperCase(),
     };
   }
 
@@ -174,7 +200,7 @@ function parseCommand(content) {
     return {
       action: withAction[3].toLowerCase(),
       symbol: withAction[1].toUpperCase(),
-      mode:   withAction[2].toUpperCase(),
+      mode: withAction[2].toUpperCase(),
     };
   }
 
@@ -182,7 +208,7 @@ function parseCommand(content) {
 }
 
 // ============================================================
-// HARD TIMEOUT WRAPPER
+// TIMEOUT
 // ============================================================
 
 function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
@@ -206,28 +232,36 @@ function rememberMessage(messageId) {
 }
 
 // ============================================================
-// PER-GROUP+SYMBOL LOCK
-// Applied BEFORE enqueue to block duplicate commands immediately
+// LOCKS
 // ============================================================
 
 const RUNNING = {};
 
-function getLockKey(group, symbol, action = 'chart') {
+function getLockKey(group, symbol, action) {
   return `${group}::${symbol}::${action}`;
 }
 
-function isLocked(lockKey) { return !!RUNNING[lockKey]; }
-function lock(lockKey)     { RUNNING[lockKey] = true; }
-function unlock(lockKey)   { delete RUNNING[lockKey]; }
+function isLocked(lockKey) {
+  return !!RUNNING[lockKey];
+}
+
+function lock(lockKey) {
+  RUNNING[lockKey] = true;
+}
+
+function unlock(lockKey) {
+  delete RUNNING[lockKey];
+}
 
 // ============================================================
-// STATE MACHINE
+// STATE
 // ============================================================
 
 const STATE = {};
 
 function ensureState(group, symbol) {
   if (!STATE[group]) STATE[group] = {};
+
   if (!STATE[group][symbol]) {
     STATE[group][symbol] = {
       ltf: null,
@@ -238,6 +272,7 @@ function ensureState(group, symbol) {
       combinedSignature: null,
     };
   }
+
   return STATE[group][symbol];
 }
 
@@ -250,11 +285,12 @@ function isFresh(s) {
 }
 
 function isReadyToCombine(s) {
-  return s.ltf && s.macro && isFresh(s);
+  return !!(s.ltf && s.macro && isFresh(s));
 }
 
 function cleanupOldState() {
   const now = Date.now();
+
   for (const group of Object.keys(STATE)) {
     for (const symbol of Object.keys(STATE[group])) {
       const s = STATE[group][symbol];
@@ -262,6 +298,7 @@ function cleanupOldState() {
         delete STATE[group][symbol];
       }
     }
+
     if (Object.keys(STATE[group]).length === 0) {
       delete STATE[group];
     }
@@ -322,7 +359,7 @@ async function processQueue() {
 }
 
 // ============================================================
-// BROWSER (persistent, auto-reset on crash)
+// BROWSER
 // ============================================================
 
 let browser = null;
@@ -330,6 +367,7 @@ let browser = null;
 async function getBrowser() {
   if (!browser) {
     const { chromium } = require('playwright');
+
     browser = await chromium.launch({
       headless: true,
       args: [
@@ -345,19 +383,20 @@ async function getBrowser() {
       browser = null;
     });
   }
+
   return browser;
 }
 
 // ============================================================
 // FAST RENDER ENGINE
-// Minimal interaction for speed + reliability
 // ============================================================
 
 async function renderChart(symbol, interval, tfKey) {
   const url = buildChartUrl(symbol, interval);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    let context;
+    let context = null;
+
     try {
       console.log(`[FAST RENDER] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES}`);
 
@@ -385,12 +424,39 @@ async function renderChart(symbol, interval, tfKey) {
 
       await page.waitForTimeout(CHART_LOAD_WAIT_MS);
 
+      // Fast minimal cleanup without heavy UI interaction
+      await page.evaluate(() => {
+        const selectors = [
+          '[data-name="right-toolbar"]',
+          '.layout__area--right',
+          '.tv-control-bar',
+          '.tv-floating-toolbar',
+          '.js-symbol-logo',
+        ];
+
+        selectors.forEach((sel) => {
+          document.querySelectorAll(sel).forEach((el) => {
+            el.style.display = 'none';
+          });
+        });
+
+        document.querySelectorAll('*').forEach((el) => {
+          const text = (el.innerText || '').trim();
+          if (text === 'Vol' || text.startsWith('Vol ')) {
+            el.style.display = 'none';
+          }
+        });
+      }).catch(() => {});
+
+      await page.waitForTimeout(500);
+
       const raw = await page.screenshot({
         type: 'png',
         fullPage: false,
       });
 
       await context.close();
+      context = null;
 
       const optimised = await sharp(raw)
         .resize(2560, 1440, { fit: 'cover' })
@@ -408,13 +474,13 @@ async function renderChart(symbol, interval, tfKey) {
       }
 
       if (attempt === MAX_RETRIES) throw err;
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   }
 }
 
 // ============================================================
-// RENDER BATCH — SEQUENTIAL
+// RENDER BATCH
 // ============================================================
 
 async function renderBatch(symbol, tfs) {
@@ -448,31 +514,68 @@ function getUserLevel(_userId) {
 }
 
 // ============================================================
-// MACRO + ROADMAP (placeholders)
+// MACRO + ROADMAP PLACEHOLDERS
+// Replace these later with your live ATLAS logic
 // ============================================================
 
 function generateMacro(symbol, level = 1) {
   if (level === 5) {
-    return `**${symbol} Macro**\n\nBias: Bearish\nDraw: 1.1550 liquidity\nState: Post-sweep → pullback`;
+    return `**${symbol} Macro**
+
+Bias: Bearish
+Draw: 1.1550 liquidity
+State: Post-sweep → pullback`;
   }
 
   if (level === 1) {
-    return `**${symbol} Macro**\n\nBias: Bearish\n\nLiquidity means areas where orders and stop losses sit.\nPrice is likely moving toward 1.1550 liquidity.\n\nState:\nPost-sweep → pullback\n\nLevels:\n1.1625 / 1.1580 / 1.1550`;
+    return `**${symbol} Macro**
+
+Bias: Bearish
+
+Liquidity means areas where orders and stop losses sit.
+Price is likely moving toward 1.1550 liquidity.
+
+State:
+Post-sweep → pullback
+
+Levels:
+1.1625 / 1.1580 / 1.1550`;
   }
 
-  return `**${symbol} Macro**\n\nBias: Bearish\nDraw: 1.1550 liquidity\nState: Post-sweep → pullback\n\nLevels:\n1.1625 / 1.1580 / 1.1550`;
+  return `**${symbol} Macro**
+
+Bias: Bearish
+Draw: 1.1550 liquidity
+State: Post-sweep → pullback
+
+Levels:
+1.1625 / 1.1580 / 1.1550`;
 }
 
 function generateRoadmap(symbol, level = 1) {
   if (level === 5) {
-    return `**${symbol} Weekly Roadmap**\n\nRange: 1.1700 – 1.1450\nPrimary Draw: Downside liquidity\nHTF Supply: Holding`;
+    return `**${symbol} Weekly Roadmap**
+
+Range: 1.1700 – 1.1450
+Primary Draw: Downside liquidity
+HTF Supply: Holding`;
   }
 
   if (level === 1) {
-    return `**${symbol} Weekly Roadmap**\n\nRange: 1.1700 – 1.1450\nPrimary Draw: Downside liquidity\nHTF Supply: Holding\n\nThis roadmap is the wider week view from now until market close.`;
+    return `**${symbol} Weekly Roadmap**
+
+Range: 1.1700 – 1.1450
+Primary Draw: Downside liquidity
+HTF Supply: Holding
+
+This roadmap is the wider week view from now until market close.`;
   }
 
-  return `**${symbol} Weekly Roadmap**\n\nRange: 1.1700 – 1.1450\nPrimary Draw: Downside liquidity\nHTF Supply: Holding`;
+  return `**${symbol} Weekly Roadmap**
+
+Range: 1.1700 – 1.1450
+Primary Draw: Downside liquidity
+HTF Supply: Holding`;
 }
 
 // ============================================================
@@ -499,6 +602,7 @@ async function safeSend(channel, payload) {
 
 async function sendTextToChannelId(client, channelId, content) {
   if (!channelId) return false;
+
   try {
     const channel = await client.channels.fetch(channelId);
     if (!channel) return false;
@@ -509,48 +613,56 @@ async function sendTextToChannelId(client, channelId, content) {
     return false;
   }
 }
+
 async function sendToWebhook(webhookUrl, content, files) {
   if (!webhookUrl) return;
 
   try {
-    // TEXT ONLY
     if (!files || files.length === 0) {
       await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content })
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
       });
       return;
     }
 
-    // WITH FILES (NODE SAFE)
     const form = new FormData();
-
-    form.append("payload_json", JSON.stringify({ content }));
+    form.append('payload_json', JSON.stringify({ content }));
 
     files.forEach((f, i) => {
-      form.append(`files[${i}]`, f.buf, f.name);
+      const blob = new Blob([f.buf], { type: 'image/jpeg' });
+      form.append(`files[${i}]`, blob, f.name);
     });
 
     await fetch(webhookUrl, {
-      method: "POST",
-      body: form
+      method: 'POST',
+      body: form,
     });
 
   } catch (err) {
-    console.error("[WEBHOOK ERROR]", err.message);
+    console.error('[WEBHOOK ERROR]', err.message);
   }
 }
+
 // ============================================================
-// COMBINE + SEND TO GROUP WEBHOOK
+// COMBINE
 // ============================================================
 
 function buildCombinedText(symbol, s) {
-  let out = `📊 **${symbol} — ATLAS VIEW**\n\n`;
-  out += `__Macro (Today)__\n${s.macro}\n\n`;
+  let out = `📊 **${symbol} — ATLAS VIEW**
+
+`;
+  out += `__Macro (Today)__
+${s.macro}
+
+`;
 
   if (s.roadmap) {
-    out += `__Weekly Context__\n${s.roadmap}\n\n`;
+    out += `__Weekly Context__
+${s.roadmap}
+
+`;
   }
 
   out += `_Updated: ${new Date(s.ts).toUTCString()}_`;
@@ -558,8 +670,9 @@ function buildCombinedText(symbol, s) {
 }
 
 function buildCombinedSignature(s) {
-  const ltfSig = s.ltf ? s.ltf.map(x => x.name).join('|') : '';
-  const htfSig = s.htf ? s.htf.map(x => x.name).join('|') : '';
+  const ltfSig = s.ltf ? s.ltf.map((x) => x.name).join('|') : '';
+  const htfSig = s.htf ? s.htf.map((x) => x.name).join('|') : '';
+
   return JSON.stringify({
     ltfSig,
     htfSig,
@@ -572,26 +685,24 @@ function buildCombinedSignature(s) {
 async function tryCombine(group, symbol, s) {
   if (!isReadyToCombine(s)) return;
 
-  const webhook = COMBINED_WEBHOOKS[group];
-  if (!webhook) {
-    console.warn(`[COMBINE] No webhook for group ${group}`);
-    return;
-  }
-
   const signature = buildCombinedSignature(s);
   if (s.combinedSignature === signature) {
     console.log(`[COMBINE] ${group} ${symbol} unchanged — skipped`);
     return;
   }
 
-  await sendToWebhook(webhook, buildCombinedText(symbol, s), null);
+  const webhook = COMBINED_WEBHOOKS[group];
 
-  if (s.ltf && s.ltf.length > 0) {
-    await sendToWebhook(webhook, `📉 **${symbol}** LTF Charts`, s.ltf);
-  }
+  if (webhook) {
+    await sendToWebhook(webhook, buildCombinedText(symbol, s), null);
 
-  if (s.htf && s.htf.length > 0) {
-    await sendToWebhook(webhook, `📈 **${symbol}** HTF Charts`, s.htf);
+    if (s.ltf && s.ltf.length > 0) {
+      await sendToWebhook(webhook, `📉 **${symbol}** LTF Charts`, s.ltf);
+    }
+
+    if (s.htf && s.htf.length > 0) {
+      await sendToWebhook(webhook, `📈 **${symbol}** HTF Charts`, s.htf);
+    }
   }
 
   s.combinedSignature = signature;
@@ -599,7 +710,7 @@ async function tryCombine(group, symbol, s) {
 }
 
 // ============================================================
-// DISCORD CLIENT
+// CLIENT
 // ============================================================
 
 const client = new Client({
@@ -645,12 +756,13 @@ client.on('messageCreate', async (msg) => {
     return;
   }
 
-  const tfs = mode === 'L' ? TF_LOW : TF_HIGH;
-  const setLabel = mode === 'L' ? 'LTF' : 'HTF';
-
-  // ── CHART ──────────────────────────────────────────────────
+  // ----------------------------------------------------------
+  // CHART
+  // ----------------------------------------------------------
   if (action === 'chart') {
-    const lockKey = getLockKey(group, symbol, 'chart');
+    const tfs = mode === 'L' ? TF_LOW : TF_HIGH;
+    const setLabel = mode === 'L' ? 'LTF' : 'HTF';
+    const lockKey = getLockKey(group, symbol, `chart_${mode}`);
 
     if (isLocked(lockKey)) {
       await safeReply(msg, `⚠️ **${symbol}** is already being generated — please wait.`);
@@ -661,6 +773,7 @@ client.on('messageCreate', async (msg) => {
 
     enqueue(async () => {
       console.log(`[CHART] ${msg.author.username} ${group} -> ${symbol} ${setLabel}`);
+
       let progress = null;
 
       try {
@@ -688,6 +801,7 @@ client.on('messageCreate', async (msg) => {
 
       } catch (err) {
         console.error('[CHART ERROR]', err.message);
+
         if (progress) {
           await progress.edit(`❌ **${symbol}** chart failed — retry`);
         } else {
@@ -701,7 +815,9 @@ client.on('messageCreate', async (msg) => {
     return;
   }
 
-  // ── MACRO ──────────────────────────────────────────────────
+  // ----------------------------------------------------------
+  // MACRO
+  // ----------------------------------------------------------
   if (action === 'macro') {
     const lockKey = getLockKey(group, symbol, 'macro');
 
@@ -721,7 +837,8 @@ client.on('messageCreate', async (msg) => {
         if (!s.htf) {
           await safeReply(
             msg,
-            `**${symbol}** — HTF charts missing.\nRun \`!${symbol}H\` first so ATLAS FX can analyse both higher and lower timeframe context correctly.`
+            `**${symbol}** — HTF charts missing.
+Run \`!${symbol}H\` first so ATLAS FX can analyse both higher and lower timeframe context correctly.`
           );
           return;
         }
@@ -752,7 +869,9 @@ client.on('messageCreate', async (msg) => {
     return;
   }
 
-  // ── ROADMAP ────────────────────────────────────────────────
+  // ----------------------------------------------------------
+  // ROADMAP
+  // ----------------------------------------------------------
   if (action === 'roadmap') {
     const lockKey = getLockKey(group, symbol, 'roadmap');
 
@@ -774,7 +893,7 @@ client.on('messageCreate', async (msg) => {
         s.roadmap = roadmap;
         touch(s);
 
-        const pushed = await sendTextToChannelId(client, ROADMAP_CHANNELS[group], roadmap);
+        const pushed = await sendTextToChannelId(client, MACRO_CHANNELS[group], roadmap);
         if (!pushed) {
           await safeReply(msg, roadmap);
         } else {
@@ -799,12 +918,20 @@ client.on('messageCreate', async (msg) => {
 // SHARD EVENTS
 // ============================================================
 
-client.on('shardDisconnect',   (e, id) => console.warn(`[SHARD] ${id} disconnected. Code: ${e.code}`));
-client.on('shardReconnecting', (id)    => console.log(`[SHARD] ${id} reconnecting...`));
-client.on('shardResume',       (id, n) => console.log(`[SHARD] ${id} resumed. Replayed ${n} events.`));
+client.on('shardDisconnect', (event, id) => {
+  console.warn(`[SHARD] ${id} disconnected. Code: ${event.code}`);
+});
+
+client.on('shardReconnecting', (id) => {
+  console.log(`[SHARD] ${id} reconnecting...`);
+});
+
+client.on('shardResume', (id, replayed) => {
+  console.log(`[SHARD] ${id} resumed. Replayed ${replayed} events.`);
+});
 
 // ============================================================
-// KEEP ALIVE + STATE CLEANUP
+// KEEP ALIVE + CLEANUP
 // ============================================================
 
 setInterval(() => {
