@@ -21,18 +21,18 @@ const {
   AttachmentBuilder,
 } = require('discord.js');
 
-const sharp    = require('sharp');
-const path     = require('path');
-const fs       = require('fs');
+const sharp = require('sharp');
+const path  = require('path');
+const fs    = require('fs');
 
 // ============================================================
 // CONFIG
 // ============================================================
 
-const TOKEN                  = process.env.DISCORD_BOT_TOKEN;
-const SHARED_MACROS_CHANNEL  = process.env.SHARED_MACROS_CHANNEL_ID || '';
-const EXPORT_DIR             = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
-const MAX_RETRIES            = Number(process.env.MAX_RENDER_RETRIES || 2);
+const TOKEN                 = process.env.DISCORD_BOT_TOKEN;
+const SHARED_MACROS_CHANNEL = process.env.SHARED_MACROS_CHANNEL_ID || '';
+const EXPORT_DIR            = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
+const MAX_RETRIES           = Number(process.env.MAX_RENDER_RETRIES || 2);
 
 if (!TOKEN) {
   console.error('[FATAL] Missing DISCORD_BOT_TOKEN');
@@ -45,7 +45,6 @@ console.log('[BOOT] ATLAS FX Bot starting...');
 // SYMBOL ROUTING
 // ============================================================
 
-// Known symbol overrides
 const SYMBOL_OVERRIDES = {
   'MICRON': 'NASDAQ:MU',
   'MU':     'NASDAQ:MU',
@@ -53,20 +52,13 @@ const SYMBOL_OVERRIDES = {
 
 function getTVSymbol(symbol) {
   if (SYMBOL_OVERRIDES[symbol]) return SYMBOL_OVERRIDES[symbol];
-
-  // 6-char forex pairs -> OANDA
   if (/^[A-Z]{6}$/.test(symbol)) return `OANDA:${symbol}`;
-
-  // Metals
-  if (symbol === 'XAUUSD') return `OANDA:XAUUSD`;
-  if (symbol === 'XAGUSD') return `OANDA:XAGUSD`;
-
-  // Default -> NASDAQ
   return `NASDAQ:${symbol}`;
 }
 
 function buildChartUrl(symbol, interval) {
-  return `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(getTVSymbol(symbol))}&interval=${interval}`;
+  const tvSymbol = encodeURIComponent(getTVSymbol(symbol));
+  return `https://www.tradingview.com/chart/?symbol=${tvSymbol}&interval=${interval}&theme=light`;
 }
 
 // ============================================================
@@ -74,17 +66,17 @@ function buildChartUrl(symbol, interval) {
 // ============================================================
 
 const TF_HIGH = [
-  { key: '1W',  label: 'Weekly',  interval: '1W'  },
-  { key: '1D',  label: 'Daily',   interval: '1D'  },
-  { key: '4H',  label: '4H',      interval: '240' },
-  { key: '1H',  label: '1H',      interval: '60'  },
+  { key: '1W',  label: 'Weekly', interval: '1W'  },
+  { key: '1D',  label: 'Daily',  interval: '1D'  },
+  { key: '4H',  label: '4H',     interval: '240' },
+  { key: '1H',  label: '1H',     interval: '60'  },
 ];
 
 const TF_LOW = [
-  { key: '4H',  label: '4H',      interval: '240' },
-  { key: '1H',  label: '1H',      interval: '60'  },
-  { key: '15M', label: '15M',     interval: '15'  },
-  { key: '1M',  label: '1M',      interval: '1'   },
+  { key: '4H',  label: '4H',     interval: '240' },
+  { key: '1H',  label: '1H',     interval: '60'  },
+  { key: '15M', label: '15M',    interval: '15'  },
+  { key: '1M',  label: '1M',     interval: '1'   },
 ];
 
 const TF_INTERVAL_MAP = {
@@ -111,7 +103,6 @@ function parse(input) {
     return { symbol: upper.slice(0, -1), tfs: TF_HIGH, setLabel: 'HTF' };
   }
 
-  // No suffix -- default to high timeframes
   return { symbol: upper, tfs: TF_HIGH, setLabel: 'HTF' };
 }
 
@@ -133,16 +124,15 @@ function saveToArchive(buffer, symbol, tfKey) {
   try {
     const dir = buildArchiveDir(symbol);
     fs.mkdirSync(dir, { recursive: true });
-    const filePath = path.join(dir, buildFilename(symbol, tfKey));
-    fs.writeFileSync(filePath, buffer);
-    console.log('[ARCHIVE]', filePath);
+    fs.writeFileSync(path.join(dir, buildFilename(symbol, tfKey)), buffer);
+    console.log('[ARCHIVE]', symbol, tfKey);
   } catch (err) {
     console.error('[ARCHIVE ERROR]', err.message);
   }
 }
 
 // ============================================================
-// IN-MEMORY CACHE (for share button, 15 min TTL)
+// IN-MEMORY CACHE (share button, 15 min TTL)
 // ============================================================
 
 const requestCache = new Map();
@@ -155,7 +145,7 @@ setInterval(() => {
 }, 60 * 1000);
 
 // ============================================================
-// BROWSER (persistent, reset on crash)
+// BROWSER (persistent, auto-reset on crash)
 // ============================================================
 
 let browser = null;
@@ -191,12 +181,11 @@ async function renderChart(symbol, interval, tfKey) {
     let context;
     try {
       console.log(`[RENDER] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES}`);
-      console.log(`[URL] ${url}`);
 
       const b = await getBrowser();
 
       context = await b.newContext({
-        viewport: { width: 1920, height: 1080 },
+        viewport:          { width: 1920, height: 1080 },
         deviceScaleFactor: 1,
       });
 
@@ -207,7 +196,7 @@ async function renderChart(symbol, interval, tfKey) {
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(4000);
 
-      // Dismiss popups/cookie banners
+      // Dismiss popups / cookie banners
       const dismissSelectors = [
         'button[aria-label="Close"]',
         'button[title="Close"]',
@@ -241,11 +230,27 @@ async function renderChart(symbol, interval, tfKey) {
           console.log(`[TF SET] ${symbol} -> ${label}`);
         }
       } catch (_) {
-        console.warn(`[TF CLICK FAIL] ${symbol} ${tfKey} -- using URL interval`);
+        console.warn(`[TF CLICK FAIL] ${symbol} ${tfKey} — using URL interval`);
       }
 
-      // Extra settle
-      await page.waitForTimeout(2000);
+      // Hide UI chrome — bottom bar, toolbars, side panels
+      await page.evaluate(() => {
+        const selectors = [
+          '.chart-controls-bar',         // bottom timeframe bar
+          '.layout__area--left',          // left toolbar
+          '.layout__area--right',         // right toolbar
+          '.header-chart-panel',          // top header
+          '[data-name="legend"]',         // legend
+          '.tv-floating-toolbar',         // floating toolbar
+        ];
+        selectors.forEach((sel) => {
+          document.querySelectorAll(sel).forEach((el) => {
+            el.style.display = 'none';
+          });
+        });
+      });
+
+      await page.waitForTimeout(1000);
 
       // Fullscreen
       try {
@@ -299,7 +304,6 @@ client.on('messageCreate', async (msg) => {
   const raw = (msg.content || '').trim();
   if (!raw) return;
 
-  // Ping
   if (raw === '!ping') {
     await msg.reply('pong');
     return;
@@ -307,8 +311,8 @@ client.on('messageCreate', async (msg) => {
 
   if (!raw.toLowerCase().startsWith('!chart')) return;
 
-  const parts  = raw.split(/\s+/);
-  const input  = parts[1] || '';
+  const parts = raw.split(/\s+/);
+  const input = parts[1] || '';
 
   if (!input) {
     await msg.reply('Usage: `!chart EURUSDH` (HTF) or `!chart EURUSDL` (LTF)');
@@ -327,7 +331,7 @@ client.on('messageCreate', async (msg) => {
   const progress = await msg.reply(`⏳ Generating **${symbol}** ${setLabel} charts...`);
 
   try {
-    // Parallel render all timeframes simultaneously
+    // Render all timeframes in parallel
     const buffers = await Promise.all(
       tfs.map((tf) => renderChart(symbol, tf.interval, tf.key))
     );
@@ -350,7 +354,7 @@ client.on('messageCreate', async (msg) => {
       expiresAt: Date.now() + 15 * 60 * 1000,
     });
 
-    // Build share buttons if channel is configured
+    // Share buttons
     const components = [];
     if (SHARED_MACROS_CHANNEL) {
       components.push(
@@ -399,7 +403,7 @@ client.on('interactionCreate', async (interaction) => {
   // Share
   if (interaction.customId.startsWith('share_')) {
 
-    // Defer immediately -- Discord 3s timeout
+    // Defer immediately — Discord 3s timeout
     try {
       await interaction.deferUpdate();
     } catch (err) {
