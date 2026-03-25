@@ -1,4 +1,4 @@
-// ============================================================
+So You// ============================================================
 // ATLAS FX DISCORD BOT — UNIFIED FINAL BUILD (FAST MODE CLEAN)
 // ============================================================
 //
@@ -154,7 +154,7 @@ function getTVSymbol(symbol) {
 
 function buildChartUrl(symbol, interval) {
   const tvSymbol = encodeURIComponent(getTVSymbol(symbol));
-  return `https://www.tradingview.com/chart/?symbol=${tvSymbol}&interval=${interval}&theme=light`;
+  return `https://www.tradingview.com/chart/?symbol=${tvSymbol}&interval=${interval}&theme=dark`;
 }
 
 // ============================================================
@@ -388,7 +388,7 @@ async function getBrowser() {
 }
 
 // ============================================================
-// FAST RENDER ENGINE
+// FAST RENDER ENGINE (FINAL — DARK + CLEAN + STABLE)
 // ============================================================
 
 async function renderChart(symbol, interval, tfKey) {
@@ -411,20 +411,30 @@ async function renderChart(symbol, interval, tfKey) {
       page.setDefaultNavigationTimeout(15000);
       page.setDefaultTimeout(15000);
 
+      // FORCE DARK BEFORE LOAD
       await page.addInitScript(() => {
         try {
-          localStorage.setItem('theme', 'light');
+          localStorage.setItem('theme', 'dark');
         } catch (_) {}
       });
 
+      // 🔥 CRITICAL — LOAD THE CHART
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
         timeout: 15000,
       });
 
+      // 🔥 FORCE DARK AFTER LOAD
+      await page.evaluate(() => {
+        try {
+          localStorage.setItem('theme', 'dark');
+          document.body.classList.add('theme-dark');
+        } catch (e) {}
+      });
+
       await page.waitForTimeout(CHART_LOAD_WAIT_MS);
 
-      // Fast minimal cleanup without heavy UI interaction
+      // 🔥 CLEAN UI (RIGHT PANEL + TOOLBARS + VOLUME)
       await page.evaluate(() => {
         const selectors = [
           '[data-name="right-toolbar"]',
@@ -432,6 +442,9 @@ async function renderChart(symbol, interval, tfKey) {
           '.tv-control-bar',
           '.tv-floating-toolbar',
           '.js-symbol-logo',
+          '[class*="right"]',
+          '[class*="sidebar"]',
+          '[class*="toolbar"]',
         ];
 
         selectors.forEach((sel) => {
@@ -440,6 +453,7 @@ async function renderChart(symbol, interval, tfKey) {
           });
         });
 
+        // REMOVE VOLUME
         document.querySelectorAll('*').forEach((el) => {
           const text = (el.innerText || '').trim();
           if (text === 'Vol' || text.startsWith('Vol ')) {
@@ -447,6 +461,14 @@ async function renderChart(symbol, interval, tfKey) {
           }
         });
       }).catch(() => {});
+
+      // 🔥 LIGHT ZOOM FOR BETTER FOCUS
+      try {
+        await page.keyboard.down('Control');
+        await page.keyboard.press('=');
+        await page.keyboard.press('=');
+        await page.keyboard.up('Control');
+      } catch (_) {}
 
       await page.waitForTimeout(500);
 
@@ -460,7 +482,7 @@ async function renderChart(symbol, interval, tfKey) {
 
       const optimised = await sharp(raw)
         .resize(2560, 1440, { fit: 'cover' })
-        .jpeg({ quality: 90, mozjpeg: true })
+        .jpeg({ quality: 92, mozjpeg: true })
         .toBuffer();
 
       console.log(`[FAST OK] ${symbol} ${tfKey} ${(optimised.length / 1024 / 1024).toFixed(2)}MB`);
@@ -474,11 +496,11 @@ async function renderChart(symbol, interval, tfKey) {
       }
 
       if (attempt === MAX_RETRIES) throw err;
+
       await new Promise((resolve) => setTimeout(resolve, 1500));
     }
   }
 }
-
 // ============================================================
 // RENDER BATCH
 // ============================================================
