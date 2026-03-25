@@ -10,9 +10,7 @@
 //   !ping             — Health check
 //
 // GROUPS: AT | SK | NM | BR
-// Each group has its own combined output channel
-// State machine tracks LTF + HTF + macro + roadmap per group/symbol
-// Combined post fires automatically when LTF + macro are both ready
+// Rendering: 2560x1440 CMC-style, light theme, no volume bars
 // ============================================================
 
 process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED REJECTION]', reason); });
@@ -32,7 +30,7 @@ const fs    = require('fs');
 // CONFIG
 // ============================================================
 
-const TOKEN   = process.env.DISCORD_BOT_TOKEN;
+const TOKEN      = process.env.DISCORD_BOT_TOKEN;
 const EXPORT_DIR = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
 const MAX_RETRIES = Number(process.env.MAX_RENDER_RETRIES || 2);
 const STATE_TTL   = 1000 * 60 * 60 * 2; // 2 hours
@@ -48,8 +46,6 @@ console.log('[BOOT] ATLAS FX Bot starting...');
 // GROUP + CHANNEL CONFIG
 // ============================================================
 
-// Maps Discord channel ID -> group name
-// These are the channels the bot listens for commands in
 const CHANNEL_GROUP_MAP = {
   // Roadmap macro request channels (primary command channels)
   '1432642672287547453': 'AT',
@@ -63,16 +59,12 @@ const CHANNEL_GROUP_MAP = {
   '1482451091630194868': 'BR',
 };
 
-// Combined output webhooks per group (set in Render environment variables)
 const COMBINED_WEBHOOKS = {
   AT: process.env.AT_COMBINED_WEBHOOK,
   SK: process.env.SK_COMBINED_WEBHOOK,
   NM: process.env.NM_COMBINED_WEBHOOK,
   BR: process.env.BR_COMBINED_WEBHOOK,
 };
-
-// Shared macros channel ID (set in Render environment variables)
-const SHARED_MACROS_CHANNEL = process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
 
 // ============================================================
 // VALID SYMBOLS
@@ -157,7 +149,6 @@ function parseCommand(content) {
 
   if (trimmed === '!ping') return { action: 'ping' };
 
-  // !EURUSDL or !EURUSDH
   const chartOnly = trimmed.match(/^!([A-Z0-9]{2,10})([LH])$/i);
   if (chartOnly) {
     return {
@@ -167,7 +158,6 @@ function parseCommand(content) {
     };
   }
 
-  // !EURUSDL /macro or !EURUSDH /roadmap
   const withAction = trimmed.match(/^!([A-Z0-9]{2,10})([LH])\s*\/(macro|roadmap)$/i);
   if (withAction) {
     return {
@@ -184,32 +174,21 @@ function parseCommand(content) {
 // STATE MACHINE
 // ============================================================
 
-// STATE[group][symbol] = { ltf, htf, macro, roadmap, ts }
 const STATE = {};
 
 function ensureState(group, symbol) {
   if (!STATE[group])         STATE[group] = {};
   if (!STATE[group][symbol]) {
-    STATE[group][symbol] = {
-      ltf:     null,
-      htf:     null,
-      macro:   null,
-      roadmap: null,
-      ts:      null,
-    };
+    STATE[group][symbol] = { ltf: null, htf: null, macro: null, roadmap: null, ts: null };
   }
   return STATE[group][symbol];
 }
 
 function touch(s) { s.ts = Date.now(); }
 
-function isFresh(s) {
-  return s.ts && (Date.now() - s.ts < STATE_TTL);
-}
+function isFresh(s) { return s.ts && (Date.now() - s.ts < STATE_TTL); }
 
-function isReadyToCombine(s) {
-  return s.ltf && s.macro && isFresh(s);
-}
+function isReadyToCombine(s) { return s.ltf && s.macro && isFresh(s); }
 
 // ============================================================
 // ARCHIVE
@@ -237,7 +216,7 @@ function saveToArchive(buffer, symbol, tfKey) {
 }
 
 // ============================================================
-// QUEUE SYSTEM
+// QUEUE
 // ============================================================
 
 const queue = [];
@@ -285,7 +264,8 @@ async function getBrowser() {
 }
 
 // ============================================================
-// RENDER
+// RENDER — CMC STYLE
+// Resolution: 2560x1440 | Light theme | No volume | Clean UI
 // ============================================================
 
 async function renderChart(symbol, interval, tfKey) {
@@ -297,14 +277,21 @@ async function renderChart(symbol, interval, tfKey) {
       console.log(`[RENDER] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES}`);
 
       const b = await getBrowser();
+
       context = await b.newContext({
-        viewport:          { width: 1920, height: 1080 },
-        deviceScaleFactor: 1,
+        viewport:          { width: 2560, height: 1440 },
+        deviceScaleFactor: 2, // Retina-style sharpness
       });
 
       const page = await context.newPage();
       page.setDefaultNavigationTimeout(45000);
       page.setDefaultTimeout(25000);
+
+      // Force light theme via localStorage BEFORE page loads
+      await page.addInitScript(() => {
+        localStorage.setItem('theme', 'light');
+        localStorage.setItem('tv_user_pro_plan', 'pro');
+      });
 
       await page.goto(url, { waitUntil: 'domcontentloaded' });
       await page.waitForTimeout(4000);
@@ -344,12 +331,14 @@ async function renderChart(symbol, interval, tfKey) {
         console.warn(`[TF CLICK FAIL] ${symbol} ${tfKey} — using URL interval`);
       }
 
-      // Reset zoom
+      // Reset zoom (Ctrl+0) + fit chart (Alt+R)
       try {
         await page.keyboard.down('Control');
         await page.keyboard.press('0');
         await page.keyboard.up('Control');
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(400);
+        await page.keyboard.press('Alt+R');
+        await page.waitForTimeout(400);
       } catch (_) {}
 
       // ESC to restore any hidden panels
@@ -358,8 +347,9 @@ async function renderChart(symbol, interval, tfKey) {
         await page.waitForTimeout(300);
       } catch (_) {}
 
-      // Hide UI chrome — bottom bar, toolbars, side panels
+      // Remove UI chrome + volume bars via DOM injection
       await page.evaluate(() => {
+        // Hide standard UI elements
         [
           '.chart-controls-bar',
           '.layout__area--left',
@@ -372,22 +362,36 @@ async function renderChart(symbol, interval, tfKey) {
             el.style.display = 'none';
           });
         });
+
+        // Remove volume pane — find panes containing "Vol" text
+        const hideVolume = () => {
+          document.querySelectorAll('[class*="pane"]').forEach((p) => {
+            if (p.innerText && p.innerText.includes('Vol')) {
+              p.style.display = 'none';
+            }
+          });
+        };
+        hideVolume();
+        setTimeout(hideVolume, 1500);
       });
 
-      await page.waitForTimeout(1500);
+      // Wait for clean render
+      await page.waitForTimeout(3000);
 
-      // Fullscreen
+      // Fullscreen hotkey
       try {
         await page.keyboard.press('Shift+F');
         await page.waitForTimeout(1000);
       } catch (_) {}
 
+      // Capture at full 2560x1440
       const raw = await page.screenshot({ type: 'png', fullPage: false });
       await context.close();
 
+      // Compress to high-quality JPEG — retain sharpness
       const optimised = await sharp(raw)
-        .resize(1920, 1080, { fit: 'cover' })
-        .jpeg({ quality: 85, mozjpeg: true })
+        .resize(2560, 1440, { fit: 'cover' })
+        .jpeg({ quality: 90, mozjpeg: true })
         .toBuffer();
 
       console.log(`[RENDER OK] ${symbol} ${tfKey} ${(optimised.length / 1024 / 1024).toFixed(2)}MB`);
@@ -403,34 +407,25 @@ async function renderChart(symbol, interval, tfKey) {
 }
 
 // ============================================================
-// RENDER BATCH
+// RENDER BATCH (parallel)
 // ============================================================
 
 async function renderBatch(symbol, tfs) {
-  // Parallel render all timeframes simultaneously
   const buffers = await Promise.all(
     tfs.map((tf) => renderChart(symbol, tf.interval, tf.key))
   );
 
-  const files = buffers.map((buf, i) => {
+  return buffers.map((buf, i) => {
     saveToArchive(buf, symbol, tfs[i].key);
-    return {
-      buf,
-      name:     buildFilename(symbol, tfs[i].key),
-      label:    tfs[i].label,
-      tfKey:    tfs[i].key,
-    };
+    return { buf, name: buildFilename(symbol, tfs[i].key), label: tfs[i].label };
   });
-
-  return files;
 }
 
 // ============================================================
-// MACRO ENGINE
+// MACRO + ROADMAP (placeholders — replace with live source)
 // ============================================================
 
 function generateMacro(symbol) {
-  // Placeholder — replace with live data source or AI call
   return `**${symbol} Macro**
 
 Bias: Bearish
@@ -440,12 +435,7 @@ State: Post-sweep → pullback
 Levels: 1.1625 / 1.1580 / 1.1550`;
 }
 
-// ============================================================
-// ROADMAP ENGINE
-// ============================================================
-
 function generateRoadmap(symbol) {
-  // Placeholder — replace with live data source or AI call
   return `**${symbol} Weekly Roadmap**
 
 Range: 1.1700 – 1.1450
@@ -454,7 +444,7 @@ HTF Supply: Holding`;
 }
 
 // ============================================================
-// COMBINE + SEND
+// COMBINE + SEND TO GROUP WEBHOOK
 // ============================================================
 
 function buildCombinedText(symbol, s) {
@@ -466,10 +456,10 @@ function buildCombinedText(symbol, s) {
 }
 
 async function sendToWebhook(webhookUrl, content, files) {
+  if (!webhookUrl) return;
+
   const FormData = require('form-data');
   const axios    = require('axios');
-
-  if (!webhookUrl) return;
 
   if (files && files.length > 0) {
     const form = new FormData();
@@ -494,26 +484,15 @@ async function sendToWebhook(webhookUrl, content, files) {
 async function tryCombine(group, symbol, s) {
   if (!isReadyToCombine(s)) return;
 
-  const text    = buildCombinedText(symbol, s);
   const webhook = COMBINED_WEBHOOKS[group];
-
   if (!webhook) {
-    console.warn(`[COMBINE] No webhook configured for group ${group}`);
+    console.warn(`[COMBINE] No webhook for group ${group}`);
     return;
   }
 
-  // Send text macro first
-  await sendToWebhook(webhook, text, null);
-
-  // Send LTF charts
-  if (s.ltf && s.ltf.length > 0) {
-    await sendToWebhook(webhook, `📉 **${symbol}** LTF Charts`, s.ltf);
-  }
-
-  // Send HTF charts if available
-  if (s.htf && s.htf.length > 0) {
-    await sendToWebhook(webhook, `📈 **${symbol}** HTF Charts`, s.htf);
-  }
+  await sendToWebhook(webhook, buildCombinedText(symbol, s), null);
+  if (s.ltf  && s.ltf.length  > 0) await sendToWebhook(webhook, `📉 **${symbol}** LTF Charts`, s.ltf);
+  if (s.htf  && s.htf.length  > 0) await sendToWebhook(webhook, `📈 **${symbol}** HTF Charts`, s.htf);
 
   console.log(`[COMBINED] ${group} ${symbol} posted`);
 }
@@ -544,13 +523,11 @@ client.on('messageCreate', async (msg) => {
   const raw = (msg.content || '').trim();
   if (!raw) return;
 
-  // Ping — works anywhere
   if (raw === '!ping') {
     await msg.reply('pong');
     return;
   }
 
-  // All other commands restricted to group channels
   const group = CHANNEL_GROUP_MAP[msg.channel.id];
   if (!group) return;
 
@@ -571,33 +548,31 @@ client.on('messageCreate', async (msg) => {
   if (action === 'chart') {
     enqueue(async () => {
       console.log(`[CHART] ${msg.author.username} ${group} -> ${symbol} ${setLabel}`);
-
       const progress = await msg.reply(`⏳ Generating **${symbol}** ${setLabel} charts...`);
 
       try {
         const files = await renderBatch(symbol, tfs);
 
-        const attachments = files.map((f) =>
-          new AttachmentBuilder(f.buf, { name: f.name })
-        );
+        // Send each chart as a separate attachment for full Discord expand
+        for (const f of files) {
+          await msg.channel.send({
+            content: `📊 **${symbol}** · ${f.label}`,
+            files:   [new AttachmentBuilder(f.buf, { name: f.name })],
+          });
+        }
 
-        await progress.edit({
-          content: `✅ **${symbol}** ${setLabel} charts`,
-          files:   attachments,
-        });
+        await progress.edit(`✅ **${symbol}** ${setLabel} charts delivered`);
 
-        // Update state
         const s = ensureState(group, symbol);
         if (mode === 'L') s.ltf = files;
         if (mode === 'H') s.htf = files;
         touch(s);
 
-        // Attempt combined post
         await tryCombine(group, symbol, s);
 
       } catch (err) {
         console.error('[CHART ERROR]', err.message);
-        await progress.edit(`❌ Failed to generate **${symbol}** charts.\nReason: ${err.message}`);
+        await progress.edit(`❌ Failed: ${err.message}`);
       }
     });
     return;
@@ -607,7 +582,6 @@ client.on('messageCreate', async (msg) => {
   if (action === 'macro') {
     enqueue(async () => {
       console.log(`[MACRO] ${msg.author.username} ${group} -> ${symbol}`);
-
       const s = ensureState(group, symbol);
 
       if (!s.htf) {
@@ -629,7 +603,6 @@ client.on('messageCreate', async (msg) => {
   if (action === 'roadmap') {
     enqueue(async () => {
       console.log(`[ROADMAP] ${msg.author.username} ${group} -> ${symbol}`);
-
       const roadmap = generateRoadmap(symbol);
 
       const s = ensureState(group, symbol);
