@@ -26,7 +26,6 @@ const {
 const sharp = require('sharp');
 const path  = require('path');
 const fs    = require('fs');
-const axios = require('axios');
 const FormData = require('form-data');
 
 // ============================================================
@@ -511,33 +510,38 @@ async function sendTextToChannelId(client, channelId, content) {
     return false;
   }
 }
-
 async function sendToWebhook(webhookUrl, content, files) {
   if (!webhookUrl) return;
 
-  if (files && files.length > 0) {
+  try {
+    // TEXT ONLY
+    if (!files || files.length === 0) {
+      await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content })
+      });
+      return;
+    }
+
+    // WITH FILES
     const form = new FormData();
-    form.append('payload_json', JSON.stringify({ content }));
+    form.append("payload_json", JSON.stringify({ content }));
 
     files.forEach((f, i) => {
-      form.append(`files[${i}]`, f.buf, {
-        filename: f.name,
-        contentType: 'image/jpeg',
-      });
+      form.append(`files[${i}]`, f.buf, f.name);
     });
 
-    await axios.post(webhookUrl, form, {
-      headers: form.getHeaders(),
-      maxBodyLength: Infinity,
-      timeout: 60000,
+    await fetch(webhookUrl, {
+      method: "POST",
+      body: form
     });
-  } else {
-    await axios.post(webhookUrl, { content }, {
-      headers: { 'Content-Type': 'application/json' },
-      timeout: 10000,
-    });
+
+  } catch (err) {
+    console.error("[WEBHOOK ERROR]", err.message);
   }
 }
+
 
 // ============================================================
 // COMBINE + SEND TO GROUP WEBHOOK
