@@ -26,7 +26,6 @@ const {
 const sharp = require('sharp');
 const path  = require('path');
 const fs    = require('fs');
-const FormData = require('form-data');
 
 // ============================================================
 // CONFIG
@@ -524,8 +523,9 @@ async function sendToWebhook(webhookUrl, content, files) {
       return;
     }
 
-    // WITH FILES
+    // WITH FILES (NODE SAFE)
     const form = new FormData();
+
     form.append("payload_json", JSON.stringify({ content }));
 
     files.forEach((f, i) => {
@@ -541,8 +541,6 @@ async function sendToWebhook(webhookUrl, content, files) {
     console.error("[WEBHOOK ERROR]", err.message);
   }
 }
-
-
 // ============================================================
 // COMBINE + SEND TO GROUP WEBHOOK
 // ============================================================
