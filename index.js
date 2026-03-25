@@ -730,6 +730,26 @@ client.once('clientReady', () => {
 // ============================================================
 
 client.on('messageCreate', async (msg) => {
+// HARD DUPLICATE PROTECTION
+if (!msg.id || msg.partial) return;
+
+if (global.__lastMessageId === msg.id) {
+  console.log('[DUPLICATE BLOCKED]', msg.id);
+  return;
+}
+global.__lastMessageId = msg.id;
+  // SECONDARY SPAM / DUPLICATE PROTECTION
+const now = Date.now();
+global.__recentCommands = global.__recentCommands || {};
+
+const key = msg.content;
+
+if (global.__recentCommands[key] && now - global.__recentCommands[key] < 5000) {
+  console.log('[SPAM BLOCKED]', key);
+  return;
+}
+
+global.__recentCommands[key] = now;
   if (msg.author.bot) return;
 
   if (PROCESSED_MESSAGES.has(msg.id)) return;
