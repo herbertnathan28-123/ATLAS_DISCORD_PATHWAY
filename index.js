@@ -73,7 +73,7 @@ async function renderPanel(symbol, tf) {
 
   const page = await context.newPage();
 
-  const url = `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${getTVSymbol(symbol)}&interval=${tf}`;
+  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}&hide_side_toolbar=1&layout=single`;
 
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(5000);
