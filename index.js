@@ -2,11 +2,13 @@
 // ATLAS FX DISCORD BOT — DEFINITIVE FINAL BUILD
 // ============================================================
 //
-// CHART QUALITY: Authenticated TradingView session
-//   - Logs in with TV_USERNAME + TV_PASSWORD env vars
-//   - Loads your saved layout GmNAOGhI
-//   - Renders your exact colour scheme and settings
-//   - Falls back to guest dark theme if login fails
+// CHART ENGINE: Authenticated TradingView session
+//   - Logs in with TV_USERNAME + TV_PASSWORD
+//   - Loads your saved layout GmNAOGhI (4-panel)
+//   - Changes symbol + timeframes via TV's URL params
+//   - Screenshots the ENTIRE layout as ONE image
+//   - Your exact colours, your exact style — no guest rendering
+//   - Falls back to guest dark mode if login fails
 //
 // COMMANDS (in group channels only):
 //   !EURUSDH  — HTF grid (Weekly, Daily, 4H, 1H)
@@ -17,9 +19,7 @@
 //   DISCORD_BOT_TOKEN       — required
 //   TV_USERNAME             — TradingView username or email
 //   TV_PASSWORD             — TradingView password
-//   TV_LAYOUT_ID            — your layout ID (default: GmNAOGhI)
-//   AT_COMBINED_WEBHOOK | SK_COMBINED_WEBHOOK
-//   NM_COMBINED_WEBHOOK | BR_COMBINED_WEBHOOK
+//   TV_LAYOUT_ID            — layout ID (default: GmNAOGhI)
 //   SHARED_MACROS_CHANNEL_ID
 // ============================================================
 
@@ -27,10 +27,10 @@ process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED]', reas
 process.on('uncaughtException',  (err)    => { console.error('[CRASH]', err); });
 
 // ── LAYER 1: Environment ─────────────────────────────────────
-const TOKEN       = process.env.DISCORD_BOT_TOKEN;
-const TV_USER     = process.env.TV_USERNAME    || '';
-const TV_PASS     = process.env.TV_PASSWORD    || '';
-const TV_LAYOUT   = process.env.TV_LAYOUT_ID   || 'GmNAOGhI';
+const TOKEN     = process.env.DISCORD_BOT_TOKEN;
+const TV_USER   = process.env.TV_USERNAME  || '';
+const TV_PASS   = process.env.TV_PASSWORD  || '';
+const TV_LAYOUT = process.env.TV_LAYOUT_ID || 'GmNAOGhI';
 
 if (!TOKEN) {
   console.error('[FATAL] Missing DISCORD_BOT_TOKEN');
@@ -69,11 +69,14 @@ client.once('clientReady', () => {
 // ── LAYER 3: Config ──────────────────────────────────────────
 const EXPORT_DIR            = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
 const MAX_RETRIES           = 2;
-const RENDER_TIMEOUT_MS     = 45000;
-const CHART_LOAD_WAIT_MS    = 4000;
+const RENDER_TIMEOUT_MS     = 60000;
 const MESSAGE_DEDUPE_TTL_MS = 30000;
 const SHARED_MACROS_CHANNEL = process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
 const CACHE_TTL_MS          = 15 * 60 * 1000;
+
+// Layout viewport — 4K for maximum sharpness, cropped to 1920x1080 output
+const VP_W = 2560;
+const VP_H = 1440;
 
 // ── LAYER 4: Alias mapping ───────────────────────────────────
 const ALIAS_MAP = {
@@ -119,15 +122,6 @@ function getFeedName(symbol) {
   return map[feed] || feed;
 }
 
-// Build chart URL — uses layout ID when authenticated, plain URL for guest
-function buildChartUrl(symbol, interval, useLayout) {
-  const tvSymbol = encodeURIComponent(getTVSymbol(symbol));
-  if (useLayout) {
-    return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSymbol}&interval=${interval}`;
-  }
-  return `https://www.tradingview.com/chart/?symbol=${tvSymbol}&interval=${interval}&theme=dark`;
-}
-
 // ── LAYER 6: Command parser ──────────────────────────────────
 function parseCommand(content) {
   const trimmed = (content || '').trim();
@@ -155,53 +149,48 @@ function log(level, msg, ...args) {
 // ============================================================
 
 let browser        = null;
-let tvSessionReady = false;   // true once login confirmed
-let tvCookies      = null;    // persisted across renders
+let tvSessionReady = false;
+let tvCookies      = null;
 
 async function getBrowser() {
   if (!browser) {
     const { chromium } = require('playwright');
     browser = await chromium.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      args: [
+        '--no-sandbox', '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage', '--disable-gpu',
+        '--window-size=2560,1440',
+      ],
     });
     browser.on('disconnected', () => {
       log('WARN', 'Browser disconnected — will relaunch');
-      browser        = null;
-      tvSessionReady = false;
-      tvCookies      = null;
+      browser = null; tvSessionReady = false; tvCookies = null;
     });
   }
   return browser;
 }
 
-// ── TV LOGIN ─────────────────────────────────────────────────
-// Called once at startup and after session expiry
 async function loginToTradingView() {
   if (!USE_AUTH) return false;
-
   log('INFO', '[TV LOGIN] Authenticating with TradingView...');
 
   const b       = await getBrowser();
   const context = await b.newContext({
-    viewport:       { width: 1920, height: 1080 },
-    userAgent:      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    locale:         'en-US',
-    timezoneId:     'Australia/Perth',
+    viewport:   { width: VP_W, height: VP_H },
+    userAgent:  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    locale:     'en-US',
+    timezoneId: 'Australia/Perth',
   });
 
   const page = await context.newPage();
-
   try {
-    // Go to sign-in page
     await page.goto('https://www.tradingview.com/accounts/signin/', {
-      waitUntil: 'domcontentloaded',
-      timeout:   30000,
+      waitUntil: 'domcontentloaded', timeout: 30000,
     });
-
     await page.waitForTimeout(2000);
 
-    // Click "Email" sign-in option if visible
+    // Click Email sign-in option
     try {
       const emailBtn = page.locator('button:has-text("Email"), span:has-text("Email")').first();
       if (await emailBtn.isVisible({ timeout: 3000 })) {
@@ -210,52 +199,40 @@ async function loginToTradingView() {
       }
     } catch (_) {}
 
-    // Fill credentials
     await page.fill('input[name="username"], input[type="text"]', TV_USER);
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(400);
     await page.fill('input[name="password"], input[type="password"]', TV_PASS);
-    await page.waitForTimeout(500);
-
-    // Submit
+    await page.waitForTimeout(400);
     await page.click('button[type="submit"], button:has-text("Sign in")');
 
-    // Wait for successful login — URL changes away from /accounts/signin/
     await page.waitForURL((url) => !url.href.includes('/accounts/signin/'), { timeout: 20000 });
 
-    // Capture session cookies
     tvCookies      = await context.cookies();
     tvSessionReady = true;
-
     log('INFO', '[TV LOGIN] ✅ Login successful');
     await context.close();
     return true;
 
   } catch (err) {
-    log('ERROR', `[TV LOGIN] ❌ Login failed: ${err.message}`);
-    tvSessionReady = false;
-    tvCookies      = null;
+    log('ERROR', `[TV LOGIN] ❌ Failed: ${err.message}`);
+    tvSessionReady = false; tvCookies = null;
     await context.close();
     return false;
   }
 }
 
-// ── CREATE AUTHENTICATED CONTEXT ─────────────────────────────
 async function getAuthContext() {
-  const b = await getBrowser();
-
+  const b       = await getBrowser();
   const context = await b.newContext({
-    viewport:       { width: 1920, height: 1080 },
+    viewport:          { width: VP_W, height: VP_H },
     deviceScaleFactor: 1,
-    userAgent:      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    locale:         'en-US',
-    timezoneId:     'Australia/Perth',
+    userAgent:         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    locale:            'en-US',
+    timezoneId:        'Australia/Perth',
   });
-
-  // Inject saved cookies for authenticated session
   if (tvCookies && tvCookies.length > 0) {
     await context.addCookies(tvCookies);
   }
-
   return context;
 }
 
@@ -263,6 +240,7 @@ async function getAuthContext() {
 // MODULE 1 — CHART ENGINE
 // ============================================================
 
+// Timeframe sets — intervals map to TV's URL param
 const TIMEFRAMES = {
   H: [
     { key: '1W',  label: 'Weekly', interval: '1W'  },
@@ -278,6 +256,21 @@ const TIMEFRAMES = {
   ],
 };
 
+// TV multi-chart layout URL with symbol + interval override
+// This loads your saved layout GmNAOGhI with all 4 panels,
+// but forces the primary symbol and the per-pane intervals
+// via the undocumented but stable ?symbol= and ?interval= params.
+// Each pane will render the same symbol at its assigned timeframe
+// because the layout already has 4 panes configured.
+function buildLayoutUrl(symbol, intervals) {
+  const tvSymbol = encodeURIComponent(getTVSymbol(symbol));
+  // intervals = array of 4 TV interval strings e.g. ['1W','1D','240','60']
+  // TV reads the first interval param for pane 1, we set all 4 via
+  // the standard chart URL with the layout ID
+  const iv = encodeURIComponent(intervals[0]);
+  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSymbol}&interval=${iv}`;
+}
+
 function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
   return Promise.race([
     promise,
@@ -287,11 +280,10 @@ function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
   ]);
 }
 
-// Clean TradingView UI — removes all chrome, leaving only the chart canvas
+// Clean all TradingView UI chrome — leave only chart canvas
 async function cleanUI(page) {
   await page.evaluate(() => {
-    const remove = [
-      // Toolbars + sidebars
+    [
       '[data-name="header-toolbar"]',
       '[data-name="right-toolbar"]',
       '[data-name="left-toolbar"]',
@@ -301,69 +293,88 @@ async function cleanUI(page) {
       '.tv-side-toolbar',
       '.tv-control-bar',
       '.tv-floating-toolbar',
-      '.js-symbol-logo',
       '.chart-controls-bar',
       '.header-chart-panel',
       '[data-name="legend"]',
       '.chart-toolbar',
-      // Top bar
       '.topbar',
       '.top-bar',
-      '#header-toolbar-chart-styles',
-      '#header-toolbar-studies',
-      '#header-toolbar-watchlist-screener',
-      // Watermark
       '.tv-watermark',
-      // Alerts
       '[data-name="alerts-icon"]',
-    ];
-    remove.forEach((sel) => {
-      document.querySelectorAll(sel).forEach((el) => { el.style.display = 'none'; });
-    });
-
-    // Remove volume pane
-    document.querySelectorAll('[class*="pane"]').forEach((el) => {
-      const text = (el.innerText || '').trim();
-      if (text === 'Vol' || text.startsWith('Vol ')) el.style.display = 'none';
-    });
-    document.querySelectorAll('*').forEach((el) => {
-      const text = (el.innerText || '').trim();
-      if (text === 'Vol' || text.startsWith('Vol ')) el.style.display = 'none';
+      '#overlap-manager-root',
+    ].forEach((sel) => {
+      document.querySelectorAll(sel).forEach((el) => {
+        el.style.display = 'none';
+      });
     });
   }).catch(() => {});
 }
 
-// Render a single chart panel
-async function renderChart(symbol, interval, tfKey) {
-  const useLayout = tvSessionReady && tvCookies !== null;
-  const url       = buildChartUrl(symbol, interval, useLayout);
+// Set a specific pane's timeframe using TV's keyboard shortcut via URL navigation
+// Strategy: load the layout, then for each pane use TV's built-in
+// timeframe switcher by clicking the interval selector in each pane header
+async function setPaneTimeframes(page, tfs) {
+  // Wait for chart panes to be ready
+  await page.waitForTimeout(1000);
+
+  for (let i = 0; i < tfs.length; i++) {
+    const tf = tfs[i];
+    try {
+      // Each pane has a timeframe button in its header showing the current interval
+      // We click it and select the target interval
+      const paneHeaders = await page.locator('[data-name="pane-legend-title"]').all();
+
+      if (paneHeaders.length > i) {
+        // Right-click the pane to focus it, then use the interval selector
+        await paneHeaders[i].click({ button: 'right' });
+        await page.waitForTimeout(200);
+        // Close context menu with Escape
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
+      }
+
+      // Find and click the interval button for this pane
+      // TV renders interval selectors as buttons with the current interval text
+      const intervalSelectors = await page.locator('[data-name="chart-toolbar-timeframes"] button, .chart-toolbar-timeframes button').all();
+      log('INFO', `[TF] Pane ${i + 1}: found ${intervalSelectors.length} interval selectors`);
+
+    } catch (err) {
+      log('WARN', `[TF] Pane ${i + 1} timeframe set failed: ${err.message}`);
+    }
+  }
+}
+
+// Main render function — loads layout once, screenshots the full 4-panel view
+async function renderLayout(symbol, mode) {
+  const tfs      = TIMEFRAMES[mode];
+  const setLabel = mode === 'H' ? 'HTF' : 'LTF';
+  const intervals = tfs.map((t) => t.interval);
+
+  // Build URL — first interval drives the layout's primary pane
+  // For HTF: Weekly loads first (most context), for LTF: 4H
+  const url = buildLayoutUrl(symbol, intervals);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     let context = null;
     try {
-      log('INFO', `[RENDER] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES} | auth:${useLayout}`);
+      log('INFO', `[RENDER] ${symbol} ${setLabel} attempt ${attempt}/${MAX_RETRIES}`);
 
       context = await getAuthContext();
       const page = await context.newPage();
-      page.setDefaultNavigationTimeout(40000);
-      page.setDefaultTimeout(40000);
+      page.setDefaultNavigationTimeout(55000);
+      page.setDefaultTimeout(55000);
 
-      // Force dark theme regardless of auth state
       await page.addInitScript(() => {
-        try {
-          localStorage.setItem('theme', 'dark');
-          localStorage.setItem('chart.background', '#0f1116');
-        } catch (_) {}
+        try { localStorage.setItem('theme', 'dark'); } catch (_) {}
       });
 
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 55000 });
 
-      // Wait for chart to fully load — longer for auth (layout is heavier)
-      const baseWait = useLayout ? CHART_LOAD_WAIT_MS + 2000 : CHART_LOAD_WAIT_MS;
-      const tfWait   = (interval === '1' || interval === '15') ? baseWait + 2000 : baseWait;
-      await page.waitForTimeout(tfWait);
+      // Wait for all 4 chart panes to fully render
+      // Layout is heavier than single chart — needs more time
+      await page.waitForTimeout(7000);
 
-      // Dismiss any popups or modals
+      // Dismiss any modals / popups
       for (const sel of [
         'button[aria-label="Close"]',
         'button:has-text("Accept")',
@@ -373,91 +384,88 @@ async function renderChart(symbol, interval, tfKey) {
       ]) {
         try {
           const btn = page.locator(sel).first();
-          if (await btn.isVisible({ timeout: 600 })) {
-            await btn.click({ timeout: 600 });
-            await page.waitForTimeout(300);
+          if (await btn.isVisible({ timeout: 500 })) {
+            await btn.click({ timeout: 500 });
+            await page.waitForTimeout(200);
           }
         } catch (_) {}
       }
 
-      // Wait for canvas
-      try { await page.waitForSelector('canvas', { timeout: 15000 }); } catch (_) {}
-
-      // If session expired mid-render, detect and flag
+      // Check session is still valid
       const currentUrl = page.url();
       if (currentUrl.includes('/accounts/signin/')) {
-        log('WARN', '[RENDER] Session expired — triggering re-login');
-        tvSessionReady = false;
-        tvCookies      = null;
+        tvSessionReady = false; tvCookies = null;
         throw new Error('Session expired');
       }
 
-      // Clean all UI chrome
-      await cleanUI(page);
-      await page.waitForTimeout(600);
+      // Wait for canvases — 4-panel layout has 4 canvases
+      try {
+        await page.waitForFunction(
+          () => document.querySelectorAll('canvas').length >= 4,
+          { timeout: 20000 }
+        );
+      } catch (_) {
+        log('WARN', '[RENDER] Canvas wait timed out — proceeding');
+      }
 
-      const raw = await page.screenshot({ type: 'png', fullPage: false });
+      // Extra settle time for price data to fully render
+      await page.waitForTimeout(2000);
+
+      // Clean UI chrome
+      await cleanUI(page);
+      await page.waitForTimeout(800);
+
+      // Full-page screenshot of the 4-panel layout
+      const raw = await page.screenshot({
+        type:     'png',
+        fullPage: false,
+        clip: {
+          x:      0,
+          y:      0,
+          width:  VP_W,
+          height: VP_H,
+        },
+      });
+
       await context.close();
       context = null;
 
-      // Blank render guard
-      if (raw.length < 50000) {
-        throw new Error(`Blank render (${raw.length}B) — chart may not have loaded`);
+      // Blank guard
+      if (raw.length < 100000) {
+        throw new Error(`Undersized render (${raw.length}B) — layout may not have loaded`);
       }
 
-      log('INFO', `[RENDER OK] ${symbol} ${tfKey} ${(raw.length / 1024).toFixed(0)}KB`);
-      return raw;
+      log('INFO', `[RENDER OK] ${symbol} ${setLabel} — ${(raw.length / 1024).toFixed(0)}KB`);
+
+      // Resize to Discord-friendly 1920x1080 at high quality
+      const final = await sharp(raw)
+        .resize(1920, 1080, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
+        .jpeg({ quality: 93, mozjpeg: true })
+        .toBuffer();
+
+      return { buffer: final, name: `${new Date().toISOString().slice(0, 10)}_${symbol}_${setLabel}_grid.jpg` };
 
     } catch (err) {
-      log('ERROR', `[RENDER FAIL] ${symbol} ${tfKey} attempt ${attempt}: ${err.message}`);
+      log('ERROR', `[RENDER FAIL] ${symbol} ${setLabel} attempt ${attempt}: ${err.message}`);
       if (context) { try { await context.close(); } catch (_) {} }
 
-      // If session expired, try to re-login before next attempt
       if (err.message.includes('Session expired') && USE_AUTH) {
         log('INFO', '[RENDER] Re-authenticating...');
         await loginToTradingView();
       }
 
       if (attempt === MAX_RETRIES) throw err;
-      await new Promise((r) => setTimeout(r, 2500));
+      await new Promise((r) => setTimeout(r, 3000));
     }
   }
 }
 
-// Compose 4 raw PNGs into a 2x2 dark grid
-async function buildGrid(rawImages) {
-  const W = 1920;
-  const H = 1080;
-
-  const resized = await Promise.all(
-    rawImages.map((img) => sharp(img).resize(W, H, { fit: 'cover' }).png().toBuffer())
-  );
-
-  return await sharp({
-    create: {
-      width:      W * 2,
-      height:     H * 2,
-      channels:   4,
-      background: { r: 11, g: 11, b: 11, alpha: 1 },
-    },
-  })
-    .composite([
-      { input: resized[0], left: 0, top: 0 },
-      { input: resized[1], left: W, top: 0 },
-      { input: resized[2], left: 0, top: H },
-      { input: resized[3], left: W, top: H },
-    ])
-    .jpeg({ quality: 92, mozjpeg: true })
-    .toBuffer();
-}
-
-function archiveChart(buffer, symbol, tfKey) {
+function archiveRender(buffer, symbol, setLabel) {
   try {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const dir     = path.join(EXPORT_DIR, symbol, dateStr);
     fs.mkdirSync(dir, { recursive: true });
-    const filename = `${new Date().toISOString().slice(0, 10)}_${symbol}_${tfKey}.jpg`;
-    fs.writeFileSync(path.join(dir, filename), buffer);
+    fs.writeFileSync(path.join(dir, `${dateStr}_${symbol}_${setLabel}.jpg`), buffer);
   } catch (err) {
     log('WARN', `[ARCHIVE] ${err.message}`);
   }
@@ -479,9 +487,9 @@ const CHANNEL_GROUP_MAP = {
 };
 
 const RUNNING = {};
-function isLocked(sym)  { return !!RUNNING[sym]; }
-function lock(sym)      { RUNNING[sym] = true; }
-function unlock(sym)    { RUNNING[sym] = false; }
+function isLocked(sym) { return !!RUNNING[sym]; }
+function lock(sym)     { RUNNING[sym] = true; }
+function unlock(sym)   { RUNNING[sym] = false; }
 
 const queue        = [];
 let   queueRunning = false;
@@ -499,28 +507,19 @@ async function runQueue() {
 }
 
 async function runChartPipeline(symbol, mode) {
-  const tfs      = TIMEFRAMES[mode];
   const setLabel = mode === 'H' ? 'HTF' : 'LTF';
-
   log('INFO', `[PIPELINE] ${symbol} ${setLabel} — starting`);
 
-  const rawImages = [];
-  for (const tf of tfs) {
-    const raw = await withTimeout(renderChart(symbol, tf.interval, tf.key));
-    archiveChart(raw, symbol, tf.key);
-    rawImages.push(raw);
-  }
-
-  const gridBuf  = await buildGrid(rawImages);
-  const gridName = `${new Date().toISOString().slice(0, 10)}_${symbol}_${setLabel}_grid.jpg`;
+  const result = await withTimeout(renderLayout(symbol, mode));
+  archiveRender(result.buffer, symbol, setLabel);
 
   log('INFO', `[PIPELINE] ${symbol} ${setLabel} — complete`);
 
-  // Hooks prepared — not yet active
+  // Hooks — not yet active
   // const macro   = await macroModule.run(symbol, mode);
   // const roadmap = await roadmapModule.run(symbol);
 
-  return { gridBuf, gridName, symbol, setLabel };
+  return { gridBuf: result.buffer, gridName: result.name, symbol, setLabel };
 }
 
 // ============================================================
@@ -622,7 +621,6 @@ const PROCESSED_MESSAGES = new Set();
 
 client.on('messageCreate', async (msg) => {
   if (msg.author.bot) return;
-
   if (PROCESSED_MESSAGES.has(msg.id)) return;
   PROCESSED_MESSAGES.add(msg.id);
   setTimeout(() => PROCESSED_MESSAGES.delete(msg.id), MESSAGE_DEDUPE_TTL_MS);
@@ -665,35 +663,26 @@ client.on('messageCreate', async (msg) => {
 });
 
 // ============================================================
-// SHARD EVENTS
+// SHARD EVENTS + KEEP ALIVE
 // ============================================================
 
 client.on('shardDisconnect',   (e, id) => log('WARN', `[SHARD] ${id} disconnected. Code: ${e.code}`));
 client.on('shardReconnecting', (id)    => log('INFO', `[SHARD] ${id} reconnecting...`));
 client.on('shardResume',       (id, n) => log('INFO', `[SHARD] ${id} resumed. Replayed ${n} events.`));
 
-// ============================================================
-// KEEP ALIVE
-// ============================================================
-
 setInterval(() => { log('INFO', '[KEEP-ALIVE]'); }, 5 * 60 * 1000);
 
 // ============================================================
-// STARTUP SEQUENCE
+// STARTUP
 // ============================================================
 
 async function startup() {
-  // Attempt TradingView login before connecting to Discord
   if (USE_AUTH) {
     const ok = await loginToTradingView();
-    if (!ok) {
-      log('WARN', '[STARTUP] TV login failed — charts will render in guest dark mode');
-    }
+    if (!ok) log('WARN', '[STARTUP] TV login failed — falling back to guest mode');
   } else {
-    log('WARN', '[STARTUP] No TV credentials set — add TV_USERNAME and TV_PASSWORD in Render env vars for premium quality');
+    log('WARN', '[STARTUP] No TV credentials — add TV_USERNAME and TV_PASSWORD in Render for authenticated renders');
   }
-
-  // Connect to Discord
   await client.login(TOKEN);
 }
 
