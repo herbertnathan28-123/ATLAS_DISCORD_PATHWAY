@@ -3,17 +3,26 @@
 // ============================================================
 //
 // CHART ENGINE: Authenticated TradingView session
-//   - Logs in with TV_USERNAME + TV_PASSWORD
-//   - Loads your saved layout GmNAOGhI (4-panel)
-//   - Changes symbol + timeframes via TV's URL params
-//   - Screenshots the ENTIRE layout as ONE image
-//   - Your exact colours, your exact style — no guest rendering
+//   - Loads your 4-panel layout GmNAOGhI as one screenshot
+//   - Your exact colours, your exact style
 //   - Falls back to guest dark mode if login fails
 //
-// COMMANDS (in group channels only):
-//   !EURUSDH  — HTF grid (Weekly, Daily, 4H, 1H)
-//   !EURUSDL  — LTF grid (4H, 1H, 15M, 1M)
-//   !ping     — Health check
+// COMMANDS:
+//   !EURUSDH              — HTF defaults (Weekly, Daily, 4H, 1H)
+//   !EURUSDL              — LTF defaults (4H, 1H, 15M, 1M)
+//   !EURUSDL 4,1,15,1     — Custom timeframes (top-left → bottom-right)
+//   !EURUSDH 1W,1D,4,1   — Custom timeframes HTF
+//   !XAUUSDH              — Gold HTF
+//   !ping                 — Health check
+//
+// TIMEFRAME SHORTHAND:
+//   1W or W  → Weekly
+//   1D or D  → Daily
+//   4 or 4H  → 4 Hour
+//   1 or 1H  → 1 Hour
+//   15 or 15M → 15 Minute
+//   5 or 5M  → 5 Minute
+//   1M       → 1 Minute
 //
 // ENV VARS (Render dashboard):
 //   DISCORD_BOT_TOKEN       — required
@@ -73,10 +82,8 @@ const RENDER_TIMEOUT_MS     = 60000;
 const MESSAGE_DEDUPE_TTL_MS = 30000;
 const SHARED_MACROS_CHANNEL = process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
 const CACHE_TTL_MS          = 15 * 60 * 1000;
-
-// Layout viewport — 4K for maximum sharpness, cropped to 1920x1080 output
-const VP_W = 2560;
-const VP_H = 1440;
+const VP_W                  = 2560;
+const VP_H                  = 1440;
 
 // ── LAYER 4: Alias mapping ───────────────────────────────────
 const ALIAS_MAP = {
@@ -122,23 +129,123 @@ function getFeedName(symbol) {
   return map[feed] || feed;
 }
 
-// ── LAYER 6: Command parser ──────────────────────────────────
+// ── LAYER 6: Timeframe resolution ───────────────────────────
+//
+// Converts user shorthand → TradingView interval string
+// Examples:
+//   "1W" or "W"   → "1W"
+//   "1D" or "D"   → "1D"
+//   "4" or "4H"   → "240"
+//   "1" or "1H"   → "60"
+//   "15" or "15M" → "15"
+//   "5"  or "5M"  → "5"
+//   "1M"          → "1"
+
+const TF_MAP = {
+  // Weekly
+  '1w': '1W', 'w': '1W', 'weekly': '1W',
+  // Daily
+  '1d': '1D', 'd': '1D', 'daily': '1D',
+  // Hours
+  '4h': '240', '4': '240', '4hr': '240', '4hour': '240',
+  '2h': '120', '2': '120',
+  '1h': '60',  '1': '60',  '1hr': '60',  '1hour': '60',
+  // Minutes
+  '30m': '30', '30': '30',
+  '15m': '15', '15': '15',
+  '5m':  '5',  '5':  '5',
+  '3m':  '3',  '3':  '3',
+  '1m':  '1',
+  // Named intervals that TV accepts directly
+  '240': '240', '120': '120', '60': '60',
+  '1w_tv': '1W', '1d_tv': '1D',
+};
+
+// Default timeframe sets
+const DEFAULT_TIMEFRAMES = {
+  H: ['1W', '1D', '240', '60'],   // Weekly, Daily, 4H, 1H
+  L: ['240', '60', '15', '1'],    // 4H, 1H, 15M, 1M
+};
+
+// Human-readable labels for each TV interval
+const TF_LABELS = {
+  '1W': 'Weekly', '1D': 'Daily',
+  '240': '4H', '120': '2H', '60': '1H',
+  '30': '30M', '15': '15M', '5': '5M', '3': '3M', '1': '1M',
+};
+
+function resolveTF(input) {
+  const key = input.toLowerCase().trim();
+  return TF_MAP[key] || null;
+}
+
+// Parse custom timeframe string from user: "4,1,15,1" or "1W,1D,4,1"
+// Returns array of 4 TV interval strings, or null if invalid
+function parseCustomTFs(tfString) {
+  const parts = tfString.split(',').map((s) => s.trim());
+  if (parts.length !== 4) return null;
+
+  const resolved = parts.map(resolveTF);
+  if (resolved.includes(null)) return null;
+
+  return resolved;
+}
+
+function tfLabel(interval) {
+  return TF_LABELS[interval] || interval;
+}
+
+// ── LAYER 7: Command parser ──────────────────────────────────
+//
+// Accepted formats:
+//   !EURUSDH                 — default HTF
+//   !EURUSDL                 — default LTF
+//   !EURUSDH 1W,1D,4,1      — custom timeframes
+//   !EURUSDL 4,1,15,1        — custom timeframes
+//   !ping
+
 function parseCommand(content) {
   const trimmed = (content || '').trim();
   if (trimmed === '!ping') return { action: 'ping' };
-  const m = trimmed.match(/^!([A-Z0-9]{2,12})([LH])$/i);
-  if (m) {
-    return {
-      action:    'chart',
-      rawSymbol: m[1],
-      symbol:    resolveSymbol(m[1]),
-      mode:      m[2].toUpperCase(),
-    };
+
+  // Match: !SYMBOL[H/L] or !SYMBOL[H/L] TF1,TF2,TF3,TF4
+  const m = trimmed.match(/^!([A-Z0-9]{2,12})([LH])(?:\s+([^\s].*))?$/i);
+  if (!m) return null;
+
+  const rawSymbol  = m[1];
+  const modeSuffix = m[2].toUpperCase();
+  const tfString   = m[3] ? m[3].trim() : null;
+
+  const symbol = resolveSymbol(rawSymbol);
+  const mode   = modeSuffix; // 'H' or 'L'
+
+  let intervals    = DEFAULT_TIMEFRAMES[mode];
+  let customTFs    = false;
+  let parseError   = null;
+
+  if (tfString) {
+    const parsed = parseCustomTFs(tfString);
+    if (parsed) {
+      intervals = parsed;
+      customTFs = true;
+    } else {
+      parseError = `Invalid timeframes: \`${tfString}\`\nFormat: 4 values separated by commas — e.g. \`4,1,15,1\` or \`1W,1D,4,1\`\nValid values: W, D, 4, 1, 15, 5, 1M etc.`;
+    }
   }
-  return null;
+
+  return {
+    action:    'chart',
+    rawSymbol,
+    symbol,
+    mode,
+    intervals,
+    customTFs,
+    parseError,
+    tfString,
+  };
 }
 
-// ── LAYER 7: Logging ─────────────────────────────────────────
+// ── LAYER 8: Logging ─────────────────────────────────────────
 function log(level, msg, ...args) {
   const ts = new Date().toISOString();
   console.log(`[${ts}] [${level}] ${msg}`, ...args);
@@ -160,7 +267,7 @@ async function getBrowser() {
       args: [
         '--no-sandbox', '--disable-setuid-sandbox',
         '--disable-dev-shm-usage', '--disable-gpu',
-        '--window-size=2560,1440',
+        `--window-size=${VP_W},${VP_H}`,
       ],
     });
     browser.on('disconnected', () => {
@@ -190,7 +297,6 @@ async function loginToTradingView() {
     });
     await page.waitForTimeout(2000);
 
-    // Click Email sign-in option
     try {
       const emailBtn = page.locator('button:has-text("Email"), span:has-text("Email")').first();
       if (await emailBtn.isVisible({ timeout: 3000 })) {
@@ -204,7 +310,6 @@ async function loginToTradingView() {
     await page.fill('input[name="password"], input[type="password"]', TV_PASS);
     await page.waitForTimeout(400);
     await page.click('button[type="submit"], button:has-text("Sign in")');
-
     await page.waitForURL((url) => !url.href.includes('/accounts/signin/'), { timeout: 20000 });
 
     tvCookies      = await context.cookies();
@@ -240,35 +345,15 @@ async function getAuthContext() {
 // MODULE 1 — CHART ENGINE
 // ============================================================
 
-// Timeframe sets — intervals map to TV's URL param
-const TIMEFRAMES = {
-  H: [
-    { key: '1W',  label: 'Weekly', interval: '1W'  },
-    { key: '1D',  label: 'Daily',  interval: '1D'  },
-    { key: '4H',  label: '4H',     interval: '240' },
-    { key: '1H',  label: '1H',     interval: '60'  },
-  ],
-  L: [
-    { key: '4H',  label: '4H',  interval: '240' },
-    { key: '1H',  label: '1H',  interval: '60'  },
-    { key: '15M', label: '15M', interval: '15'  },
-    { key: '1M',  label: '1M',  interval: '1'   },
-  ],
-};
-
-// TV multi-chart layout URL with symbol + interval override
-// This loads your saved layout GmNAOGhI with all 4 panels,
-// but forces the primary symbol and the per-pane intervals
-// via the undocumented but stable ?symbol= and ?interval= params.
-// Each pane will render the same symbol at its assigned timeframe
-// because the layout already has 4 panes configured.
+// Build layout URL
+// Uses the first interval as the primary interval param.
+// The layout GmNAOGhI has 4 panes — TV uses the saved pane
+// timeframes by default. The symbol param overrides the symbol
+// across all panes.
 function buildLayoutUrl(symbol, intervals) {
-  const tvSymbol = encodeURIComponent(getTVSymbol(symbol));
-  // intervals = array of 4 TV interval strings e.g. ['1W','1D','240','60']
-  // TV reads the first interval param for pane 1, we set all 4 via
-  // the standard chart URL with the layout ID
-  const iv = encodeURIComponent(intervals[0]);
-  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSymbol}&interval=${iv}`;
+  const tvSym = encodeURIComponent(getTVSymbol(symbol));
+  const iv    = encodeURIComponent(intervals[0]);
+  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}`;
 }
 
 function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
@@ -280,7 +365,6 @@ function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
   ]);
 }
 
-// Clean all TradingView UI chrome — leave only chart canvas
 async function cleanUI(page) {
   await page.evaluate(() => {
     [
@@ -303,61 +387,18 @@ async function cleanUI(page) {
       '[data-name="alerts-icon"]',
       '#overlap-manager-root',
     ].forEach((sel) => {
-      document.querySelectorAll(sel).forEach((el) => {
-        el.style.display = 'none';
-      });
+      document.querySelectorAll(sel).forEach((el) => { el.style.display = 'none'; });
     });
   }).catch(() => {});
 }
 
-// Set a specific pane's timeframe using TV's keyboard shortcut via URL navigation
-// Strategy: load the layout, then for each pane use TV's built-in
-// timeframe switcher by clicking the interval selector in each pane header
-async function setPaneTimeframes(page, tfs) {
-  // Wait for chart panes to be ready
-  await page.waitForTimeout(1000);
-
-  for (let i = 0; i < tfs.length; i++) {
-    const tf = tfs[i];
-    try {
-      // Each pane has a timeframe button in its header showing the current interval
-      // We click it and select the target interval
-      const paneHeaders = await page.locator('[data-name="pane-legend-title"]').all();
-
-      if (paneHeaders.length > i) {
-        // Right-click the pane to focus it, then use the interval selector
-        await paneHeaders[i].click({ button: 'right' });
-        await page.waitForTimeout(200);
-        // Close context menu with Escape
-        await page.keyboard.press('Escape');
-        await page.waitForTimeout(100);
-      }
-
-      // Find and click the interval button for this pane
-      // TV renders interval selectors as buttons with the current interval text
-      const intervalSelectors = await page.locator('[data-name="chart-toolbar-timeframes"] button, .chart-toolbar-timeframes button').all();
-      log('INFO', `[TF] Pane ${i + 1}: found ${intervalSelectors.length} interval selectors`);
-
-    } catch (err) {
-      log('WARN', `[TF] Pane ${i + 1} timeframe set failed: ${err.message}`);
-    }
-  }
-}
-
-// Main render function — loads layout once, screenshots the full 4-panel view
-async function renderLayout(symbol, mode) {
-  const tfs      = TIMEFRAMES[mode];
-  const setLabel = mode === 'H' ? 'HTF' : 'LTF';
-  const intervals = tfs.map((t) => t.interval);
-
-  // Build URL — first interval drives the layout's primary pane
-  // For HTF: Weekly loads first (most context), for LTF: 4H
+async function renderLayout(symbol, intervals) {
   const url = buildLayoutUrl(symbol, intervals);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     let context = null;
     try {
-      log('INFO', `[RENDER] ${symbol} ${setLabel} attempt ${attempt}/${MAX_RETRIES}`);
+      log('INFO', `[RENDER] ${symbol} [${intervals.join(',')}] attempt ${attempt}/${MAX_RETRIES}`);
 
       context = await getAuthContext();
       const page = await context.newPage();
@@ -369,17 +410,12 @@ async function renderLayout(symbol, mode) {
       });
 
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 55000 });
-
-      // Wait for all 4 chart panes to fully render
-      // Layout is heavier than single chart — needs more time
       await page.waitForTimeout(7000);
 
-      // Dismiss any modals / popups
+      // Dismiss popups
       for (const sel of [
-        'button[aria-label="Close"]',
-        'button:has-text("Accept")',
-        'button:has-text("Got it")',
-        'button:has-text("Dismiss")',
+        'button[aria-label="Close"]', 'button:has-text("Accept")',
+        'button:has-text("Got it")', 'button:has-text("Dismiss")',
         '[data-name="close-button"]',
       ]) {
         try {
@@ -391,84 +427,65 @@ async function renderLayout(symbol, mode) {
         } catch (_) {}
       }
 
-      // Check session is still valid
-      const currentUrl = page.url();
-      if (currentUrl.includes('/accounts/signin/')) {
+      // Session check
+      if (page.url().includes('/accounts/signin/')) {
         tvSessionReady = false; tvCookies = null;
         throw new Error('Session expired');
       }
 
-      // Wait for canvases — 4-panel layout has 4 canvases
+      // Wait for 4 canvases
       try {
         await page.waitForFunction(
           () => document.querySelectorAll('canvas').length >= 4,
           { timeout: 20000 }
         );
-      } catch (_) {
-        log('WARN', '[RENDER] Canvas wait timed out — proceeding');
-      }
+      } catch (_) { log('WARN', '[RENDER] Canvas wait timed out — proceeding'); }
 
-      // Extra settle time for price data to fully render
       await page.waitForTimeout(2000);
-
-      // Clean UI chrome
       await cleanUI(page);
       await page.waitForTimeout(800);
 
-      // Full-page screenshot of the 4-panel layout
       const raw = await page.screenshot({
-        type:     'png',
-        fullPage: false,
-        clip: {
-          x:      0,
-          y:      0,
-          width:  VP_W,
-          height: VP_H,
-        },
+        type: 'png', fullPage: false,
+        clip: { x: 0, y: 0, width: VP_W, height: VP_H },
       });
 
       await context.close();
       context = null;
 
-      // Blank guard
       if (raw.length < 100000) {
-        throw new Error(`Undersized render (${raw.length}B) — layout may not have loaded`);
+        throw new Error(`Undersized render (${raw.length}B)`);
       }
 
-      log('INFO', `[RENDER OK] ${symbol} ${setLabel} — ${(raw.length / 1024).toFixed(0)}KB`);
+      log('INFO', `[RENDER OK] ${symbol} — ${(raw.length / 1024).toFixed(0)}KB`);
 
-      // Resize to Discord-friendly 1920x1080 at high quality
       const final = await sharp(raw)
         .resize(1920, 1080, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
         .jpeg({ quality: 93, mozjpeg: true })
         .toBuffer();
 
-      return { buffer: final, name: `${new Date().toISOString().slice(0, 10)}_${symbol}_${setLabel}_grid.jpg` };
+      return final;
 
     } catch (err) {
-      log('ERROR', `[RENDER FAIL] ${symbol} ${setLabel} attempt ${attempt}: ${err.message}`);
+      log('ERROR', `[RENDER FAIL] attempt ${attempt}: ${err.message}`);
       if (context) { try { await context.close(); } catch (_) {} }
-
       if (err.message.includes('Session expired') && USE_AUTH) {
         log('INFO', '[RENDER] Re-authenticating...');
         await loginToTradingView();
       }
-
       if (attempt === MAX_RETRIES) throw err;
       await new Promise((r) => setTimeout(r, 3000));
     }
   }
 }
 
-function archiveRender(buffer, symbol, setLabel) {
+function archiveRender(buffer, symbol, label) {
   try {
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
     const dir     = path.join(EXPORT_DIR, symbol, dateStr);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, `${dateStr}_${symbol}_${setLabel}.jpg`), buffer);
-  } catch (err) {
-    log('WARN', `[ARCHIVE] ${err.message}`);
-  }
+    fs.writeFileSync(path.join(dir, `${dateStr}_${symbol}_${label}.jpg`), buffer);
+  } catch (err) { log('WARN', `[ARCHIVE] ${err.message}`); }
 }
 
 // ============================================================
@@ -476,14 +493,10 @@ function archiveRender(buffer, symbol, setLabel) {
 // ============================================================
 
 const CHANNEL_GROUP_MAP = {
-  '1432642672287547453': 'AT',
-  '1432643496375881748': 'SK',
-  '1432644116868501595': 'NM',
-  '1482450651765149816': 'BR',
-  '1432080184458350672': 'AT',
-  '1430950313484878014': 'SK',
-  '1431192381029482556': 'NM',
-  '1482451091630194868': 'BR',
+  '1432642672287547453': 'AT', '1432643496375881748': 'SK',
+  '1432644116868501595': 'NM', '1482450651765149816': 'BR',
+  '1432080184458350672': 'AT', '1430950313484878014': 'SK',
+  '1431192381029482556': 'NM', '1482451091630194868': 'BR',
 };
 
 const RUNNING = {};
@@ -506,20 +519,22 @@ async function runQueue() {
   queueRunning = false;
 }
 
-async function runChartPipeline(symbol, mode) {
-  const setLabel = mode === 'H' ? 'HTF' : 'LTF';
-  log('INFO', `[PIPELINE] ${symbol} ${setLabel} — starting`);
+async function runChartPipeline(symbol, mode, intervals, customTFs) {
+  // Label for the output message
+  const modeLabel = mode === 'H' ? 'HTF' : 'LTF';
+  const tfDisplay = intervals.map(tfLabel).join(' · ');
+  const label     = customTFs ? tfDisplay : modeLabel;
 
-  const result = await withTimeout(renderLayout(symbol, mode));
-  archiveRender(result.buffer, symbol, setLabel);
+  log('INFO', `[PIPELINE] ${symbol} ${label} — starting`);
 
-  log('INFO', `[PIPELINE] ${symbol} ${setLabel} — complete`);
+  const buffer   = await withTimeout(renderLayout(symbol, intervals));
+  const dateStr  = new Date().toISOString().slice(0, 10);
+  const gridName = `${dateStr}_${symbol}_${label.replace(/\s·\s/g, '_')}_grid.jpg`;
 
-  // Hooks — not yet active
-  // const macro   = await macroModule.run(symbol, mode);
-  // const roadmap = await roadmapModule.run(symbol);
+  archiveRender(buffer, symbol, label);
+  log('INFO', `[PIPELINE] ${symbol} ${label} — complete`);
 
-  return { gridBuf: result.buffer, gridName: result.name, symbol, setLabel };
+  return { gridBuf: buffer, gridName, symbol, label, tfDisplay };
 }
 
 // ============================================================
@@ -545,7 +560,7 @@ async function safeEdit(msg, payload) {
 }
 
 async function deliverChart(msg, result) {
-  const { gridBuf, gridName, symbol, setLabel } = result;
+  const { gridBuf, gridName, symbol, label, tfDisplay } = result;
   const feed     = getFeedName(symbol);
   const cacheKey = `${msg.id}_${Date.now()}`;
   cacheForShare(cacheKey, result);
@@ -563,7 +578,7 @@ async function deliverChart(msg, result) {
   );
 
   return await msg.channel.send({
-    content:    `📊 **${symbol}** · ${setLabel} · ${feed}`,
+    content:    `📊 **${symbol}** · ${label} · ${feed}\n⏱ ${tfDisplay}`,
     files:      [new AttachmentBuilder(gridBuf, { name: gridName })],
     components: [row],
   });
@@ -601,11 +616,11 @@ client.on('interactionCreate', async (interaction) => {
         return;
       }
       await channel.send({
-        content: `📊 **${cached.symbol}** ${cached.setLabel} shared by **${interaction.user.username}**`,
+        content: `📊 **${cached.symbol}** ${cached.label} shared by **${interaction.user.username}**\n⏱ ${cached.tfDisplay}`,
         files:   [new AttachmentBuilder(cached.gridBuf, { name: cached.gridName })],
       });
       await interaction.editReply({ content: '✅ Shared in #shared-macros', components: [] });
-      log('INFO', `[SHARED] ${cached.symbol} ${cached.setLabel} by ${interaction.user.username}`);
+      log('INFO', `[SHARED] ${cached.symbol} ${cached.label} by ${interaction.user.username}`);
     } catch (err) {
       log('ERROR', '[SHARE]', err.message);
       try { await interaction.editReply({ content: 'Share failed — retry.', components: [] }); } catch (_) {}
@@ -636,7 +651,13 @@ client.on('messageCreate', async (msg) => {
   const parsed = parseCommand(raw);
   if (!parsed || parsed.action !== 'chart') return;
 
-  const { symbol, mode } = parsed;
+  // Invalid timeframe syntax — tell the user immediately
+  if (parsed.parseError) {
+    await safeReply(msg, `⚠️ ${parsed.parseError}`);
+    return;
+  }
+
+  const { symbol, mode, intervals, customTFs } = parsed;
 
   if (isLocked(symbol)) {
     await safeReply(msg, `⚠️ **${symbol}** is already generating — please wait.`);
@@ -646,11 +667,19 @@ client.on('messageCreate', async (msg) => {
   lock(symbol);
 
   enqueue(async () => {
-    log('INFO', `[CMD] ${msg.author.username} / ${group} → ${symbol} ${mode === 'H' ? 'HTF' : 'LTF'}`);
-    const progress = await safeReply(msg, `⏳ Generating **${symbol}** ${mode === 'H' ? 'HTF' : 'LTF'} grid...`);
+    const modeLabel = mode === 'H' ? 'HTF' : 'LTF';
+    const tfDisplay = intervals.map(tfLabel).join(' · ');
+    const label     = customTFs ? tfDisplay : modeLabel;
+
+    log('INFO', `[CMD] ${msg.author.username} / ${group} → ${symbol} ${label}`);
+
+    const progress = await safeReply(
+      msg,
+      `⏳ Generating **${symbol}** ${label} grid...\n⏱ ${tfDisplay}`
+    );
 
     try {
-      const result = await runChartPipeline(symbol, mode);
+      const result = await runChartPipeline(symbol, mode, intervals, customTFs);
       if (progress) { try { await progress.delete(); } catch (_) {} }
       await deliverChart(msg, result);
     } catch (err) {
