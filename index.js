@@ -2,26 +2,23 @@
 // ATLAS FX DISCORD BOT — DEFINITIVE FINAL BUILD
 // ============================================================
 //
-// AUTH: Cookies loaded directly from TV_COOKIES env var
-//   - No login page, no detection risk
-//   - Set TV_COOKIES in Render with JSON from Cookie-Editor
+// AUTH: TV_COOKIES env var — JSON exported from Cookie-Editor
+//   - sameSite values sanitised for Playwright compatibility
+//   - No login, no detection risk
 //   - Falls back to guest dark mode if not set
 //
 // CHART ENGINE: 4 individual panel renders → 2x2 grid
-//   - Each panel renders at full 1280x720 viewport
-//   - Correct symbol + timeframe per panel
-//   - Authenticated = your colour scheme
+//   - Each panel at 1280x720, authenticated session
+//   - Fresh browser per panel (memory safe)
 //
-// COMMANDS (in mapped group channels):
-//   !EURUSDH              — HTF defaults (Weekly, Daily, 4H, 1H)
-//   !EURUSDL              — LTF defaults (4H, 1H, 15M, 1M)
+// COMMANDS (in mapped channels):
+//   !EURUSDH              — HTF (Weekly, Daily, 4H, 1H)
+//   !EURUSDL              — LTF (4H, 1H, 15M, 1M)
 //   !EURUSDL 4,1,15,1     — Custom timeframes
-//   !ping                 — Health check (any channel)
+//   !ping                 — Health check
 //
-// ENV VARS (Render dashboard):
-//   DISCORD_BOT_TOKEN       — required
-//   TV_COOKIES              — JSON array from Cookie-Editor export
-//   TV_LAYOUT_ID            — layout ID (default: GmNAOGhI)
+// ENV VARS:
+//   DISCORD_BOT_TOKEN, TV_COOKIES, TV_LAYOUT_ID
 //   SHARED_MACROS_CHANNEL_ID
 // ============================================================
 
@@ -34,17 +31,56 @@ const TV_LAYOUT = process.env.TV_LAYOUT_ID || 'GmNAOGhI';
 
 if (!TOKEN) { console.error('[FATAL] Missing DISCORD_BOT_TOKEN'); process.exit(1); }
 
-// Parse cookies from env var — set once, works indefinitely
+// ── Cookie sanitisation ──────────────────────────────────────
+// Playwright only accepts sameSite: Strict | Lax | None
+// Cookie-Editor exports "unspecified", "no_restriction" etc — map them
+const SAMESITE_MAP = {
+  'strict':        'Strict',
+  'lax':           'Lax',
+  'none':          'None',
+  'no_restriction':'None',
+  'unspecified':   'Lax',   // safe default
+};
+
+function sanitiseCookies(raw) {
+  return raw
+    .map((c) => {
+      const out = { ...c };
+
+      // Fix sameSite
+      if (out.sameSite !== undefined) {
+        const key = String(out.sameSite).toLowerCase();
+        out.sameSite = SAMESITE_MAP[key] || 'Lax';
+      } else {
+        out.sameSite = 'Lax';
+      }
+
+      // Playwright requires these fields
+      if (!out.domain) out.domain = '.tradingview.com';
+      if (!out.path)   out.path   = '/';
+
+      // Remove fields Playwright doesn't accept
+      delete out.hostOnly;
+      delete out.storeId;
+      delete out.id;
+
+      return out;
+    })
+    // Keep only TV-domain cookies
+    .filter((c) => c.domain && c.domain.includes('tradingview'));
+}
+
 let TV_COOKIES = null;
 try {
   if (process.env.TV_COOKIES) {
-    TV_COOKIES = JSON.parse(process.env.TV_COOKIES);
-    console.log(`[BOOT] TV_COOKIES loaded — ${TV_COOKIES.length} cookies`);
+    const raw  = JSON.parse(process.env.TV_COOKIES);
+    TV_COOKIES = sanitiseCookies(raw);
+    console.log(`[BOOT] TV_COOKIES loaded — ${TV_COOKIES.length} cookies (sanitised)`);
   } else {
     console.log('[BOOT] TV_COOKIES not set — running in guest mode');
   }
 } catch (err) {
-  console.error('[BOOT] TV_COOKIES parse error — check JSON format in Render env vars:', err.message);
+  console.error('[BOOT] TV_COOKIES parse error:', err.message);
 }
 
 console.log(`[BOOT] ATLAS FX Bot starting... auth: ${TV_COOKIES ? 'COOKIE' : 'GUEST'}`);
@@ -55,10 +91,10 @@ const {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder,
 } = require('discord.js');
 
-const sharp              = require('sharp');
-const path               = require('path');
-const fs                 = require('fs');
-const { chromium }       = require('playwright');
+const sharp        = require('sharp');
+const path         = require('path');
+const fs           = require('fs');
+const { chromium } = require('playwright');
 
 const client = new Client({
   intents: [
@@ -186,7 +222,7 @@ function parseCommand(content) {
   if (tfString) {
     const parsed = parseCustomTFs(tfString);
     if (parsed) { intervals = parsed; customTFs = true; }
-    else { parseError = `Invalid timeframes: \`${tfString}\`\nFormat: 4 comma-separated values — e.g. \`4,1,15,1\` or \`1W,1D,4,1\``; }
+    else { parseError = `Invalid timeframes: \`${tfString}\`\nFormat: 4 comma-separated values — e.g. \`4,1,15,1\``; }
   }
 
   return { action: 'chart', rawSymbol, symbol, mode, intervals, customTFs, parseError };
@@ -201,7 +237,6 @@ function log(level, msg, ...args) {
 // MODULE 1 — CHART ENGINE
 // ============================================================
 
-// Build URL for a single chart panel using your layout for colours
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
@@ -236,7 +271,6 @@ async function cleanUI(page) {
   }).catch(() => {});
 }
 
-// Render single chart panel — fresh browser per panel, memory safe
 async function renderPanel(symbol, interval, tfKey) {
   const url = buildPanelUrl(symbol, interval);
 
@@ -258,7 +292,7 @@ async function renderPanel(symbol, interval, tfKey) {
         timezoneId:        'Australia/Perth',
       });
 
-      // Inject cookies if available
+      // Inject sanitised cookies
       if (TV_COOKIES && TV_COOKIES.length > 0) {
         await context.addCookies(TV_COOKIES);
       }
@@ -273,11 +307,9 @@ async function renderPanel(symbol, interval, tfKey) {
 
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
 
-      // Load wait — weekly/daily fetch more data
       const isLongTF = (interval === '1W' || interval === '1D');
       await page.waitForTimeout(isLongTF ? 6000 : 4500);
 
-      // Dismiss popups
       for (const sel of [
         'button[aria-label="Close"]', 'button:has-text("Accept")',
         'button:has-text("Got it")', 'button:has-text("Dismiss")',
@@ -292,7 +324,6 @@ async function renderPanel(symbol, interval, tfKey) {
         } catch (_) {}
       }
 
-      // Wait for canvas
       try { await page.waitForSelector('canvas', { timeout: 15000 }); } catch (_) {}
 
       await cleanUI(page);
@@ -316,7 +347,6 @@ async function renderPanel(symbol, interval, tfKey) {
   }
 }
 
-// Composite 4 panels into 2x2 grid
 async function buildGrid(panels) {
   const W = PANEL_W;
   const H = PANEL_H;
@@ -403,10 +433,6 @@ async function runChartPipeline(symbol, mode, intervals, customTFs) {
   archiveRender(gridBuf, symbol, label);
   log('INFO', `[PIPELINE] ${symbol} ${label} — complete`);
 
-  // Hooks for macro/roadmap modules — not yet active
-  // const macro   = await macroModule.run(symbol, mode);
-  // const roadmap = await roadmapModule.run(symbol);
-
   return { gridBuf, gridName, symbol, label, tfDisplay };
 }
 
@@ -438,7 +464,6 @@ async function deliverChart(msg, result) {
   const cacheKey = `${msg.id}_${Date.now()}`;
   cacheForShare(cacheKey, result);
 
-  // MODULE 4 — Share button (prep only)
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`share_${cacheKey}`)
