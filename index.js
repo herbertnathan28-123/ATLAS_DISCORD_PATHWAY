@@ -2,28 +2,27 @@
 // ATLAS FX DISCORD BOT — DEFINITIVE FINAL BUILD
 // ============================================================
 //
-// CHART ENGINE: 4 authenticated single-panel renders → 2x2 grid
-//   - Each panel rendered individually at full viewport
-//   - Authenticated session = your exact colour scheme
-//   - Each panel fits to screen perfectly (full viewport per chart)
-//   - Composited into single 1920x1080 2x2 grid image
-//   - Falls back to guest dark mode if login fails
+// SESSION MANAGEMENT:
+//   - Cookies persisted to /tmp/tv_session.json between restarts
+//   - Login only occurs if cookies are missing or expired
+//   - Survives Render redeploys without re-triggering TV auth
+//   - Falls back to guest dark mode if all auth fails
+//
+// CHART ENGINE:
+//   - 4 authenticated single-panel renders → 2x2 composited grid
+//   - Each panel at 1280x720, your colour scheme, clean UI
+//   - Browser context closed after each panel (memory safe)
 //
 // COMMANDS:
 //   !EURUSDH              — HTF defaults (Weekly, Daily, 4H, 1H)
 //   !EURUSDL              — LTF defaults (4H, 1H, 15M, 1M)
 //   !EURUSDL 4,1,15,1     — Custom timeframes
-//   !EURUSDH 1W,1D,4,1   — Custom timeframes
 //   !ping                 — Health check
-//
-// TIMEFRAME SHORTHAND:
-//   1W or W → Weekly    1D or D → Daily
-//   4       → 4H        1       → 1H
-//   15      → 15M       5       → 5M    1M → 1 Min
 //
 // ENV VARS (Render dashboard):
 //   DISCORD_BOT_TOKEN, TV_USERNAME, TV_PASSWORD
-//   TV_LAYOUT_ID (default: GmNAOGhI), SHARED_MACROS_CHANNEL_ID
+//   TV_LAYOUT_ID (default: GmNAOGhI)
+//   SHARED_MACROS_CHANNEL_ID
 // ============================================================
 
 process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED]', reason); });
@@ -69,10 +68,14 @@ const RENDER_TIMEOUT_MS     = 45000;
 const MESSAGE_DEDUPE_TTL_MS = 30000;
 const SHARED_MACROS_CHANNEL = process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
 const CACHE_TTL_MS          = 15 * 60 * 1000;
+const PANEL_W               = 1280;
+const PANEL_H               = 720;
 
-// Each panel renders at full HD — clean, sharp, fits screen perfectly
-const PANEL_W = 1280;
-const PANEL_H = 720;
+// Cookie persistence — survives redeploys
+// /tmp is writable on Render and persists within a running instance
+const COOKIE_FILE = '/tmp/tv_session.json';
+// Cookies valid for 30 days — re-login after this
+const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 // ── LAYER 4: Alias mapping ───────────────────────────────────
 const ALIAS_MAP = {
@@ -177,12 +180,8 @@ function parseCommand(content) {
 
   if (tfString) {
     const parsed = parseCustomTFs(tfString);
-    if (parsed) {
-      intervals = parsed;
-      customTFs = true;
-    } else {
-      parseError = `Invalid timeframes: \`${tfString}\`\nFormat: 4 comma-separated values — e.g. \`4,1,15,1\` or \`1W,1D,4,1\``;
-    }
+    if (parsed) { intervals = parsed; customTFs = true; }
+    else { parseError = `Invalid timeframes: \`${tfString}\`\nFormat: 4 comma-separated values — e.g. \`4,1,15,1\``; }
   }
 
   return { action: 'chart', rawSymbol, symbol, mode, intervals, customTFs, parseError };
@@ -194,34 +193,56 @@ function log(level, msg, ...args) {
 }
 
 // ============================================================
-// BROWSER + SESSION MANAGEMENT
+// SESSION MANAGEMENT — Persistent cookies
 // ============================================================
 
-let browser        = null;
-let tvSessionReady = false;
 let tvCookies      = null;
+let tvSessionReady = false;
 
-async function getBrowser() {
-  if (!browser) {
-    const { chromium } = require('playwright');
-    browser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-    });
-    browser.on('disconnected', () => {
-      log('WARN', 'Browser disconnected — will relaunch');
-      browser = null; tvSessionReady = false; tvCookies = null;
-    });
+// Load cookies from disk if they exist and aren't expired
+function loadCookiesFromDisk() {
+  try {
+    if (!fs.existsSync(COOKIE_FILE)) return false;
+    const raw     = fs.readFileSync(COOKIE_FILE, 'utf8');
+    const session = JSON.parse(raw);
+    const age     = Date.now() - (session.savedAt || 0);
+    if (age > COOKIE_MAX_AGE_MS) {
+      log('INFO', '[SESSION] Cookies expired — will re-login');
+      fs.unlinkSync(COOKIE_FILE);
+      return false;
+    }
+    tvCookies      = session.cookies;
+    tvSessionReady = true;
+    log('INFO', `[SESSION] ✅ Loaded ${tvCookies.length} cookies from disk (age: ${Math.round(age / 3600000)}h)`);
+    return true;
+  } catch (err) {
+    log('WARN', `[SESSION] Cookie load failed: ${err.message}`);
+    return false;
   }
-  return browser;
 }
 
+// Save cookies to disk after successful login
+function saveCookiesToDisk(cookies) {
+  try {
+    fs.writeFileSync(COOKIE_FILE, JSON.stringify({ savedAt: Date.now(), cookies }), 'utf8');
+    log('INFO', '[SESSION] Cookies saved to disk');
+  } catch (err) {
+    log('WARN', `[SESSION] Cookie save failed: ${err.message}`);
+  }
+}
+
+// Full login — only called when no valid cookies exist
 async function loginToTradingView() {
   if (!USE_AUTH) return false;
-  log('INFO', '[TV LOGIN] Authenticating...');
+  log('INFO', '[TV LOGIN] Performing fresh login...');
 
-  const b       = await getBrowser();
-  const context = await b.newContext({
+  const { chromium } = require('playwright');
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+  });
+
+  const context = await browser.newContext({
     viewport:   { width: PANEL_W, height: PANEL_H },
     userAgent:  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     locale:     'en-US',
@@ -233,66 +254,128 @@ async function loginToTradingView() {
     await page.goto('https://www.tradingview.com/accounts/signin/', {
       waitUntil: 'domcontentloaded', timeout: 30000,
     });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(2500);
 
+    // Click Email sign-in if visible
     try {
       const emailBtn = page.locator('button:has-text("Email"), span:has-text("Email")').first();
-      if (await emailBtn.isVisible({ timeout: 3000 })) {
+      if (await emailBtn.isVisible({ timeout: 4000 })) {
         await emailBtn.click();
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(1200);
       }
     } catch (_) {}
 
-    await page.fill('input[name="username"], input[type="text"]', TV_USER);
-    await page.waitForTimeout(400);
-    await page.fill('input[name="password"], input[type="password"]', TV_PASS);
-    await page.waitForTimeout(400);
-    await page.click('button[type="submit"], button:has-text("Sign in")');
-    await page.waitForURL((url) => !url.href.includes('/accounts/signin/'), { timeout: 20000 });
+    // Fill credentials
+    const userInput = page.locator('input[name="username"], input[name="login"], input[type="email"], input[autocomplete="username"]').first();
+    await userInput.fill(TV_USER, { timeout: 10000 });
+    await page.waitForTimeout(500);
 
-    tvCookies = await context.cookies();
+    const passInput = page.locator('input[name="password"], input[type="password"]').first();
+    await passInput.fill(TV_PASS, { timeout: 10000 });
+    await page.waitForTimeout(500);
+
+    // Submit
+    const submitBtn = page.locator('button[type="submit"], button:has-text("Sign in"), button:has-text("Log in")').first();
+    await submitBtn.click({ timeout: 10000 });
+
+    // Wait for redirect away from signin page — up to 30s
+    await page.waitForURL((url) => !url.href.includes('/accounts/signin/'), { timeout: 30000 });
+
+    // Grab all cookies
+    const cookies  = await context.cookies();
+    await browser.close();
+
+    // Verify we got session cookies
+    const hasSession = cookies.some((c) => c.name === 'sessionid' || c.name === 'tv_expire');
+    if (!hasSession) {
+      log('WARN', '[TV LOGIN] No session cookie found — login may have failed silently');
+    }
+
+    tvCookies      = cookies;
     tvSessionReady = true;
-    log('INFO', '[TV LOGIN] ✅ Login successful');
-    await context.close();
+    saveCookiesToDisk(cookies);
+    log('INFO', `[TV LOGIN] ✅ Login successful — ${cookies.length} cookies captured`);
     return true;
 
   } catch (err) {
     log('ERROR', `[TV LOGIN] ❌ Failed: ${err.message}`);
-    tvSessionReady = false; tvCookies = null;
-    await context.close();
+    await browser.close();
+    tvSessionReady = false;
+    tvCookies      = null;
     return false;
   }
 }
 
-async function getAuthContext() {
-  const b       = await getBrowser();
-  const context = await b.newContext({
-    viewport:          { width: PANEL_W, height: PANEL_H },
-    deviceScaleFactor: 1,
-    userAgent:         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    locale:            'en-US',
-    timezoneId:        'Australia/Perth',
+// Validate session by loading a TV page — if redirected to signin, session is dead
+async function validateSession() {
+  if (!tvCookies) return false;
+  log('INFO', '[SESSION] Validating session...');
+
+  const { chromium } = require('playwright');
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
   });
-  if (tvCookies && tvCookies.length > 0) {
-    await context.addCookies(tvCookies);
+  const context = await browser.newContext({
+    viewport: { width: PANEL_W, height: PANEL_H },
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  });
+  await context.addCookies(tvCookies);
+  const page = await context.newPage();
+
+  try {
+    await page.goto('https://www.tradingview.com/', {
+      waitUntil: 'domcontentloaded', timeout: 20000,
+    });
+    await page.waitForTimeout(2000);
+    const url   = page.url();
+    const valid = !url.includes('/accounts/signin/');
+    await browser.close();
+    log('INFO', `[SESSION] ${valid ? '✅ Valid' : '❌ Expired'}`);
+    return valid;
+  } catch (err) {
+    await browser.close();
+    log('WARN', `[SESSION] Validation failed: ${err.message}`);
+    return false;
   }
-  return context;
+}
+
+// Main auth entry — load from disk, validate, login only if needed
+async function ensureSession() {
+  if (!USE_AUTH) return;
+
+  // Step 1: Try loading from disk
+  const loaded = loadCookiesFromDisk();
+
+  // Step 2: Validate if loaded
+  if (loaded) {
+    const valid = await validateSession();
+    if (valid) {
+      log('INFO', '[SESSION] Session ready — skipping login');
+      return;
+    }
+    // Session invalid — clear and re-login
+    tvCookies = null; tvSessionReady = false;
+    try { fs.unlinkSync(COOKIE_FILE); } catch (_) {}
+  }
+
+  // Step 3: Fresh login
+  const ok = await loginToTradingView();
+  if (!ok) {
+    log('WARN', '[SESSION] All auth attempts failed — falling back to guest mode');
+  }
 }
 
 // ============================================================
 // MODULE 1 — CHART ENGINE
-// Single panel renders — each chart gets its own full viewport
-// This gives perfect fit-to-screen on every panel
+// Each panel gets its own isolated browser context
+// Context closed immediately after screenshot (memory safe)
 // ============================================================
 
-// Build URL for a single authenticated chart
-// Uses layout ID for auth (gets your colour scheme/settings)
-// but forces symbol and interval via URL params
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
-  // Use your layout as template for colours, but single-panel view
-  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}&hide_side_toolbar=1&hide_top_toolbar=1`;
+  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}&hide_side_toolbar=1`;
 }
 
 function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
@@ -304,70 +387,67 @@ function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
   ]);
 }
 
-// Remove all TV UI chrome — leave only the chart canvas
 async function cleanUI(page) {
   await page.evaluate(() => {
-    const selectors = [
+    [
       '[data-name="header-toolbar"]',
       '[data-name="right-toolbar"]',
       '[data-name="left-toolbar"]',
-      '.layout__area--right',
-      '.layout__area--left',
-      '.layout__area--top',
-      '.tv-side-toolbar',
-      '.tv-control-bar',
-      '.tv-floating-toolbar',
-      '.chart-controls-bar',
-      '.header-chart-panel',
-      '[data-name="legend"]',
-      '.chart-toolbar',
-      '.topbar',
-      '.top-bar',
-      '.tv-watermark',
-      '[data-name="alerts-icon"]',
-      '#overlap-manager-root',
-      // Bottom toolbar
-      '.bottom-widgetbar-content',
-      '[data-name="bottom-toolbar"]',
-    ];
-    selectors.forEach((sel) => {
+      '.layout__area--right', '.layout__area--left', '.layout__area--top',
+      '.tv-side-toolbar', '.tv-control-bar', '.tv-floating-toolbar',
+      '.chart-controls-bar', '.header-chart-panel',
+      '[data-name="legend"]', '.chart-toolbar',
+      '.topbar', '.top-bar', '.tv-watermark',
+      '[data-name="alerts-icon"]', '#overlap-manager-root',
+      '.bottom-widgetbar-content', '[data-name="bottom-toolbar"]',
+    ].forEach((sel) => {
       document.querySelectorAll(sel).forEach((el) => { el.style.display = 'none'; });
     });
-
-    // Maximise chart area to fill full viewport
-    const chartArea = document.querySelector('.chart-container, .chart-page, #tv_chart_container, [class*="chart-container"]');
-    if (chartArea) {
-      chartArea.style.cssText += '; position:fixed!important; top:0!important; left:0!important; width:100vw!important; height:100vh!important; z-index:1!important;';
-    }
   }).catch(() => {});
 }
 
-// Render a single chart panel — full viewport, authenticated, clean
 async function renderPanel(symbol, interval, tfKey) {
   const url = buildPanelUrl(symbol, interval);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    let browser = null;
     let context = null;
     try {
-      log('INFO', `[PANEL] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES}`);
+      log('INFO', `[PANEL] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES} auth:${tvSessionReady}`);
 
-      context = await getAuthContext();
+      const { chromium } = require('playwright');
+      // Fresh browser per panel — prevents memory accumulation
+      browser = await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+      });
+
+      context = await browser.newContext({
+        viewport:          { width: PANEL_W, height: PANEL_H },
+        deviceScaleFactor: 1,
+        userAgent:         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        locale:            'en-US',
+        timezoneId:        'Australia/Perth',
+      });
+
+      // Inject session cookies if authenticated
+      if (tvSessionReady && tvCookies) {
+        await context.addCookies(tvCookies);
+      }
+
       const page = await context.newPage();
       page.setDefaultNavigationTimeout(40000);
       page.setDefaultTimeout(40000);
 
-      // Force dark theme
       await page.addInitScript(() => {
         try { localStorage.setItem('theme', 'dark'); } catch (_) {}
       });
 
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
 
-      // Wait for chart data to load
-      // Longer timeframes (Weekly/Daily) load more data — need more time
+      // Load wait — weekly/daily need more time
       const isLongTF = (interval === '1W' || interval === '1D');
-      const loadWait = isLongTF ? 6000 : 4500;
-      await page.waitForTimeout(loadWait);
+      await page.waitForTimeout(isLongTF ? 6000 : 4500);
 
       // Dismiss popups
       for (const sel of [
@@ -377,76 +457,64 @@ async function renderPanel(symbol, interval, tfKey) {
       ]) {
         try {
           const btn = page.locator(sel).first();
-          if (await btn.isVisible({ timeout: 500 })) {
-            await btn.click({ timeout: 500 });
-            await page.waitForTimeout(200);
+          if (await btn.isVisible({ timeout: 400 })) {
+            await btn.click({ timeout: 400 });
+            await page.waitForTimeout(150);
           }
         } catch (_) {}
       }
 
-      // Session check
+      // Detect session expiry
       if (page.url().includes('/accounts/signin/')) {
+        log('WARN', '[PANEL] Session expired mid-render — clearing cookies');
         tvSessionReady = false; tvCookies = null;
+        try { fs.unlinkSync(COOKIE_FILE); } catch (_) {}
         throw new Error('Session expired');
       }
 
       // Wait for canvas
       try { await page.waitForSelector('canvas', { timeout: 15000 }); } catch (_) {}
 
-      // Clean all UI chrome + expand chart to full viewport
       await cleanUI(page);
-      await page.waitForTimeout(800);
+      await page.waitForTimeout(700);
 
-      // Screenshot — clean single chart, fills entire viewport
       const raw = await page.screenshot({ type: 'png', fullPage: false });
-      await context.close();
-      context = null;
 
-      if (raw.length < 50000) {
-        throw new Error(`Blank render (${raw.length}B)`);
-      }
+      await browser.close();
+      browser = null;
+
+      if (raw.length < 50000) throw new Error(`Blank render (${raw.length}B)`);
 
       log('INFO', `[PANEL OK] ${symbol} ${tfKey} — ${(raw.length / 1024).toFixed(0)}KB`);
       return raw;
 
     } catch (err) {
       log('ERROR', `[PANEL FAIL] ${symbol} ${tfKey} attempt ${attempt}: ${err.message}`);
-      if (context) { try { await context.close(); } catch (_) {} }
+      if (browser) { try { await browser.close(); } catch (_) {} }
+
       if (err.message.includes('Session expired') && USE_AUTH) {
-        log('INFO', '[PANEL] Re-authenticating...');
+        log('INFO', '[PANEL] Attempting re-login...');
         await loginToTradingView();
       }
+
       if (attempt === MAX_RETRIES) throw err;
-      await new Promise((r) => setTimeout(r, 2500));
+      await new Promise((r) => setTimeout(r, 3000));
     }
   }
 }
 
-// Composite 4 panels into clean 2x2 grid
-// Each panel is PANEL_W x PANEL_H — composited to 2x width, 2x height
-// Output downscaled to 1920x1080 for Discord
 async function buildGrid(panels) {
   const W = PANEL_W;
   const H = PANEL_H;
 
-  // Resize each panel to exact dimensions
   const resized = await Promise.all(
     panels.map((img) =>
-      sharp(img)
-        .resize(W, H, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
-        .png()
-        .toBuffer()
+      sharp(img).resize(W, H, { fit: 'fill', kernel: sharp.kernel.lanczos3 }).png().toBuffer()
     )
   );
 
-  // Composite into 2x2 grid
-  const grid = await sharp({
-    create: {
-      width:      W * 2,
-      height:     H * 2,
-      channels:   4,
-      background: { r: 11, g: 11, b: 11, alpha: 1 },
-    },
+  return await sharp({
+    create: { width: W * 2, height: H * 2, channels: 4, background: { r: 11, g: 11, b: 11, alpha: 1 } },
   })
     .composite([
       { input: resized[0], left: 0, top: 0 },
@@ -456,8 +524,6 @@ async function buildGrid(panels) {
     ])
     .jpeg({ quality: 93, mozjpeg: true })
     .toBuffer();
-
-  return grid;
 }
 
 function archiveRender(buffer, symbol, label) {
@@ -504,11 +570,9 @@ async function runChartPipeline(symbol, mode, intervals, customTFs) {
   const modeLabel = mode === 'H' ? 'HTF' : 'LTF';
   const tfDisplay = intervals.map(tfLabel).join(' · ');
   const label     = customTFs ? tfDisplay : modeLabel;
-  const tfs       = TIMEFRAMES_DEF[mode] || intervals.map((iv, i) => ({ key: tfLabel(iv), interval: iv }));
 
   log('INFO', `[PIPELINE] ${symbol} ${label} — rendering 4 panels`);
 
-  // Render all 4 panels sequentially (avoids browser memory spikes)
   const panels = [];
   for (let i = 0; i < 4; i++) {
     const iv  = intervals[i];
@@ -517,7 +581,7 @@ async function runChartPipeline(symbol, mode, intervals, customTFs) {
     panels.push(raw);
   }
 
-  log('INFO', `[PIPELINE] ${symbol} ${label} — compositing grid`);
+  log('INFO', `[PIPELINE] ${symbol} ${label} — compositing`);
   const gridBuf  = await buildGrid(panels);
   const dateStr  = new Date().toISOString().slice(0, 10);
   const gridName = `${dateStr}_${symbol}_${label.replace(/\s·\s/g, '_')}_grid.jpg`;
@@ -527,22 +591,6 @@ async function runChartPipeline(symbol, mode, intervals, customTFs) {
 
   return { gridBuf, gridName, symbol, label, tfDisplay };
 }
-
-// Used for key labelling per mode
-const TIMEFRAMES_DEF = {
-  H: [
-    { key: 'Weekly', interval: '1W' },
-    { key: 'Daily',  interval: '1D' },
-    { key: '4H',     interval: '240' },
-    { key: '1H',     interval: '60' },
-  ],
-  L: [
-    { key: '4H',  interval: '240' },
-    { key: '1H',  interval: '60' },
-    { key: '15M', interval: '15' },
-    { key: '1M',  interval: '1' },
-  ],
-};
 
 // ============================================================
 // MODULE 3 — DISCORD OUTPUT
@@ -572,7 +620,6 @@ async function deliverChart(msg, result) {
   const cacheKey = `${msg.id}_${Date.now()}`;
   cacheForShare(cacheKey, result);
 
-  // MODULE 4 — Share button (prep only)
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`share_${cacheKey}`)
@@ -604,9 +651,7 @@ client.on('interactionCreate', async (interaction) => {
   }
 
   if (interaction.customId.startsWith('share_')) {
-    try { await interaction.deferUpdate(); } catch (err) {
-      log('ERROR', '[DEFER]', err.message); return;
-    }
+    try { await interaction.deferUpdate(); } catch (err) { log('ERROR', '[DEFER]', err.message); return; }
 
     const cacheKey = interaction.customId.replace('share_', '');
     const cached   = SHARE_CACHE.get(cacheKey);
@@ -658,10 +703,7 @@ client.on('messageCreate', async (msg) => {
   const parsed = parseCommand(raw);
   if (!parsed || parsed.action !== 'chart') return;
 
-  if (parsed.parseError) {
-    await safeReply(msg, `⚠️ ${parsed.parseError}`);
-    return;
-  }
+  if (parsed.parseError) { await safeReply(msg, `⚠️ ${parsed.parseError}`); return; }
 
   const { symbol, mode, intervals, customTFs } = parsed;
 
@@ -673,16 +715,12 @@ client.on('messageCreate', async (msg) => {
   lock(symbol);
 
   enqueue(async () => {
-    const modeLabel = mode === 'H' ? 'HTF' : 'LTF';
     const tfDisplay = intervals.map(tfLabel).join(' · ');
-    const label     = customTFs ? tfDisplay : modeLabel;
+    const label     = customTFs ? tfDisplay : (mode === 'H' ? 'HTF' : 'LTF');
 
     log('INFO', `[CMD] ${msg.author.username} / ${group} → ${symbol} ${label}`);
 
-    const progress = await safeReply(
-      msg,
-      `⏳ Generating **${symbol}** ${label} grid...\n⏱ ${tfDisplay}`
-    );
+    const progress = await safeReply(msg, `⏳ Generating **${symbol}** ${label}...\n⏱ ${tfDisplay}`);
 
     try {
       const result = await runChartPipeline(symbol, mode, intervals, customTFs);
@@ -712,12 +750,9 @@ setInterval(() => { log('INFO', '[KEEP-ALIVE]'); }, 5 * 60 * 1000);
 // ============================================================
 
 async function startup() {
-  if (USE_AUTH) {
-    const ok = await loginToTradingView();
-    if (!ok) log('WARN', '[STARTUP] TV login failed — falling back to guest mode');
-  } else {
-    log('WARN', '[STARTUP] No TV credentials set');
-  }
+  // Ensure TV session — load from disk or login once
+  // This does NOT login on every deploy — only when cookies are missing/expired
+  await ensureSession();
   await client.login(TOKEN);
 }
 
