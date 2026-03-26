@@ -1,114 +1,94 @@
 // ============================================================
-// ATLAS FX DISCORD BOT — DEFINITIVE FINAL BUILD
+// ATLAS FX DISCORD BOT — FULL INTELLIGENCE ENGINE v2.0
 // ============================================================
 //
-// AUTH: TV_COOKIES env var — JSON exported from Cookie-Editor
-//   - sameSite values sanitised for Playwright compatibility
-//   - No login, no detection risk
-//   - Falls back to guest dark mode if not set
+// ARCHITECTURE:
+//   Layer 1: CHART ENGINE     — Authenticated TV renders → 2x2 grid
+//   Layer 2: SPIDEY           — Multi-TF structure detection
+//   Layer 3: COREY + TS       — Macro + TrendSpider intelligence
+//   Layer 4: JANE             — Synthesis, conflict matrix, final decision
 //
-// CHART ENGINE: 4 individual panel renders → 2x2 grid
-//   - Each panel at 1280x720, authenticated session
-//   - Fresh browser per panel (memory safe)
-//
-// COMMANDS (in mapped channels):
-//   !EURUSDH              — HTF (Weekly, Daily, 4H, 1H)
-//   !EURUSDL              — LTF (4H, 1H, 15M, 1M)
-//   !EURUSDL 4,1,15,1     — Custom timeframes
-//   !ping                 — Health check
+// TRENDSPIDER:
+//   — Active external intelligence layer inside Corey
+//   — Express webhook server on TRENDSPIDER_PORT
+//   — POST /trendspider receives signal payloads
+//   — Signals stored with TTL, history per symbol
+//   — Corey combines internal macro + TrendSpider
+//   — Jane applies full 10-case conflict matrix
+//   — Structure (Spidey) always outranks TrendSpider
 //
 // ENV VARS:
 //   DISCORD_BOT_TOKEN, TV_COOKIES, TV_LAYOUT_ID
 //   SHARED_MACROS_CHANNEL_ID
+//   ENABLE_TRENDSPIDER (true/false, default true)
+//   TRENDSPIDER_PORT (default 3001)
+//   TRENDSPIDER_SIGNAL_TTL_MS (default 14400000 = 4h)
+//   TRENDSPIDER_HISTORY_LIMIT (default 10)
+//   TRENDSPIDER_PERSIST_PATH (optional, path to JSON store)
 // ============================================================
 
-process.on('unhandledRejection', (reason) => { console.error('[UNHANDLED]', reason); });
-process.on('uncaughtException',  (err)    => { console.error('[CRASH]', err); });
+process.on('unhandledRejection', (r) => { console.error('[UNHANDLED]', r); });
+process.on('uncaughtException',  (e) => { console.error('[CRASH]', e); });
 
-// ── LAYER 1: Environment ─────────────────────────────────────
-const TOKEN     = process.env.DISCORD_BOT_TOKEN;
-const TV_LAYOUT = process.env.TV_LAYOUT_ID || 'GmNAOGhI';
-
-if (!TOKEN) { console.error('[FATAL] Missing DISCORD_BOT_TOKEN'); process.exit(1); }
-
-// ── Cookie sanitisation ──────────────────────────────────────
-// Playwright only accepts sameSite: Strict | Lax | None
-// Cookie-Editor exports "unspecified", "no_restriction" etc — map them
-const SAMESITE_MAP = {
-  'strict':        'Strict',
-  'lax':           'Lax',
-  'none':          'None',
-  'no_restriction':'None',
-  'unspecified':   'Lax',   // safe default
-};
-
-function sanitiseCookies(raw) {
-  return raw
-    .map((c) => {
-      const out = { ...c };
-
-      // Fix sameSite
-      if (out.sameSite !== undefined) {
-        const key = String(out.sameSite).toLowerCase();
-        out.sameSite = SAMESITE_MAP[key] || 'Lax';
-      } else {
-        out.sameSite = 'Lax';
-      }
-
-      // Playwright requires these fields
-      if (!out.domain) out.domain = '.tradingview.com';
-      if (!out.path)   out.path   = '/';
-
-      // Remove fields Playwright doesn't accept
-      delete out.hostOnly;
-      delete out.storeId;
-      delete out.id;
-
-      return out;
-    })
-    // Keep only TV-domain cookies
-    .filter((c) => c.domain && c.domain.includes('tradingview'));
-}
-
-let TV_COOKIES = null;
-try {
-  if (process.env.TV_COOKIES) {
-    const raw  = JSON.parse(process.env.TV_COOKIES);
-    TV_COOKIES = sanitiseCookies(raw);
-    console.log(`[BOOT] TV_COOKIES loaded — ${TV_COOKIES.length} cookies (sanitised)`);
-  } else {
-    console.log('[BOOT] TV_COOKIES not set — running in guest mode');
-  }
-} catch (err) {
-  console.error('[BOOT] TV_COOKIES parse error:', err.message);
-}
-
-console.log(`[BOOT] ATLAS FX Bot starting... auth: ${TV_COOKIES ? 'COOKIE' : 'GUEST'}`);
-
-// ── LAYER 2: Discord client ──────────────────────────────────
+// ── DEPENDENCIES ─────────────────────────────────────────────
 const {
   Client, GatewayIntentBits,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder,
 } = require('discord.js');
-
 const sharp        = require('sharp');
 const path         = require('path');
 const fs           = require('fs');
+const https        = require('https');
+const http         = require('http');
 const { chromium } = require('playwright');
 
+// ── ENVIRONMENT ──────────────────────────────────────────────
+const TOKEN     = process.env.DISCORD_BOT_TOKEN;
+const TV_LAYOUT = process.env.TV_LAYOUT_ID || 'GmNAOGhI';
+if (!TOKEN) { console.error('[FATAL] Missing DISCORD_BOT_TOKEN'); process.exit(1); }
+
+// ── TRENDSPIDER CONFIG ───────────────────────────────────────
+const TS_ENABLED      = process.env.ENABLE_TRENDSPIDER !== 'false';
+const TS_PORT         = parseInt(process.env.TRENDSPIDER_PORT || '3001', 10);
+const TS_TTL_MS       = parseInt(process.env.TRENDSPIDER_SIGNAL_TTL_MS || String(4 * 60 * 60 * 1000), 10);
+const TS_HISTORY_LIMIT = parseInt(process.env.TRENDSPIDER_HISTORY_LIMIT || '10', 10);
+const TS_PERSIST_PATH = process.env.TRENDSPIDER_PERSIST_PATH || null;
+
+// ── COOKIE SANITISATION ──────────────────────────────────────
+const SAMESITE_MAP = {
+  'strict': 'Strict', 'lax': 'Lax', 'none': 'None',
+  'no_restriction': 'None', 'unspecified': 'Lax',
+};
+function sanitiseCookies(raw) {
+  return raw
+    .map((c) => {
+      const out    = { ...c };
+      const key    = String(out.sameSite || '').toLowerCase();
+      out.sameSite = SAMESITE_MAP[key] || 'Lax';
+      if (!out.domain) out.domain = '.tradingview.com';
+      if (!out.path)   out.path   = '/';
+      delete out.hostOnly; delete out.storeId; delete out.id;
+      return out;
+    })
+    .filter((c) => c.domain && c.domain.includes('tradingview'));
+}
+let TV_COOKIES = null;
+try {
+  if (process.env.TV_COOKIES) {
+    TV_COOKIES = sanitiseCookies(JSON.parse(process.env.TV_COOKIES));
+    console.log(`[BOOT] TV_COOKIES: ${TV_COOKIES.length} cookies loaded`);
+  }
+} catch (e) { console.error('[BOOT] TV_COOKIES parse error:', e.message); }
+
+console.log(`[BOOT] ATLAS FX starting... auth:${TV_COOKIES ? 'COOKIE' : 'GUEST'} trendspider:${TS_ENABLED ? 'ENABLED' : 'DISABLED'}`);
+
+// ── DISCORD CLIENT ───────────────────────────────────────────
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
+client.once('clientReady', () => console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`));
 
-client.once('clientReady', () => {
-  console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
-});
-
-// ── LAYER 3: Config ──────────────────────────────────────────
+// ── CONFIG ───────────────────────────────────────────────────
 const EXPORT_DIR            = process.env.EXPORT_DIR || path.join(__dirname, 'exports');
 const MAX_RETRIES           = 2;
 const RENDER_TIMEOUT_MS     = 45000;
@@ -118,27 +98,17 @@ const CACHE_TTL_MS          = 15 * 60 * 1000;
 const PANEL_W               = 1280;
 const PANEL_H               = 720;
 
-// ── LAYER 4: Alias mapping ───────────────────────────────────
+// ── SYMBOL MAPS ──────────────────────────────────────────────
 const ALIAS_MAP = {
-  gold:   'XAUUSD',  xau:    'XAUUSD',
-  silver: 'XAGUSD',  xag:    'XAGUSD',
-  brent:  'BCOUSD',  wti:    'USOIL',   oil:    'USOIL',
-  nas100: 'NAS100',  nas:    'NAS100',  nasdaq: 'NAS100',
-  sp500:  'US500',   spx:    'US500',   us500:  'US500',
-  dow:    'US30',    dji:    'US30',    us30:   'US30',
-  dax:    'GER40',   ger40:  'GER40',
-  ftse:   'UK100',   uk100:  'UK100',
-  natgas: 'NATGAS',  ng:     'NATGAS',
-  micron: 'MICRON',  mu:     'MICRON',
-  amd:    'AMD',     asml:   'ASML',
+  gold: 'XAUUSD', xau: 'XAUUSD', silver: 'XAGUSD', xag: 'XAGUSD',
+  brent: 'BCOUSD', wti: 'USOIL', oil: 'USOIL',
+  nas100: 'NAS100', nas: 'NAS100', nasdaq: 'NAS100',
+  sp500: 'US500', spx: 'US500', us500: 'US500',
+  dow: 'US30', dji: 'US30', us30: 'US30',
+  dax: 'GER40', ger40: 'GER40', ftse: 'UK100', uk100: 'UK100',
+  natgas: 'NATGAS', ng: 'NATGAS',
+  micron: 'MICRON', mu: 'MICRON', amd: 'AMD', asml: 'ASML',
 };
-
-function resolveSymbol(raw) {
-  const lower = raw.toLowerCase().trim();
-  return ALIAS_MAP[lower] || raw.toUpperCase();
-}
-
-// ── LAYER 5: Symbol routing ──────────────────────────────────
 const SYMBOL_OVERRIDES = {
   XAUUSD: 'OANDA:XAUUSD',   XAGUSD: 'OANDA:XAGUSD',
   BCOUSD: 'OANDA:BCOUSD',   USOIL:  'OANDA:BCOUSD',
@@ -148,196 +118,1025 @@ const SYMBOL_OVERRIDES = {
   MICRON: 'NASDAQ:MU',       AMD:    'NASDAQ:AMD',
   ASML:   'NASDAQ:ASML',
 };
+const CURRENCY_COUNTRY = {
+  USD: { name: 'United States', region: 'North America', weight: 0.95, bank: 'Federal Reserve' },
+  EUR: { name: 'Eurozone',      region: 'Europe',        weight: 0.85, bank: 'ECB' },
+  GBP: { name: 'United Kingdom', region: 'Europe',       weight: 0.70, bank: 'Bank of England' },
+  JPY: { name: 'Japan',         region: 'Asia Pacific',  weight: 0.65, bank: 'Bank of Japan' },
+  AUD: { name: 'Australia',     region: 'Asia Pacific',  weight: 0.45, bank: 'RBA' },
+  NZD: { name: 'New Zealand',   region: 'Asia Pacific',  weight: 0.35, bank: 'RBNZ' },
+  CAD: { name: 'Canada',        region: 'North America', weight: 0.50, bank: 'Bank of Canada' },
+  CHF: { name: 'Switzerland',   region: 'Europe',        weight: 0.40, bank: 'SNB' },
+  CNH: { name: 'China',         region: 'Asia',          weight: 0.75, bank: 'PBOC' },
+  XAU: { name: 'Gold',          region: 'Global',        weight: 0.60, bank: 'Safe Haven' },
+};
+const CORRELATION_MAP = {
+  EURUSD: { positive: ['GBPUSD', 'AUDUSD', 'NZDUSD'], negative: ['USDCHF', 'USDJPY', 'DXY'] },
+  GBPUSD: { positive: ['EURUSD', 'AUDUSD'],           negative: ['USDCHF', 'USDJPY'] },
+  USDJPY: { positive: ['USDCHF', 'USDCAD'],           negative: ['EURUSD', 'GBPUSD', 'XAUUSD'] },
+  AUDUSD: { positive: ['NZDUSD', 'EURUSD'],           negative: ['USDJPY', 'USDCAD'] },
+  XAUUSD: { positive: ['XAGUSD', 'AUDUSD'],           negative: ['USDJPY', 'DXY'] },
+  AUDJPY: { positive: ['NZDJPY', 'CADJPY'],           negative: ['XAUUSD'] },
+};
 
+function resolveSymbol(raw) {
+  return ALIAS_MAP[raw.toLowerCase().trim()] || raw.toUpperCase();
+}
 function getTVSymbol(symbol) {
   if (SYMBOL_OVERRIDES[symbol]) return SYMBOL_OVERRIDES[symbol];
   if (/^[A-Z]{6}$/.test(symbol)) return `OANDA:${symbol}`;
   return `NASDAQ:${symbol}`;
 }
-
 function getFeedName(symbol) {
-  const tv   = getTVSymbol(symbol);
-  const feed = tv.split(':')[0];
+  const feed = getTVSymbol(symbol).split(':')[0];
   return { OANDA: 'OANDA', NASDAQ: 'NASDAQ', NYSE: 'NYSE', NYMEX: 'NYMEX', TVC: 'TVC' }[feed] || feed;
 }
+function parsePair(symbol) {
+  if (symbol.length >= 6) return { base: symbol.slice(0, 3), quote: symbol.slice(3, 6) };
+  return { base: symbol, quote: 'USD' };
+}
 
-// ── LAYER 6: Timeframe resolution ───────────────────────────
+// ── TIMEFRAMES ───────────────────────────────────────────────
 const TF_MAP = {
-  '1w': '1W', 'w': '1W', 'weekly': '1W',
-  '1d': '1D', 'd': '1D', 'daily': '1D',
-  '4h': '240', '4': '240', '4hr': '240',
-  '2h': '120', '2': '120',
-  '1h': '60',  '1': '60',  '1hr': '60',
-  '30m': '30', '30': '30',
-  '15m': '15', '15': '15',
-  '5m':  '5',  '5':  '5',
-  '3m':  '3',  '3':  '3',
-  '1m':  '1',
+  '1w': '1W', 'w': '1W', 'weekly': '1W', '1d': '1D', 'd': '1D', 'daily': '1D',
+  '4h': '240', '4': '240', '4hr': '240', '2h': '120', '2': '120',
+  '1h': '60', '1': '60', '1hr': '60', '30m': '30', '30': '30',
+  '15m': '15', '15': '15', '5m': '5', '5': '5', '3m': '3', '3': '3', '1m': '1',
   '240': '240', '120': '120', '60': '60',
 };
-
-const DEFAULT_TIMEFRAMES = {
-  H: ['1W', '1D', '240', '60'],
-  L: ['240', '60', '15', '1'],
-};
-
+const DEFAULT_TIMEFRAMES = { H: ['1W', '1D', '240', '60'], L: ['240', '60', '15', '1'] };
 const TF_LABELS = {
-  '1W': 'Weekly', '1D': 'Daily',
-  '240': '4H', '120': '2H', '60': '1H',
-  '30': '30M', '15': '15M', '5': '5M', '3': '3M', '1': '1M',
+  '1W': 'Weekly', '1D': 'Daily', '240': '4H', '120': '2H',
+  '60': '1H', '30': '30M', '15': '15M', '5': '5M', '3': '3M', '1': '1M',
 };
-
-function resolveTF(input) {
-  return TF_MAP[input.toLowerCase().trim()] || null;
-}
-
-function parseCustomTFs(tfString) {
-  const parts = tfString.split(',').map((s) => s.trim());
+const TF_RESOLUTION = {
+  '1W': 'W', '1D': 'D', '240': '240', '120': '120',
+  '60': '60', '30': '30', '15': '15', '5': '5', '3': '3', '1': '1',
+};
+function resolveTF(input) { return TF_MAP[input.toLowerCase().trim()] || null; }
+function parseCustomTFs(s) {
+  const parts = s.split(',').map((x) => x.trim());
   if (parts.length !== 4) return null;
-  const resolved = parts.map(resolveTF);
-  return resolved.includes(null) ? null : resolved;
+  const r = parts.map(resolveTF);
+  return r.includes(null) ? null : r;
 }
+function tfLabel(iv) { return TF_LABELS[iv] || iv; }
 
-function tfLabel(interval) {
-  return TF_LABELS[interval] || interval;
-}
-
-// ── LAYER 7: Command parser ──────────────────────────────────
+// ── COMMAND PARSER ───────────────────────────────────────────
 function parseCommand(content) {
   const trimmed = (content || '').trim();
   if (trimmed === '!ping') return { action: 'ping' };
-
   const m = trimmed.match(/^!([A-Z0-9]{2,12})([LH])(?:\s+([^\s].*))?$/i);
   if (!m) return null;
-
   const rawSymbol = m[1];
   const mode      = m[2].toUpperCase();
   const tfString  = m[3] ? m[3].trim() : null;
   const symbol    = resolveSymbol(rawSymbol);
-
-  let intervals  = DEFAULT_TIMEFRAMES[mode];
-  let customTFs  = false;
-  let parseError = null;
-
+  let intervals   = DEFAULT_TIMEFRAMES[mode];
+  let customTFs   = false;
+  let parseError  = null;
   if (tfString) {
     const parsed = parseCustomTFs(tfString);
     if (parsed) { intervals = parsed; customTFs = true; }
-    else { parseError = `Invalid timeframes: \`${tfString}\`\nFormat: 4 comma-separated values — e.g. \`4,1,15,1\``; }
+    else parseError = `Invalid timeframes: \`${tfString}\`\nFormat: 4 comma-separated values e.g. \`4,1,15,1\``;
   }
-
   return { action: 'chart', rawSymbol, symbol, mode, intervals, customTFs, parseError };
 }
 
-// ── LAYER 8: Logging ─────────────────────────────────────────
 function log(level, msg, ...args) {
   console.log(`[${new Date().toISOString()}] [${level}] ${msg}`, ...args);
 }
 
 // ============================================================
-// MODULE 1 — CHART ENGINE
+// TRENDSPIDER SIGNAL STORE
+// ============================================================
+
+// In-memory store: symbol → { latest, history[] }
+const TS_STORE = new Map();
+
+function tsNormaliseDirection(raw) {
+  if (!raw) return 'Neutral';
+  const v = String(raw).toLowerCase();
+  if (v.includes('bull') || v === 'up' || v === 'long' || v === 'buy') return 'Bullish';
+  if (v.includes('bear') || v === 'down' || v === 'short' || v === 'sell') return 'Bearish';
+  return 'Neutral';
+}
+
+function tsNormaliseSignalType(raw) {
+  if (!raw) return 'Unknown';
+  const v = String(raw).toLowerCase();
+  if (v.includes('break')) return 'Breakout';
+  if (v.includes('revers')) return 'Reversal';
+  if (v.includes('continu')) return 'Continuation';
+  if (v.includes('warn')) return 'Warning';
+  if (v.includes('pattern')) return 'Pattern';
+  if (v.includes('scan')) return 'Scanner';
+  return 'Unknown';
+}
+
+function tsNormalisePayload(raw, receiveTime) {
+  // Flexible field mapping — TrendSpider may send many different field names
+  const symbol = (raw.symbol || raw.ticker || raw.pair || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const resolvedSymbol = resolveSymbol(symbol) || symbol;
+
+  const direction = tsNormaliseDirection(raw.direction || raw.trend || raw.signal || '');
+  const signalType = tsNormaliseSignalType(raw.signal_type || raw.signal || raw.strategy || raw.scanner || '');
+
+  let strength   = parseFloat(raw.strength || raw.confidence || 0.5);
+  let confidence = parseFloat(raw.confidence || raw.strength || 0.5);
+  strength   = Math.max(0, Math.min(1, isNaN(strength)   ? 0.5 : strength));
+  confidence = Math.max(0, Math.min(1, isNaN(confidence) ? 0.5 : confidence));
+
+  const timestamp = raw.timestamp
+    ? (typeof raw.timestamp === 'number' ? raw.timestamp * (raw.timestamp < 1e12 ? 1000 : 1) : Date.parse(raw.timestamp))
+    : receiveTime;
+
+  return {
+    symbol:     resolvedSymbol,
+    timeframe:  raw.timeframe || raw.interval || null,
+    signalType,
+    direction,
+    pattern:    raw.pattern    || raw.strategy || null,
+    strategy:   raw.strategy   || null,
+    scanner:    raw.scanner    || null,
+    strength,
+    confidence,
+    price:      raw.price ? parseFloat(raw.price) : null,
+    timestamp,
+    notes:      raw.notes || null,
+    raw,
+  };
+}
+
+function tsGradeSignal(signal, now) {
+  const ageMs = now - signal.timestamp;
+  if (ageMs > TS_TTL_MS)    return 'Stale';
+  if (!signal.direction || signal.direction === 'Neutral') return 'Unusable';
+  if (ageMs > TS_TTL_MS * 0.75) return 'FreshLow';
+  if (signal.confidence >= 0.70 && ageMs < TS_TTL_MS * 0.25) return 'FreshHigh';
+  if (signal.confidence >= 0.45) return 'FreshMedium';
+  return 'FreshLow';
+}
+
+function tsStoreSignal(signal) {
+  const sym = signal.symbol;
+  if (!TS_STORE.has(sym)) TS_STORE.set(sym, { latest: null, history: [] });
+  const entry = TS_STORE.get(sym);
+  entry.latest = signal;
+  entry.history.unshift(signal);
+  if (entry.history.length > TS_HISTORY_LIMIT) entry.history.length = TS_HISTORY_LIMIT;
+  if (TS_PERSIST_PATH) tsPersist();
+  log('INFO', `[TS STORE] ${sym} ${signal.direction} ${signal.signalType} strength:${signal.strength.toFixed(2)}`);
+}
+
+function tsGetSignal(symbol) {
+  const entry = TS_STORE.get(symbol);
+  return entry ? entry.latest : null;
+}
+
+function tsPersist() {
+  try {
+    const obj = {};
+    for (const [sym, entry] of TS_STORE.entries()) obj[sym] = entry;
+    fs.writeFileSync(TS_PERSIST_PATH, JSON.stringify(obj), 'utf8');
+  } catch (e) { log('WARN', `[TS PERSIST] ${e.message}`); }
+}
+
+function tsLoadPersisted() {
+  if (!TS_PERSIST_PATH) return;
+  try {
+    if (!fs.existsSync(TS_PERSIST_PATH)) return;
+    const data = JSON.parse(fs.readFileSync(TS_PERSIST_PATH, 'utf8'));
+    const now  = Date.now();
+    let loaded = 0;
+    for (const [sym, entry] of Object.entries(data)) {
+      if (entry.latest && (now - entry.latest.timestamp) < TS_TTL_MS) {
+        TS_STORE.set(sym, entry);
+        loaded++;
+      }
+    }
+    log('INFO', `[TS LOAD] ${loaded} non-stale symbols loaded from disk`);
+  } catch (e) { log('WARN', `[TS LOAD] ${e.message}`); }
+}
+
+// Stale signal cleanup
+setInterval(() => {
+  const now   = Date.now();
+  let removed = 0;
+  for (const [sym, entry] of TS_STORE.entries()) {
+    if (entry.latest && (now - entry.latest.timestamp) > TS_TTL_MS * 2) {
+      TS_STORE.delete(sym);
+      removed++;
+    }
+  }
+  if (removed > 0) log('INFO', `[TS CLEANUP] Removed ${removed} expired signal(s)`);
+}, 30 * 60 * 1000);
+
+// ============================================================
+// TRENDSPIDER WEBHOOK SERVER
+// ============================================================
+
+function startTSWebhookServer() {
+  if (!TS_ENABLED) { log('INFO', '[TS SERVER] TrendSpider disabled — webhook server not started'); return; }
+
+  const server = http.createServer((req, res) => {
+    // Health check
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, service: 'ATLAS FX TrendSpider Receiver', signals: TS_STORE.size }));
+      return;
+    }
+
+    // TrendSpider signal endpoint
+    if (req.method === 'POST' && req.url === '/trendspider') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        const receiveTime = Date.now();
+        try {
+          const raw = JSON.parse(body);
+
+          // Validate minimum requirements
+          const rawSym = raw.symbol || raw.ticker || raw.pair || '';
+          if (!rawSym) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Missing symbol/ticker/pair field' }));
+            return;
+          }
+
+          const signal = tsNormalisePayload(raw, receiveTime);
+          if (!signal.symbol) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Could not resolve symbol' }));
+            return;
+          }
+
+          const grade = tsGradeSignal(signal, receiveTime);
+          if (grade !== 'Unusable') {
+            tsStoreSignal(signal);
+          }
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            ok:        true,
+            symbol:    signal.symbol,
+            stored:    grade !== 'Unusable',
+            status:    grade,
+            direction: signal.direction,
+            strength:  signal.strength,
+            timestamp: signal.timestamp,
+          }));
+
+        } catch (e) {
+          log('WARN', `[TS SERVER] Malformed payload: ${e.message}`);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Invalid JSON payload' }));
+        }
+      });
+      req.on('error', () => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Request error' }));
+      });
+      return;
+    }
+
+    // 404 for anything else
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'Not found' }));
+  });
+
+  server.on('error', (e) => { log('ERROR', `[TS SERVER] ${e.message}`); });
+  server.listen(TS_PORT, () => {
+    log('INFO', `[TS SERVER] TrendSpider webhook listening on port ${TS_PORT}`);
+    log('INFO', `[TS SERVER] Endpoint: POST /trendspider | Health: GET /health`);
+  });
+}
+
+// ============================================================
+// OHLC DATA FETCHER — TradingView public API
+// ============================================================
+
+function fetchOHLC(symbol, resolution, count = 200) {
+  return new Promise((resolve, reject) => {
+    const tvSym = encodeURIComponent(getTVSymbol(symbol));
+    const res   = TF_RESOLUTION[resolution] || resolution;
+    const to    = Math.floor(Date.now() / 1000);
+    const from  = to - (count * 14 * 24 * 3600);
+
+    const options = {
+      hostname: 'history.tradingview.com',
+      path:     `/history?symbol=${tvSym}&resolution=${res}&from=${from}&to=${to}&countback=${count}`,
+      method:   'GET',
+      headers:  {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        'Origin':     'https://www.tradingview.com',
+        'Referer':    'https://www.tradingview.com/',
+      },
+      timeout: 15000,
+    };
+
+    const req = https.request(options, (r) => {
+      let data = '';
+      r.on('data', (c) => { data += c; });
+      r.on('end', () => {
+        try {
+          const p = JSON.parse(data);
+          if (!p.t || p.s !== 'ok') { reject(new Error(`TV API: ${p.s || 'unknown'}`)); return; }
+          resolve(p.t.map((time, i) => ({
+            time, open: p.o[i], high: p.h[i], low: p.l[i], close: p.c[i],
+            volume: p.v ? p.v[i] : 0,
+          })));
+        } catch (e) { reject(new Error(`TV API parse: ${e.message}`)); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => reject(new Error('TV API timeout')));
+    req.end();
+  });
+}
+
+async function safeOHLC(symbol, resolution, count = 200) {
+  try { return await fetchOHLC(symbol, resolution, count); }
+  catch (e) { log('WARN', `[OHLC] ${symbol} ${resolution}: ${e.message}`); return null; }
+}
+
+// ============================================================
+// 🕷️ SPIDEY — STRUCTURE INTELLIGENCE ENGINE
+// ============================================================
+
+function detectSwings(candles, lookback = 3) {
+  const swingHighs = [], swingLows = [];
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    const c = candles[i];
+    let isHigh = true, isLow = true;
+    for (let j = i - lookback; j <= i + lookback; j++) {
+      if (j === i) continue;
+      if (candles[j].high >= c.high) isHigh = false;
+      if (candles[j].low  <= c.low)  isLow  = false;
+    }
+    if (isHigh) swingHighs.push({ index: i, level: c.high, time: c.time });
+    if (isLow)  swingLows.push({ index: i, level: c.low,  time: c.time });
+  }
+  return { swingHighs, swingLows };
+}
+
+function classifyStructure(swingHighs, swingLows, lookbackSwings = 4) {
+  const rh = swingHighs.slice(-lookbackSwings);
+  const rl = swingLows.slice(-lookbackSwings);
+  if (rh.length < 2 || rl.length < 2) return { bias: 'Neutral', structure: 'Insufficient data', conviction: 0.3, highPattern: [], lowPattern: [] };
+
+  const hp = [], lp = [];
+  for (let i = 1; i < rh.length; i++) hp.push(rh[i].level > rh[i-1].level ? 'HH' : 'LH');
+  for (let i = 1; i < rl.length; i++) lp.push(rl[i].level > rl[i-1].level ? 'HL' : 'LL');
+
+  const hhC = hp.filter((x) => x === 'HH').length, lhC = hp.filter((x) => x === 'LH').length;
+  const hlC = lp.filter((x) => x === 'HL').length, llC = lp.filter((x) => x === 'LL').length;
+  const total = hp.length + lp.length;
+
+  const bull = (hhC + hlC) / total;
+  const bear = (lhC + llC) / total;
+
+  let bias, structure, conviction;
+  if      (bull >= 0.75) { bias = 'Bullish'; structure = 'Trending';    conviction = bull; }
+  else if (bear >= 0.75) { bias = 'Bearish'; structure = 'Trending';    conviction = bear; }
+  else if (bull >= 0.55) { bias = 'Bullish'; structure = 'Transition';  conviction = bull * 0.8; }
+  else if (bear >= 0.55) { bias = 'Bearish'; structure = 'Transition';  conviction = bear * 0.8; }
+  else                   { bias = 'Neutral'; structure = 'Range';        conviction = 0.3; }
+
+  return { bias, structure, conviction, highPattern: hp, lowPattern: lp };
+}
+
+function detectBreaks(candles, swingHighs, swingLows) {
+  if (candles.length < 5 || !swingHighs.length || !swingLows.length) {
+    return { lastBreak: 'None', direction: null, breakLevel: null, isEngineered: false };
+  }
+  const last    = candles[candles.length - 1];
+  const prev20  = candles.slice(-20);
+  const lastSH  = swingHighs[swingHighs.length - 1];
+  const lastSL  = swingLows[swingLows.length - 1];
+  const prev5   = prev20.slice(-5);
+  const rHigh   = Math.max(...prev5.map((c) => c.high));
+  const rLow    = Math.min(...prev5.map((c) => c.low));
+
+  const bullBOS   = last.close > lastSH.level;
+  const bearBOS   = last.close < lastSL.level;
+  const bullCHoCH = last.close > rHigh && !bullBOS;
+  const bearCHoCH = last.close < rLow  && !bearBOS;
+
+  const wickAbove = prev20.some((c) => c.high > lastSH.level && c.close <= lastSH.level);
+  const wickBelow = prev20.some((c) => c.low < lastSL.level  && c.close >= lastSL.level);
+  const isEngineered = wickAbove || wickBelow;
+
+  if (bullBOS) return { lastBreak: 'BOS', direction: 'Bullish', breakLevel: lastSH.level, isEngineered: false };
+  if (bearBOS) return { lastBreak: 'BOS', direction: 'Bearish', breakLevel: lastSL.level, isEngineered: false };
+  if (bullCHoCH) return { lastBreak: 'CHoCH', direction: 'Bullish', breakLevel: rHigh, isEngineered };
+  if (bearCHoCH) return { lastBreak: 'CHoCH', direction: 'Bearish', breakLevel: rLow,  isEngineered };
+  return { lastBreak: 'None', direction: null, breakLevel: null, isEngineered: false };
+}
+
+function detectZones(candles) {
+  const zones = { supply: [], demand: [] };
+  if (candles.length < 10) return zones;
+  const currentPrice = candles[candles.length - 1].close;
+
+  for (let i = 3; i < candles.length - 3; i++) {
+    const base    = candles[i];
+    const impulse = candles.slice(i + 1, i + 4);
+    const bearImpulse = impulse.every((c) => c.close < c.open) &&
+      impulse.reduce((s, c) => s + (c.open - c.close), 0) > (base.high - base.low) * 1.5;
+    const bullImpulse = impulse.every((c) => c.close > c.open) &&
+      impulse.reduce((s, c) => s + (c.close - c.open), 0) > (base.high - base.low) * 1.5;
+    if (bearImpulse && base.close > base.open) zones.supply.push({ high: base.high, low: Math.min(base.open, base.close), time: base.time });
+    if (bullImpulse && base.close < base.open) zones.demand.push({ high: Math.max(base.open, base.close), low: base.low, time: base.time });
+  }
+
+  zones.supply = zones.supply.filter((z) => z.low > currentPrice).sort((a, b) => a.low - b.low).slice(0, 3);
+  zones.demand = zones.demand.filter((z) => z.high < currentPrice).sort((a, b) => b.high - a.high).slice(0, 3);
+  return zones;
+}
+
+function detectImbalances(candles) {
+  const ims = [];
+  const cp  = candles[candles.length - 1].close;
+  for (let i = 0; i < candles.length - 2; i++) {
+    const c1 = candles[i], c3 = candles[i + 2], c2 = candles[i + 1];
+    if (c3.low  > c1.high) ims.push({ type: 'Bullish', high: c3.low,  low: c1.high, time: c2.time, filled: cp >= c1.high });
+    if (c3.high < c1.low)  ims.push({ type: 'Bearish', high: c1.low,  low: c3.high, time: c2.time, filled: cp <= c1.low });
+  }
+  return ims.filter((im) => !im.filled).slice(-5);
+}
+
+function detectLiquidity(candles, tol = 0.0005) {
+  const pools = [], seen = new Set();
+  const cp    = candles[candles.length - 1].close;
+
+  for (let i = 0; i < candles.length - 1; i++) {
+    for (const type of ['EQH', 'EQL']) {
+      const val = type === 'EQH' ? candles[i].high : candles[i].low;
+      const key = `${type}_${val.toFixed(5)}`;
+      if (seen.has(key)) continue;
+      const matches = candles.filter((c) => Math.abs((type === 'EQH' ? c.high : c.low) - val) / val < tol).length;
+      if (matches >= 2) { seen.add(key); pools.push({ type, level: val, strength: matches, time: candles[i].time }); }
+    }
+  }
+  return pools
+    .sort((a, b) => b.strength - a.strength)
+    .map((p) => ({ ...p, proximate: Math.abs(p.level - cp) / cp < 0.005 }))
+    .slice(0, 6);
+}
+
+async function runSpideyHTF(symbol, intervals) {
+  log('INFO', `[SPIDEY-HTF] ${symbol} [${intervals.join(',')}]`);
+  const results = {};
+  const tfWeights = { '1W': 4, '1D': 3, '240': 2, '60': 1 };
+
+  for (const iv of intervals) {
+    const candles = await safeOHLC(symbol, iv, 200);
+    if (!candles || candles.length < 20) { results[iv] = { bias: 'Neutral', structure: 'No data', conviction: 0, lastBreak: 'None', currentPrice: 0 }; continue; }
+    const { swingHighs, swingLows } = detectSwings(candles, 3);
+    const structure  = classifyStructure(swingHighs, swingLows);
+    const breaks     = detectBreaks(candles, swingHighs, swingLows);
+    const zones      = detectZones(candles);
+    const imbalances = detectImbalances(candles);
+    const liquidity  = detectLiquidity(candles);
+    results[iv] = {
+      bias: structure.bias, structure: structure.structure,
+      conviction: Math.round(structure.conviction * 100) / 100,
+      lastBreak: breaks.lastBreak, breakDirection: breaks.direction,
+      breakLevel: breaks.breakLevel, isEngineered: breaks.isEngineered,
+      activeSupply: zones.supply[0] || null, activeDemand: zones.demand[0] || null,
+      imbalances, liquidityPools: liquidity,
+      swingHighs: swingHighs.slice(-3), swingLows: swingLows.slice(-3),
+      currentPrice: candles[candles.length - 1].close,
+    };
+  }
+
+  let wScore = 0, wTotal = 0;
+  for (const [iv, r] of Object.entries(results)) {
+    const w = tfWeights[iv] || 1;
+    const s = r.bias === 'Bullish' ? 1 : r.bias === 'Bearish' ? -1 : 0;
+    wScore += s * w * r.conviction; wTotal += w;
+  }
+  const norm = wTotal > 0 ? wScore / wTotal : 0;
+  const dominantBias = norm > 0.2 ? 'Bullish' : norm < -0.2 ? 'Bearish' : 'Neutral';
+  const dominantConviction = Math.min(Math.abs(norm), 1);
+
+  const allBreaks = Object.entries(results)
+    .filter(([, r]) => r.lastBreak !== 'None')
+    .map(([iv, r]) => ({ ...r, timeframe: iv, weight: tfWeights[iv] || 1 }))
+    .sort((a, b) => b.weight - a.weight);
+  const significantBreak = allBreaks[0] || null;
+
+  const currentPrice = results[intervals[0]]?.currentPrice || 0;
+  let nearestDraw = null;
+  for (const [, r] of Object.entries(results)) {
+    const liq = r.liquidityPools?.find((p) => p.proximate);
+    if (liq) { nearestDraw = liq; break; }
+  }
+
+  const summary = buildSpideySummary(dominantBias, dominantConviction, significantBreak, intervals);
+  log('INFO', `[SPIDEY-HTF] ${symbol} → ${dominantBias} (${dominantConviction.toFixed(2)})`);
+  return { timeframes: results, dominantBias, dominantConviction, significantBreak, nearestDraw, currentPrice, summary };
+}
+
+async function runSpideyMicro(symbol, htfBias) {
+  const m15 = await safeOHLC(symbol, '15', 100);
+  const m5  = await safeOHLC(symbol, '5',  100);
+  if (!m15 || !m5) return { entryConfirmed: false, ltfBias: 'No data', sweepDetected: false, inInducement: false, ltfBreak: 'None', ltfBreakLevel: null, alignedWithHTF: false, summary: 'Insufficient LTF data' };
+
+  const m15S = detectSwings(m15, 2);
+  const m15St = classifyStructure(m15S.swingHighs, m15S.swingLows);
+  const m15B  = detectBreaks(m15, m15S.swingHighs, m15S.swingLows);
+  const m5S   = detectSwings(m5, 2);
+  const m5B   = detectBreaks(m5, m5S.swingHighs, m5S.swingLows);
+
+  const ltfSweep     = m15B.isEngineered || m5B.isEngineered;
+  const rH15         = m15S.swingHighs.slice(-3);
+  const inInducement = rH15.filter((h, i) => rH15.some((h2, j) => j !== i && Math.abs(h.level - h2.level) / h.level < 0.001)).length > 0;
+  const alignedWithHTF = m15St.bias === htfBias;
+  const entryConfirmed = alignedWithHTF && (m15B.lastBreak === 'BOS' || m15B.lastBreak === 'CHoCH') && !inInducement;
+
+  return { entryConfirmed, ltfBias: m15St.bias, ltfConviction: m15St.conviction, sweepDetected: ltfSweep, inInducement, ltfBreak: m15B.lastBreak, ltfBreakLevel: m15B.breakLevel, alignedWithHTF, m5Break: m5B.lastBreak, summary: buildMicroSummary(entryConfirmed, m15St, m15B, ltfSweep, inInducement) };
+}
+
+function buildSpideySummary(bias, conviction, sig, intervals) {
+  const tier = conviction > 0.7 ? 'Strong' : conviction > 0.4 ? 'Moderate' : 'Weak';
+  const br   = sig ? `${sig.lastBreak}${sig.isEngineered ? ' (engineered)' : ''} on ${tfLabel(sig.timeframe)} at ${sig.breakLevel?.toFixed(5) || 'N/A'}` : 'No significant break';
+  return `${tier} ${bias} across ${intervals.length} TFs. ${br}.`;
+}
+function buildMicroSummary(confirmed, st, br, sweep, ind) {
+  if (ind)       return 'Caution: Inducement zone detected — potential trap. Wait for sweep + LTF BOS.';
+  if (sweep)     return `Sweep detected. ${confirmed ? 'Entry conditions met.' : 'Wait for BOS.'}`;
+  if (confirmed) return `LTF ${br.lastBreak} confirmed. Execution aligned with HTF.`;
+  return `No LTF confirmation. ${st.bias} ${st.structure}.`;
+}
+
+// ============================================================
+// 🌍 COREY — MACRO + TRENDSPIDER INTELLIGENCE ENGINE
+// ============================================================
+
+function assessCentralBankStance(currency) {
+  const stances = {
+    USD: { stance: 'Neutral',  direction: 'Pausing',  rateCycle: 'Peak',   language: 'Data dependent' },
+    EUR: { stance: 'Dovish',   direction: 'Cutting',  rateCycle: 'Easing', language: 'Gradual normalisation' },
+    GBP: { stance: 'Neutral',  direction: 'Pausing',  rateCycle: 'Peak',   language: 'Restrictive for longer' },
+    JPY: { stance: 'Hawkish',  direction: 'Hiking',   rateCycle: 'Early',  language: 'Normalisation underway' },
+    AUD: { stance: 'Neutral',  direction: 'Pausing',  rateCycle: 'Peak',   language: 'Watching inflation' },
+    NZD: { stance: 'Dovish',   direction: 'Cutting',  rateCycle: 'Easing', language: 'Cutting cycle begun' },
+    CAD: { stance: 'Dovish',   direction: 'Cutting',  rateCycle: 'Easing', language: 'Growth concerns' },
+    CHF: { stance: 'Dovish',   direction: 'Cutting',  rateCycle: 'Easing', language: 'CHF too strong' },
+    XAU: { stance: 'N/A',      direction: 'N/A',      rateCycle: 'N/A',    language: 'Safe haven' },
+  };
+  return stances[currency] || { stance: 'Unknown', direction: 'Unknown', rateCycle: 'Unknown', language: 'No data' };
+}
+
+function assessEconomicStrength(currency) {
+  const scores = {
+    USD: { gdpMomentum: 0.65, employment: 0.72, inflationControl: 0.55, fiscalPosition: 0.40, politicalStability: 0.75 },
+    EUR: { gdpMomentum: 0.40, employment: 0.55, inflationControl: 0.60, fiscalPosition: 0.45, politicalStability: 0.65 },
+    GBP: { gdpMomentum: 0.45, employment: 0.60, inflationControl: 0.50, fiscalPosition: 0.40, politicalStability: 0.60 },
+    JPY: { gdpMomentum: 0.35, employment: 0.70, inflationControl: 0.45, fiscalPosition: 0.30, politicalStability: 0.80 },
+    AUD: { gdpMomentum: 0.55, employment: 0.65, inflationControl: 0.55, fiscalPosition: 0.60, politicalStability: 0.85 },
+    NZD: { gdpMomentum: 0.45, employment: 0.60, inflationControl: 0.55, fiscalPosition: 0.55, politicalStability: 0.85 },
+    CAD: { gdpMomentum: 0.50, employment: 0.60, inflationControl: 0.58, fiscalPosition: 0.55, politicalStability: 0.80 },
+    CHF: { gdpMomentum: 0.55, employment: 0.75, inflationControl: 0.70, fiscalPosition: 0.75, politicalStability: 0.95 },
+    XAU: { gdpMomentum: 0.50, employment: 0.50, inflationControl: 0.50, fiscalPosition: 0.50, politicalStability: 0.50 },
+  };
+  const s = scores[currency] || { gdpMomentum: 0.5, employment: 0.5, inflationControl: 0.5, fiscalPosition: 0.5, politicalStability: 0.5 };
+  const composite = s.gdpMomentum * 0.3 + s.employment * 0.25 + s.inflationControl * 0.2 + s.fiscalPosition * 0.15 + s.politicalStability * 0.1;
+  return { ...s, composite: Math.round(composite * 100) / 100 };
+}
+
+async function assessGlobalMacro() {
+  const [dxy, vix, us10y, us2y, gold] = await Promise.all([
+    safeOHLC('USDX',   '1D', 50), safeOHLC('VIX',    '1D', 50),
+    safeOHLC('US10Y',  '1D', 50), safeOHLC('US02Y',  '1D', 50),
+    safeOHLC('XAUUSD', '1D', 50),
+  ]);
+
+  let dxyBias = 'Neutral', dxyConviction = 0.5, riskEnv = 'Neutral', vixLevel = 'Moderate', yieldBias = 'Neutral', goldTrend = 'Neutral';
+
+  if (dxy?.length >= 20) {
+    const sw = detectSwings(dxy, 3);
+    const st = classifyStructure(sw.swingHighs, sw.swingLows);
+    dxyBias = st.bias; dxyConviction = st.conviction;
+  }
+  if (vix?.length >= 5) {
+    const v = vix[vix.length - 1].close;
+    if (v > 30) { vixLevel = 'Extreme'; riskEnv = 'RiskOff'; }
+    else if (v > 20) { vixLevel = 'Elevated'; riskEnv = 'RiskOff'; }
+    else if (v > 15) { vixLevel = 'Moderate'; riskEnv = 'Neutral'; }
+    else { vixLevel = 'Low'; riskEnv = 'RiskOn'; }
+  }
+  if (us10y?.length >= 5 && us2y?.length >= 5) {
+    const spread = us10y[us10y.length - 1].close - us2y[us2y.length - 1].close;
+    yieldBias = spread > 0.5 ? 'Steepening' : spread < -0.5 ? 'Inverted' : 'Flat';
+  }
+  if (gold?.length >= 10) {
+    const sw = detectSwings(gold, 3);
+    goldTrend = classifyStructure(sw.swingHighs, sw.swingLows).bias;
+  }
+  if (goldTrend === 'Bullish' && riskEnv === 'RiskOff') riskEnv = 'RiskOff';
+  if (goldTrend === 'Bearish' && vixLevel === 'Low')    riskEnv = 'RiskOn';
+  return { dxyBias, dxyConviction, riskEnv, vixLevel, yieldBias, goldTrend };
+}
+
+// ── COREY TRENDSPIDER SUB-ENGINE ─────────────────────────────
+async function runCoreyTrendSpider(symbol) {
+  if (!TS_ENABLED) return { available: false, fresh: false, signalBias: 'Neutral', signalType: 'None', pattern: null, strategy: null, scanner: null, strength: 0, confidence: 0, ageMs: null, directionMatchesPrice: null, priceDistanceFromSignal: null, status: 'Unavailable', grade: 'Unusable', summary: 'TrendSpider disabled' };
+
+  const signal = tsGetSignal(symbol);
+  if (!signal) return { available: false, fresh: false, signalBias: 'Neutral', signalType: 'None', pattern: null, strategy: null, scanner: null, strength: 0, confidence: 0, ageMs: null, directionMatchesPrice: null, priceDistanceFromSignal: null, status: 'Unavailable', grade: 'Unusable', summary: 'No TrendSpider signal available' };
+
+  const now   = Date.now();
+  const grade = tsGradeSignal(signal, now);
+  const ageMs = now - signal.timestamp;
+  const fresh = grade === 'FreshHigh' || grade === 'FreshMedium';
+
+  if (!fresh) return { available: true, fresh: false, signalBias: signal.direction, signalType: signal.signalType, pattern: signal.pattern, strategy: signal.strategy, scanner: signal.scanner, strength: signal.strength, confidence: signal.confidence, ageMs, directionMatchesPrice: null, priceDistanceFromSignal: null, status: 'Stale', grade, summary: `Stale TrendSpider signal (${Math.round(ageMs / 60000)}m old) — ignored` };
+
+  // Compare signal direction to recent OHLC
+  let directionMatchesPrice = null, priceDistanceFromSignal = null;
+  const candles = await safeOHLC(symbol, '1D', 10);
+  if (candles && candles.length >= 3 && signal.price) {
+    const currentPrice = candles[candles.length - 1].close;
+    priceDistanceFromSignal = ((currentPrice - signal.price) / signal.price) * 100;
+    const priceDir = currentPrice > candles[0].close ? 'Bullish' : currentPrice < candles[0].close ? 'Bearish' : 'Neutral';
+    directionMatchesPrice = (signal.direction === priceDir) || (priceDir === 'Neutral');
+  }
+
+  const status = grade === 'FreshHigh' ? 'Active' : grade === 'FreshMedium' ? 'Active' : 'WeakSignal';
+  const ageStr = ageMs < 3600000 ? `${Math.round(ageMs / 60000)}m` : `${(ageMs / 3600000).toFixed(1)}h`;
+  const summary = `${grade} ${signal.direction} ${signal.signalType}${signal.pattern ? ` — ${signal.pattern}` : ''} (${ageStr} old, strength ${(signal.strength * 100).toFixed(0)}%)`;
+
+  log('INFO', `[COREY-TS] ${symbol} ${signal.direction} ${signal.signalType} grade:${grade}`);
+  return { available: true, fresh, signalBias: signal.direction, signalType: signal.signalType, pattern: signal.pattern, strategy: signal.strategy, scanner: signal.scanner, strength: signal.strength, confidence: signal.confidence, ageMs, directionMatchesPrice, priceDistanceFromSignal, status, grade, summary };
+}
+
+// ── COREY-MACRO + CORRELATION ─────────────────────────────────
+async function runCoreyMacro(symbol) {
+  const { base, quote } = parsePair(symbol);
+  const baseCB    = assessCentralBankStance(base);
+  const quoteCB   = assessCentralBankStance(quote);
+  const baseEcon  = assessEconomicStrength(base);
+  const quoteEcon = assessEconomicStrength(quote);
+  const global    = await assessGlobalMacro();
+  const baseCtry  = CURRENCY_COUNTRY[base]  || { name: base,  weight: 0.5 };
+  const quoteCtry = CURRENCY_COUNTRY[quote] || { name: quote, weight: 0.5 };
+
+  const cbScores = { Hawkish: 1, Neutral: 0, Dovish: -1 };
+  let macroScore = 0;
+  macroScore += (cbScores[baseCB.stance] - cbScores[quoteCB.stance]) * 0.35;
+  macroScore += (baseEcon.composite - quoteEcon.composite) * 0.25;
+
+  if (quote === 'USD') macroScore += (global.dxyBias === 'Bullish' ? -0.2 : global.dxyBias === 'Bearish' ? 0.2 : 0);
+  if (base  === 'USD') macroScore += (global.dxyBias === 'Bullish' ?  0.2 : global.dxyBias === 'Bearish' ? -0.2 : 0);
+  if (global.riskEnv === 'RiskOff') {
+    if (['USD','JPY','CHF','XAU'].includes(base))  macroScore += 0.10;
+    if (['USD','JPY','CHF','XAU'].includes(quote)) macroScore -= 0.10;
+  }
+  if (global.riskEnv === 'RiskOn') {
+    if (['AUD','NZD','CAD'].includes(base))  macroScore += 0.10;
+    if (['AUD','NZD','CAD'].includes(quote)) macroScore -= 0.10;
+  }
+  macroScore += (baseCtry.weight - quoteCtry.weight) * 0.05;
+
+  const macroBias  = macroScore > 0.15 ? 'Bullish' : macroScore < -0.15 ? 'Bearish' : 'Neutral';
+  const confidence = Math.min(Math.abs(macroScore), 1);
+
+  return { base: { currency: base, country: baseCtry.name, cb: baseCB, econ: baseEcon, weight: baseCtry.weight }, quote: { currency: quote, country: quoteCtry.name, cb: quoteCB, econ: quoteEcon, weight: quoteCtry.weight }, global, macroBias, confidence: Math.round(confidence * 100) / 100, macroScore: Math.round(macroScore * 100) / 100 };
+}
+
+async function runCoreyCorrelation(symbol) {
+  const corrs = CORRELATION_MAP[symbol];
+  if (!corrs) return { positive: [], negative: [], divergent: [], symbolBias: 'Neutral', summary: `No correlation map for ${symbol}` };
+
+  const symCandles = await safeOHLC(symbol, '1D', 30);
+  let symbolBias = 'Neutral';
+  if (symCandles?.length >= 10) {
+    const sw = detectSwings(symCandles, 3);
+    symbolBias = classifyStructure(sw.swingHighs, sw.swingLows).bias;
+  }
+
+  const results = { positive: [], negative: [], divergent: [] };
+  for (const pair of (corrs.positive || []).slice(0, 3)) {
+    const c = await safeOHLC(pair, '1D', 30);
+    if (!c || c.length < 10) continue;
+    const sw = detectSwings(c, 3);
+    const st = classifyStructure(sw.swingHighs, sw.swingLows);
+    results.positive.push({ pair, bias: st.bias, conviction: st.conviction });
+  }
+  for (const pair of (corrs.negative || []).slice(0, 3)) {
+    const c = await safeOHLC(pair, '1D', 30);
+    if (!c || c.length < 10) continue;
+    const sw = detectSwings(c, 3);
+    const st = classifyStructure(sw.swingHighs, sw.swingLows);
+    results.negative.push({ pair, bias: st.bias, conviction: st.conviction });
+  }
+  for (const pos of results.positive) {
+    if (pos.bias !== 'Neutral' && pos.bias !== symbolBias && pos.conviction > 0.5) {
+      results.divergent.push({ pair: pos.pair, expected: symbolBias, actual: pos.bias, significance: 'Positive-correlated pair diverging — structural disagreement detected' });
+    }
+  }
+
+  const summary = results.divergent.length > 0
+    ? `Divergence: ${results.divergent[0].pair} moving contrary to ${symbol}`
+    : `${results.positive.filter((p) => p.bias === symbolBias).length} correlated pair(s) aligned`;
+  return { ...results, symbolBias, summary };
+}
+
+// ── COREY COMBINED ENGINE ─────────────────────────────────────
+async function runCorey(symbol) {
+  log('INFO', `[COREY] ${symbol}`);
+  const [internalMacro, tsResult, corrResult] = await Promise.all([
+    runCoreyMacro(symbol),
+    runCoreyTrendSpider(symbol),
+    runCoreyCorrelation(symbol),
+  ]);
+
+  // Internal macro score (-1 to +1)
+  const biasScores = { Bullish: 1, Neutral: 0, Bearish: -1 };
+  const internalScore = biasScores[internalMacro.macroBias] * internalMacro.confidence;
+
+  // TrendSpider score — capped at 25% of combined Corey score
+  let tsScore = 0, tsEffect = 'Unavailable';
+  if (tsResult.available && tsResult.fresh && (tsResult.grade === 'FreshHigh' || tsResult.grade === 'FreshMedium')) {
+    tsScore = biasScores[tsResult.signalBias] * tsResult.confidence;
+    tsEffect = tsResult.signalBias === internalMacro.macroBias ? 'ConfidenceBoost' : 'ConfidenceReduction';
+  } else if (tsResult.grade === 'Stale') {
+    tsScore = 0; tsEffect = 'Ignored';
+  } else {
+    tsScore = 0; tsEffect = 'Unavailable';
+  }
+
+  // TrendSpider can move combined score by max 25%
+  const coreyCombinedScore = (internalScore * 0.75) + (tsScore * 0.25);
+  const combinedBias = coreyCombinedScore > 0.15 ? 'Bullish' : coreyCombinedScore < -0.15 ? 'Bearish' : 'Neutral';
+  const combinedConf = Math.min(Math.abs(coreyCombinedScore), 1);
+
+  const alignment    = tsResult.available && tsResult.fresh && tsResult.signalBias === internalMacro.macroBias;
+  const contradiction = tsResult.available && tsResult.fresh && tsResult.signalBias !== 'Neutral' && tsResult.signalBias !== internalMacro.macroBias && internalMacro.macroBias !== 'Neutral';
+
+  let escalation = 'None';
+  if (tsEffect === 'ConfidenceBoost' && tsResult.grade === 'FreshHigh') escalation = 'ConfidenceBoost';
+  else if (contradiction && tsResult.grade === 'FreshHigh') escalation = 'Warning';
+  else if (contradiction) escalation = 'ConfidenceReduction';
+
+  const summary = buildCoreySummary(internalMacro, tsResult, combinedBias, combinedConf, alignment, contradiction);
+  log('INFO', `[COREY] ${symbol} → internal:${internalMacro.macroBias} TS:${tsResult.signalBias} combined:${combinedBias}`);
+
+  return { internalMacro, trendSpider: tsResult, correlation: corrResult, macroBias: internalMacro.macroBias, combinedBias, confidence: Math.round(combinedConf * 100) / 100, combinedScore: Math.round(coreyCombinedScore * 100) / 100, alignment, contradiction, escalation, tsEffect, summary };
+}
+
+function buildCoreySummary(macro, ts, combinedBias, conf, aligned, conflict) {
+  const tier = conf > 0.6 ? 'Strong' : conf > 0.3 ? 'Moderate' : 'Weak';
+  const tsStr = ts.available && ts.fresh
+    ? (aligned ? `TS ${ts.grade} confirms ${combinedBias}.` : `TS ${ts.grade} ${conflict ? 'conflicts with' : 'diverges from'} macro.`)
+    : 'No TS signal.';
+  return `${tier} ${combinedBias} macro. ${macro.base.currency}:${macro.base.cb.stance} ${macro.base.econ.composite > 0.6 ? 'strong' : 'weak'}. ${macro.quote.currency}:${macro.quote.cb.stance}. DXY:${macro.global.dxyBias} Risk:${macro.global.riskEnv}. ${tsStr}`;
+}
+
+// ============================================================
+// 👑 JANE — FINAL ARBITRATION ENGINE (10-CASE CONFLICT MATRIX)
+// ============================================================
+
+function runJane(symbol, spideyResult, coreyResult, mode) {
+  log('INFO', `[JANE] Synthesising ${symbol}`);
+
+  const spideyBias = spideyResult.dominantBias;
+  const spideyConv = spideyResult.dominantConviction;
+  const coreyBias  = coreyResult.combinedBias;
+  const coreyConf  = coreyResult.confidence;
+  const tsBias     = coreyResult.trendSpider.signalBias;
+  const tsGrade    = coreyResult.trendSpider.grade;
+  const tsFresh    = coreyResult.trendSpider.fresh;
+  const tsAvail    = coreyResult.trendSpider.available;
+
+  // Numeric scores (-1 to +1)
+  const biasS      = { Bullish: 1, Neutral: 0, Bearish: -1 };
+  const spideyScore = biasS[spideyBias] * spideyConv;
+  const coreyScore  = biasS[coreyBias]  * coreyConf;
+
+  // TrendSpider direct adjustment — capped at ±0.10
+  let tsAdj = 0, trendSpiderEffect = 'Unavailable';
+  if (tsAvail && tsFresh && (tsGrade === 'FreshHigh' || tsGrade === 'FreshMedium')) {
+    const tsScore = biasS[tsBias] * coreyResult.trendSpider.confidence;
+    const agree   = (tsBias === spideyBias) && (tsBias === coreyBias);
+    const conflict = tsBias !== 'Neutral' && ((tsBias !== spideyBias) || (tsBias !== coreyBias));
+
+    if (agree)    { tsAdj = tsScore > 0 ? 0.08 : -0.08; trendSpiderEffect = 'Boosted'; }
+    else if (conflict) { tsAdj = tsScore > 0 ? -0.06 : 0.06; trendSpiderEffect = 'Reduced'; }
+    else               { tsAdj = 0; trendSpiderEffect = 'Neutral'; }
+  } else {
+    trendSpiderEffect = tsAvail ? 'Ignored' : 'Unavailable';
+  }
+
+  // Composite: Spidey 40%, Corey 30%, TS direct 10%
+  const composite = (spideyScore * 0.40) + (coreyScore * 0.30) + tsAdj;
+
+  // ── 10-CASE CONFLICT MATRIX ──────────────────────────────
+  let finalBias, conviction, convictionLabel, doNotTrade = false, doNotTradeReason = null, conflictState;
+
+  const spideyN = spideyBias === 'Neutral', coreyN = coreyBias === 'Neutral', tsN = (tsBias === 'Neutral' || !tsAvail || !tsFresh);
+  const spideyC = spideyBias, coreyC = coreyBias, tsC = tsBias;
+  const spideyAgreeCorey = !spideyN && !coreyN && spideyC === coreyC;
+  const spideyConflictCorey = !spideyN && !coreyN && spideyC !== coreyC;
+  const tsAgreeSpideyCorey = !tsN && tsC === spideyC && tsC === coreyC;
+  const tsConflictBoth     = !tsN && tsC !== spideyC && tsC !== coreyC;
+  const tsConflictSpidey   = !tsN && tsC !== spideyC;
+  const tsConflictCorey    = !tsN && tsC !== coreyC;
+
+  // CASE 1: All three agree — Bullish
+  if (spideyC === 'Bullish' && coreyC === 'Bullish' && (!tsAvail || !tsFresh || tsC === 'Bullish')) {
+    finalBias = 'Bullish'; conviction = Math.min(composite + 0.1, 1); conflictState = 'Aligned';
+  }
+  // CASE 2: All three agree — Bearish
+  else if (spideyC === 'Bearish' && coreyC === 'Bearish' && (!tsAvail || !tsFresh || tsC === 'Bearish')) {
+    finalBias = 'Bearish'; conviction = Math.min(Math.abs(composite) + 0.1, 1); conflictState = 'Aligned';
+  }
+  // CASE 3: Spidey + Corey agree, TS unavailable
+  else if (spideyAgreeCorey && tsN) {
+    finalBias = spideyC; conviction = Math.abs(composite); conflictState = 'Aligned';
+  }
+  // CASE 4: Spidey + Corey agree, TS weak conflict
+  else if (spideyAgreeCorey && tsConflictSpidey && tsGrade === 'FreshLow') {
+    finalBias = spideyC; conviction = Math.abs(composite) * 0.85; conflictState = 'PartialConflict';
+  }
+  // CASE 5: Spidey + Corey agree, TS strong conflict
+  else if (spideyAgreeCorey && tsConflictSpidey && tsGrade === 'FreshHigh') {
+    if (spideyConv > 0.65 && coreyConf > 0.55) {
+      finalBias = spideyC; conviction = Math.abs(composite) * 0.70; conflictState = 'PartialConflict';
+      doNotTrade = false;
+    } else {
+      finalBias = 'Neutral'; conviction = 0.2; conflictState = 'HardConflict';
+      doNotTrade = true; doNotTradeReason = `${spideyC} structure + macro, but strong TrendSpider ${tsC} conflict. Insufficient conviction to trade.`;
+    }
+  }
+  // CASE 6: Spidey conflicts Corey, TS agrees Spidey — structure priority
+  else if (spideyConflictCorey && !tsN && tsC === spideyC) {
+    finalBias = spideyC; conviction = Math.abs(composite) * 0.60; conflictState = 'PartialConflict';
+    if (spideyConv < 0.55) { doNotTrade = true; doNotTradeReason = `Structure (${spideyC}) vs macro (${coreyC}) conflict. TS supports structure but conviction insufficient.`; }
+  }
+  // CASE 7: Spidey conflicts Corey, TS agrees Corey — macro vs structure, no auto-approval
+  else if (spideyConflictCorey && !tsN && tsC === coreyC) {
+    finalBias = 'Neutral'; conviction = 0.2; conflictState = 'HardConflict';
+    doNotTrade = true; doNotTradeReason = `Structure (${spideyC}) and macro+TS (${coreyC}) in direct conflict. Structure has priority — wait for resolution.`;
+  }
+  // CASE 8: Spidey neutral, Corey + TS directional same way
+  else if (spideyN && !coreyN && !tsN && coreyC === tsC) {
+    finalBias = coreyC; conviction = Math.abs(composite) * 0.55; conflictState = 'PartialConflict';
+    if (conviction < 0.35) { doNotTrade = true; doNotTradeReason = 'Structure neutral. Macro+TS aligned but insufficient structural confirmation.'; }
+  }
+  // CASE 9: Spidey directional, Corey neutral, TS same as Spidey
+  else if (!spideyN && coreyN && !tsN && tsC === spideyC) {
+    finalBias = spideyC; conviction = Math.abs(composite) * 0.65; conflictState = 'PartialConflict';
+  }
+  // CASE 10: All conflict or fragmented
+  else {
+    finalBias = 'Neutral'; conviction = 0; conflictState = 'HardConflict';
+    doNotTrade = true; doNotTradeReason = 'Evidence fragmented across all three engines. No clean bias — wait for alignment.';
+  }
+
+  // Force do-not-trade if conviction too low
+  if (conviction < 0.25 && !doNotTrade) {
+    doNotTrade = true; doNotTradeReason = `Conviction ${(conviction * 100).toFixed(0)}% — below minimum threshold for a quality ATLAS setup.`;
+  }
+
+  // Correlation divergence penalty
+  if (coreyResult.correlation?.divergent?.length > 0 && !doNotTrade) {
+    conviction *= 0.80;
+    if (conviction < 0.30) {
+      doNotTrade = true;
+      doNotTradeReason = `${doNotTradeReason || ''} Correlation divergence: ${coreyResult.correlation.divergent[0].pair} misaligned.`.trim();
+    }
+  }
+
+  conviction = Math.round(Math.min(conviction, 1) * 100) / 100;
+  convictionLabel = conviction >= 0.65 ? 'High' : conviction >= 0.40 ? 'Medium' : conviction >= 0.20 ? 'Low' : 'Abstain';
+  if (doNotTrade) convictionLabel = conviction < 0.10 ? 'Abstain' : convictionLabel;
+
+  const levels    = buildJaneLevels(spideyResult, coreyResult, finalBias);
+  const branches  = buildJaneBranches(spideyResult, finalBias, levels);
+  const primary   = buildPrimaryScenario(finalBias, spideyResult, coreyResult, levels);
+  const alt       = buildAlternativeScenario(finalBias, spideyResult, levels);
+  const summary   = buildJaneSummary(symbol, finalBias, convictionLabel, conviction, doNotTrade, doNotTradeReason, levels, trendSpiderEffect, conflictState);
+
+  log('INFO', `[JANE] ${symbol} → ${finalBias} | ${convictionLabel} | conflict:${conflictState} | TS:${trendSpiderEffect} | DNT:${doNotTrade}`);
+
+  return { finalBias, conviction, convictionLabel, compositeScore: Math.round(composite * 100) / 100, doNotTrade, doNotTradeReason, trendSpiderEffect, conflictState, entryZone: levels.entryZone, invalidationLevel: levels.invalidation, targets: levels.targets, rrRatio: levels.rrRatio, branches, primaryScenario: primary, alternativeScenario: alt, summary };
+}
+
+function buildJaneLevels(spideyResult, coreyResult, bias) {
+  const htfTFs = Object.entries(spideyResult.timeframes);
+  const data   = htfTFs[0]?.[1] || null;
+  const cp     = data?.currentPrice || 0;
+  const pip    = cp > 10 ? 0.01 : cp > 1 ? 0.0001 : 0.01;
+  let entryZone = null, invalidation = null, targets = [];
+
+  if (data && bias !== 'Neutral') {
+    if (bias === 'Bullish') {
+      const dz = data.activeDemand;
+      if (dz) { entryZone = { high: dz.high, low: dz.low }; invalidation = dz.low - pip * 10; }
+      else if (data.swingLows?.length) { const sl = data.swingLows[data.swingLows.length - 1]; entryZone = { high: sl.level + pip * 5, low: sl.level - pip * 5 }; invalidation = sl.level - pip * 15; }
+      const pools = (data.liquidityPools || []).filter((p) => p.level > cp);
+      const imbs  = (data.imbalances    || []).filter((im) => im.type === 'Bearish' && im.low > cp);
+      targets = [...pools.map((p) => ({ level: p.level, label: `${p.type} liquidity` })), ...imbs.map((im) => ({ level: im.high, label: 'Imbalance' }))].sort((a, b) => a.level - b.level).slice(0, 3).map((t, i) => ({ ...t, label: `T${i+1} — ${t.label}` }));
+    } else {
+      const sz = data.activeSupply;
+      if (sz) { entryZone = { high: sz.high, low: sz.low }; invalidation = sz.high + pip * 10; }
+      else if (data.swingHighs?.length) { const sh = data.swingHighs[data.swingHighs.length - 1]; entryZone = { high: sh.level + pip * 5, low: sh.level - pip * 5 }; invalidation = sh.level + pip * 15; }
+      const pools = (data.liquidityPools || []).filter((p) => p.level < cp);
+      const imbs  = (data.imbalances    || []).filter((im) => im.type === 'Bullish' && im.high < cp);
+      targets = [...pools.map((p) => ({ level: p.level, label: `${p.type} liquidity` })), ...imbs.map((im) => ({ level: im.low, label: 'Imbalance' }))].sort((a, b) => b.level - a.level).slice(0, 3).map((t, i) => ({ ...t, label: `T${i+1} — ${t.label}` }));
+    }
+  }
+  let rrRatio = null;
+  if (entryZone && invalidation && targets.length > 0) {
+    const mid = (entryZone.high + entryZone.low) / 2;
+    const sd  = Math.abs(mid - invalidation), td = Math.abs(targets[0].level - mid);
+    rrRatio   = sd > 0 ? Math.round((td / sd) * 10) / 10 : null;
+  }
+  return { entryZone, invalidation, targets, rrRatio, currentPrice: cp };
+}
+
+function buildJaneBranches(spideyResult, bias, levels) {
+  const branches = [], sig = spideyResult.significantBreak;
+  if (bias === 'Bullish') {
+    if (levels.targets[0]) branches.push(`IF close above ${levels.targets[0].level?.toFixed(5)} → bias confirmed, scale T2`);
+    if (levels.invalidation) branches.push(`IF close below ${levels.invalidation?.toFixed(5)} → thesis invalidated, reassess`);
+    if (sig?.breakLevel) branches.push(`IF return to ${sig.breakLevel?.toFixed(5)} BOS → high probability demand reaction`);
+  } else if (bias === 'Bearish') {
+    if (levels.targets[0]) branches.push(`IF close below ${levels.targets[0].level?.toFixed(5)} → bias confirmed, scale T2`);
+    if (levels.invalidation) branches.push(`IF close above ${levels.invalidation?.toFixed(5)} → thesis invalidated, reassess`);
+    if (sig?.breakLevel) branches.push(`IF return to ${sig.breakLevel?.toFixed(5)} BOS → high probability supply reaction`);
+  } else {
+    branches.push('No active branches — engines conflicted or neutral. Wait for structural resolution before entry.');
+  }
+  return branches;
+}
+
+function buildPrimaryScenario(bias, spideyResult, coreyResult, levels) {
+  if (bias === 'Neutral') return 'No primary scenario. Conflicting or neutral signals across engines.';
+  const br = spideyResult.significantBreak;
+  return `${bias} continuation. Structure confirmed ${br?.lastBreak || 'structurally'} on ${br ? tfLabel(br.timeframe) : 'HTF'}. Macro ${coreyResult.combinedBias} aligned.${levels.entryZone ? ` Entry: ${levels.entryZone.low?.toFixed(5)}–${levels.entryZone.high?.toFixed(5)}.` : ''}${levels.rrRatio ? ` R:R ~${levels.rrRatio}:1.` : ''}`;
+}
+
+function buildAlternativeScenario(bias, spideyResult, levels) {
+  const opp = bias === 'Bullish' ? 'Bearish' : bias === 'Bearish' ? 'Bullish' : 'directional';
+  return `${opp} scenario if price closes ${bias === 'Bullish' ? 'below' : 'above'} invalidation ${levels.invalidation?.toFixed(5) || 'N/A'}. Indicates structural breakdown — reassess all timeframes before re-engaging.`;
+}
+
+function buildJaneSummary(symbol, bias, convLabel, conviction, dnt, dntReason, levels, tsEffect, conflictState) {
+  if (dnt) return `⛔ DO NOT TRADE — ${dntReason}`;
+  const rr = levels.rrRatio ? ` R:R ~${levels.rrRatio}:1` : '';
+  return `${bias} — ${convLabel} conviction (${(conviction * 100).toFixed(0)}%)${rr}. TS: ${tsEffect}. Conflict: ${conflictState}. Entry: ${levels.entryZone ? `${levels.entryZone.low?.toFixed(5)}–${levels.entryZone.high?.toFixed(5)}` : 'TBC'}. Inv: ${levels.invalidation?.toFixed(5) || 'TBC'}.`;
+}
+
+// ============================================================
+// CHART ENGINE — Authenticated single-panel renders → 2x2 grid
 // ============================================================
 
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
-  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}&hide_side_toolbar=1`;
+  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&theme=dark&hide_side_toolbar=1&hide_top_toolbar=1`;
 }
 
-function withTimeout(promise, ms = RENDER_TIMEOUT_MS) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms)
-    ),
-  ]);
+function withTimeout(p, ms = RENDER_TIMEOUT_MS) {
+  return Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error(`Timeout ${ms}ms`)), ms))]);
 }
 
 async function cleanUI(page) {
   await page.evaluate(() => {
-    [
-      '[data-name="header-toolbar"]',
-      '[data-name="right-toolbar"]',
-      '[data-name="left-toolbar"]',
-      '.layout__area--right', '.layout__area--left', '.layout__area--top',
-      '.tv-side-toolbar', '.tv-control-bar', '.tv-floating-toolbar',
-      '.chart-controls-bar', '.header-chart-panel',
-      '[data-name="legend"]', '.chart-toolbar',
-      '.topbar', '.top-bar', '.tv-watermark',
-      '[data-name="alerts-icon"]', '#overlap-manager-root',
-      '.bottom-widgetbar-content', '[data-name="bottom-toolbar"]',
-    ].forEach((sel) => {
-      document.querySelectorAll(sel).forEach((el) => { el.style.display = 'none'; });
-    });
+    ['[data-name="header-toolbar"]','[data-name="right-toolbar"]','[data-name="left-toolbar"]','.layout__area--right','.layout__area--left','.layout__area--top','.tv-side-toolbar','.tv-control-bar','.tv-floating-toolbar','.chart-controls-bar','.header-chart-panel','[data-name="legend"]','.chart-toolbar','.topbar','.top-bar','.tv-watermark','[data-name="alerts-icon"]','#overlap-manager-root','.bottom-widgetbar-content','[data-name="bottom-toolbar"]']
+      .forEach((s) => { document.querySelectorAll(s).forEach((el) => { el.style.display = 'none'; }); });
   }).catch(() => {});
 }
 
 async function renderPanel(symbol, interval, tfKey) {
   const url = buildPanelUrl(symbol, interval);
-
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     let browser = null;
     try {
       log('INFO', `[PANEL] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES}`);
-
-      browser = await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-      });
-
-      const context = await browser.newContext({
-        viewport:          { width: PANEL_W, height: PANEL_H },
-        deviceScaleFactor: 1,
-        userAgent:         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        locale:            'en-US',
-        timezoneId:        'Australia/Perth',
-      });
-
-      // Inject sanitised cookies
-      if (TV_COOKIES && TV_COOKIES.length > 0) {
-        await context.addCookies(TV_COOKIES);
-      }
-
+      browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] });
+      const context = await browser.newContext({ viewport: { width: PANEL_W, height: PANEL_H }, deviceScaleFactor: 1, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36', locale: 'en-US', timezoneId: 'Australia/Perth' });
+      if (TV_COOKIES?.length) await context.addCookies(TV_COOKIES);
       const page = await context.newPage();
-      page.setDefaultNavigationTimeout(40000);
-      page.setDefaultTimeout(40000);
-
-      await page.addInitScript(() => {
-        try { localStorage.setItem('theme', 'dark'); } catch (_) {}
-      });
-
+      page.setDefaultNavigationTimeout(40000); page.setDefaultTimeout(40000);
+      await page.addInitScript(() => { try { localStorage.setItem('theme', 'dark'); } catch (_) {} });
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
-
-      const isLongTF = (interval === '1W' || interval === '1D');
-      await page.waitForTimeout(isLongTF ? 6000 : 4500);
-
-      for (const sel of [
-        'button[aria-label="Close"]', 'button:has-text("Accept")',
-        'button:has-text("Got it")', 'button:has-text("Dismiss")',
-        '[data-name="close-button"]',
-      ]) {
-        try {
-          const btn = page.locator(sel).first();
-          if (await btn.isVisible({ timeout: 400 })) {
-            await btn.click({ timeout: 400 });
-            await page.waitForTimeout(150);
-          }
-        } catch (_) {}
+      await page.waitForTimeout((interval === '1W' || interval === '1D') ? 6000 : 4500);
+      for (const sel of ['button[aria-label="Close"]', 'button:has-text("Accept")', 'button:has-text("Got it")', '[data-name="close-button"]']) {
+        try { const btn = page.locator(sel).first(); if (await btn.isVisible({ timeout: 400 })) { await btn.click({ timeout: 400 }); await page.waitForTimeout(150); } } catch (_) {}
       }
-
       try { await page.waitForSelector('canvas', { timeout: 15000 }); } catch (_) {}
-
-      await cleanUI(page);
-      await page.waitForTimeout(700);
-
+      await cleanUI(page); await page.waitForTimeout(700);
       const raw = await page.screenshot({ type: 'png', fullPage: false });
-      await browser.close();
-      browser = null;
-
+      await browser.close(); browser = null;
       if (raw.length < 50000) throw new Error(`Blank render (${raw.length}B)`);
-
       log('INFO', `[PANEL OK] ${symbol} ${tfKey} — ${(raw.length / 1024).toFixed(0)}KB`);
       return raw;
-
     } catch (err) {
       log('ERROR', `[PANEL FAIL] ${symbol} ${tfKey} attempt ${attempt}: ${err.message}`);
       if (browser) { try { await browser.close(); } catch (_) {} }
@@ -348,39 +1147,146 @@ async function renderPanel(symbol, interval, tfKey) {
 }
 
 async function buildGrid(panels) {
-  const W = PANEL_W;
-  const H = PANEL_H;
-
-  const resized = await Promise.all(
-    panels.map((img) =>
-      sharp(img).resize(W, H, { fit: 'fill', kernel: sharp.kernel.lanczos3 }).png().toBuffer()
-    )
-  );
-
-  return await sharp({
-    create: { width: W * 2, height: H * 2, channels: 4, background: { r: 11, g: 11, b: 11, alpha: 1 } },
-  })
-    .composite([
-      { input: resized[0], left: 0, top: 0 },
-      { input: resized[1], left: W, top: 0 },
-      { input: resized[2], left: 0, top: H },
-      { input: resized[3], left: W, top: H },
-    ])
-    .jpeg({ quality: 93, mozjpeg: true })
-    .toBuffer();
+  const W = PANEL_W, H = PANEL_H;
+  const resized = await Promise.all(panels.map((img) => sharp(img).resize(W, H, { fit: 'fill', kernel: sharp.kernel.lanczos3 }).png().toBuffer()));
+  return await sharp({ create: { width: W * 2, height: H * 2, channels: 4, background: { r: 11, g: 11, b: 11, alpha: 1 } } })
+    .composite([{ input: resized[0], left: 0, top: 0 }, { input: resized[1], left: W, top: 0 }, { input: resized[2], left: 0, top: H }, { input: resized[3], left: W, top: H }])
+    .jpeg({ quality: 93, mozjpeg: true }).toBuffer();
 }
 
 function archiveRender(buffer, symbol, label) {
   try {
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const dir     = path.join(EXPORT_DIR, symbol, dateStr);
+    const d = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const dir = path.join(EXPORT_DIR, symbol, d);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, `${dateStr}_${symbol}_${label}.jpg`), buffer);
-  } catch (err) { log('WARN', `[ARCHIVE] ${err.message}`); }
+    fs.writeFileSync(path.join(dir, `${d}_${symbol}_${label}.jpg`), buffer);
+  } catch (e) { log('WARN', `[ARCHIVE] ${e.message}`); }
 }
 
 // ============================================================
-// MODULE 2 — ROUTING ENGINE
+// FULL PIPELINE
+// ============================================================
+
+async function runFullPipeline(symbol, mode, intervals, customTFs) {
+  const tfDisplay = intervals.map(tfLabel).join(' · ');
+  const label     = customTFs ? tfDisplay : (mode === 'H' ? 'HTF' : 'LTF');
+  log('INFO', `[PIPELINE] ${symbol} ${label} — starting`);
+
+  // Parallel: chart renders + Spidey HTF + Corey (includes TS)
+  const [panelResults, spideyHTF, coreyResult] = await Promise.all([
+    (async () => { const p = []; for (let i = 0; i < 4; i++) p.push(await withTimeout(renderPanel(symbol, intervals[i], tfLabel(intervals[i])))); return p; })(),
+    runSpideyHTF(symbol, intervals),
+    runCorey(symbol),
+  ]);
+
+  // Dependent: Spidey Micro after HTF bias known
+  const spideyMicro = await runSpideyMicro(symbol, spideyHTF.dominantBias);
+
+  // Jane final synthesis
+  const jane = runJane(symbol, spideyHTF, coreyResult, mode);
+
+  log('INFO', `[PIPELINE] ${symbol} — compositing grid`);
+  const gridBuf  = await buildGrid(panelResults);
+  const dateStr  = new Date().toISOString().slice(0, 10);
+  const gridName = `${dateStr}_${symbol}_${label.replace(/\s·\s/g, '_')}_grid.jpg`;
+  archiveRender(gridBuf, symbol, label);
+  log('INFO', `[PIPELINE] ${symbol} ${label} — complete`);
+
+  return { gridBuf, gridName, symbol, label, tfDisplay, spideyHTF, spideyMicro, coreyResult, jane };
+}
+
+// ============================================================
+// DISCORD OUTPUT FORMATTER
+// ============================================================
+
+function fmt(n, dp = 5) { return n != null ? Number(n).toFixed(dp) : 'N/A'; }
+
+function formatDiscordMessage(result) {
+  const { symbol, label, tfDisplay, spideyHTF, spideyMicro, coreyResult, jane } = result;
+  const feed = getFeedName(symbol);
+  const sep  = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+  // ── Spidey ────────────────────────────────────────────────
+  const sig   = spideyHTF.significantBreak;
+  const tfBiases = Object.entries(spideyHTF.timeframes).map(([iv, r]) => `${tfLabel(iv)}:${r.bias[0]}`).join(' ');
+  const brStr = sig && sig.lastBreak !== 'None'
+    ? `${sig.lastBreak}${sig.isEngineered ? ' ⚠️ Engineered' : ''} · ${tfLabel(sig.timeframe)} · ${fmt(sig.breakLevel)}`
+    : 'None detected';
+  const drawStr = spideyHTF.nearestDraw ? `${spideyHTF.nearestDraw.type} @ ${fmt(spideyHTF.nearestDraw.level)}` : 'No proximate draw';
+  const microStr = spideyMicro.entryConfirmed ? `✅ LTF ${spideyMicro.ltfBreak} confirmed`
+    : spideyMicro.inInducement ? `⚠️ Inducement — wait for sweep + BOS`
+    : spideyMicro.sweepDetected ? `🔄 Sweep detected — watch for BOS`
+    : `⏳ No LTF confirmation yet`;
+
+  const spideyBlock =
+    `🕷️ **SPIDEY**\n` +
+    `Bias: **${spideyHTF.dominantBias}** · Conviction: ${(spideyHTF.dominantConviction * 100).toFixed(0)}%\n` +
+    `Structure: ${tfBiases}\n` +
+    `Last Break: ${brStr}\n` +
+    `Draw on Liquidity: ${drawStr}\n` +
+    `Execution: ${microStr}`;
+
+  // ── Corey ─────────────────────────────────────────────────
+  const m = coreyResult.internalMacro;
+  const coreyBlock =
+    `🌍 **COREY**\n` +
+    `${m.base.currency}: ${m.base.cb.stance} · ${m.base.cb.direction} · Strength ${(m.base.econ.composite * 100).toFixed(0)}%\n` +
+    `${m.quote.currency}: ${m.quote.cb.stance} · ${m.quote.cb.direction} · Strength ${(m.quote.econ.composite * 100).toFixed(0)}%\n` +
+    `Global: ${m.global.riskEnv} · DXY ${m.global.dxyBias} · VIX ${m.global.vixLevel} · Yield ${m.global.yieldBias}\n` +
+    `Macro Bias: **${coreyResult.macroBias}** · Combined: **${coreyResult.combinedBias}** · Conf: ${(coreyResult.confidence * 100).toFixed(0)}%\n` +
+    (coreyResult.contradiction ? `⚠️ TS Contradiction detected\n` : coreyResult.alignment ? `✅ TS Aligned\n` : '') +
+    (coreyResult.correlation?.divergent?.length ? `⚠️ Correl divergence: ${coreyResult.correlation.divergent[0].pair}\n` : '');
+
+  // ── TrendSpider ───────────────────────────────────────────
+  const ts = coreyResult.trendSpider;
+  const tsBlock = !TS_ENABLED
+    ? `🕸️ **TRENDSPIDER**\nStatus: Disabled\n`
+    : ts.available && ts.fresh
+    ? `🕸️ **TRENDSPIDER**\n` +
+      `Status: ${ts.status} · Grade: ${ts.grade}\n` +
+      `Signal: **${ts.signalBias}** ${ts.signalType}\n` +
+      (ts.pattern ? `Pattern: ${ts.pattern}\n` : '') +
+      (ts.strategy ? `Strategy: ${ts.strategy}\n` : '') +
+      (ts.scanner ? `Scanner: ${ts.scanner}\n` : '') +
+      `Strength: ${(ts.strength * 100).toFixed(0)}% · Confidence: ${(ts.confidence * 100).toFixed(0)}%\n` +
+      `Freshness: ${ts.grade} (${ts.ageMs ? `${Math.round(ts.ageMs / 60000)}m ago` : 'N/A'})\n` +
+      `Alignment: ${coreyResult.alignment ? '✅ Aligned with Corey' : coreyResult.contradiction ? '❌ Conflicts with Corey' : '⚪ Neutral'}\n` +
+      `Jane Effect: ${jane.trendSpiderEffect}\n`
+    : `🕸️ **TRENDSPIDER**\n` +
+      `Status: ${ts.available ? ts.grade : 'No signal received'}\n` +
+      `Jane Effect: Not applied\n`;
+
+  // ── Jane ──────────────────────────────────────────────────
+  const targetsStr = jane.targets.length
+    ? jane.targets.map((t) => `  ${t.label}: ${fmt(t.level)}`).join('\n')
+    : '  Levels being computed from structure data';
+
+  const janeBlock = jane.doNotTrade
+    ? `👑 **JANE**\n⛔ **DO NOT TRADE**\n${jane.doNotTradeReason}\nConflict State: ${jane.conflictState}\n`
+    : `👑 **JANE**\n` +
+      `Final Bias: **${jane.finalBias}** · Conviction: **${jane.convictionLabel}** (${(jane.conviction * 100).toFixed(0)}%)\n` +
+      `Conflict State: ${jane.conflictState}\n` +
+      `TrendSpider Effect: ${jane.trendSpiderEffect}\n` +
+      (jane.entryZone ? `Entry Zone: ${fmt(jane.entryZone.low)} – ${fmt(jane.entryZone.high)}\n` : '') +
+      (jane.invalidationLevel ? `Invalidation: ${fmt(jane.invalidationLevel)}\n` : '') +
+      (jane.rrRatio ? `R:R: ~${jane.rrRatio}:1 (minimum ATLAS 1:3 required)\n` : '') +
+      `\n**Targets:**\n${targetsStr}\n\n` +
+      `**Scenarios:**\n` +
+      `▸ Primary: ${jane.primaryScenario}\n` +
+      `▸ Alternative: ${jane.alternativeScenario}\n\n` +
+      jane.branches.map((b) => `▸ ${b}`).join('\n');
+
+  return (
+    `📊 **${symbol}** · ${label} · ${feed}\n⏱ ${tfDisplay}\n\n` +
+    `${sep}\n${spideyBlock}\n` +
+    `${sep}\n${coreyBlock}` +
+    `${sep}\n${tsBlock}` +
+    `${sep}\n${janeBlock}\n${sep}`
+  );
+}
+
+// ============================================================
+// CHANNEL MAP + QUEUE
 // ============================================================
 
 const CHANNEL_GROUP_MAP = {
@@ -389,138 +1295,55 @@ const CHANNEL_GROUP_MAP = {
   '1432080184458350672': 'AT', '1430950313484878014': 'SK',
   '1431192381029482556': 'NM', '1482451091630194868': 'BR',
 };
-
 const RUNNING = {};
-function isLocked(sym) { return !!RUNNING[sym]; }
-function lock(sym)     { RUNNING[sym] = true; }
-function unlock(sym)   { RUNNING[sym] = false; }
-
-const queue        = [];
-let   queueRunning = false;
-
+function isLocked(s) { return !!RUNNING[s]; }
+function lock(s)     { RUNNING[s] = true; }
+function unlock(s)   { RUNNING[s] = false; }
+const queue = []; let queueRunning = false;
 function enqueue(job) { queue.push(job); void runQueue(); }
-
 async function runQueue() {
   if (queueRunning) return;
   queueRunning = true;
-  while (queue.length > 0) {
-    const job = queue.shift();
-    try { await job(); } catch (err) { log('ERROR', '[QUEUE]', err.message); }
-  }
+  while (queue.length > 0) { const job = queue.shift(); try { await job(); } catch (e) { log('ERROR', '[QUEUE]', e.message); } }
   queueRunning = false;
 }
 
-async function runChartPipeline(symbol, mode, intervals, customTFs) {
-  const modeLabel = mode === 'H' ? 'HTF' : 'LTF';
-  const tfDisplay = intervals.map(tfLabel).join(' · ');
-  const label     = customTFs ? tfDisplay : modeLabel;
-
-  log('INFO', `[PIPELINE] ${symbol} ${label} — rendering 4 panels`);
-
-  const panels = [];
-  for (let i = 0; i < 4; i++) {
-    const iv  = intervals[i];
-    const key = tfLabel(iv);
-    const raw = await withTimeout(renderPanel(symbol, iv, key));
-    panels.push(raw);
-  }
-
-  log('INFO', `[PIPELINE] ${symbol} ${label} — compositing`);
-  const gridBuf  = await buildGrid(panels);
-  const dateStr  = new Date().toISOString().slice(0, 10);
-  const gridName = `${dateStr}_${symbol}_${label.replace(/\s·\s/g, '_')}_grid.jpg`;
-
-  archiveRender(gridBuf, symbol, label);
-  log('INFO', `[PIPELINE] ${symbol} ${label} — complete`);
-
-  return { gridBuf, gridName, symbol, label, tfDisplay };
-}
-
 // ============================================================
-// MODULE 3 — DISCORD OUTPUT
+// DISCORD DELIVERY + SHARE
 // ============================================================
 
 const SHARE_CACHE = new Map();
-function cacheForShare(key, data) {
-  SHARE_CACHE.set(key, { ...data, expiresAt: Date.now() + CACHE_TTL_MS });
-}
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of SHARE_CACHE.entries()) {
-    if (v.expiresAt < now) SHARE_CACHE.delete(k);
-  }
-}, 60 * 1000);
+function cacheForShare(k, d) { SHARE_CACHE.set(k, { ...d, expiresAt: Date.now() + CACHE_TTL_MS }); }
+setInterval(() => { const n = Date.now(); for (const [k, v] of SHARE_CACHE.entries()) { if (v.expiresAt < n) SHARE_CACHE.delete(k); } }, 60000);
 
-async function safeReply(msg, payload) {
-  try { return await msg.reply(payload); } catch (e) { log('ERROR', '[REPLY]', e.message); return null; }
-}
-async function safeEdit(msg, payload) {
-  try { return await msg.edit(payload);  } catch (e) { log('ERROR', '[EDIT]',  e.message); return null; }
-}
+async function safeReply(msg, payload) { try { return await msg.reply(payload); } catch (e) { log('ERROR', '[REPLY]', e.message); return null; } }
+async function safeEdit(msg, payload)  { try { return await msg.edit(payload);  } catch (e) { log('ERROR', '[EDIT]',  e.message); return null; } }
 
-async function deliverChart(msg, result) {
-  const { gridBuf, gridName, symbol, label, tfDisplay } = result;
-  const feed     = getFeedName(symbol);
+async function deliverResult(msg, result) {
+  const { gridBuf, gridName } = result;
+  const content  = formatDiscordMessage(result);
   const cacheKey = `${msg.id}_${Date.now()}`;
   cacheForShare(cacheKey, result);
-
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`share_${cacheKey}`)
-      .setLabel('Share')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId(`noshare_${cacheKey}`)
-      .setLabel('No thanks')
-      .setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId(`share_${cacheKey}`).setLabel('Share').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`noshare_${cacheKey}`).setLabel('No thanks').setStyle(ButtonStyle.Secondary)
   );
-
-  return await msg.channel.send({
-    content:    `📊 **${symbol}** · ${label} · ${feed}\n⏱ ${tfDisplay}`,
-    files:      [new AttachmentBuilder(gridBuf, { name: gridName })],
-    components: [row],
-  });
+  return await msg.channel.send({ content, files: [new AttachmentBuilder(gridBuf, { name: gridName })], components: [row] });
 }
-
-// ============================================================
-// BUTTON HANDLER
-// ============================================================
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
-
-  if (interaction.customId.startsWith('noshare_')) {
-    try { await interaction.update({ content: 'Kept private.', components: [] }); } catch (_) {}
-    return;
-  }
-
+  if (interaction.customId.startsWith('noshare_')) { try { await interaction.update({ content: 'Kept private.', components: [] }); } catch (_) {} return; }
   if (interaction.customId.startsWith('share_')) {
-    try { await interaction.deferUpdate(); } catch (err) { log('ERROR', '[DEFER]', err.message); return; }
-
-    const cacheKey = interaction.customId.replace('share_', '');
-    const cached   = SHARE_CACHE.get(cacheKey);
-
-    if (!cached) {
-      await interaction.editReply({ content: 'Share expired — run the command again.', components: [] });
-      return;
-    }
-
+    try { await interaction.deferUpdate(); } catch (e) { log('ERROR', '[DEFER]', e.message); return; }
+    const cached = SHARE_CACHE.get(interaction.customId.replace('share_', ''));
+    if (!cached) { await interaction.editReply({ content: 'Share expired — run command again.', components: [] }); return; }
     try {
       const channel = await client.channels.fetch(SHARED_MACROS_CHANNEL).catch(() => null);
-      if (!channel || !channel.isTextBased()) {
-        await interaction.editReply({ content: 'Shared channel not found.', components: [] });
-        return;
-      }
-      await channel.send({
-        content: `📊 **${cached.symbol}** ${cached.label} shared by **${interaction.user.username}**\n⏱ ${cached.tfDisplay}`,
-        files:   [new AttachmentBuilder(cached.gridBuf, { name: cached.gridName })],
-      });
+      if (!channel?.isTextBased()) { await interaction.editReply({ content: 'Channel not found.', components: [] }); return; }
+      await channel.send({ content: `📤 **${cached.symbol}** shared by **${interaction.user.username}**\n${formatDiscordMessage(cached)}`, files: [new AttachmentBuilder(cached.gridBuf, { name: cached.gridName })] });
       await interaction.editReply({ content: '✅ Shared in #shared-macros', components: [] });
-      log('INFO', `[SHARED] ${cached.symbol} ${cached.label} by ${interaction.user.username}`);
-    } catch (err) {
-      log('ERROR', '[SHARE]', err.message);
-      try { await interaction.editReply({ content: 'Share failed — retry.', components: [] }); } catch (_) {}
-    }
+    } catch (e) { log('ERROR', '[SHARE]', e.message); try { await interaction.editReply({ content: 'Share failed.', components: [] }); } catch (_) {} }
   }
 });
 
@@ -528,17 +1351,15 @@ client.on('interactionCreate', async (interaction) => {
 // MESSAGE HANDLER
 // ============================================================
 
-const PROCESSED_MESSAGES = new Set();
-
+const PROCESSED = new Set();
 client.on('messageCreate', async (msg) => {
   if (msg.author.bot) return;
-  if (PROCESSED_MESSAGES.has(msg.id)) return;
-  PROCESSED_MESSAGES.add(msg.id);
-  setTimeout(() => PROCESSED_MESSAGES.delete(msg.id), MESSAGE_DEDUPE_TTL_MS);
+  if (PROCESSED.has(msg.id)) return;
+  PROCESSED.add(msg.id);
+  setTimeout(() => PROCESSED.delete(msg.id), MESSAGE_DEDUPE_TTL_MS);
 
   const raw = (msg.content || '').trim();
   if (!raw) return;
-
   if (raw === '!ping') { await safeReply(msg, 'pong'); return; }
 
   const group = CHANNEL_GROUP_MAP[msg.channel.id];
@@ -546,51 +1367,35 @@ client.on('messageCreate', async (msg) => {
 
   const parsed = parseCommand(raw);
   if (!parsed || parsed.action !== 'chart') return;
-
   if (parsed.parseError) { await safeReply(msg, `⚠️ ${parsed.parseError}`); return; }
 
   const { symbol, mode, intervals, customTFs } = parsed;
-
-  if (isLocked(symbol)) {
-    await safeReply(msg, `⚠️ **${symbol}** is already generating — please wait.`);
-    return;
-  }
-
+  if (isLocked(symbol)) { await safeReply(msg, `⚠️ **${symbol}** is already generating — please wait.`); return; }
   lock(symbol);
 
   enqueue(async () => {
     const tfDisplay = intervals.map(tfLabel).join(' · ');
     const label     = customTFs ? tfDisplay : (mode === 'H' ? 'HTF' : 'LTF');
-
     log('INFO', `[CMD] ${msg.author.username} / ${group} → ${symbol} ${label}`);
-
-    const progress = await safeReply(msg, `⏳ Generating **${symbol}** ${label}...\n⏱ ${tfDisplay}`);
-
+    const progress = await safeReply(msg, `⏳ **${symbol}** ${label} — full analysis running...\n⏱ ${tfDisplay}\n🕷️ Spidey · 🌍 Corey · 🕸️ TrendSpider · 👑 Jane`);
     try {
-      const result = await runChartPipeline(symbol, mode, intervals, customTFs);
+      const result = await runFullPipeline(symbol, mode, intervals, customTFs);
       if (progress) { try { await progress.delete(); } catch (_) {} }
-      await deliverChart(msg, result);
+      await deliverResult(msg, result);
     } catch (err) {
       log('ERROR', `[CMD FAIL] ${symbol}:`, err.message);
-      if (progress) await safeEdit(progress, `❌ **${symbol}** chart failed — retry`);
-    } finally {
-      unlock(symbol);
-    }
+      if (progress) await safeEdit(progress, `❌ **${symbol}** analysis failed — retry`);
+    } finally { unlock(symbol); }
   });
 });
 
-// ============================================================
-// SHARD EVENTS + KEEP ALIVE
-// ============================================================
-
+// ── SHARD + KEEP ALIVE ────────────────────────────────────────
 client.on('shardDisconnect',   (e, id) => log('WARN', `[SHARD] ${id} disconnected. Code: ${e.code}`));
 client.on('shardReconnecting', (id)    => log('INFO', `[SHARD] ${id} reconnecting...`));
 client.on('shardResume',       (id, n) => log('INFO', `[SHARD] ${id} resumed. Replayed ${n} events.`));
-
 setInterval(() => { log('INFO', '[KEEP-ALIVE]'); }, 5 * 60 * 1000);
 
-// ============================================================
-// START
-// ============================================================
-
+// ── STARTUP ──────────────────────────────────────────────────
+tsLoadPersisted();
+startTSWebhookServer();
 client.login(TOKEN);
