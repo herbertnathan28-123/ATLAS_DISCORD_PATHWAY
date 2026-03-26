@@ -1,53 +1,69 @@
 // ============================================================
-// ATLAS FX — FINAL STABLE BUILD (SINGLE SESSION ARCHITECTURE)
+// ATLAS FX DISCORD BOT — DEFINITIVE FINAL BUILD (STABLE CORE)
 // ============================================================
 
 process.on('unhandledRejection', (r) => console.error('[UNHANDLED]', r));
 process.on('uncaughtException', (e) => console.error('[CRASH]', e));
 
-const TOKEN = process.env.DISCORD_BOT_TOKEN;
+// ── ENV ─────────────────────────────────────────────────────
+const TOKEN     = process.env.DISCORD_BOT_TOKEN;
 const TV_LAYOUT = process.env.TV_LAYOUT_ID || 'GmNAOGhI';
 const TV_COOKIES = process.env.TV_COOKIES ? JSON.parse(process.env.TV_COOKIES) : null;
 
 if (!TOKEN) process.exit(1);
 
 const {
-  Client, GatewayIntentBits, AttachmentBuilder
+  Client, GatewayIntentBits,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder
 } = require('discord.js');
 
 const sharp = require('sharp');
+const path  = require('path');
+const fs    = require('fs');
 const { chromium } = require('playwright');
 
+// ── CLIENT ───────────────────────────────────────────────────
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent]
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
-client.once('ready', () => console.log('[READY]', client.user.tag));
+client.once('clientReady', () => {
+  console.log(`[READY] ${client.user.tag}`);
+});
 
-// ── CONFIG ─────────────────────────────────────
+// ── CONFIG ───────────────────────────────────────────────────
 const PANEL_W = 1280;
 const PANEL_H = 720;
 
-const DEFAULT_TIMEFRAMES = {
-  H: ['1W','1D','240','60'],
-  L: ['240','60','15','1']
+// ── SYMBOL MAP (RESTORED — CRITICAL) ─────────────────────────
+const SYMBOL_OVERRIDES = {
+  MICRON: 'NASDAQ:MU',
+  AMD: 'NASDAQ:AMD',
+  ASML: 'NASDAQ:ASML',
+  XAUUSD: 'OANDA:XAUUSD',
+  XAGUSD: 'OANDA:XAGUSD'
 };
 
-// ── SYMBOL ─────────────────────────────────────
 function getTVSymbol(symbol) {
+  if (SYMBOL_OVERRIDES[symbol]) return SYMBOL_OVERRIDES[symbol];
   if (/^[A-Z]{6}$/.test(symbol)) return `OANDA:${symbol}`;
   return `NASDAQ:${symbol}`;
 }
 
+// ── TIMEFRAMES ───────────────────────────────────────────────
+const DEFAULT_TIMEFRAMES = {
+  H: ['1W','1D','240','60'],
+  L: ['240','60','15','1'],
+};
+
 // ============================================================
-// 🔒 SINGLE SESSION ENGINE
+// SINGLE SESSION ENGINE (NO LOGIN)
 // ============================================================
 
 let browser = null;
 let context = null;
 
-async function initBrowser() {
-
+async function initSession() {
   if (browser) return;
 
   browser = await chromium.launch({
@@ -61,28 +77,44 @@ async function initBrowser() {
 
   if (TV_COOKIES) {
     await context.addCookies(TV_COOKIES);
-    console.log('[SESSION] Cookies injected');
+    console.log('[SESSION] Cookies loaded');
+  } else {
+    console.log('[SESSION] Running in guest mode');
   }
 }
 
 // ============================================================
-// CHART RENDER
+// CHART ENGINE (FIXED)
 // ============================================================
+
+function buildPanelUrl(symbol, interval) {
+  const tvSym = encodeURIComponent(getTVSymbol(symbol));
+  const iv    = encodeURIComponent(interval);
+
+  // 🔥 SINGLE CHART MODE (NO LAYOUT)
+  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&hide_side_toolbar=1`;
+}
+
+async function cleanUI(page) {
+  await page.evaluate(() => {
+    [
+      '[data-name="header-toolbar"]',
+      '.tv-side-toolbar'
+    ].forEach(sel => {
+      document.querySelectorAll(sel).forEach(el => el.style.display = 'none');
+    });
+  });
+}
 
 async function renderPanel(symbol, tf) {
 
   const page = await context.newPage();
-
-return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}&hide_side_toolbar=1`;
+  const url = buildPanelUrl(symbol, tf);
 
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(5000);
 
-  // CLEAN UI
-  await page.evaluate(() => {
-    document.querySelectorAll('[data-name="header-toolbar"], .tv-side-toolbar')
-      .forEach(el => el.style.display = 'none');
-  });
+  await cleanUI(page);
 
   // 🔥 NORMALIZE VIEW
   await page.evaluate(() => {
@@ -102,16 +134,12 @@ return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval
   await page.waitForTimeout(1200);
 
   const img = await page.screenshot({ type: 'png' });
-
   await page.close();
 
   return img;
 }
 
-// ============================================================
-// GRID BUILDER
-// ============================================================
-
+// ── GRID ─────────────────────────────────────────────────────
 async function buildGrid(images) {
   const resized = await Promise.all(
     images.map(img => sharp(img).resize(PANEL_W, PANEL_H).toBuffer())
@@ -136,29 +164,27 @@ async function buildGrid(images) {
 }
 
 // ============================================================
-// 🕷️ SPIDEY (PHASE 1 — ACTIVE)
+// 🕷️ SPIDEY (ACTIVE FOUNDATION)
 // ============================================================
 
 function spidey(symbol) {
   return {
-    bias: "Neutral",
-    structure: "Range",
-    key: "TBD"
+    bias: 'Neutral',
+    structure: 'Range',
+    key: 'TBD'
   };
 }
 
 // ============================================================
-// 🌍 COREY (MACRO STUB)
+// 🌍 COREY (MACRO PLACEHOLDER)
 // ============================================================
 
 function corey(symbol) {
-  return {
-    macro: "Pending"
-  };
+  return { macro: 'Pending' };
 }
 
 // ============================================================
-// 👑 JANE (FINAL OUTPUT)
+// 👑 JANE OUTPUT
 // ============================================================
 
 function jane(sp, co) {
@@ -169,7 +195,7 @@ function jane(sp, co) {
 }
 
 // ============================================================
-// COMMAND HANDLER
+// MESSAGE HANDLER
 // ============================================================
 
 client.on('messageCreate', async (msg) => {
@@ -178,17 +204,16 @@ client.on('messageCreate', async (msg) => {
   const text = msg.content.trim();
   if (!text.startsWith('!')) return;
 
-  const symbolRaw = text.replace('!','').toUpperCase();
-  const mode = symbolRaw.endsWith('H') ? 'H' : 'L';
-  const symbol = symbolRaw.replace(/[HL]/,'');
+  const raw = text.replace('!','').toUpperCase();
+  const mode = raw.endsWith('H') ? 'H' : 'L';
+  const symbol = raw.replace(/[HL]/,'');
 
   const tfs = DEFAULT_TIMEFRAMES[mode];
 
   await msg.reply(`⏳ ${symbol} loading...`);
 
   try {
-
-    await initBrowser();
+    await initSession();
 
     const panels = [];
     for (let tf of tfs) {
