@@ -1141,8 +1141,10 @@ async function renderPanel(symbol, interval, tfKey) {
       const page = await context.newPage();
       page.setDefaultNavigationTimeout(40000); page.setDefaultTimeout(40000);
       await page.addInitScript(() => { try { localStorage.setItem('theme', 'dark'); } catch (_) {} });
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 40000 });
-      await page.waitForTimeout((interval === '1W' || interval === '1D') ? 6000 : 4500);
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 40000 });
+      await page.waitForTimeout(8000);
+      try { await page.waitForFunction(() => { const canvas = document.querySelector('canvas'); return canvas && canvas.width > 100; }, { timeout: 15000 }); } catch (_) {}
+      await page.waitForTimeout(2000);
       for (const sel of ['button[aria-label="Close"]','button:has-text("Accept")','button:has-text("Got it")','[data-name="close-button"]']) {
         try { const btn = page.locator(sel).first(); if (await btn.isVisible({ timeout: 400 })) { await btn.click({ timeout: 400 }); await page.waitForTimeout(150); } } catch (_) {}
       }
