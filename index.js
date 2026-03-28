@@ -24,7 +24,7 @@ const http         = require('http');
 const { chromium } = require('playwright');
 
 // ── ENVIRONMENT ──────────────────────────────────────────────
-const TOKEN     = process.env.DISCORD_TOKEN;
+const TOKEN     = process.env.DISCORD_BOT_TOKEN;
 const TV_LAYOUT = process.env.TV_LAYOUT_ID || 'GmNAOGhI';
 if (!TOKEN) { console.error('[FATAL] Missing DISCORD_BOT_TOKEN'); process.exit(1); }
 
