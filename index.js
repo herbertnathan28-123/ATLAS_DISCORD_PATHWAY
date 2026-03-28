@@ -1108,78 +1108,179 @@ function buildJaneSummaryFull(symbol, bias, convLabel, conviction, dnt, dntReaso
 }
 
 // ============================================================
-// CHART ENGINE — Playwright renders → 2x2 grid
+// CHART ENGINE — Playwright renders → 2x2 grid (STABLE)
 // ============================================================
 
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
-  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&theme=dark&hide_side_toolbar=1&hide_top_toolbar=1`;
+
+  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hideideas=1&hide_side_toolbar=1&hide_top_toolbar=1&hide_legend=1&saveimage=1`;
 }
 
 function withTimeout(p, ms = RENDER_TIMEOUT_MS) {
-  return Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error(`Timeout ${ms}ms`)), ms))]);
+  return Promise.race([
+    p,
+    new Promise((_, r) => setTimeout(() => r(new Error(`Timeout ${ms}ms`)), ms))
+  ]);
 }
 
 async function cleanUI(page) {
   await page.evaluate(() => {
-    ['[data-name="header-toolbar"]','[data-name="right-toolbar"]','[data-name="left-toolbar"]','.layout__area--right','.layout__area--left','.layout__area--top','.tv-side-toolbar','.tv-control-bar','.tv-floating-toolbar','.chart-controls-bar','.header-chart-panel','[data-name="legend"]','.chart-toolbar','.topbar','.top-bar','.tv-watermark','[data-name="alerts-icon"]','#overlap-manager-root','.bottom-widgetbar-content','[data-name="bottom-toolbar"]']
-      .forEach((s) => { document.querySelectorAll(s).forEach((el) => { el.style.display = 'none'; }); });
+    [
+      '[data-name="header-toolbar"]',
+      '[data-name="right-toolbar"]',
+      '[data-name="left-toolbar"]',
+      '.layout__area--right',
+      '.layout__area--left',
+      '.layout__area--top',
+      '.tv-side-toolbar',
+      '.tv-control-bar',
+      '.tv-floating-toolbar',
+      '.chart-controls-bar',
+      '.header-chart-panel',
+      '[data-name="legend"]',
+      '.chart-toolbar',
+      '.topbar',
+      '.top-bar',
+      '.tv-watermark',
+      '#overlap-manager-root'
+    ].forEach(sel => {
+      document.querySelectorAll(sel).forEach(el => el.remove());
+    });
   }).catch(() => {});
 }
 
 async function renderPanel(symbol, interval, tfKey) {
   const url = buildPanelUrl(symbol, interval);
+
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     let browser = null;
+
     try {
       log('INFO', `[PANEL] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES}`);
-      browser = await chromium.launch({ headless: true, args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu'] });
-      const context = await browser.newContext({ viewport: { width: PANEL_W, height: PANEL_H }, deviceScaleFactor: 1, userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36', locale: 'en-US', timezoneId: 'Australia/Perth' });
-      if (TV_COOKIES?.length) await context.addCookies(TV_COOKIES);
+
+      browser = await chromium.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu'
+        ]
+      });
+
+      const context = await browser.newContext({
+        viewport: { width: PANEL_W, height: PANEL_H },
+        deviceScaleFactor: 2, // 🔥 sharper charts
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        locale: 'en-US',
+        timezoneId: 'Australia/Perth'
+      });
+
       const page = await context.newPage();
-      page.setDefaultNavigationTimeout(40000); page.setDefaultTimeout(40000);
-      await page.addInitScript(() => { try { localStorage.setItem('theme', 'dark'); } catch (_) {} });
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 40000 });
-      await page.waitForTimeout(8000);
-      try { await page.waitForFunction(() => { const canvas = document.querySelector('canvas'); return canvas && canvas.width > 100; }, { timeout: 15000 }); } catch (_) {}
-      await page.waitForTimeout(2000);
-      for (const sel of ['button[aria-label="Close"]','button:has-text("Accept")','button:has-text("Got it")','[data-name="close-button"]']) {
-        try { const btn = page.locator(sel).first(); if (await btn.isVisible({ timeout: 400 })) { await btn.click({ timeout: 400 }); await page.waitForTimeout(150); } } catch (_) {}
+
+      page.setDefaultNavigationTimeout(45000);
+      page.setDefaultTimeout(45000);
+
+      // force dark mode
+      await page.addInitScript(() => {
+        try { localStorage.setItem('theme', 'dark'); } catch {}
+      });
+
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 45000
+      });
+
+      // 🔥 CORE FIX — WAIT FOR CHART ENGINE
+      await page.waitForSelector('canvas', { timeout: 20000 });
+
+      await page.waitForFunction(() => {
+        const c = document.querySelector('canvas');
+        return c && c.width > 300 && c.height > 150;
+      }, { timeout: 20000 });
+
+      // 🔥 EXTRA BUFFER (CRITICAL)
+      await page.waitForTimeout(6000);
+
+      // close popups
+      for (const sel of [
+        'button[aria-label="Close"]',
+        'button:has-text("Accept")',
+        'button:has-text("Got it")'
+      ]) {
+        try {
+          const btn = page.locator(sel).first();
+          if (await btn.isVisible({ timeout: 500 })) {
+            await btn.click();
+          }
+        } catch {}
       }
-      try { await page.waitForSelector('canvas', { timeout: 15000 }); } catch (_) {}
-      await cleanUI(page); await page.waitForTimeout(700);
-      const raw = await page.screenshot({ type: 'png', fullPage: false });
-      await browser.close(); browser = null;
-      if (raw.length < 50000) throw new Error(`Blank render (${raw.length}B)`);
-      log('INFO', `[PANEL OK] ${symbol} ${tfKey} — ${(raw.length / 1024).toFixed(0)}KB`);
-      return raw;
+
+      await cleanUI(page);
+
+      await page.waitForTimeout(1000);
+
+      const buffer = await page.screenshot({
+        type: 'png',
+        fullPage: false
+      });
+
+      await browser.close();
+
+      // 🔥 STRICT VALIDATION
+      if (buffer.length < 80000) {
+        throw new Error(`Blank render (${buffer.length}B)`);
+      }
+
+      log('INFO', `[PANEL OK] ${symbol} ${tfKey} — ${(buffer.length / 1024).toFixed(0)}KB`);
+
+      return buffer;
+
     } catch (err) {
       log('ERROR', `[PANEL FAIL] ${symbol} ${tfKey} attempt ${attempt}: ${err.message}`);
-      if (browser) { try { await browser.close(); } catch (_) {} }
+
+      if (browser) {
+        try { await browser.close(); } catch {}
+      }
+
       if (attempt === MAX_RETRIES) throw err;
-      await new Promise((r) => setTimeout(r, 3000));
+
+      await new Promise(r => setTimeout(r, 2500));
     }
   }
 }
 
 async function buildGrid(panels) {
   const W = PANEL_W, H = PANEL_H;
-  const resized = await Promise.all(panels.map((img) => sharp(img).resize(W, H, { fit: 'fill', kernel: sharp.kernel.lanczos3 }).png().toBuffer()));
-  return await sharp({ create: { width: W * 2, height: H * 2, channels: 4, background: { r: 11, g: 11, b: 11, alpha: 1 } } })
-    .composite([{ input: resized[0], left: 0, top: 0 },{ input: resized[1], left: W, top: 0 },{ input: resized[2], left: 0, top: H },{ input: resized[3], left: W, top: H }])
-    .jpeg({ quality: 93, mozjpeg: true }).toBuffer();
-}
 
-function archiveRender(buffer, symbol, label) {
-  try {
-    const d = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const dir = path.join(EXPORT_DIR, symbol, d);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, `${d}_${symbol}_${label}.jpg`), buffer);
-  } catch (e) { log('WARN', `[ARCHIVE] ${e.message}`); }
-}
+  const resized = await Promise.all(
+    panels.map(img =>
+      sharp(img)
+        .resize(W, H, { fit: 'fill' })
+        .png()
+        .toBuffer()
+    )
+  );
 
+  return await sharp({
+    create: {
+      width: W * 2,
+      height: H * 2,
+      channels: 4,
+      background: { r: 11, g: 11, b: 11, alpha: 1 }
+    }
+  })
+    .composite([
+      { input: resized[0], left: 0, top: 0 },
+      { input: resized[1], left: W, top: 0 },
+      { input: resized[2], left: 0, top: H },
+      { input: resized[3], left: W, top: H }
+    ])
+    .jpeg({ quality: 95 })
+    .toBuffer();
+}
 // ============================================================
 // FULL PIPELINE
 // ============================================================
