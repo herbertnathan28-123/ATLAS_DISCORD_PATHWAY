@@ -1,3 +1,4 @@
+global.archiveRender = async () => {};
 'use strict';
 // ============================================================
 // ATLAS FX DISCORD BOT — FULL INTELLIGENCE ENGINE v3.1
