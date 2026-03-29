@@ -21,10 +21,10 @@ const { chromium } = require('playwright');
 // ── ENVIRONMENT ──────────────────────────────────────────────
 const TOKEN           = process.env.DISCORD_BOT_TOKEN;
 const TV_LAYOUT       = process.env.TV_LAYOUT_ID || 'GmNAOGhI';
-const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY || '';
+const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY= || '';
 
 if (!TOKEN)           { console.error('[FATAL] Missing DISCORD_BOT_TOKEN'); process.exit(1); }
-if (!TWELVE_DATA_KEY) { console.error('[FATAL] Missing TWELVE_DATA_API_KEY'); process.exit(1); }
+if (!TWELVE_DATA_KEY) { console.error('[FATAL] Missing TWELVE_DATA_API_KEY='); process.exit(1); }
 
 // ── TRENDSPIDER CONFIG ───────────────────────────────────────
 const TS_ENABLED       = process.env.ENABLE_TRENDSPIDER !== 'false';
