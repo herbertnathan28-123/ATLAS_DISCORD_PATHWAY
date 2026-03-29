@@ -1108,22 +1108,55 @@ function buildJaneSummaryFull(symbol, bias, convLabel, conviction, dnt, dntReaso
 }
 
 // ============================================================
-// CHART ENGINE — Playwright renders → 2x2 grid (STABLE)
+// ATLAS FX — CHART ENGINE v2.0 (FULL REPLACEMENT)
+// ============================================================
+
+const { chromium } = require('playwright');
+const sharp = require('sharp');
+
+const PANEL_W = 960;
+const PANEL_H = 540;
+const MAX_RETRIES = 2;
+const RENDER_TIMEOUT_MS = 120000;
+
+let browserInstance = null;
+
+// ============================================================
+// 🔥 SINGLE BROWSER INSTANCE (CRITICAL FIX)
+// ============================================================
+
+async function getBrowser() {
+  if (browserInstance) return browserInstance;
+
+  browserInstance = await chromium.launch({
+    headless: true,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-zygote',
+      '--single-process'
+    ]
+  });
+
+  return browserInstance;
+}
+
+// ============================================================
+// URL BUILDER
 // ============================================================
 
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
 
-  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hideideas=1&hide_side_toolbar=1&hide_top_toolbar=1&hide_legend=1&saveimage=1`;
+  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hideideas=1&hide_side_toolbar=1&hide_top_toolbar=1&hide_legend=1`;
 }
 
-function withTimeout(p, ms = RENDER_TIMEOUT_MS) {
-  return Promise.race([
-    p,
-    new Promise((_, r) => setTimeout(() => r(new Error(`Timeout ${ms}ms`)), ms))
-  ]);
-}
+// ============================================================
+// UI CLEANER
+// ============================================================
 
 async function cleanUI(page) {
   await page.evaluate(() => {
@@ -1151,73 +1184,75 @@ async function cleanUI(page) {
   }).catch(() => {});
 }
 
+// ============================================================
+// POPUP HANDLER
+// ============================================================
+
+async function closePopups(page) {
+  const selectors = [
+    'button[aria-label="Close"]',
+    'button:has-text("Accept")',
+    'button:has-text("Got it")'
+  ];
+
+  for (const sel of selectors) {
+    try {
+      const btn = page.locator(sel).first();
+      if (await btn.isVisible({ timeout: 500 })) {
+        await btn.click();
+      }
+    } catch {}
+  }
+}
+
+// ============================================================
+// PANEL RENDER
+// ============================================================
+
 async function renderPanel(symbol, interval, tfKey) {
+  const browser = await getBrowser();
   const url = buildPanelUrl(symbol, interval);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    let browser = null;
+    let context;
 
     try {
-      log('INFO', `[PANEL] ${symbol} ${tfKey} attempt ${attempt}/${MAX_RETRIES}`);
+      log('INFO', `[PANEL] ${symbol} ${tfKey} attempt ${attempt}`);
 
-      browser = await chromium.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu'
-        ]
-      });
-
-      const context = await browser.newContext({
+      context = await browser.newContext({
         viewport: { width: PANEL_W, height: PANEL_H },
-        deviceScaleFactor: 2, // 🔥 sharper charts
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+        deviceScaleFactor: 2,
         locale: 'en-US',
         timezoneId: 'Australia/Perth'
       });
 
       const page = await context.newPage();
 
-      page.setDefaultNavigationTimeout(45000);
-      page.setDefaultTimeout(45000);
+      page.setDefaultNavigationTimeout(60000);
+      page.setDefaultTimeout(60000);
 
-      // force dark mode
       await page.addInitScript(() => {
         try { localStorage.setItem('theme', 'dark'); } catch {}
       });
 
+      // 🔥 LOAD PAGE
       await page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: 45000
+        timeout: 60000
       });
 
-      // 🔥 CORE FIX — WAIT FOR CHART ENGINE
-      await page.waitForSelector('canvas', { timeout: 20000 });
+      // 🔥 WAIT FOR CHART ENGINE
+      await page.waitForSelector('canvas', { timeout: 30000 });
 
       await page.waitForFunction(() => {
         const c = document.querySelector('canvas');
         return c && c.width > 300 && c.height > 150;
-      }, { timeout: 20000 });
+      }, { timeout: 30000 });
 
-      // 🔥 EXTRA BUFFER (CRITICAL)
-      await page.waitForTimeout(6000);
+      // 🔥 STABILIZE RENDER
+      await page.waitForTimeout(5000);
 
-      // close popups
-      for (const sel of [
-        'button[aria-label="Close"]',
-        'button:has-text("Accept")',
-        'button:has-text("Got it")'
-      ]) {
-        try {
-          const btn = page.locator(sel).first();
-          if (await btn.isVisible({ timeout: 500 })) {
-            await btn.click();
-          }
-        } catch {}
-      }
-
+      await closePopups(page);
       await cleanUI(page);
 
       await page.waitForTimeout(1000);
@@ -1227,33 +1262,38 @@ async function renderPanel(symbol, interval, tfKey) {
         fullPage: false
       });
 
-      await browser.close();
+      await context.close();
 
-      // 🔥 STRICT VALIDATION
+      // 🔥 VALIDATION
       if (buffer.length < 80000) {
         throw new Error(`Blank render (${buffer.length}B)`);
       }
 
-      log('INFO', `[PANEL OK] ${symbol} ${tfKey} — ${(buffer.length / 1024).toFixed(0)}KB`);
+      log('INFO', `[OK] ${symbol} ${tfKey} ${(buffer.length/1024).toFixed(0)}KB`);
 
       return buffer;
 
     } catch (err) {
-      log('ERROR', `[PANEL FAIL] ${symbol} ${tfKey} attempt ${attempt}: ${err.message}`);
+      log('ERROR', `[FAIL] ${symbol} ${tfKey}: ${err.message}`);
 
-      if (browser) {
-        try { await browser.close(); } catch {}
+      if (context) {
+        try { await context.close(); } catch {}
       }
 
       if (attempt === MAX_RETRIES) throw err;
 
-      await new Promise(r => setTimeout(r, 2500));
+      await new Promise(r => setTimeout(r, 2000));
     }
   }
 }
 
+// ============================================================
+// GRID BUILDER (2x2)
+// ============================================================
+
 async function buildGrid(panels) {
-  const W = PANEL_W, H = PANEL_H;
+  const W = PANEL_W;
+  const H = PANEL_H;
 
   const resized = await Promise.all(
     panels.map(img =>
@@ -1281,34 +1321,21 @@ async function buildGrid(panels) {
     .jpeg({ quality: 95 })
     .toBuffer();
 }
+
 // ============================================================
-// FULL PIPELINE
+// MAIN EXECUTION (CALL THIS)
 // ============================================================
 
-async function runFullPipeline(symbol, mode, intervals, customTFs) {
-  const tfDisplay = intervals.map(tfLabel).join(' · ');
-  const label     = customTFs ? tfDisplay : (mode === 'H' ? 'HTF' : 'LTF');
-  log('INFO', `[PIPELINE] ${symbol} ${label} — starting`);
+async function renderAll(symbol, timeframes) {
+  const panels = [];
 
-  const [panelResults, spideyHTF, coreyResult] = await Promise.all([
-    (async () => { const p = []; for (let i = 0; i < 4; i++) p.push(await withTimeout(renderPanel(symbol, intervals[i], tfLabel(intervals[i])))); return p; })(),
-    runSpideyHTF(symbol, intervals),
-    runCorey(symbol),
-  ]);
+  for (const tf of timeframes) {
+    const buf = await renderPanel(symbol, tf.interval, tf.key);
+    panels.push(buf);
+  }
 
-  const spideyMicro = await runSpideyMicro(symbol, spideyHTF.dominantBias);
-  const jane = runJane(symbol, spideyHTF, coreyResult, mode);
-
-  log('INFO', `[PIPELINE] ${symbol} — compositing grid`);
-  const gridBuf  = await buildGrid(panelResults);
-  const dateStr  = new Date().toISOString().slice(0, 10);
-  const gridName = `${dateStr}_${symbol}_${label.replace(/\s·\s/g, '_')}_grid.jpg`;
-  archiveRender(gridBuf, symbol, label);
-  log('INFO', `[PIPELINE] ${symbol} ${label} — complete`);
-
-  return { gridBuf, gridName, symbol, label, tfDisplay, spideyHTF, spideyMicro, coreyResult, jane };
+  return await buildGrid(panels);
 }
-
 // ============================================================
 // DISCORD OUTPUT FORMATTER
 // ============================================================
