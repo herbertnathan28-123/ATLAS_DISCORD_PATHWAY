@@ -1112,7 +1112,6 @@ function buildJaneSummaryFull(symbol, bias, convLabel, conviction, dnt, dntReaso
 // ATLAS FX — CHART ENGINE v2.0 (FULL REPLACEMENT)
 // ============================================================
 
-const { chromium } = require('playwright');
 const sharp = require('sharp');
 
 const PANEL_W = 960;
