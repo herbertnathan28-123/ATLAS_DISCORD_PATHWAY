@@ -1146,7 +1146,7 @@ async function getBrowser() {
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
-  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hideideas=1&hide_side_toolbar=1&hide_top_toolbar=1&hide_legend=1`;
+  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hideideas=1&hide_side_toolbar=1&hide_top_toolbar=1&hide_legend=1&layout=s`;
 }
 
 async function cleanUI(page) {
