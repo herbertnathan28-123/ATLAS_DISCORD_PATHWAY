@@ -82,13 +82,13 @@ const PANEL_H               = 720;
 
 const EPSILON = 1e-9;
 
-const BIAS      = Object.freeze({ BULLISH: 'Bullish', BEARISH: 'Bearish', NEUTRAL: 'Neutral' });
-const RISK_ENV  = Object.freeze({ RISK_ON: 'RiskOn', RISK_OFF: 'RiskOff', NEUTRAL: 'Neutral' });
-const REGIME    = Object.freeze({ EXPANSION: 'Expansion', GROWTH: 'Growth', TRANSITION: 'Transition', CONTRACTION: 'Contraction', CRISIS: 'Crisis', NEUTRAL: 'Neutral' });
+const BIAS       = Object.freeze({ BULLISH: 'Bullish', BEARISH: 'Bearish', NEUTRAL: 'Neutral' });
+const RISK_ENV   = Object.freeze({ RISK_ON: 'RiskOn', RISK_OFF: 'RiskOff', NEUTRAL: 'Neutral' });
+const REGIME     = Object.freeze({ EXPANSION: 'Expansion', GROWTH: 'Growth', TRANSITION: 'Transition', CONTRACTION: 'Contraction', CRISIS: 'Crisis', NEUTRAL: 'Neutral' });
 const ASSET_CLASS = Object.freeze({ FX: 'FX', EQUITY: 'Equity', COMMODITY: 'Commodity', INDEX: 'Index', UNKNOWN: 'Unknown' });
-const STANCE    = Object.freeze({ HAWKISH: 'Hawkish', DOVISH: 'Dovish', NEUTRAL: 'Neutral', N_A: 'N/A' });
+const STANCE     = Object.freeze({ HAWKISH: 'Hawkish', DOVISH: 'Dovish', NEUTRAL: 'Neutral', N_A: 'N/A' });
 const RATE_CYCLE = Object.freeze({ HIKING: 'Hiking', CUTTING: 'Cutting', HOLDING: 'Holding', N_A: 'N/A' });
-const GRADE     = Object.freeze({ A: 'A', B: 'B', C: 'C', D: 'D', NONE: 'NONE' });
+const GRADE      = Object.freeze({ A: 'A', B: 'B', C: 'C', D: 'D', NONE: 'NONE' });
 
 const THRESHOLDS = Object.freeze({
   macroBullish: 0.15, macroBearish: -0.15,
@@ -98,11 +98,11 @@ const THRESHOLDS = Object.freeze({
   tradeValidConfidence: 0.45,
 });
 
-const FX_QUOTES       = new Set(['USD','EUR','GBP','JPY','AUD','NZD','CAD','CHF','SEK','NOK','DKK','SGD','HKD','CNH','CNY']);
-const EQUITY_SYMBOLS  = new Set(['AMD','MU','ASML','MICRON','NVDA','AVGO','TSM','QCOM','AAPL','MSFT','META','GOOGL','AMZN','TSLA','INTC']);
+const FX_QUOTES        = new Set(['USD','EUR','GBP','JPY','AUD','NZD','CAD','CHF','SEK','NOK','DKK','SGD','HKD','CNH','CNY']);
+const EQUITY_SYMBOLS   = new Set(['AMD','MU','ASML','MICRON','NVDA','AVGO','TSM','QCOM','AAPL','MSFT','META','GOOGL','AMZN','TSLA','INTC']);
 const COMMODITY_SYMBOLS = new Set(['XAUUSD','XAGUSD','XAUEUR','XAGEUR','USOIL','WTI','BRENT','BCOUSD','NATGAS']);
-const INDEX_SYMBOLS   = new Set(['NAS100','US500','US30','GER40','UK100','HK50','JPN225','SPX','NDX','DJI']);
-const SEMI_SYMBOLS    = new Set(['AMD','MU','ASML','MICRON','NVDA','AVGO','TSM','QCOM','INTC']);
+const INDEX_SYMBOLS    = new Set(['NAS100','US500','US30','GER40','UK100','HK50','JPN225','SPX','NDX','DJI']);
+const SEMI_SYMBOLS     = new Set(['AMD','MU','ASML','MICRON','NVDA','AVGO','TSM','QCOM','INTC']);
 
 const CURRENCY_COUNTRY = Object.freeze({
   USD: { country: 'United States',  weight: 1.00 },
@@ -185,13 +185,13 @@ function safeCountry(ccy)  { return CURRENCY_COUNTRY[ccy]?.country || ccy; }
 function normalizeSymbolCore(s) { return String(s || '').trim().toUpperCase().replace(/\s+/g, ''); }
 function isFxPair(s) { return s.length === 6 && FX_QUOTES.has(s.slice(0, 3)) && FX_QUOTES.has(s.slice(3, 6)); }
 function inferAssetClass(s) {
-  if (EQUITY_SYMBOLS.has(s))   return ASSET_CLASS.EQUITY;
+  if (EQUITY_SYMBOLS.has(s))    return ASSET_CLASS.EQUITY;
   if (COMMODITY_SYMBOLS.has(s)) return ASSET_CLASS.COMMODITY;
-  if (INDEX_SYMBOLS.has(s))    return ASSET_CLASS.INDEX;
-  if (isFxPair(s))              return ASSET_CLASS.FX;
+  if (INDEX_SYMBOLS.has(s))     return ASSET_CLASS.INDEX;
+  if (isFxPair(s))               return ASSET_CLASS.FX;
   if (/XAU|XAG|OIL|BRENT|WTI|NATGAS/.test(s)) return ASSET_CLASS.COMMODITY;
   if (/NAS|US500|US30|GER40|UK100|SPX|NDX|DJI|HK50|JPN225/.test(s)) return ASSET_CLASS.INDEX;
-  if (/^[A-Z]{1,5}$/.test(s))  return ASSET_CLASS.EQUITY;
+  if (/^[A-Z]{1,5}$/.test(s))   return ASSET_CLASS.EQUITY;
   return ASSET_CLASS.UNKNOWN;
 }
 function parsePairCore(symbol) {
@@ -387,17 +387,17 @@ async function runCoreyMacro(symbol, marketContext = {}) {
   const liquidity  = assessLiquidity(global);
   const isNonFx    = assetClass !== ASSET_CLASS.FX;
   if (isNonFx) {
-    const assetAdj    = getAssetSpecificAdjustments(parsed.symbol, global);
-    const baseCB      = makeStubCB(assetAdj.assetClass);
-    const baseEcon    = makeStubEcon();
-    const quoteCB     = assessCentralBankStance(quote);
-    const quoteEcon   = assessEconomicStrength(quote);
+    const assetAdj      = getAssetSpecificAdjustments(parsed.symbol, global);
+    const baseCB        = makeStubCB(assetAdj.assetClass);
+    const baseEcon      = makeStubEcon();
+    const quoteCB       = assessCentralBankStance(quote);
+    const quoteEcon     = assessEconomicStrength(quote);
     const adjustedScore = applyAdvancedAdjustments(assetAdj.score, assetAdj.sectorInfo, volatility, liquidity, regime);
-    const macroBias   = scoreToBias(adjustedScore);
-    const confidence  = round2(clamp01(Math.abs(adjustedScore)));
+    const macroBias     = scoreToBias(adjustedScore);
+    const confidence    = round2(clamp01(Math.abs(adjustedScore)));
     return {
       symbol: parsed.symbol, assetClass: assetAdj.assetClass,
-      base:  { currency: base,  country: base,           cb: baseCB,  econ: baseEcon,  weight: 0.50 },
+      base:  { currency: base,  country: base,              cb: baseCB,  econ: baseEcon,  weight: 0.50 },
       quote: { currency: quote, country: safeCountry(quote), cb: quoteCB, econ: quoteEcon, weight: CURRENCY_COUNTRY[quote]?.weight || 0.50 },
       global, regime, volatility, liquidity,
       sector: assetAdj.sectorInfo,
@@ -454,7 +454,6 @@ const SYMBOL_OVERRIDES = {
   ASML:   'NASDAQ:ASML',
 };
 
-// TwelveData symbol map — native symbols required by the TD REST API
 const TD_SYMBOL_MAP = {
   XAUUSD: 'XAU/USD', XAGUSD: 'XAG/USD', BCOUSD: 'BCO/USD', USOIL: 'WTI/USD',
   NAS100: 'NDX', US500: 'SPX', US30: 'DJI', GER40: 'DAX',
@@ -471,7 +470,6 @@ const TD_SYMBOL_MAP = {
   MICRON: 'MU', AMD: 'AMD', ASML: 'ASML', NVDA: 'NVDA',
 };
 
-// TwelfeData resolution map
 const TD_INTERVAL_MAP = {
   '1W': '1week', '1D': '1day', '240': '4h', '120': '2h',
   '60': '1h', '30': '30min', '15': '15min', '5': '5min',
@@ -507,7 +505,7 @@ const TF_MAP = {
   '240':'240','120':'120','60':'60',
 };
 const DEFAULT_TIMEFRAMES = { H: ['1W','1D','240','60'], L: ['240','60','15','1'] };
-const TF_LABELS    = { '1W':'Weekly','1D':'Daily','240':'4H','120':'2H','60':'1H','30':'30M','15':'15M','5':'5M','3':'3M','1':'1M' };
+const TF_LABELS     = { '1W':'Weekly','1D':'Daily','240':'4H','120':'2H','60':'1H','30':'30M','15':'15M','5':'5M','3':'3M','1':'1M' };
 const TF_RESOLUTION = { '1W':'W','1D':'D','240':'240','120':'120','60':'60','30':'30','15':'15','5':'5','3':'3','1':'1' };
 
 function resolveTF(input) { return TF_MAP[input.toLowerCase().trim()] || null; }
@@ -668,9 +666,7 @@ function startTSWebhookServer() {
 // OHLC DATA — TWELVEDATA
 // ============================================================
 
-function tdResolveSymbol(symbol) {
-  return TD_SYMBOL_MAP[symbol] || symbol;
-}
+function tdResolveSymbol(symbol) { return TD_SYMBOL_MAP[symbol] || symbol; }
 
 function fetchOHLC(symbol, resolution, count = 200) {
   return new Promise((resolve, reject) => {
@@ -693,7 +689,6 @@ function fetchOHLC(symbol, resolution, count = 200) {
             reject(new Error(`TwelveData: ${p.message || p.code || 'unknown error'}`));
             return;
           }
-          // TwelveData returns newest-first — reverse to oldest-first for Spidey
           const candles = p.values.slice().reverse().map((v) => ({
             time:   Math.floor(new Date(v.datetime).getTime() / 1000),
             open:   parseFloat(v.open),
@@ -718,7 +713,7 @@ async function safeOHLC(symbol, resolution, count = 200) {
 }
 
 // ============================================================
-// 🕷️ SPIDEY — STRUCTURE INTELLIGENCE ENGINE
+// SPIDEY — STRUCTURE INTELLIGENCE ENGINE
 // ============================================================
 
 function detectSwings(candles, lookback = 3) {
@@ -757,12 +752,12 @@ function classifyStructure(swingHighs, swingLows, lookbackSwings = 4) {
 
 function detectBreaks(candles, swingHighs, swingLows) {
   if (candles.length < 5 || !swingHighs.length || !swingLows.length) return { lastBreak: 'None', direction: null, breakLevel: null, isEngineered: false };
-  const last  = candles[candles.length - 1];
+  const last   = candles[candles.length - 1];
   const prev20 = candles.slice(-20);
   const lastSH = swingHighs[swingHighs.length - 1], lastSL = swingLows[swingLows.length - 1];
   const prev5  = prev20.slice(-5);
   const rHigh  = Math.max(...prev5.map((c) => c.high)), rLow = Math.min(...prev5.map((c) => c.low));
-  const bullBOS = last.close > lastSH.level, bearBOS = last.close < lastSL.level;
+  const bullBOS   = last.close > lastSH.level, bearBOS   = last.close < lastSL.level;
   const bullCHoCH = last.close > rHigh && !bullBOS, bearCHoCH = last.close < rLow && !bearBOS;
   const wickAbove  = prev20.some((c) => c.high > lastSH.level && c.close <= lastSH.level);
   const wickBelow  = prev20.some((c) => c.low  < lastSL.level && c.close >= lastSL.level);
@@ -847,15 +842,15 @@ async function runSpideyHTF(symbol, intervals) {
     const w = tfWeights[iv] || 1, s = r.bias === 'Bullish' ? 1 : r.bias === 'Bearish' ? -1 : 0;
     wScore += s * w * r.conviction; wTotal += w;
   }
-  const norm              = wTotal > 0 ? wScore / wTotal : 0;
-  const dominantBias      = norm > 0.2 ? 'Bullish' : norm < -0.2 ? 'Bearish' : 'Neutral';
+  const norm               = wTotal > 0 ? wScore / wTotal : 0;
+  const dominantBias       = norm > 0.2 ? 'Bullish' : norm < -0.2 ? 'Bearish' : 'Neutral';
   const dominantConviction = Math.min(Math.abs(norm), 1);
-  const allBreaks         = Object.entries(results)
+  const allBreaks          = Object.entries(results)
     .filter(([, r]) => r.lastBreak !== 'None')
     .map(([iv, r]) => ({ ...r, timeframe: iv, weight: tfWeights[iv] || 1 }))
     .sort((a, b) => b.weight - a.weight);
-  const significantBreak  = allBreaks[0] || null;
-  const currentPrice      = results[intervals[0]]?.currentPrice || 0;
+  const significantBreak = allBreaks[0] || null;
+  const currentPrice     = results[intervals[0]]?.currentPrice || 0;
   let nearestDraw = null;
   for (const [, r] of Object.entries(results)) { const liq = r.liquidityPools?.find((p) => p.proximate); if (liq) { nearestDraw = liq; break; } }
   const summary = buildSpideySummaryHTF(dominantBias, dominantConviction, significantBreak, intervals);
@@ -866,13 +861,13 @@ async function runSpideyHTF(symbol, intervals) {
 async function runSpideyMicro(symbol, htfBias) {
   const m15 = await safeOHLC(symbol, '15', 100), m5 = await safeOHLC(symbol, '5', 100);
   if (!m15 || !m5) return { entryConfirmed: false, ltfBias: 'No data', sweepDetected: false, inInducement: false, ltfBreak: 'None', ltfBreakLevel: null, alignedWithHTF: false, summary: 'Insufficient LTF data' };
-  const m15S   = detectSwings(m15, 2), m15St = classifyStructure(m15S.swingHighs, m15S.swingLows), m15B = detectBreaks(m15, m15S.swingHighs, m15S.swingLows);
-  const m5S    = detectSwings(m5,  2), m5B   = detectBreaks(m5, m5S.swingHighs, m5S.swingLows);
-  const ltfSweep = m15B.isEngineered || m5B.isEngineered;
-  const rH15     = m15S.swingHighs.slice(-3);
+  const m15S = detectSwings(m15, 2), m15St = classifyStructure(m15S.swingHighs, m15S.swingLows), m15B = detectBreaks(m15, m15S.swingHighs, m15S.swingLows);
+  const m5S  = detectSwings(m5,  2), m5B   = detectBreaks(m5, m5S.swingHighs, m5S.swingLows);
+  const ltfSweep    = m15B.isEngineered || m5B.isEngineered;
+  const rH15        = m15S.swingHighs.slice(-3);
   const inInducement = rH15.filter((h, i) => rH15.some((h2, j) => j !== i && Math.abs(h.level - h2.level) / h.level < 0.001)).length > 0;
-  const alignedWithHTF  = m15St.bias === htfBias;
-  const entryConfirmed  = alignedWithHTF && (m15B.lastBreak === 'BOS' || m15B.lastBreak === 'CHoCH') && !inInducement;
+  const alignedWithHTF = m15St.bias === htfBias;
+  const entryConfirmed = alignedWithHTF && (m15B.lastBreak === 'BOS' || m15B.lastBreak === 'CHoCH') && !inInducement;
   return { entryConfirmed, ltfBias: m15St.bias, ltfConviction: m15St.conviction, sweepDetected: ltfSweep, inInducement, ltfBreak: m15B.lastBreak, ltfBreakLevel: m15B.breakLevel, alignedWithHTF, m5Break: m5B.lastBreak, summary: buildMicroSummary(entryConfirmed, m15St, m15B, ltfSweep, inInducement) };
 }
 
@@ -889,7 +884,7 @@ function buildMicroSummary(confirmed, st, br, sweep, ind) {
 }
 
 // ============================================================
-// 🌍 COREY — MACRO + TRENDSPIDER INTELLIGENCE ENGINE
+// COREY — MACRO + TRENDSPIDER INTELLIGENCE ENGINE
 // ============================================================
 
 async function runCoreyTrendSpider(symbol) {
@@ -902,7 +897,7 @@ async function runCoreyTrendSpider(symbol) {
   let directionMatchesPrice = null, priceDistanceFromSignal = null;
   const candles = await safeOHLC(symbol, '1D', 10);
   if (candles && candles.length >= 3 && signal.price) {
-    const currentPrice = candles[candles.length - 1].close;
+    const currentPrice      = candles[candles.length - 1].close;
     priceDistanceFromSignal = ((currentPrice - signal.price) / signal.price) * 100;
     const priceDir          = currentPrice > candles[0].close ? 'Bullish' : currentPrice < candles[0].close ? 'Bearish' : 'Neutral';
     directionMatchesPrice   = (signal.direction === priceDir) || (priceDir === 'Neutral');
@@ -945,7 +940,7 @@ async function runCorey(symbol) {
     runCoreyCorrelation(symbol),
   ]);
   const { macroBias, confidence, global, regime, volatility, liquidity, sector, base, quote } = coreyMacroResult;
-  const biasScores   = { Bullish: 1, Neutral: 0, Bearish: -1 };
+  const biasScores    = { Bullish: 1, Neutral: 0, Bearish: -1 };
   const internalScore = biasScores[macroBias] * confidence;
   let tsScore = 0, tsEffect = 'Unavailable';
   if (tsResult.available && tsResult.fresh && (tsResult.grade === 'FreshHigh' || tsResult.grade === 'FreshMedium')) {
@@ -988,16 +983,16 @@ function buildCoreySummaryFull(macro, ts, combinedBias, conf, aligned, conflict)
 }
 
 // ============================================================
-// 👑 JANE — FINAL ARBITRATION ENGINE (10-CASE CONFLICT MATRIX)
+// JANE — FINAL ARBITRATION ENGINE (10-CASE CONFLICT MATRIX)
 // ============================================================
 
 function runJane(symbol, spideyResult, coreyResult, mode) {
   log('INFO', `[JANE] Synthesising ${symbol}`);
-  const spideyBias  = spideyResult.dominantBias,   spideyConv = spideyResult.dominantConviction;
-  const coreyBias   = coreyResult.combinedBias,    coreyConf  = coreyResult.confidence;
-  const tsBias      = coreyResult.trendSpider.signalBias, tsGrade = coreyResult.trendSpider.grade;
-  const tsFresh     = coreyResult.trendSpider.fresh, tsAvail = coreyResult.trendSpider.available;
-  const biasS       = { Bullish: 1, Neutral: 0, Bearish: -1 };
+  const spideyBias = spideyResult.dominantBias,   spideyConv = spideyResult.dominantConviction;
+  const coreyBias  = coreyResult.combinedBias,    coreyConf  = coreyResult.confidence;
+  const tsBias     = coreyResult.trendSpider.signalBias, tsGrade = coreyResult.trendSpider.grade;
+  const tsFresh    = coreyResult.trendSpider.fresh, tsAvail = coreyResult.trendSpider.available;
+  const biasS      = { Bullish: 1, Neutral: 0, Bearish: -1 };
   const spideyScore = biasS[spideyBias] * spideyConv, coreyScore = biasS[coreyBias] * coreyConf;
   let tsAdj = 0, trendSpiderEffect = 'Unavailable';
   if (tsAvail && tsFresh && (tsGrade === 'FreshHigh' || tsGrade === 'FreshMedium')) {
@@ -1101,13 +1096,13 @@ function buildJaneLevels(spideyResult, coreyResult, bias) {
 function buildJaneBranches(spideyResult, bias, levels) {
   const branches = [], sig = spideyResult.significantBreak;
   if (bias === 'Bullish') {
-    if (levels.targets[0])      branches.push(`IF close above ${levels.targets[0].level?.toFixed(5)} → bias confirmed, scale T2`);
+    if (levels.targets[0])        branches.push(`IF close above ${levels.targets[0].level?.toFixed(5)} → bias confirmed, scale T2`);
     if (levels.invalidationLevel) branches.push(`IF close below ${levels.invalidationLevel?.toFixed(5)} → thesis invalidated, reassess`);
-    if (sig?.breakLevel)        branches.push(`IF return to ${sig.breakLevel?.toFixed(5)} BOS → high probability demand reaction`);
+    if (sig?.breakLevel)          branches.push(`IF return to ${sig.breakLevel?.toFixed(5)} BOS → high probability demand reaction`);
   } else if (bias === 'Bearish') {
-    if (levels.targets[0])      branches.push(`IF close below ${levels.targets[0].level?.toFixed(5)} → bias confirmed, scale T2`);
+    if (levels.targets[0])        branches.push(`IF close below ${levels.targets[0].level?.toFixed(5)} → bias confirmed, scale T2`);
     if (levels.invalidationLevel) branches.push(`IF close above ${levels.invalidationLevel?.toFixed(5)} → thesis invalidated, reassess`);
-    if (sig?.breakLevel)        branches.push(`IF return to ${sig.breakLevel?.toFixed(5)} BOS → high probability supply reaction`);
+    if (sig?.breakLevel)          branches.push(`IF return to ${sig.breakLevel?.toFixed(5)} BOS → high probability supply reaction`);
   } else {
     branches.push('No active branches — engines conflicted or neutral. Wait for structural resolution before entry.');
   }
@@ -1132,7 +1127,7 @@ function buildJaneSummaryFull(symbol, bias, convLabel, conviction, dnt, dntReaso
 }
 
 // ============================================================
-// CHART ENGINE — PLAYWRIGHT + SHARP
+// CHART ENGINE — PLAYWRIGHT + SHARP (single instance)
 // ============================================================
 
 let browserInstance = null;
@@ -1219,10 +1214,10 @@ async function buildGrid(panels) {
     create: { width: PANEL_W * 2, height: PANEL_H * 2, channels: 4, background: { r: 11, g: 11, b: 11, alpha: 1 } },
   })
     .composite([
-      { input: resized[0], left: 0,      top: 0      },
-      { input: resized[1], left: PANEL_W, top: 0      },
-      { input: resized[2], left: 0,      top: PANEL_H },
-      { input: resized[3], left: PANEL_W, top: PANEL_H },
+      { input: resized[0], left: 0,       top: 0       },
+      { input: resized[1], left: PANEL_W,  top: 0       },
+      { input: resized[2], left: 0,       top: PANEL_H  },
+      { input: resized[3], left: PANEL_W,  top: PANEL_H  },
     ])
     .jpeg({ quality: 95 })
     .toBuffer();
@@ -1244,40 +1239,22 @@ async function renderAll(symbol, intervals) {
 async function runFullPipeline(symbol, mode, intervals, customTFs) {
   log('INFO', `[PIPELINE] ${symbol} mode:${mode} tfs:[${intervals.join(',')}]`);
 
-  // 1. Run intelligence engines (OHLC fetched inside each engine via safeOHLC)
-  // Corey runs first so Spidey Micro can receive htfBias from the result
   const [coreyResult, spideyHTF] = await Promise.all([
     runCorey(symbol),
     runSpideyHTF(symbol, intervals),
   ]);
 
-  // 2. Spidey Micro uses HTF dominant bias
   const spideyMicro = await runSpideyMicro(symbol, spideyHTF.dominantBias);
+  const jane        = runJane(symbol, spideyHTF, coreyResult, mode);
 
-  // 3. Jane synthesis
-  const jane = runJane(symbol, spideyHTF, coreyResult, mode);
-
-  // 4. Render 4-panel chart grid
-  const gridBuf  = await renderAll(symbol, intervals);
+  const gridBuf   = await renderAll(symbol, intervals);
   const tfDisplay = intervals.map(tfLabel).join(' · ');
   const label     = customTFs ? tfDisplay : (mode === 'H' ? 'HTF' : 'LTF');
   const gridName  = `ATLAS_${symbol}_${label.replace(/\s/g, '_')}_${Date.now()}.jpg`;
 
   log('INFO', `[PIPELINE] ${symbol} complete — bias:${jane.finalBias} conviction:${jane.convictionLabel}`);
 
-  return {
-    symbol,
-    label,
-    tfDisplay,
-    mode,
-    intervals,
-    spideyHTF,
-    spideyMicro,
-    coreyResult,
-    jane,
-    gridBuf,
-    gridName,
-  };
+  return { symbol, label, tfDisplay, mode, intervals, spideyHTF, spideyMicro, coreyResult, jane, gridBuf, gridName };
 }
 
 // ============================================================
@@ -1318,8 +1295,8 @@ function formatDiscordMessage(result) {
     `${baseDesc}\n` +
     `${macro.quote.currency}: ${macro.quote.cb.stance} · ${macro.quote.cb.direction} · Strength ${(macro.quote.econ.composite * 100).toFixed(0)}%\n` +
     `Global: ${macro.global.riskEnv} · DXY ${macro.global.dxyBias}` +
-    (macro.regime    ? ` · Regime ${macro.regime.regime}`        : '') +
-    (macro.volatility ? ` · Vol ${macro.volatility.level}`       : '') + '\n' +
+    (macro.regime     ? ` · Regime ${macro.regime.regime}`   : '') +
+    (macro.volatility ? ` · Vol ${macro.volatility.level}`   : '') + '\n' +
     `Macro Bias: **${coreyResult.macroBias}** · Combined: **${coreyResult.combinedBias}** · Conf: ${(coreyResult.confidence * 100).toFixed(0)}%\n` +
     (coreyResult.contradiction ? `⚠️ TS Contradiction detected\n` : coreyResult.alignment ? `✅ TS Aligned\n` : '') +
     (coreyResult.correlation?.divergent?.length ? `⚠️ Correl divergence: ${coreyResult.correlation.divergent[0].pair}\n` : '');
@@ -1350,7 +1327,7 @@ function formatDiscordMessage(result) {
       `Final Bias: **${jane.finalBias}** · Conviction: **${jane.convictionLabel}** (${(jane.conviction * 100).toFixed(0)}%)\n` +
       `Conflict State: ${jane.conflictState}\n` +
       `TrendSpider Effect: ${jane.trendSpiderEffect}\n` +
-      (jane.entryZone        ? `Entry Zone: ${fmt(jane.entryZone.low)} – ${fmt(jane.entryZone.high)}\n` : '') +
+      (jane.entryZone         ? `Entry Zone: ${fmt(jane.entryZone.low)} – ${fmt(jane.entryZone.high)}\n` : '') +
       (jane.invalidationLevel ? `Invalidation: ${fmt(jane.invalidationLevel)}\n` : '') +
       (jane.rrRatio           ? `R:R: ~${jane.rrRatio}:1 (minimum ATLAS 1:3 required)\n` : '') +
       `\n**Targets:**\n${targetsStr}\n\n` +
