@@ -1398,7 +1398,20 @@ async function renderPanel(symbol, interval, tfKey) {
 
       await closePopups(page);
       await cleanUI(page);
-      await page.waitForTimeout(500);
+
+      // Force chart to repaint and fill the full viewport after toolbar removal
+      await page.evaluate((w, h) => {
+        // Set all layout containers to full size
+        document.querySelectorAll('.chart-container, .layout__area--center, [class*="chart-markup-table"], .pane-html').forEach(el => {
+          el.style.width  = w + 'px';
+          el.style.height = h + 'px';
+        });
+        // Dispatch resize so TradingView repaints at full dimensions
+        window.dispatchEvent(new Event('resize'));
+      }, PANEL_W, PANEL_H).catch(() => {});
+
+      // Wait for repaint to complete
+      await page.waitForTimeout(1500);
 
       // F. Screenshot with explicit clip
       const buffer = await page.screenshot({ type: 'png', fullPage: false, clip: { x: 0, y: 0, width: PANEL_W, height: PANEL_H } });
@@ -2557,10 +2570,20 @@ const CHANNEL_GROUP_MAP = {
   '1432080184458350672': 'AT', '1430950313484878014': 'SK',
   '1431192381029482556': 'NM', '1482451091630194868': 'BR',
 };
+// Symbol lock — Set operations are synchronous, preventing same-tick double-fire
 const RUNNING = new Set();
-function isLocked(s) { return RUNNING.has(s); }
-function lock(s)     { RUNNING.add(s); }
-function unlock(s)   { RUNNING.delete(s); }
+const COOLDOWN = new Map(); // symbol → last unlock timestamp
+const COOLDOWN_MS = 5000;   // 5 second cooldown after unlock before re-lock allowed
+
+function isLocked(s) {
+  if (RUNNING.has(s)) return true;
+  // Also block if within cooldown window after last completion
+  const lastUnlock = COOLDOWN.get(s);
+  if (lastUnlock && (Date.now() - lastUnlock) < COOLDOWN_MS) return true;
+  return false;
+}
+function lock(s)     { RUNNING.add(s); COOLDOWN.delete(s); }
+function unlock(s)   { RUNNING.delete(s); COOLDOWN.set(s, Date.now()); }
 
 const queue = []; let queueRunning = false;
 function enqueue(job) { queue.push(job); void runQueue(); }
@@ -2668,8 +2691,9 @@ client.on('messageCreate', async (msg) => {
     return;
   }
 
+  // Atomic check-and-lock — prevents double-fire from rapid same-symbol requests
   if (isLocked(symbol)) { await safeReply(msg, `⚠️ **${symbol}** is already generating — please wait.`); return; }
-  lock(symbol);
+  lock(symbol); // Lock IMMEDIATELY before enqueue, not inside the async job
 
   enqueue(async () => {
     const modeLabel  = combined ? 'HTF + LTF' : (mode === 'H' ? 'HTF' : 'LTF');
