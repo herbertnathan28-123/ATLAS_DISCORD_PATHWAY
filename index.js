@@ -594,6 +594,46 @@ function parseCommand(content) {
 function log(level, msg, ...args) { console.log(`[${new Date().toISOString()}] [${level}] ${msg}`, ...args); }
 
 // ============================================================
+// REQUEST AUDIT LOG
+// ============================================================
+
+const REQUEST_LOG = [];
+const MAX_LOG_SIZE = 200;
+
+const FLAGS  = Object.freeze({ CRYPTO_ATTEMPT: 'CRYPTO_ATTEMPT', INVALID_SYMBOL: 'INVALID_SYMBOL', UNKNOWN_COMMAND: 'UNKNOWN_COMMAND', RENDER_WARNING: 'RENDER_WARNING', PLACEHOLDER_USED: 'PLACEHOLDER_USED', SUCCESS: 'SUCCESS' });
+const OUTCOME = Object.freeze({ BLOCKED: 'BLOCKED', FAILED: 'FAILED', PARTIAL: 'PARTIAL', SUCCESS: 'SUCCESS' });
+
+function auditLog(entry) {
+  REQUEST_LOG.unshift({ ...entry, time: new Date().toISOString() });
+  if (REQUEST_LOG.length > MAX_LOG_SIZE) REQUEST_LOG.length = MAX_LOG_SIZE;
+}
+
+function auditUpdate(time, updates) {
+  const e = REQUEST_LOG.find((r) => r.time === time);
+  if (e) Object.assign(e, updates);
+}
+
+// ── CRYPTO BLOCKER ────────────────────────────────────────────
+const CRYPTO_KEYWORDS = new Set(['BTC','ETH','XRP','SOL','DOGE','ADA','BNB','DOT','MATIC','AVAX','LINK','LTC','BCH','XLM','ALGO','ATOM','VET','ICP','BITCOIN','ETHEREUM','CRYPTO','USDT','USDC','SHIB','PEPE']);
+
+function isCryptoAttempt(symbol) {
+  const s = String(symbol || '').toUpperCase().replace(/[^A-Z]/g, '');
+  return CRYPTO_KEYWORDS.has(s) || s.endsWith('USDT') || s.endsWith('USDC') || s.endsWith('BTC') || s.startsWith('BTC');
+}
+
+// ── STATS TRACKER ─────────────────────────────────────────────
+const STATS = { total: 0, crypto: 0, partial: 0, failed: 0, success: 0, symbols: {} };
+
+function trackStats(symbol, outcome) {
+  STATS.total++;
+  if (outcome === OUTCOME.BLOCKED) STATS.crypto++;
+  else if (outcome === OUTCOME.PARTIAL) STATS.partial++;
+  else if (outcome === OUTCOME.FAILED) STATS.failed++;
+  else if (outcome === OUTCOME.SUCCESS) STATS.success++;
+  if (symbol) { STATS.symbols[symbol] = (STATS.symbols[symbol] || 0) + 1; }
+}
+
+// ============================================================
 // TRENDSPIDER SIGNAL STORE
 // ============================================================
 
@@ -1333,30 +1373,56 @@ async function renderPanel(symbol, interval, tfKey) {
       page.setDefaultNavigationTimeout(RENDER_TIMEOUT_MS);
       page.setDefaultTimeout(RENDER_TIMEOUT_MS);
       await page.addInitScript(() => { try { localStorage.setItem('theme', 'dark'); } catch {} });
+
+      // A. Navigate — domcontentloaded is faster than networkidle, chart loads async
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: RENDER_TIMEOUT_MS });
-      await page.waitForSelector('canvas', { timeout: 30000 });
-      await page.waitForFunction(() => { const c = document.querySelector('canvas'); return c && c.width > 300 && c.height > 150; }, { timeout: 30000 });
-      await page.waitForTimeout(5000);
+
+      // B. Wait for canvas element to exist in DOM
+      await page.waitForSelector('canvas', { timeout: 15000 });
+
+      // C. Wait for canvas to have real pixel dimensions (not just created)
+      await page.waitForFunction(() => {
+        const canvases = document.querySelectorAll('canvas');
+        if (!canvases || canvases.length === 0) return false;
+        const c = canvases[0];
+        return c && c.width > 0 && c.height > 0;
+      }, { timeout: 15000 });
+
+      // D. Remove loading overlays
+      await page.evaluate(() => {
+        document.querySelectorAll('.loading, .spinner, [class*="loading"], [class*="spinner"]').forEach(el => el.remove());
+      }).catch(() => {});
+
+      // E. Stability delay — let chart data actually paint
+      await page.waitForTimeout(2500);
+
       await closePopups(page);
       await cleanUI(page);
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(500);
+
+      // F. Screenshot with explicit clip
       const buffer = await page.screenshot({ type: 'png', fullPage: false, clip: { x: 0, y: 0, width: PANEL_W, height: PANEL_H } });
       await context.close();
-      if (buffer.length < 80000) throw new Error(`Blank render (${buffer.length}B)`);
+      if (!buffer || buffer.length < 50000) throw new Error(`Blank/small render (${buffer?.length || 0}B)`);
       log('INFO', `[OK] ${symbol} ${tfKey} ${(buffer.length / 1024).toFixed(0)}KB`);
       return buffer;
     } catch (err) {
       log('ERROR', `[FAIL] ${symbol} ${tfKey}: ${err.message}`);
       if (context) { try { await context.close(); } catch {} }
       if (attempt === MAX_RETRIES) throw err;
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 3000));
     }
   }
 }
 
 async function buildGrid(panels) {
+  // Resize each panel to exact cell dimensions — cover fills cell cleanly
   const resized = await Promise.all(
-    panels.map((img) => sharp(img).resize(PANEL_W, PANEL_H, { fit: 'fill' }).png().toBuffer())
+    panels.map((img) => sharp(img)
+      .resize(PANEL_W, PANEL_H, { fit: 'cover', position: 'centre' })
+      .png()
+      .toBuffer()
+    )
   );
   return await sharp({
     create: { width: PANEL_W * 2, height: PANEL_H * 2, channels: 4, background: { r: 11, g: 11, b: 11, alpha: 1 } },
@@ -1381,6 +1447,7 @@ async function renderAll(symbol, intervals) {
   // Render in pairs (2 concurrent) — balances speed vs browser memory on Render
   const targets = intervals.slice(0, 4);
   const panels  = [];
+  let placeholderCount = 0;
   for (let i = 0; i < targets.length; i += 2) {
     const batch = targets.slice(i, i + 2);
     const results = await Promise.all(
@@ -1389,14 +1456,16 @@ async function renderAll(symbol, intervals) {
           return await renderPanel(symbol, iv, tfLabel(iv));
         } catch (err) {
           log('WARN', `[RENDER SKIP] ${symbol} ${tfLabel(iv)}: ${err.message} — placeholder used`);
+          placeholderCount++;
           return await makePlaceholderPanel();
         }
       })
     );
     panels.push(...results);
   }
-  while (panels.length < 4) panels.push(await makePlaceholderPanel());
-  return await buildGrid(panels.slice(0, 4));
+  while (panels.length < 4) { panels.push(await makePlaceholderPanel()); placeholderCount++; }
+  if (placeholderCount > 0) log('WARN', `[GRID] ${symbol} — ${placeholderCount} placeholder(s) used in grid`);
+  return { grid: await buildGrid(panels.slice(0, 4)), placeholderCount };
 }
 
 // ============================================================
@@ -1422,15 +1491,21 @@ async function runFullPipeline(symbol, mode, htfIntervals, ltfIntervals, combine
   const jane = runJane(symbol, spideyHTF, spideyLTF, coreyResult, mode);
 
   // Render grids
-  let htfGridBuf, ltfGridBuf;
+  let htfGridBuf, ltfGridBuf, htfPlaceholders = 0, ltfPlaceholders = 0;
   if (combined) {
-    [htfGridBuf, ltfGridBuf] = await Promise.all([
+    const [htfResult, ltfResult] = await Promise.all([
       renderAll(symbol, htfIntervals),
       renderAll(symbol, ltfIntervals),
     ]);
+    htfGridBuf      = htfResult.grid;
+    ltfGridBuf      = ltfResult.grid;
+    htfPlaceholders = htfResult.placeholderCount;
+    ltfPlaceholders = ltfResult.placeholderCount;
   } else {
-    htfGridBuf = await renderAll(symbol, mode === 'H' ? htfIntervals : ltfIntervals);
-    ltfGridBuf = null;
+    const result    = await renderAll(symbol, mode === 'H' ? htfIntervals : ltfIntervals);
+    htfGridBuf      = result.grid;
+    ltfGridBuf      = null;
+    htfPlaceholders = result.placeholderCount;
   }
 
   const htfDisplay = htfIntervals.map(tfLabel).join(' · ');
@@ -1442,11 +1517,15 @@ async function runFullPipeline(symbol, mode, htfIntervals, ltfIntervals, combine
 
   log('INFO', `[PIPELINE] ${symbol} complete — bias:${jane.finalBias} conviction:${jane.convictionLabel}`);
 
+  const outcome = (htfPlaceholders + ltfPlaceholders) > 0 ? OUTCOME.PARTIAL : OUTCOME.SUCCESS;
+  log('INFO', `[PIPELINE] ${symbol} outcome:${outcome} htfPlaceholders:${htfPlaceholders} ltfPlaceholders:${ltfPlaceholders}`);
+
   return {
     symbol, mode, combined, modeLabel,
     htfIntervals, ltfIntervals, htfDisplay, ltfDisplay,
     spideyHTF, spideyLTF, spideyMicro, coreyResult, jane,
     htfGridBuf, ltfGridBuf, htfGridName, ltfGridName,
+    htfPlaceholders, ltfPlaceholders, outcome,
     customTFs,
   };
 }
@@ -2409,7 +2488,19 @@ function chunkMessage(text, maxLen = 1900) {
 
 // ── DELIVER RESULT — IMAGES → TRADE BLOCK → ANALYSIS CHUNKS ──
 async function deliverResult(msg, result) {
-  const { symbol, htfGridBuf, ltfGridBuf, htfGridName, ltfGridName, combined, htfDisplay, ltfDisplay } = result;
+  const { symbol, htfGridBuf, ltfGridBuf, htfGridName, ltfGridName, combined, htfDisplay, ltfDisplay, htfPlaceholders, ltfPlaceholders } = result;
+
+  // ── OUTPUT VALIDATION ─────────────────────────────────────────
+  if (!htfGridBuf) { log('ERROR', `[VALIDATE] ${symbol} htfGridBuf missing — aborting delivery`); await msg.channel.send({ content: `⚠️ **${symbol}** — Chart render failed. Try again.` }); return; }
+
+  const tradeBlockTest   = formatTradeBlock(result);
+  const analysisBlockTest = formatAnalysisBlock(result);
+  if (!tradeBlockTest || tradeBlockTest.length < 50)    { log('ERROR', `[VALIDATE] ${symbol} tradeBlock too short`); }
+  if (!analysisBlockTest || analysisBlockTest.length < 200) { log('ERROR', `[VALIDATE] ${symbol} analysisBlock too short`); }
+
+  console.log('TRADE BLOCK LENGTH:', tradeBlockTest.length);
+  console.log('ANALYSIS BLOCK LENGTH:', analysisBlockTest.length);
+
   const cacheKey = `${msg.id}_${Date.now()}`;
   cacheForShare(cacheKey, result);
 
@@ -2533,7 +2624,27 @@ client.on('messageCreate', async (msg) => {
 
   const raw = (msg.content || '').trim();
   if (!raw) return;
+
+  // ── OPS COMMANDS ────────────────────────────────────────────
   if (raw === '!ping') { await safeReply(msg, 'pong'); return; }
+
+  if (raw === '!stats') {
+    const topSymbols = Object.entries(STATS.symbols).sort((a,b) => b[1]-a[1]).slice(0,5).map(([s,c]) => `${s}:${c}`).join(' · ') || 'none';
+    await safeReply(msg, [
+      `📊 **ATLAS FX — Request Stats**`,
+      `Total: **${STATS.total}** · Success: **${STATS.success}** · Partial: **${STATS.partial}** · Failed: **${STATS.failed}** · Blocked: **${STATS.crypto}**`,
+      `Top symbols: ${topSymbols}`,
+    ].join('\n'));
+    return;
+  }
+
+  if (raw === '!errors') {
+    const recent = REQUEST_LOG.filter(r => r.outcome === OUTCOME.FAILED || r.outcome === OUTCOME.PARTIAL).slice(0, 5);
+    if (!recent.length) { await safeReply(msg, '✅ No recent errors or partial renders.'); return; }
+    const lines = recent.map(r => `\`${r.time.slice(11,19)}\` ${r.symbol || '?'} ${r.mode || '?'} — **${r.outcome}** ${(r.flags||[]).join(' ')}`);
+    await safeReply(msg, `⚠️ **Recent Issues:**\n${lines.join('\n')}`);
+    return;
+  }
 
   const group = CHANNEL_GROUP_MAP[msg.channel.id];
   if (!group) return;
@@ -2543,11 +2654,25 @@ client.on('messageCreate', async (msg) => {
   if (parsed.parseError) { await safeReply(msg, `⚠️ ${parsed.parseError}`); return; }
 
   const { symbol, mode, htfIntervals, ltfIntervals, combined, customTFs } = parsed;
+  const auditEntry = { user: msg.author.username, channel: msg.channel.name || msg.channel.id, raw, symbol, mode, flags: [], outcome: null };
+  auditLog(auditEntry);
+  log('INFO', `[REQ] ${msg.author.username} → ${symbol} ${mode}`);
+
+  // ── CRYPTO BLOCK ─────────────────────────────────────────────
+  if (isCryptoAttempt(symbol)) {
+    auditEntry.flags.push(FLAGS.CRYPTO_ATTEMPT);
+    auditEntry.outcome = OUTCOME.BLOCKED;
+    trackStats(symbol, OUTCOME.BLOCKED);
+    log('WARN', `[BLOCKED] Crypto attempt: ${symbol} by ${msg.author.username}`);
+    await safeReply(msg, `🚫 **${symbol}** — ATLAS FX does not support cryptocurrency instruments. Supported: FX pairs, equities, indices, commodities.`);
+    return;
+  }
+
   if (isLocked(symbol)) { await safeReply(msg, `⚠️ **${symbol}** is already generating — please wait.`); return; }
   lock(symbol);
 
   enqueue(async () => {
-    const modeLabel = combined ? 'HTF + LTF' : (mode === 'H' ? 'HTF' : 'LTF');
+    const modeLabel  = combined ? 'HTF + LTF' : (mode === 'H' ? 'HTF' : 'LTF');
     const htfDisplay = htfIntervals.map(tfLabel).join(' · ');
     const ltfDisplay = ltfIntervals.map(tfLabel).join(' · ');
 
@@ -2555,9 +2680,8 @@ client.on('messageCreate', async (msg) => {
 
     const progressLines = [
       `⏳ **${symbol}** ${modeLabel} — full institutional analysis running...`,
-      combined
-        ? `📡 HTF: ${htfDisplay}\n🔬 LTF: ${ltfDisplay}`
-        : `⏱ ${htfDisplay}`,
+      combined ? `📡 HTF: ${htfDisplay}
+🔬 LTF: ${ltfDisplay}` : `⏱ ${htfDisplay}`,
       `🕷️ Spidey (HTF${combined ? ' + LTF' : ''}) · 🌍 Corey · 🕸️ TrendSpider · 👑 Jane`,
       `📊 Generating full institutional macro brief...`,
     ];
@@ -2566,10 +2690,18 @@ client.on('messageCreate', async (msg) => {
     try {
       const result = await runFullPipeline(symbol, mode, htfIntervals, ltfIntervals, combined, customTFs);
       if (progress) { try { await progress.delete(); } catch (_) {} }
+      if ((result.htfPlaceholders + result.ltfPlaceholders) > 0) auditEntry.flags.push(FLAGS.PLACEHOLDER_USED);
+      auditEntry.outcome = result.outcome;
+      trackStats(symbol, result.outcome);
+      auditEntry.flags.push(result.outcome === OUTCOME.SUCCESS ? FLAGS.SUCCESS : FLAGS.RENDER_WARNING);
+      log('INFO', `[OUTCOME] ${symbol} ${result.outcome}`);
       await deliverResult(msg, result);
     } catch (err) {
       log('ERROR', `[CMD FAIL] ${symbol}:`, err.message);
-      if (progress) await safeEdit(progress, `❌ **${symbol}** analysis failed — retry\n\`${err.message}\``);
+      auditEntry.outcome = OUTCOME.FAILED;
+      trackStats(symbol, OUTCOME.FAILED);
+      if (progress) await safeEdit(progress, `❌ **${symbol}** analysis failed — retry
+\`${err.message}\``);
     } finally { unlock(symbol); }
   });
 });
