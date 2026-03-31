@@ -507,7 +507,7 @@ const TF_MAP = {
 };
 
 // HTF = Weekly / Daily / 4H / 1H
-// LTF = 30M / 15M / 5M / 1M
+// LTF = 4H / 1H / 15M / 1M
 const HTF_INTERVALS = ['1W','1D','240','60'];
 const LTF_INTERVALS = ['30','15','5','1'];
 const DEFAULT_TIMEFRAMES = { H: HTF_INTERVALS, L: LTF_INTERVALS };
@@ -526,7 +526,7 @@ function tfLabel(iv) { return TF_LABELS[iv] || iv; }
 //   !SYMBOL LH or !SYMBOL L/H → Both HTF + LTF charts + combined macro
 //   !SYMBOL macro          → Same as LH (locked: always both sets)
 //   !SYMBOL H 1W,1D,4h,1h  → Custom TFs
-//   !SYMBOL L 30m,15m,5m,1m   → Custom TFs
+//   !SYMBOL L 4h,1h,15,1   → Custom TFs
 function parseCommand(content) {
   const trimmed = (content || '').trim();
   if (trimmed === '!ping') return { action: 'ping' };
@@ -925,7 +925,7 @@ async function runSpideyHTF(symbol, intervals) {
 async function runSpideyLTF(symbol, intervals) {
   log('INFO', `[SPIDEY-LTF] ${symbol} [${intervals.join(',')}]`);
   const results   = {};
-  const tfWeights = { '240': 3, '60': 2, '15': 1, '1': 0.5 };
+  const tfWeights = { '30': 3, '15': 2, '5': 1, '1': 0.5 };
   for (const iv of intervals) {
     const candles = await safeOHLC(symbol, iv, 150);
     if (!candles || candles.length < 20) {
@@ -1293,7 +1293,8 @@ async function getBrowser() {
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
-  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hideideas=1&hide_side_toolbar=1&hide_top_toolbar=1&hide_legend=1&layout=s`;
+  // Use saved TradingView layout — loads your exact chart settings, theme, and style
+  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}`;
 }
 
 async function cleanUI(page) {
@@ -1377,16 +1378,17 @@ async function makePlaceholderPanel() {
 }
 
 async function renderAll(symbol, intervals) {
-  const panels = [];
-  for (const iv of intervals) {
-    try {
-      const buf = await renderPanel(symbol, iv, tfLabel(iv));
-      panels.push(buf);
-    } catch (err) {
-      log('WARN', `[RENDER SKIP] ${symbol} ${tfLabel(iv)}: ${err.message} — placeholder used`);
-      panels.push(await makePlaceholderPanel());
-    }
-  }
+  // Render all 4 panels in parallel — major speed gain over sequential
+  const panels = await Promise.all(
+    intervals.slice(0, 4).map(async (iv) => {
+      try {
+        return await renderPanel(symbol, iv, tfLabel(iv));
+      } catch (err) {
+        log('WARN', `[RENDER SKIP] ${symbol} ${tfLabel(iv)}: ${err.message} — placeholder used`);
+        return await makePlaceholderPanel();
+      }
+    })
+  );
   while (panels.length < 4) panels.push(await makePlaceholderPanel());
   return await buildGrid(panels.slice(0, 4));
 }
@@ -2304,10 +2306,10 @@ const CHANNEL_GROUP_MAP = {
   '1432080184458350672': 'AT', '1430950313484878014': 'SK',
   '1431192381029482556': 'NM', '1482451091630194868': 'BR',
 };
-const RUNNING = {};
-function isLocked(s) { return !!RUNNING[s]; }
-function lock(s)     { RUNNING[s] = true; }
-function unlock(s)   { RUNNING[s] = false; }
+const RUNNING = new Set();
+function isLocked(s) { return RUNNING.has(s); }
+function lock(s)     { RUNNING.add(s); }
+function unlock(s)   { RUNNING.delete(s); }
 
 const queue = []; let queueRunning = false;
 function enqueue(job) { queue.push(job); void runQueue(); }
@@ -2363,7 +2365,7 @@ async function deliverResult(msg, result) {
   // Send LTF grid if combined
   if (combined && ltfGridBuf) {
     const ltfFiles = [new AttachmentBuilder(ltfGridBuf, { name: ltfGridName })];
-    await msg.channel.send({ content: `🔬 **${result.symbol} — LTF** \u200b*(4H · 1H · 15M · 1M)*`, files: ltfFiles });
+    await msg.channel.send({ content: `🔬 **${result.symbol} — LTF** \u200b*(30M · 15M · 5M · 1M)*`, files: ltfFiles });
   }
 
   // Chunk and send the macro text
