@@ -2243,7 +2243,7 @@ function formatAnalysisBlock(result) {
 }
 
 // ── CHUNK FUNCTION — 1800 CHAR MAX ────────────────────────────
-function chunkMessage(text, maxLen = 1800) {
+function chunkMessage(text, maxLen = 1900) {
   const chunks = [];
   let remaining = text.trim();
   while (remaining.length > maxLen) {
@@ -2339,19 +2339,7 @@ async function safeEdit(msg, payload)  { try { return await msg.edit(payload);  
 
 // Split a long string into chunks that respect Discord's 4000-char limit
 // Splits on double-newline boundaries where possible
-function chunkMessage(text, maxLen = 3900) {
-  const chunks = [];
-  let remaining = text;
-  while (remaining.length > maxLen) {
-    let splitAt = remaining.lastIndexOf('\n\n', maxLen);
-    if (splitAt < 1000) splitAt = remaining.lastIndexOf('\n', maxLen);
-    if (splitAt < 1) splitAt = maxLen;
-    chunks.push(remaining.slice(0, splitAt).trim());
-    remaining = remaining.slice(splitAt).trim();
-  }
-  if (remaining.length > 0) chunks.push(remaining.trim());
-  return chunks;
-}
+// stale chunkMessage(3900) removed
 
 // stale deliverResult removed
 
