@@ -1370,13 +1370,25 @@ async function buildGrid(panels) {
     .toBuffer();
 }
 
+async function makePlaceholderPanel() {
+  return await sharp({
+    create: { width: PANEL_W, height: PANEL_H, channels: 4, background: { r: 20, g: 20, b: 20, alpha: 1 } },
+  }).jpeg({ quality: 60 }).toBuffer();
+}
+
 async function renderAll(symbol, intervals) {
   const panels = [];
   for (const iv of intervals) {
-    const buf = await renderPanel(symbol, iv, tfLabel(iv));
-    panels.push(buf);
+    try {
+      const buf = await renderPanel(symbol, iv, tfLabel(iv));
+      panels.push(buf);
+    } catch (err) {
+      log('WARN', `[RENDER SKIP] ${symbol} ${tfLabel(iv)}: ${err.message} — placeholder used`);
+      panels.push(await makePlaceholderPanel());
+    }
   }
-  return await buildGrid(panels);
+  while (panels.length < 4) panels.push(await makePlaceholderPanel());
+  return await buildGrid(panels.slice(0, 4));
 }
 
 // ============================================================
@@ -1939,21 +1951,51 @@ setInterval(() => { const n = Date.now(); for (const [k, v] of SHARE_CACHE.entri
 async function safeReply(msg, payload) { try { return await msg.reply(payload); } catch (e) { log('ERROR', '[REPLY]', e.message); return null; } }
 async function safeEdit(msg, payload)  { try { return await msg.edit(payload);  } catch (e) { log('ERROR', '[EDIT]',  e.message); return null; } }
 
+// Split a long string into chunks that respect Discord's 4000-char limit
+// Splits on double-newline boundaries where possible
+function chunkMessage(text, maxLen = 3900) {
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > maxLen) {
+    let splitAt = remaining.lastIndexOf('\n\n', maxLen);
+    if (splitAt < 1000) splitAt = remaining.lastIndexOf('\n', maxLen);
+    if (splitAt < 1) splitAt = maxLen;
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+  if (remaining.length > 0) chunks.push(remaining.trim());
+  return chunks;
+}
+
 async function deliverResult(msg, result) {
   const { htfGridBuf, ltfGridBuf, htfGridName, ltfGridName, combined } = result;
-  const content  = formatDiscordMessage(result);
+  const fullText = formatDiscordMessage(result);
   const cacheKey = `${msg.id}_${Date.now()}`;
   cacheForShare(cacheKey, result);
-
-  const files = [new AttachmentBuilder(htfGridBuf, { name: htfGridName })];
-  if (combined && ltfGridBuf) files.push(new AttachmentBuilder(ltfGridBuf, { name: ltfGridName }));
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(`share_${cacheKey}`).setLabel('Share to #shared-macros').setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId(`noshare_${cacheKey}`).setLabel('Keep private').setStyle(ButtonStyle.Secondary),
   );
 
-  return await msg.channel.send({ content, files, components: [row] });
+  // Send HTF grid first
+  const htfFiles = [new AttachmentBuilder(htfGridBuf, { name: htfGridName })];
+  await msg.channel.send({ content: `📡 **${result.symbol} — HTF** \u200b*(Weekly · Daily · 4H · 1H)*`, files: htfFiles });
+
+  // Send LTF grid if combined
+  if (combined && ltfGridBuf) {
+    const ltfFiles = [new AttachmentBuilder(ltfGridBuf, { name: ltfGridName })];
+    await msg.channel.send({ content: `🔬 **${result.symbol} — LTF** \u200b*(4H · 1H · 15M · 1M)*`, files: ltfFiles });
+  }
+
+  // Chunk and send the macro text
+  const chunks = chunkMessage(fullText);
+  for (let i = 0; i < chunks.length; i++) {
+    const isLast = i === chunks.length - 1;
+    const payload = { content: chunks[i] };
+    if (isLast) payload.components = [row];
+    await msg.channel.send(payload);
+  }
 }
 
 client.on('interactionCreate', async (interaction) => {
@@ -1968,10 +2010,10 @@ client.on('interactionCreate', async (interaction) => {
       if (!channel?.isTextBased()) { await interaction.editReply({ content: 'Channel not found.', components: [] }); return; }
       const shareFiles = [new AttachmentBuilder(cached.htfGridBuf, { name: cached.htfGridName })];
       if (cached.combined && cached.ltfGridBuf) shareFiles.push(new AttachmentBuilder(cached.ltfGridBuf, { name: cached.ltfGridName }));
-      await channel.send({
-        content: `📤 **${cached.symbol}** shared by **${interaction.user.username}**\n${formatDiscordMessage(cached)}`,
-        files: shareFiles,
-      });
+      const shareHeader = `📤 **${cached.symbol}** shared by **${interaction.user.username}**`;
+      await channel.send({ content: shareHeader, files: shareFiles });
+      const shareChunks = chunkMessage(formatDiscordMessage(cached));
+      for (const chunk of shareChunks) await channel.send({ content: chunk });
       await interaction.editReply({ content: '✅ Shared in #shared-macros', components: [] });
     } catch (e) { log('ERROR', '[SHARE]', e.message); try { await interaction.editReply({ content: 'Share failed.', components: [] }); } catch (_) {} }
   }
