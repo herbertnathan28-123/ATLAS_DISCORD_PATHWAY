@@ -507,9 +507,9 @@ const TF_MAP = {
 };
 
 // HTF = Weekly / Daily / 4H / 1H  — context and bias
-// LTF = 15M / 5M / 3M / 1M       — execution and entry
+// LTF = 30M / 15M / 5M / 1M       — execution and entry
 const HTF_INTERVALS = ['1W','1D','240','60'];
-const LTF_INTERVALS = ['15','5','3','1'];
+const LTF_INTERVALS = ['30','15','5','1'];
 const DEFAULT_TIMEFRAMES = { H: HTF_INTERVALS, L: LTF_INTERVALS };
 
 const TF_LABELS     = { '1W':'Weekly','1D':'Daily','240':'4H','120':'2H','60':'1H','30':'30M','15':'15M','5':'5M','3':'3M','1':'1M' };
@@ -526,7 +526,7 @@ function tfLabel(iv) { return TF_LABELS[iv] || iv; }
 //   !SYMBOL LH or !SYMBOL L/H → Both HTF + LTF charts + combined macro
 //   !SYMBOL macro          → Same as LH (locked: always both sets)
 //   !SYMBOL H 1W,1D,4h,1h  → Custom TFs
-//   !SYMBOL L 15m,5m,3m,1m → Custom TFs
+//   !SYMBOL L 30m,15m,5m,1m → Custom TFs
 function parseCommand(content) {
   const trimmed = (content || '').trim();
   if (trimmed === '!ping') return { action: 'ping' };
