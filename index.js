@@ -506,10 +506,10 @@ const TF_MAP = {
   '240':'240','120':'120','60':'60',
 };
 
-// HTF = Weekly / Daily / 4H / 1H  — context and bias
-// LTF = 30M / 15M / 5M / 1M       — execution and entry
+// HTF = Weekly / Daily / 4H / 1H
+// LTF = 4H / 1H / 15M / 1M
 const HTF_INTERVALS = ['1W','1D','240','60'];
-const LTF_INTERVALS = ['30','15','5','1'];
+const LTF_INTERVALS = ['240','60','15','1'];
 const DEFAULT_TIMEFRAMES = { H: HTF_INTERVALS, L: LTF_INTERVALS };
 
 const TF_LABELS     = { '1W':'Weekly','1D':'Daily','240':'4H','120':'2H','60':'1H','30':'30M','15':'15M','5':'5M','3':'3M','1':'1M' };
@@ -526,7 +526,7 @@ function tfLabel(iv) { return TF_LABELS[iv] || iv; }
 //   !SYMBOL LH or !SYMBOL L/H → Both HTF + LTF charts + combined macro
 //   !SYMBOL macro          → Same as LH (locked: always both sets)
 //   !SYMBOL H 1W,1D,4h,1h  → Custom TFs
-//   !SYMBOL L 30m,15m,5m,1m → Custom TFs
+//   !SYMBOL L 4h,1h,15,1   → Custom TFs
 function parseCommand(content) {
   const trimmed = (content || '').trim();
   if (trimmed === '!ping') return { action: 'ping' };
@@ -542,7 +542,7 @@ function parseCommand(content) {
       mode: 'LH',
       htfIntervals: HTF_INTERVALS,
       ltfIntervals: LTF_INTERVALS,
-      intervals: HTF_INTERVALS,
+      intervals: HTF_INTERVALS,          // primary set (used for Spidey HTF)
       combined: true,
       customTFs: false,
       parseError: null,
@@ -592,6 +592,7 @@ function parseCommand(content) {
 }
 
 function log(level, msg, ...args) { console.log(`[${new Date().toISOString()}] [${level}] ${msg}`, ...args); }
+
 // ============================================================
 // TRENDSPIDER SIGNAL STORE
 // ============================================================
@@ -1809,111 +1810,489 @@ function formatDecisionFramework(jane) {
   return lines.join('\n');
 }
 
-function formatDiscordMessage(result) {
-  const {
-    symbol, mode, combined, modeLabel,
-    htfIntervals, ltfIntervals, htfDisplay, ltfDisplay,
-    spideyHTF, spideyLTF, spideyMicro, coreyResult, jane, customTFs,
-  } = result;
 
-  const feed     = getFeedName(symbol);
-  const now      = new Date();
-  const dateStr  = now.toLocaleDateString('en-AU', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Australia/Perth' });
-  const timeStr  = now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Perth', timeZoneName: 'short' });
-  const ts       = coreyResult.trendSpider;
-  const macro    = coreyResult.internalMacro;
-  const cp       = spideyHTF.currentPrice;
+// ============================================================
+// ATLAS OUTPUT SYSTEM v3.2 — TRADE BLOCK + ANALYSIS BLOCK
+// ============================================================
 
-  const W  = '═'.repeat(34);
-  const Wt = '─'.repeat(34);
-
-  // ── SECTION: INSTRUMENT HEADER ──────────────────────────────
-  const biasEmoji  = getBiasEmoji(jane.finalBias);
-  const overallBar = `${biasEmoji} **${jane.finalBias}** · ${jane.convictionLabel} conviction`;
-
-  let headerLines = [
-    `╔${W}╗`,
-    `  📊 **ATLAS FX INSTITUTIONAL BRIEF**`,
-    `  **${symbol}** · ${modeLabel} Analysis · ${feed}`,
-    `  📅 ${dateStr} · ⏰ ${timeStr}`,
-    cp ? `  💰 **Current Price:** ${fmt(cp)}` : '',
-    `  ${overallBar}`,
-    `╚${W}╝`,
-  ].filter(Boolean).join('\n');
-
-  // ── SECTION: HTF STRUCTURE ───────────────────────────────────
-  const htfSection = [
-    `📡 **HIGHER TIMEFRAME STRUCTURE** *(${htfDisplay})*`,
-    `${Wt}`,
-    formatHTFStructureBlock(spideyHTF, symbol),
-  ].join('\n');
-
-  // ── SECTION: LTF STRUCTURE ───────────────────────────────────
-  const ltfSection = [
-    `🔬 **LOWER TIMEFRAME STRUCTURE** *(${combined ? ltfDisplay : '15M · 5M Micro'})*`,
-    `${Wt}`,
-    formatLTFStructureBlock(spideyLTF, spideyMicro),
-  ].join('\n');
-
-  // ── SECTION: COREY MACRO ─────────────────────────────────────
-  const coreySection = [
-    `🌍 **MACRO & FUNDAMENTAL CONTEXT** *(Corey)*`,
-    `${Wt}`,
-    formatCoreyBlock(coreyResult, symbol),
-  ].join('\n');
-
-  // ── SECTION: TRENDSPIDER ────────────────────────────────────
-  const tsSection = [
-    `🕸️ **TRENDSPIDER SIGNAL**`,
-    `${Wt}`,
-    formatTSBlock(coreyResult, jane),
-  ].join('\n');
-
-  // ── SECTION: JANE SYNTHESIS ──────────────────────────────────
-  const janeSection = [
-    `👑 **JANE — FINAL SYNTHESIS & EXECUTION**`,
-    `${Wt}`,
-    formatJaneBlock(jane, symbol, mode),
-  ].join('\n');
-
-  // ── SECTION: EDUCATIONAL ─────────────────────────────────────
-  const eduSection = [
-    `🎓 **ANALYSIS GUIDE & EDUCATIONAL CONTEXT**`,
-    `${Wt}`,
-    formatEducationalBlock(jane, spideyHTF, spideyLTF, coreyResult, mode),
-  ].join('\n');
-
-  // ── SECTION: DECISION FRAMEWORK ──────────────────────────────
-  const decisionSection = [
-    `✅ **FINAL DECISION FRAMEWORK**`,
-    `${Wt}`,
-    formatDecisionFramework(jane),
-  ].join('\n');
-
-  // ── FOOTER ────────────────────────────────────────────────────
-  const footer = [
-    `╔${W}╗`,
-    `  ⚡ ATLAS FX v3.2 · Spidey · Corey · Jane`,
-    `  🕷️ Structure · 🌍 Macro · 👑 Synthesis`,
-    combined
-      ? `  📡 HTF: ${htfDisplay}\n  🔬 LTF: ${ltfDisplay}`
-      : `  ⏱ ${htfDisplay}`,
-    `╚${W}╝`,
-  ].join('\n');
-
-  // Assemble full message
-  return [
-    headerLines, '',
-    htfSection, '',
-    ltfSection, '',
-    coreySection, '',
-    tsSection, '',
-    janeSection, '',
-    eduSection, '',
-    decisionSection, '',
-    footer,
-  ].join('\n');
+// ── POSITION STATE RESOLVER ───────────────────────────────────
+function resolveAtlasPositionState(jane, levels) {
+  if (jane.doNotTrade || jane.finalBias === 'Neutral') return { state: '⚪️ DORMANT', label: 'Dormant' };
+  const cp = levels.currentPrice;
+  if (!cp || !levels.entryZone) return { state: '⚪️ DORMANT', label: 'Dormant' };
+  const ez = levels.entryZone;
+  const inZone      = cp >= ez.low && cp <= ez.high;
+  const approaching = jane.finalBias === 'Bullish' ? cp < ez.low && cp > ez.low * 0.995 : cp > ez.high && cp < ez.high * 1.005;
+  const diverging   = jane.finalBias === 'Bullish' ? cp > ez.high * 1.005 : cp < ez.low * 0.995;
+  if (inZone)      return { state: '🟢 ENTRY',             label: 'Entry' };
+  if (approaching) return { state: '🟠⬆️ APPROACHING',     label: 'Approaching' };
+  if (diverging)   return { state: '🟠⬇️ DIVERGING',       label: 'Diverging' };
+  return             { state: '🟠⬆️ APPROACHING',           label: 'Approaching' };
 }
+
+// ── TRADE BLOCK FORMATTER ─────────────────────────────────────
+function formatTradeBlock(result) {
+  const { symbol, mode, combined, modeLabel, spideyHTF, spideyLTF, spideyMicro, coreyResult, jane, htfDisplay, ltfDisplay } = result;
+  const macro   = coreyResult.internalMacro;
+  const levels  = jane;
+  const cp      = spideyHTF.currentPrice;
+  const feed    = getFeedName(symbol);
+  const now     = new Date();
+  const dateStr = now.toLocaleDateString('en-AU', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Australia/Perth' });
+  const timeStr = now.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Perth', timeZoneName: 'short' });
+  const posState = resolveAtlasPositionState(jane, { currentPrice: cp, entryZone: jane.entryZone });
+  const W  = '═'.repeat(32);
+  const lines = [];
+
+  // ── HEADER ──────────────────────────────────────────────────
+  lines.push(`╔${W}╗`);
+  lines.push(`  ⚡ **ATLAS FX — ${symbol}** · ${feed}`);
+  lines.push(`  📅 ${dateStr} · ⏰ ${timeStr}`);
+  lines.push(`  📊 ${modeLabel}${combined ? ` · HTF: ${htfDisplay} · LTF: ${ltfDisplay}` : ` · ${htfDisplay}`}`);
+  lines.push(`╚${W}╝`);
+  lines.push('');
+
+  // ── ATLAS POSITION STATE ────────────────────────────────────
+  lines.push(`**ATLAS POSITION STATE: ${posState.state}**`);
+  if (cp) lines.push(`💰 **Current Price:** ${fmt(cp)}`);
+  lines.push('');
+
+  // ── BIAS & CONVICTION ───────────────────────────────────────
+  const biasEmoji = getBiasEmoji(jane.finalBias);
+  lines.push(`${biasEmoji} **Bias: ${jane.finalBias}** · Conviction: **${jane.convictionLabel}** · ${getConvictionBar(jane.conviction)}`);
+  lines.push('');
+
+  if (jane.doNotTrade) {
+    // ── DO NOT TRADE STATE ─────────────────────────────────────
+    lines.push(`⛔ **DO NOT TRADE**`);
+    lines.push(`> ${jane.doNotTradeReason}`);
+    lines.push('');
+    lines.push(`🧭 **What We're Waiting For:**`);
+    lines.push(`- Structural resolution on the dominant timeframe`);
+    lines.push(`- Clean BOS or CHoCH that establishes unambiguous bias`);
+    lines.push(`- All three engines (Spidey · Corey · Jane) in alignment`);
+    lines.push('');
+    lines.push(`⚪️ **Capital Status:** Dormant — no deployment justified`);
+    lines.push(`📍 **Action:** Observe only. Re-run analysis when structure resolves.`);
+  } else {
+    // ── ENTRY ZONE ──────────────────────────────────────────────
+    if (jane.entryZone) {
+      lines.push(`🟢 **Entry Zone:**`);
+      lines.push(`   ${fmt(jane.entryZone.low)} – ${fmt(jane.entryZone.high)}`);
+      lines.push(`   *${posState.label === 'Entry' ? 'Price is inside the zone — confirmation rules apply before committing' : posState.label === 'Approaching' ? 'Price approaching — prepare for confirmation trigger' : 'Price has diverged — do not chase, wait for retrace'}`);
+      lines.push('');
+    }
+
+    // ── STOP LOSS ────────────────────────────────────────────────
+    if (jane.invalidationLevel) {
+      lines.push(`🛑 **Set Stop Loss:**`);
+      lines.push(`   ${fmt(jane.invalidationLevel)}`);
+      lines.push(`   *Protective stop beyond structural invalidation — closure through this level cancels the thesis*`);
+      lines.push('');
+    }
+
+    // ── TARGETS ──────────────────────────────────────────────────
+    if (jane.targets && jane.targets.length > 0) {
+      lines.push(`🎯 **Targets:**`);
+      for (const t of jane.targets) lines.push(`   ${t.label}: **${fmt(t.level)}**`);
+      lines.push(`   *Take partials at each target — never hold full size to final without structural confirmation*`);
+      lines.push('');
+    }
+
+    // ── EXIT ─────────────────────────────────────────────────────
+    lines.push(`🔴 **Exit:**`);
+    if (jane.targets && jane.targets.length > 0) {
+      lines.push(`   Staged exit at T1 → T2 → T3 cascade. Full close on target completion or structural failure.`);
+    } else {
+      lines.push(`   Close on structural reversal signal or invalidation breach. No defined target — manage dynamically.`);
+    }
+    lines.push('');
+
+    // ── RISK PROFILE ─────────────────────────────────────────────
+    lines.push(`📊 **Risk Profile:**`);
+    if (jane.rrRatio) {
+      lines.push(`   R:R ~${jane.rrRatio}:1 ${jane.rrRatio >= 3 ? '✅ Meets ATLAS minimum 1:3' : '⚠️ Below ATLAS 1:3 minimum — evaluate carefully'}`);
+    } else {
+      lines.push(`   R:R pending — confirm entry zone and stop level before sizing`);
+    }
+    lines.push('');
+
+    // ── TIMING ───────────────────────────────────────────────────
+    lines.push(`⏳ **Timing Expectation:**`);
+    if (posState.label === 'Entry') {
+      lines.push(`   Immediate — price is in zone. Confirmation trigger required before entry.`);
+    } else if (posState.label === 'Approaching') {
+      lines.push(`   Not yet active — higher probability if price reaches ${jane.entryZone ? fmt(jane.entryZone.low) : 'entry zone'}.`);
+    } else {
+      lines.push(`   Diverging — setup not valid at current price. Reassess on structural retrace.`);
+    }
+    lines.push('');
+
+    // ── CURRENT POSITIONING ──────────────────────────────────────
+    lines.push(`📍 **Current Positioning:**`);
+    if (cp && jane.entryZone) {
+      const distPct = Math.abs((cp - (jane.entryZone.low + jane.entryZone.high) / 2) / cp * 100).toFixed(2);
+      lines.push(`   Price ${fmt(cp)} is ${distPct}% ${cp < jane.entryZone.low ? 'below' : cp > jane.entryZone.high ? 'above' : 'inside'} the entry zone.`);
+    } else {
+      lines.push(`   Current price relative to zone — see chart.`);
+    }
+    lines.push('');
+
+    // ── WHAT WE'RE WAITING FOR ───────────────────────────────────
+    lines.push(`🧭 **What We're Waiting For:**`);
+    if (jane.finalBias === 'Bullish') {
+      lines.push(`- Price retrace into demand zone without closing below it`);
+      lines.push(`- LTF CHoCH confirming local downswing failure`);
+      lines.push(`- LTF BOS to the upside completing the confirmation sequence`);
+    } else {
+      lines.push(`- Price retrace into supply zone without closing above it`);
+      lines.push(`- LTF CHoCH confirming local upswing failure`);
+      lines.push(`- LTF BOS to the downside completing the confirmation sequence`);
+    }
+    lines.push('');
+
+    // ── ACTIVATION CONDITION ────────────────────────────────────
+    lines.push(`⚠️ **Activation Condition:**`);
+    lines.push(`   Candle **close** through the LTF BOS level — not a wick. Closure validates. Wicks are noise.`);
+    lines.push('');
+
+    // ── INVALIDATION ────────────────────────────────────────────
+    lines.push(`🚫 **Invalidation:**`);
+    lines.push(`   Close ${jane.finalBias === 'Bullish' ? 'below' : 'above'} ${fmt(jane.invalidationLevel)} — thesis cancelled. Exit immediately. No re-entry until structure resets.`);
+    lines.push('');
+
+    // ── ALTERNATE SCENARIO ──────────────────────────────────────
+    lines.push(`🔁 **Alternate Scenario:**`);
+    lines.push(`   ${jane.alternativeScenario || `${jane.finalBias === 'Bullish' ? 'Bearish' : 'Bullish'} path opens on invalidation breach — reassess full structure before considering counter-trade.`}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ── ANALYSIS BLOCK FORMATTER ──────────────────────────────────
+function formatAnalysisBlock(result) {
+  const { symbol, mode, combined, modeLabel, spideyHTF, spideyLTF, spideyMicro, coreyResult, jane, htfDisplay, ltfDisplay } = result;
+  const macro  = coreyResult.internalMacro;
+  const global = macro.global;
+  const regime = macro.regime;
+  const vol    = macro.volatility;
+  const liq    = macro.liquidity;
+  const ac     = macro.assetClass;
+  const cp     = spideyHTF.currentPrice;
+  const Wt     = '─'.repeat(32);
+  const sections = [];
+
+  // ── HEADER ──────────────────────────────────────────────────
+  sections.push([
+    `📋 **ATLAS FX — INSTITUTIONAL ANALYSIS BRIEF**`,
+    `**${symbol}** · ${modeLabel} · ${getFeedName(symbol)}`,
+    Wt,
+  ].join('\n'));
+
+  // ── 1. SYSTEM STATE ──────────────────────────────────────────
+  const riskLabel  = global.riskEnv === 'RiskOn' ? '🟢 Risk-On' : global.riskEnv === 'RiskOff' ? '🔴 Risk-Off' : '⚪️ Risk-Neutral';
+  const regimeDesc = regime?.regime || 'Transition';
+  const volDesc    = vol?.level || 'Moderate';
+  const liqDesc    = liq?.state || 'Neutral';
+
+  sections.push([
+    `**① SYSTEM STATE**`,
+    Wt,
+    `**Risk Environment:** ${riskLabel}`,
+    `**Market Regime:** ${regimeDesc} — ${
+      regimeDesc === 'Expansion' ? 'broad risk appetite, equities and risk assets favoured, USD typically soft' :
+      regimeDesc === 'Crisis'    ? 'capital flight to safety, USD and JPY bid, risk assets under severe pressure' :
+      regimeDesc === 'Growth'    ? 'constructive environment, selective risk-taking, earnings and data dominant' :
+      regimeDesc === 'Contraction' ? 'deteriorating conditions, defensive positioning, credit and liquidity tightening' :
+      'regime ambiguous — market absorbing conflicting signals'
+    }`,
+    `**Volatility:** ${volDesc} — ${
+      volDesc === 'High' ? 'elevated uncertainty, wider spreads expected, reduce position sizing accordingly' :
+      volDesc === 'Low'  ? 'compressed volatility often precedes expansion — watch for breakout conditions' :
+      'balanced risk environment, standard position sizing appropriate'
+    }`,
+    `**Liquidity:** ${liqDesc} — ${
+      liqDesc === 'Tight'  ? 'credit and funding conditions are restrictive — institutional flows cautious' :
+      liqDesc === 'Loose'  ? 'abundant liquidity supporting risk assets and carry trades' :
+      'neutral liquidity — no extraordinary conditions present'
+    }`,
+    `**DXY Posture:** ${global.dxyBias} — ${
+      global.dxyBias === 'Bullish' ? 'USD strength creating headwinds for risk assets, commodities, and non-USD pairs' :
+      global.dxyBias === 'Bearish' ? 'USD weakness providing tailwind for risk assets, commodities, and EM currencies' :
+      'USD in consolidation — no dominant directional pressure'
+    }`,
+  ].join('\n'));
+
+  // ── 2. PRIMARY DRIVER ────────────────────────────────────────
+  let primaryDriver = '';
+  let driverDetail  = '';
+  if (ac === 'Equity' || ac === 'Semiconductors') {
+    primaryDriver = 'Risk Sentiment + Sector Rotation';
+    driverDetail  = `${symbol} is an equity instrument — its price is primarily governed by the interplay between macro risk appetite and sector-specific capital flows. In the current ${global.riskEnv} environment, institutional money is ${global.riskEnv === 'RiskOn' ? 'rotating into growth and technology, providing a structural tailwind for equities. AI capex cycles and earnings expectations are the primary near-term catalysts.' : 'rotating defensively, reducing equity exposure and increasing cash or bond positioning. This is a headwind for growth equities regardless of technical setup quality.'}`;
+    if (macro.sector?.sector === 'Semiconductors') {
+      driverDetail += ` As a semiconductor-adjacent instrument, ${symbol} carries additional sensitivity to AI capital expenditure cycles, memory demand cycles, and geopolitical supply chain dynamics — all of which can override short-term technical signals.`;
+    }
+  } else if (ac === 'FX') {
+    primaryDriver = 'Central Bank Divergence + Economic Differential';
+    driverDetail  = `FX pairs are driven by relative economic strength and central bank policy divergence over the medium term. ${macro.base.currency} (${macro.base.cb.name}) is currently ${macro.base.cb.stance} with a ${macro.base.cb.rateCycle} rate cycle. ${macro.quote.currency} (${macro.quote.cb.name}) is ${macro.quote.cb.stance} with a ${macro.quote.cb.rateCycle} cycle. The differential between these two policy trajectories is the primary macro driver — the pair tends to trend in the direction of the currency with the more hawkish relative stance.`;
+  } else if (ac === 'Commodity') {
+    primaryDriver = 'USD Flow + Risk Sentiment + Supply Dynamics';
+    driverDetail  = `Commodities are inversely correlated with USD strength over the medium term. With DXY ${global.dxyBias}, this creates a ${global.dxyBias === 'Bullish' ? 'headwind' : 'tailwind'} for ${symbol}. Risk environment (${global.riskEnv}) ${global.riskEnv === 'RiskOff' ? 'supports safe-haven commodity flows (gold, silver) but pressures industrial demand commodities' : 'supports industrial demand but may reduce safe-haven premium'}.`;
+  } else if (ac === 'Index') {
+    primaryDriver = 'Risk Appetite + Macro Momentum + Earnings Cycle';
+    driverDetail  = `Index instruments aggregate equity market sentiment. In ${global.riskEnv} conditions, institutional flows are ${global.riskEnv === 'RiskOn' ? 'into equities, supporting index upside — breadth and momentum are the key internal confirmations' : 'away from equities — index downside risk elevated regardless of individual component performance'}. DXY ${global.dxyBias} ${global.dxyBias === 'Bullish' ? 'may dampen foreign institutional inflows into USD-denominated indices' : 'tends to attract foreign capital into USD-denominated markets'}.`;
+  } else {
+    primaryDriver = 'Macro Risk Environment';
+    driverDetail  = `Primary driver is the prevailing ${global.riskEnv} macro environment combined with ${global.dxyBias} USD posture.`;
+  }
+  sections.push([`**② PRIMARY DRIVER**`, Wt, `**Driver:** ${primaryDriver}`, '', driverDetail].join('\n'));
+
+  // ── 3. TRANSMISSION MECHANISM ────────────────────────────────
+  let transmission = '';
+  if (ac === 'Equity' || ac === 'Semiconductors') {
+    transmission = `The mechanism runs as follows: macro risk environment → institutional fund flows → sector rotation decisions → individual equity price. When risk appetite expands, fund managers increase equity allocations, with growth and technology sectors receiving disproportionate inflows. This creates buying pressure at the index level first, then cascades into sector leaders. For ${symbol}, the specific transmission is: AI/semiconductor demand narrative → earnings expectation revision → institutional reweighting → price. The key insight is that price often moves ahead of fundamental confirmation — structure reflects the anticipation of the narrative, not the narrative itself.`;
+  } else if (ac === 'FX') {
+    transmission = `The transmission mechanism for FX runs through interest rate differentials → capital flows → spot price. When one central bank is hiking while the other is holding or cutting, international capital seeks the higher-yielding currency — this is carry trade mechanics. The flow of institutional money through forwards, swaps, and spot creates the directional pressure visible on HTF charts. Short-term deviations are noise within this longer-term current. The LTF execution opportunity exists when price retraces against the dominant flow, creating a better entry into the prevailing trend.`;
+  } else if (ac === 'Commodity') {
+    transmission = `The transmission for commodity pricing runs: USD direction → commodity denomination effect → demand expectations → futures pricing → spot. A stronger USD makes commodities more expensive for non-USD buyers, reducing demand — this is the direct mechanical relationship. Simultaneously, risk sentiment governs whether institutional money is flowing into commodities as an inflation hedge, safe-haven, or growth proxy. These two forces — USD direction and risk sentiment — occasionally conflict, creating the complex behaviour visible in commodity charts during regime transitions.`;
+  } else {
+    transmission = `Macro conditions translate into price through institutional flow — fund allocation decisions at the macro level eventually appear as structural moves on the HTF chart. LTF price action represents the distribution and accumulation within those larger moves.`;
+  }
+  sections.push([`**③ TRANSMISSION MECHANISM**`, Wt, transmission].join('\n'));
+
+  // ── 4. HTF STRUCTURE MEANING ─────────────────────────────────
+  const htfBias = spideyHTF.dominantBias;
+  const htfConv = (spideyHTF.dominantConviction * 100).toFixed(0);
+  const sig     = spideyHTF.significantBreak;
+  const htfTFBreakdown = Object.entries(spideyHTF.timeframes)
+    .map(([iv, r]) => `${tfLabel(iv)}: **${r.bias}** (${r.structure}, ${(r.conviction*100).toFixed(0)}%)`)
+    .join(' · ');
+
+  let htfMeaning = `The higher timeframe structure shows a **${htfBias}** dominant bias at **${htfConv}% conviction** across ${htfDisplay}.\n\n${htfTFBreakdown}\n\n`;
+
+  if (sig && sig.lastBreak !== 'None') {
+    htfMeaning += `The most significant structural event is a **${sig.lastBreak}** on the **${tfLabel(sig.timeframe)}**${sig.isEngineered ? ' — this break was engineered, meaning institutional liquidity was swept before the move. Engineered breaks often precede strong continuation moves as retail stops are cleared first.' : ' — this represents a genuine structural shift where price closed beyond a prior swing point, confirming the directional bias.'}`;
+  } else {
+    htfMeaning += `No confirmed BOS or CHoCH is present — price is in a ranging or accumulation phase. This often precedes a directional expansion once liquidity above or below range extremes is taken.`;
+  }
+
+  if (spideyHTF.nearestDraw) {
+    htfMeaning += `\n\nThe nearest draw on liquidity is **${spideyHTF.nearestDraw.type} at ${fmt(spideyHTF.nearestDraw.level)}** with ${spideyHTF.nearestDraw.strength} touches. Price is magnetically drawn toward liquidity clusters — this level represents the most probable near-term destination before any significant reversal.`;
+  }
+
+  // Add supply/demand zone context from first HTF timeframe
+  const primaryHTF = Object.values(spideyHTF.timeframes)[0];
+  if (primaryHTF?.activeSupply) {
+    htfMeaning += `\n\n**Active Supply Zone:** ${fmt(primaryHTF.activeSupply.low)} – ${fmt(primaryHTF.activeSupply.high)} — this is a distribution zone where institutional selling previously overwhelmed buying. Price reactions here carry high probability.`;
+  }
+  if (primaryHTF?.activeDemand) {
+    htfMeaning += `\n\n**Active Demand Zone:** ${fmt(primaryHTF.activeDemand.low)} – ${fmt(primaryHTF.activeDemand.high)} — this is an accumulation zone where institutional buying previously overwhelmed selling. These zones act as high-probability reversal areas when price returns.`;
+  }
+
+  sections.push([`**④ HTF STRUCTURE MEANING**`, Wt, htfMeaning].join('\n'));
+
+  // ── 5. LTF EXECUTION BEHAVIOUR ──────────────────────────────
+  let ltfMeaning = '';
+  if (spideyLTF) {
+    const ltfBias = spideyLTF.dominantBias;
+    const ltfConv = (spideyLTF.dominantConviction * 100).toFixed(0);
+    const ltfSig  = spideyLTF.significantBreak;
+    const ltfTFBreakdown = Object.entries(spideyLTF.timeframes)
+      .map(([iv, r]) => `${tfLabel(iv)}: **${r.bias}** (${r.structure}, ${(r.conviction*100).toFixed(0)}%)`)
+      .join(' · ');
+
+    ltfMeaning = `Lower timeframe structure shows **${ltfBias}** bias at **${ltfConv}% conviction** across ${ltfDisplay}.\n\n${ltfTFBreakdown}\n\n`;
+
+    if (ltfBias === htfBias) {
+      ltfMeaning += `**HTF/LTF alignment confirmed** — both timeframe sets agree on direction. This is the highest-probability scenario: the higher timeframe provides the directional authority and the lower timeframe confirms that the immediate price action is moving in harmony with that bias. Entry timing improves significantly when both are aligned.`;
+    } else if (ltfBias === 'Neutral') {
+      ltfMeaning += `LTF is currently neutral — price is consolidating at the lower timeframe level. This is common before a directional move resolves. Watch for a LTF BOS in the direction of the HTF bias as the confirmation that the consolidation is complete and the move is resuming.`;
+    } else {
+      ltfMeaning += `**HTF/LTF conflict detected** — higher timeframe is ${htfBias} but lower timeframe is showing ${ltfBias} momentum. This is a retracement phase within the larger trend, not a reversal. The correct read is: the HTF bias remains intact, and the LTF is providing a better entry point by pulling price back toward a demand/supply zone before continuation.`;
+    }
+
+    if (ltfSig && ltfSig.lastBreak !== 'None') {
+      ltfMeaning += `\n\nThe LTF shows a **${ltfSig.lastBreak}** on **${tfLabel(ltfSig.timeframe)}** at ${fmt(ltfSig.breakLevel)}. ${ltfSig.isEngineered ? 'The engineered nature of this break indicates a stop hunt — institutional actors cleared retail positions before the intended move. This is often a high-quality entry signal.' : 'This structural break confirms the current directional pressure at the execution level.'}`;
+    }
+  } else {
+    // Single mode — use micro
+    const micro = spideyMicro;
+    ltfMeaning = `**Micro Execution Layer (15M/5M):**\n\n`;
+    ltfMeaning += micro.entryConfirmed
+      ? `✅ Entry conditions confirmed — LTF ${micro.ltfBreak} aligned with HTF bias. The lower timeframe has provided the structural signal required for execution timing.`
+      : micro.inInducement
+      ? `⚠️ Inducement zone active — retail stop clusters are positioned above/below current price. Institutional players are likely to sweep these first before the genuine move begins. Do not enter until the sweep completes and a BOS follows.`
+      : micro.sweepDetected
+      ? `🔄 Liquidity sweep detected on the micro timeframe — institutional grab of retail stops. This is typically the final phase before the directional move. Watch for immediate BOS confirmation.`
+      : `⏳ No LTF confirmation yet — ${micro.ltfBias} structure at the micro level, ${micro.alignedWithHTF ? 'aligned with HTF' : 'not yet aligned with HTF'}. Wait for a CHoCH followed by BOS before entry consideration.`;
+  }
+  sections.push([`**⑤ LTF EXECUTION BEHAVIOUR**`, Wt, ltfMeaning].join('\n'));
+
+  // ── 6. LIQUIDITY & IMBALANCE FLOW ────────────────────────────
+  const allLiquidity = [];
+  const allImbalances = [];
+  for (const [iv, r] of Object.entries(spideyHTF.timeframes)) {
+    for (const p of (r.liquidityPools || [])) allLiquidity.push({ ...p, tf: tfLabel(iv) });
+    for (const im of (r.imbalances || [])) allImbalances.push({ ...im, tf: tfLabel(iv) });
+  }
+
+  let liqSection = `Price is always drawn toward liquidity. The market cannot move without a destination — that destination is almost always a cluster of resting orders, equal highs/lows, or an unfilled imbalance.\n\n`;
+
+  const eqHighs = allLiquidity.filter(p => p.type === 'EQH').slice(0, 3);
+  const eqLows  = allLiquidity.filter(p => p.type === 'EQL').slice(0, 3);
+
+  if (eqHighs.length) {
+    liqSection += `**Equal Highs (Buy-Side Liquidity):**\n`;
+    for (const p of eqHighs) liqSection += `  ${p.tf}: ${fmt(p.level)} — ${p.strength} touches — ${p.proximate ? '⚡ PROXIMATE' : 'beyond current range'}\n`;
+    liqSection += '\n';
+  }
+  if (eqLows.length) {
+    liqSection += `**Equal Lows (Sell-Side Liquidity):**\n`;
+    for (const p of eqLows) liqSection += `  ${p.tf}: ${fmt(p.level)} — ${p.strength} touches — ${p.proximate ? '⚡ PROXIMATE' : 'beyond current range'}\n`;
+    liqSection += '\n';
+  }
+
+  const openImbs = allImbalances.slice(0, 4);
+  if (openImbs.length) {
+    liqSection += `**Open Imbalances (Price Inefficiencies):**\n`;
+    for (const im of openImbs) liqSection += `  ${im.tf} ${im.type}: ${fmt(im.low)} – ${fmt(im.high)}\n`;
+    liqSection += `\nImbalances represent price ranges where no two-sided trading occurred — the market will return to fill these gaps, usually before continuing the dominant trend. They act as magnets and as potential reversal zones when tagged.`;
+  }
+
+  if (!eqHighs.length && !eqLows.length && !openImbs.length) {
+    liqSection += `No significant liquidity clusters or open imbalances detected at current analysis depth. Price may be in an area of efficient discovery — directional move may require more structure to develop before a high-probability level presents.`;
+  }
+
+  sections.push([`**⑥ LIQUIDITY & IMBALANCE FLOW**`, Wt, liqSection].join('\n'));
+
+  // ── 7. ALIGNMENT VS CONFLICT ─────────────────────────────────
+  const conflictState   = jane.conflictState;
+  const tsEffect        = jane.trendSpiderEffect;
+  const coreyAligned    = coreyResult.alignment;
+  const coreyConflict   = coreyResult.contradiction;
+  const htfLtfAligned   = !jane.ltfConflict;
+
+  let alignSection = '';
+  if (conflictState === 'Aligned') {
+    alignSection = `**Full system alignment confirmed.** All three ATLAS engines are reading the same directional signal:\n\n- 🕷️ **Spidey (Structure):** ${spideyHTF.dominantBias} — structural bias confirmed across timeframes\n- 🌍 **Corey (Macro):** ${coreyResult.combinedBias} — macro environment supports the directional thesis\n- 👑 **Jane (Synthesis):** ${jane.finalBias} — final arbitration confirms bias with ${jane.convictionLabel} conviction\n\nWhen all three engines align, the probability of the setup following through is highest. This is the cleanest signal ATLAS produces. Respect it — but still apply the confirmation rules before entry.`;
+  } else if (conflictState === 'PartialConflict') {
+    alignSection = `**Partial conflict detected — qualified signal.** The engines show a mixed read:\n\n- 🕷️ **Spidey:** ${spideyHTF.dominantBias}\n- 🌍 **Corey:** ${coreyResult.combinedBias}\n- 🕸️ **TrendSpider:** ${coreyResult.trendSpider.signalBias} (${tsEffect})\n- 👑 **Jane:** ${jane.finalBias} at reduced conviction\n\nPartial conflict means the dominant signal is present but not universally confirmed. The operational consequence is reduced position sizing and heightened vigilance around the confirmation trigger. Do not enter at the first sign of the move — wait for the full confirmation sequence before committing capital.`;
+  } else {
+    alignSection = `**Hard conflict — engines divided.** The ATLAS system has detected a direct conflict between engines that prevents a clean directional call:\n\n- 🕷️ **Spidey:** ${spideyHTF.dominantBias}\n- 🌍 **Corey:** ${coreyResult.combinedBias}\n- 👑 **Jane:** Cannot resolve — DO NOT TRADE\n\nThis is not a system failure. This is the system's most important output — it is telling you that the evidence is genuinely ambiguous and that deploying capital into ambiguity is how losses are manufactured. The correct response is patience. The market will resolve. Wait for it.`;
+  }
+
+  if (combined) {
+    alignSection += `\n\n**HTF/LTF Relationship:** ${htfLtfAligned ? `✅ Lower timeframe confirms higher timeframe direction — execution timing is valid.` : `⚠️ Lower timeframe is moving counter to the higher timeframe — this is a retracement, not a reversal. Do not trade against the HTF bias on the LTF signal alone.`}`;
+  }
+
+  sections.push([`**⑦ ALIGNMENT VS CONFLICT**`, Wt, alignSection].join('\n'));
+
+  // ── 8. DECISION LOGIC ────────────────────────────────────────
+  let decisionLogic = '';
+  if (jane.doNotTrade) {
+    decisionLogic = `The correct action is **stand aside**.\n\nThe evidence does not support capital deployment at this time. This is not a conservative or cautious call — it is the analytically correct position given the current state of the evidence. Trading into a conflicted or ambiguous environment is not aggressive trading, it is undisciplined trading.\n\nThe probability-adjusted expected value of a trade in this environment is negative when accounting for the uncertainty discount. Wait for the market to show its hand clearly.`;
+  } else if (jane.finalBias === 'Bullish') {
+    decisionLogic = `The correct action is **bias long — wait for confirmation before entry**.\n\nThe weight of evidence supports the bullish thesis. However, entering at current price without the confirmation sequence is premature — it accepts more risk than the setup justifies. The protocol is:\n\n1. Wait for price to reach the demand zone\n2. Observe LTF for CHoCH (first sign of bullish reclaim)\n3. Wait for LTF BOS confirming the reclaim is structural\n4. Enter with stop below invalidation level\n5. Target the identified liquidity pools in sequence\n\nThis sequence ensures you are entering on confirmation, not prediction. Prediction loses. Confirmation wins over time.`;
+  } else if (jane.finalBias === 'Bearish') {
+    decisionLogic = `The correct action is **bias short — wait for confirmation before entry**.\n\nThe weight of evidence supports the bearish thesis. However, entering at current price without the confirmation sequence is premature. The protocol is:\n\n1. Wait for price to reach the supply zone\n2. Observe LTF for CHoCH (first sign of bearish rejection)\n3. Wait for LTF BOS confirming the rejection is structural\n4. Enter with stop above invalidation level\n5. Target the identified liquidity pools in sequence\n\nSelling into supply after confirmation gives you the structure, the macro, and the execution timing in alignment. That is the institutional edge.`;
+  } else {
+    decisionLogic = `The correct action is **observe and wait**.\n\nNo directional bias has been established. Neutral market conditions require patience. Deploying capital without a clear directional read means accepting a coin-flip probability — that is not the ATLAS standard.`;
+  }
+  sections.push([`**⑧ DECISION LOGIC**`, Wt, decisionLogic].join('\n'));
+
+  // ── 9. INVALIDATION LOGIC ────────────────────────────────────
+  let invalidationText = '';
+  if (jane.invalidationLevel) {
+    invalidationText = `The thesis is invalidated by a candle **close** ${jane.finalBias === 'Bullish' ? 'below' : 'above'} **${fmt(jane.invalidationLevel)}**.\n\nThe distinction between a wick and a close is operationally critical:\n\n- A **wick** through the level is a liquidity grab — institutional actors sweeping retail stops. This can actually be a strong entry signal in the right context.\n- A **close** through the level means genuine auction acceptance at the other side of the level — price is being valued there. This is structural invalidation.\n\nWhen invalidation occurs, exit immediately. Do not average. Do not wait for a recovery. The market is telling you the thesis was wrong. Accept the information, protect the capital, and reset.`;
+  } else {
+    invalidationText = `No hard invalidation level identified at current analysis depth. Manage the position using the structural logic — if price begins making lower highs and lower lows in a bullish setup (or higher highs in a bearish setup), the thesis is deteriorating and risk should be reduced.`;
+  }
+  sections.push([`**⑨ INVALIDATION LOGIC**`, Wt, invalidationText].join('\n'));
+
+  // ── 10. TACTICAL SUMMARY ─────────────────────────────────────
+  let tacticalSummary = '';
+  if (jane.doNotTrade) {
+    tacticalSummary = `**What to do:** Observe only. Keep this instrument on your watchlist.\n\n**What not to do:** Do not force a trade because you want to be in the market. The best trade is sometimes no trade.\n\n**What must happen:** Structural resolution — a clean BOS or CHoCH that establishes unambiguous directional bias across the relevant timeframes. When that occurs, re-run the full ATLAS analysis chain and evaluate again.\n\n**Probability improves when:** Price reaches ${spideyHTF.nearestDraw ? `the ${spideyHTF.nearestDraw.type} at ${fmt(spideyHTF.nearestDraw.level)}` : 'a significant structural level'} and produces a clear reaction with LTF confirmation.`;
+  } else {
+    tacticalSummary = `**What to do:** Monitor for the confirmation trigger — CHoCH followed by BOS in the direction of the ${jane.finalBias} bias. Have your order levels defined before price reaches the zone so execution is mechanical, not emotional.\n\n**What not to do:** Do not enter before the confirmation sequence is complete. Do not move your stop loss further away if the trade initially moves against you. Do not hold through invalidation.\n\n**What must happen before capital is deployed:** Price must reach the entry zone (${jane.entryZone ? `${fmt(jane.entryZone.low)} – ${fmt(jane.entryZone.high)}` : 'TBC'}), produce a LTF structural confirmation, and close through the BOS level.\n\n**Probability improves when:** ${jane.finalBias === 'Bullish' ? `Price sweeps any equal lows below the entry zone (liquidity grab) before reversing — this is the highest-probability entry context. The sweep confirms institutional accumulation.` : `Price sweeps any equal highs above the entry zone before reversing — this is the highest-probability entry context. The sweep confirms institutional distribution.`}`;
+
+    if (jane.branches && jane.branches.length > 0) {
+      tacticalSummary += `\n\n**IF/THEN Decision Branches:**`;
+      for (const b of jane.branches) tacticalSummary += `\n▸ ${b}`;
+    }
+  }
+
+  sections.push([`**⑩ TACTICAL SUMMARY**`, Wt, tacticalSummary].join('\n'));
+
+  // ── FOOTER ───────────────────────────────────────────────────
+  sections.push([
+    Wt,
+    `⚡ **ATLAS FX v3.2** · 🕷️ Spidey · 🌍 Corey · 👑 Jane`,
+    `*Analysis generated at ${new Date().toLocaleTimeString('en-AU', { timeZone: 'Australia/Perth', timeZoneName: 'short' })} — market conditions change. Re-run on major structural events.*`,
+  ].join('\n'));
+
+  return sections.join('\n\n');
+}
+
+// ── CHUNK FUNCTION — 1800 CHAR MAX ────────────────────────────
+function chunkMessage(text, maxLen = 1800) {
+  const chunks = [];
+  let remaining = text.trim();
+  while (remaining.length > maxLen) {
+    // Prefer splitting on double newline (section boundary)
+    let splitAt = remaining.lastIndexOf('\n\n', maxLen);
+    if (splitAt < 600) splitAt = remaining.lastIndexOf('\n', maxLen);
+    if (splitAt < 1)   splitAt = maxLen;
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+  if (remaining.length > 0) chunks.push(remaining.trim());
+  return chunks;
+}
+
+// ── DELIVER RESULT — IMAGES → TRADE BLOCK → ANALYSIS CHUNKS ──
+async function deliverResult(msg, result) {
+  const { symbol, htfGridBuf, ltfGridBuf, htfGridName, ltfGridName, combined, htfDisplay, ltfDisplay } = result;
+  const cacheKey = `${msg.id}_${Date.now()}`;
+  cacheForShare(cacheKey, result);
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`share_${cacheKey}`).setLabel('Share to #shared-macros').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`noshare_${cacheKey}`).setLabel('Keep private').setStyle(ButtonStyle.Secondary),
+  );
+
+  // 1. HTF chart grid
+  await msg.channel.send({
+    content: `📡 **${symbol} — HTF** · Weekly · Daily · 4H · 1H`,
+    files: [new AttachmentBuilder(htfGridBuf, { name: htfGridName })],
+  });
+
+  // 2. LTF chart grid (combined mode only)
+  if (combined && ltfGridBuf) {
+    await msg.channel.send({
+      content: `🔬 **${symbol} — LTF** · 30M · 15M · 5M · 1M`,
+      files: [new AttachmentBuilder(ltfGridBuf, { name: ltfGridName })],
+    });
+  }
+
+  // 3. Trade Block — single message, execution-first
+  const tradeBlock = formatTradeBlock(result);
+  const tradeChunks = chunkMessage(tradeBlock);
+  for (const chunk of tradeChunks) {
+    await msg.channel.send({ content: chunk });
+  }
+
+  // 4. Analysis Block — deep walkthrough, chunked at 1800 chars
+  const analysisBlock = formatAnalysisBlock(result);
+  const analysisChunks = chunkMessage(analysisBlock);
+  for (let i = 0; i < analysisChunks.length; i++) {
+    const isLast    = i === analysisChunks.length - 1;
+    const payload   = { content: analysisChunks[i] };
+    if (isLast) payload.components = [row];
+    await msg.channel.send(payload);
+  }
+}
+
 
 // ============================================================
 // CHANNEL MAP + QUEUE
@@ -2011,8 +2390,10 @@ client.on('interactionCreate', async (interaction) => {
       if (cached.combined && cached.ltfGridBuf) shareFiles.push(new AttachmentBuilder(cached.ltfGridBuf, { name: cached.ltfGridName }));
       const shareHeader = `📤 **${cached.symbol}** shared by **${interaction.user.username}**`;
       await channel.send({ content: shareHeader, files: shareFiles });
-      const shareChunks = chunkMessage(formatDiscordMessage(cached));
-      for (const chunk of shareChunks) await channel.send({ content: chunk });
+      const shareTradeChunks = chunkMessage(formatTradeBlock(cached));
+      for (const chunk of shareTradeChunks) await channel.send({ content: chunk });
+      const shareAnalysisChunks = chunkMessage(formatAnalysisBlock(cached));
+      for (const chunk of shareAnalysisChunks) await channel.send({ content: chunk });
       await interaction.editReply({ content: '✅ Shared in #shared-macros', components: [] });
     } catch (e) { log('ERROR', '[SHARE]', e.message); try { await interaction.editReply({ content: 'Share failed.', components: [] }); } catch (_) {} }
   }
