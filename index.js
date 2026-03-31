@@ -1378,17 +1378,23 @@ async function makePlaceholderPanel() {
 }
 
 async function renderAll(symbol, intervals) {
-  // Render all 4 panels in parallel — major speed gain over sequential
-  const panels = await Promise.all(
-    intervals.slice(0, 4).map(async (iv) => {
-      try {
-        return await renderPanel(symbol, iv, tfLabel(iv));
-      } catch (err) {
-        log('WARN', `[RENDER SKIP] ${symbol} ${tfLabel(iv)}: ${err.message} — placeholder used`);
-        return await makePlaceholderPanel();
-      }
-    })
-  );
+  // Render in pairs (2 concurrent) — balances speed vs browser memory on Render
+  const targets = intervals.slice(0, 4);
+  const panels  = [];
+  for (let i = 0; i < targets.length; i += 2) {
+    const batch = targets.slice(i, i + 2);
+    const results = await Promise.all(
+      batch.map(async (iv) => {
+        try {
+          return await renderPanel(symbol, iv, tfLabel(iv));
+        } catch (err) {
+          log('WARN', `[RENDER SKIP] ${symbol} ${tfLabel(iv)}: ${err.message} — placeholder used`);
+          return await makePlaceholderPanel();
+        }
+      })
+    );
+    panels.push(...results);
+  }
   while (panels.length < 4) panels.push(await makePlaceholderPanel());
   return await buildGrid(panels.slice(0, 4));
 }
@@ -2347,36 +2353,7 @@ function chunkMessage(text, maxLen = 3900) {
   return chunks;
 }
 
-async function deliverResult(msg, result) {
-  const { htfGridBuf, ltfGridBuf, htfGridName, ltfGridName, combined } = result;
-  const fullText = formatDiscordMessage(result);
-  const cacheKey = `${msg.id}_${Date.now()}`;
-  cacheForShare(cacheKey, result);
-
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`share_${cacheKey}`).setLabel('Share to #shared-macros').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`noshare_${cacheKey}`).setLabel('Keep private').setStyle(ButtonStyle.Secondary),
-  );
-
-  // Send HTF grid first
-  const htfFiles = [new AttachmentBuilder(htfGridBuf, { name: htfGridName })];
-  await msg.channel.send({ content: `📡 **${result.symbol} — HTF** \u200b*(Weekly · Daily · 4H · 1H)*`, files: htfFiles });
-
-  // Send LTF grid if combined
-  if (combined && ltfGridBuf) {
-    const ltfFiles = [new AttachmentBuilder(ltfGridBuf, { name: ltfGridName })];
-    await msg.channel.send({ content: `🔬 **${result.symbol} — LTF** \u200b*(30M · 15M · 5M · 1M)*`, files: ltfFiles });
-  }
-
-  // Chunk and send the macro text
-  const chunks = chunkMessage(fullText);
-  for (let i = 0; i < chunks.length; i++) {
-    const isLast = i === chunks.length - 1;
-    const payload = { content: chunks[i] };
-    if (isLast) payload.components = [row];
-    await msg.channel.send(payload);
-  }
-}
+// stale deliverResult removed
 
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isButton()) return;
