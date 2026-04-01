@@ -1317,15 +1317,39 @@ function buildJaneSummaryFull(symbol, bias, convLabel, conviction, dnt, dntReaso
 // CHART ENGINE — PLAYWRIGHT + SHARP (single instance)
 // ============================================================
 
+// ============================================================
+// CHART ENGINE v4.0 — DETERMINISTIC INSTITUTIONAL RENDERER
+// ============================================================
+
+// Panel resolution — 1920x1080 per panel, 3840x2160 grid
+const CHART_W = 1920;
+const CHART_H = 1080;
+
+// Abort threshold — >25% panel failures triggers abort
+const ABORT_THRESHOLD = 0.25;
+
+// Minimum canvas area to confirm real chart render
+const MIN_CANVAS_AREA = 150000;
+
+// Minimum buffer size to confirm non-blank capture
+const MIN_BUFFER_BYTES = 5000;
+
 let browserInstance = null;
 
 async function getBrowser() {
   if (browserInstance) {
     try { await browserInstance.version(); return browserInstance; } catch { browserInstance = null; }
   }
+  log('INFO', '[BROWSER] Launching Chromium');
   browserInstance = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu'],
+    args: [
+      '--no-sandbox', '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage', '--disable-gpu',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+    ],
   });
   return browserInstance;
 }
@@ -1333,152 +1357,203 @@ async function getBrowser() {
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
-  // Use saved TradingView layout — loads your exact chart settings, theme, and style
-  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}`;
+  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hide_top_toolbar=1&hide_side_toolbar=1&hide_legend=1`;
+}
+
+async function closePopups(page) {
+  for (const sel of ['button[aria-label="Close"]', 'button:has-text("Accept")', 'button:has-text("Got it")']) {
+    try { const btn = page.locator(sel).first(); if (await btn.isVisible({ timeout: 500 })) await btn.click(); } catch {}
+  }
 }
 
 async function cleanUI(page) {
   await page.evaluate(() => {
     [
-      '[data-name="header-toolbar"]','[data-name="right-toolbar"]','[data-name="left-toolbar"]',
-      '.layout__area--right','.layout__area--left','.layout__area--top',
-      '.tv-side-toolbar','.tv-control-bar','.tv-floating-toolbar',
-      '.chart-controls-bar','.header-chart-panel','[data-name="legend"]',
-      '.chart-toolbar','.topbar','.top-bar','.tv-watermark','#overlap-manager-root',
+      '[data-name="header-toolbar"]', '[data-name="right-toolbar"]', '[data-name="left-toolbar"]',
+      '.layout__area--right', '.layout__area--left', '.layout__area--top',
+      '.tv-side-toolbar', '.tv-control-bar', '.tv-floating-toolbar',
+      '.chart-controls-bar', '.header-chart-panel', '[data-name="legend"]',
+      '.chart-toolbar', '.topbar', '.top-bar', '.tv-watermark', '#overlap-manager-root',
     ].forEach((sel) => document.querySelectorAll(sel).forEach((el) => el.remove()));
   }).catch(() => {});
 }
 
-async function closePopups(page) {
-  for (const sel of ['button[aria-label="Close"]','button:has-text("Accept")','button:has-text("Got it")']) {
-    try { const btn = page.locator(sel).first(); if (await btn.isVisible({ timeout: 500 })) await btn.click(); } catch {}
-  }
+// ── LABELED PLACEHOLDER ──────────────────────────────────────
+async function makePlaceholderPanel(symbol, tfKey, reason) {
+  // Dark panel with SVG label — clearly marks which panel failed and why
+  const label  = `${symbol} ${tfKey}`;
+  const reason2 = (reason || 'RENDER FAILED').slice(0, 60);
+  const svg = Buffer.from(`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/>
+    <text x="${CHART_W/2}" y="${CHART_H/2 - 30}" font-family="monospace" font-size="48" fill="#444" text-anchor="middle">${label}</text>
+    <text x="${CHART_W/2}" y="${CHART_H/2 + 30}" font-family="monospace" font-size="28" fill="#333" text-anchor="middle">${reason2}</text>
+    <text x="${CHART_W/2}" y="${CHART_H/2 + 80}" font-family="monospace" font-size="22" fill="#222" text-anchor="middle">PLACEHOLDER — DATA UNAVAILABLE</text>
+  </svg>`);
+  return await sharp(svg).resize(CHART_W, CHART_H).jpeg({ quality: 60 }).toBuffer();
 }
 
-async function renderPanel(symbol, interval, tfKey) {
+// ── SINGLE PANEL CAPTURE ─────────────────────────────────────
+async function capturePanel(symbol, tf, tfKey) {
   const browser = await getBrowser();
-  const url     = buildPanelUrl(symbol, interval);
+  const url     = buildPanelUrl(symbol, tf);
+  const lockedTf = String(tf); // isolate — no shared variable bleed
+
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    let context;
+    let page;
     try {
-      log('INFO', `[PANEL] ${symbol} ${tfKey} attempt ${attempt}`);
-      context = await browser.newContext({
-        viewport: { width: PANEL_W, height: PANEL_H },
-        deviceScaleFactor: 1,
-        locale: 'en-US',
-        timezoneId: 'Australia/Perth',
-      });
-      if (TV_COOKIES) await context.addCookies(TV_COOKIES);
-      const page = await context.newPage();
+      log('INFO', `[PANEL START] ${symbol} ${tfKey} attempt ${attempt}`);
+
+      // Each panel gets its own page — single browser, single context
+      page = await browser.newPage();
+      await page.setViewportSize({ width: CHART_W, height: CHART_H });
+      if (TV_COOKIES) await page.context().addCookies(TV_COOKIES);
       page.setDefaultNavigationTimeout(RENDER_TIMEOUT_MS);
       page.setDefaultTimeout(RENDER_TIMEOUT_MS);
       await page.addInitScript(() => { try { localStorage.setItem('theme', 'dark'); } catch {} });
 
-      // A. Navigate — domcontentloaded is faster than networkidle, chart loads async
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: RENDER_TIMEOUT_MS });
+      // A. Navigate
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-      // B. Wait for canvas element to exist in DOM
+      // B. Detect "symbol doesn't exist" error page
+      const bodyText = await page.evaluate(() => document.body?.innerText || '').catch(() => '');
+      if (/symbol.{0,30}(doesn't|does not|not found|invalid)/i.test(bodyText)) {
+        throw new Error(`Symbol not found: ${symbol}`);
+      }
+
+      // C. Wait for canvas elements
       await page.waitForSelector('canvas', { timeout: 15000 });
 
-      // C. Wait for canvas to have real pixel dimensions (not just created)
-      await page.waitForFunction(() => {
-        const canvases = document.querySelectorAll('canvas');
-        if (!canvases || canvases.length === 0) return false;
-        const c = canvases[0];
-        return c && c.width > 0 && c.height > 0;
-      }, { timeout: 15000 });
+      // D. Wait for LARGEST canvas to exceed area threshold (real chart, not spinner)
+      await page.waitForFunction((threshold) => {
+        const canvases = Array.from(document.querySelectorAll('canvas'));
+        if (!canvases.length) return false;
+        const largest = canvases.reduce((best, c) => (c.width * c.height > best.width * best.height ? c : best), canvases[0]);
+        return largest.width * largest.height >= threshold;
+      }, MIN_CANVAS_AREA, { timeout: 20000 });
 
-      // D. Remove loading overlays
+      // E. Remove loading overlays
       await page.evaluate(() => {
         document.querySelectorAll('.loading, .spinner, [class*="loading"], [class*="spinner"]').forEach(el => el.remove());
       }).catch(() => {});
 
-      // E. Stability delay — let chart data actually paint
-      await page.waitForTimeout(2500);
+      // F. Stability delay
+      await page.waitForTimeout(3000);
 
       await closePopups(page);
       await cleanUI(page);
 
-      // Force chart to repaint and fill the full viewport after toolbar removal
+      // G. Force full-viewport repaint after toolbar removal
       await page.evaluate((w, h) => {
-        // Set all layout containers to full size
-        document.querySelectorAll('.chart-container, .layout__area--center, [class*="chart-markup-table"], .pane-html').forEach(el => {
+        document.querySelectorAll(
+          '.chart-container, .layout__area--center, [class*="chart-markup-table"], .pane-html'
+        ).forEach(el => {
           el.style.width  = w + 'px';
           el.style.height = h + 'px';
         });
-        // Dispatch resize so TradingView repaints at full dimensions
         window.dispatchEvent(new Event('resize'));
-      }, PANEL_W, PANEL_H).catch(() => {});
+      }, CHART_W, CHART_H).catch(() => {});
 
-      // Wait for repaint to complete
       await page.waitForTimeout(1500);
 
-      // F. Screenshot with explicit clip
-      const buffer = await page.screenshot({ type: 'png', fullPage: false, clip: { x: 0, y: 0, width: PANEL_W, height: PANEL_H } });
-      await context.close();
-      if (!buffer || buffer.length < 50000) throw new Error(`Blank/small render (${buffer?.length || 0}B)`);
+      // H. Screenshot
+      const buffer = await page.screenshot({
+        type: 'png',
+        fullPage: false,
+        clip: { x: 0, y: 0, width: CHART_W, height: CHART_H },
+      });
+
+      await page.close().catch(() => {});
+
+      // I. Reject blank/corrupt buffers
+      if (!buffer || buffer.length < MIN_BUFFER_BYTES) {
+        throw new Error(`Blank render — buffer ${buffer?.length || 0}B < ${MIN_BUFFER_BYTES}B minimum`);
+      }
+
       log('INFO', `[OK] ${symbol} ${tfKey} ${(buffer.length / 1024).toFixed(0)}KB`);
       return buffer;
+
     } catch (err) {
       log('ERROR', `[FAIL] ${symbol} ${tfKey}: ${err.message}`);
-      if (context) { try { await context.close(); } catch {} }
+      if (page) { try { await page.close(); } catch {} }
       if (attempt === MAX_RETRIES) throw err;
       await new Promise((r) => setTimeout(r, 3000));
     }
   }
 }
 
+// ── 2x2 GRID COMPOSITOR ──────────────────────────────────────
 async function buildGrid(panels) {
-  // Resize each panel to exact cell dimensions — cover fills cell cleanly
   const resized = await Promise.all(
     panels.map((img) => sharp(img)
-      .resize(PANEL_W, PANEL_H, { fit: 'cover', position: 'centre' })
+      .resize(CHART_W, CHART_H, { fit: 'cover', position: 'centre' })
       .png()
       .toBuffer()
     )
   );
   return await sharp({
-    create: { width: PANEL_W * 2, height: PANEL_H * 2, channels: 4, background: { r: 11, g: 11, b: 11, alpha: 1 } },
+    create: {
+      width:    CHART_W * 2,
+      height:   CHART_H * 2,
+      channels: 4,
+      background: { r: 10, g: 10, b: 10, alpha: 1 },
+    },
   })
     .composite([
       { input: resized[0], left: 0,       top: 0       },
-      { input: resized[1], left: PANEL_W,  top: 0       },
-      { input: resized[2], left: 0,       top: PANEL_H  },
-      { input: resized[3], left: PANEL_W,  top: PANEL_H  },
+      { input: resized[1], left: CHART_W, top: 0       },
+      { input: resized[2], left: 0,       top: CHART_H },
+      { input: resized[3], left: CHART_W, top: CHART_H },
     ])
     .jpeg({ quality: 95 })
     .toBuffer();
 }
 
-async function makePlaceholderPanel() {
-  return await sharp({
-    create: { width: PANEL_W, height: PANEL_H, channels: 4, background: { r: 20, g: 20, b: 20, alpha: 1 } },
-  }).jpeg({ quality: 60 }).toBuffer();
-}
-
+// ── RENDER ALL — DETERMINISTIC WITH ABORT CONTROL ────────────
 async function renderAll(symbol, intervals) {
-  // Render in pairs (2 concurrent) — balances speed vs browser memory on Render
   const targets = intervals.slice(0, 4);
-  const panels  = [];
-  let placeholderCount = 0;
-  for (let i = 0; i < targets.length; i += 2) {
-    const batch = targets.slice(i, i + 2);
-    const results = await Promise.all(
-      batch.map(async (iv) => {
-        try {
-          return await renderPanel(symbol, iv, tfLabel(iv));
-        } catch (err) {
-          log('WARN', `[RENDER SKIP] ${symbol} ${tfLabel(iv)}: ${err.message} — placeholder used`);
-          placeholderCount++;
-          return await makePlaceholderPanel();
-        }
-      })
-    );
-    panels.push(...results);
+  let failCount = 0;
+
+  // Render sequentially within the grid set — browser stays alive throughout
+  // Sequential within a grid prevents browser memory exhaustion on Render
+  const panels = [];
+  for (const iv of targets) {
+    const key = tfLabel(iv);
+    let buf;
+    try {
+      buf = await capturePanel(symbol, iv, key);
+    } catch (err) {
+      failCount++;
+      log('WARN', `[RENDER SKIP] ${symbol} ${key}: ${err.message} — placeholder used`);
+      log('INFO', `[PLACEHOLDER] ${symbol} ${key}`);
+      buf = await makePlaceholderPanel(symbol, key, err.message);
+    }
+    panels.push(buf);
   }
-  while (panels.length < 4) { panels.push(await makePlaceholderPanel()); placeholderCount++; }
-  if (placeholderCount > 0) log('WARN', `[GRID] ${symbol} — ${placeholderCount} placeholder(s) used in grid`);
-  return { grid: await buildGrid(panels.slice(0, 4)), placeholderCount };
+
+  while (panels.length < 4) {
+    failCount++;
+    panels.push(await makePlaceholderPanel(symbol, 'N/A', 'missing'));
+  }
+
+  // Abort if >25% panels failed
+  const failRatio = failCount / targets.length;
+  if (failRatio > ABORT_THRESHOLD) {
+    log('ERROR', `[ABORT] ${symbol} — fail ratio ${(failRatio * 100).toFixed(0)}% exceeds 25% threshold`);
+    throw new Error(`[ABORT] ${symbol} render integrity failed — ${failCount}/${targets.length} panels failed`);
+  }
+
+  const grid = await buildGrid(panels.slice(0, 4));
+
+  // Output validation
+  if (!grid || grid.length < MIN_BUFFER_BYTES) {
+    throw new Error(`[ABORT] ${symbol} grid buffer invalid — ${grid?.length || 0}B`);
+  }
+
+  const partial = failCount > 0;
+  if (partial) log('WARN', `[GRID] ${symbol} — ${failCount} placeholder(s) used (PARTIAL)`);
+  else log('INFO', `[GRID] ${symbol} — all panels OK`);
+
+  return { grid, placeholderCount: failCount, partial };
 }
 
 // ============================================================
@@ -1503,16 +1578,14 @@ async function runFullPipeline(symbol, mode, htfIntervals, ltfIntervals, combine
   // Jane gets both HTF and LTF results in combined mode
   const jane = runJane(symbol, spideyHTF, spideyLTF, coreyResult, mode);
 
-  // Render grids
+  // Render grids — sequential between grids to protect browser memory
   let htfGridBuf, ltfGridBuf, htfPlaceholders = 0, ltfPlaceholders = 0;
   if (combined) {
-    const [htfResult, ltfResult] = await Promise.all([
-      renderAll(symbol, htfIntervals),
-      renderAll(symbol, ltfIntervals),
-    ]);
+    const htfResult = await renderAll(symbol, htfIntervals);
     htfGridBuf      = htfResult.grid;
-    ltfGridBuf      = ltfResult.grid;
     htfPlaceholders = htfResult.placeholderCount;
+    const ltfResult = await renderAll(symbol, ltfIntervals);
+    ltfGridBuf      = ltfResult.grid;
     ltfPlaceholders = ltfResult.placeholderCount;
   } else {
     const result    = await renderAll(symbol, mode === 'H' ? htfIntervals : ltfIntervals);
