@@ -1357,7 +1357,8 @@ async function getBrowser() {
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
-  return `https://www.tradingview.com/chart/${TV_LAYOUT}/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hide_top_toolbar=1&hide_side_toolbar=1&hide_legend=1`;
+  // Single-chart URL — no layout ID to avoid loading multi-pane saved layouts
+  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hide_top_toolbar=1&hide_side_toolbar=1&hide_legend=1&save_image=false`;
 }
 
 async function closePopups(page) {
