@@ -1357,8 +1357,9 @@ async function getBrowser() {
 function buildPanelUrl(symbol, interval) {
   const tvSym = encodeURIComponent(getTVSymbol(symbol));
   const iv    = encodeURIComponent(interval);
-  // Single-chart URL — no layout ID to avoid loading multi-pane saved layouts
-  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hide_top_toolbar=1&hide_side_toolbar=1&hide_legend=1&save_image=false`;
+  // Single chart, dark theme, Japanese candles (style=1), no UI chrome
+  // backgroundColor forces true black, upColor/downColor locked for strong contrast
+  return `https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${iv}&theme=dark&style=1&hide_top_toolbar=1&hide_side_toolbar=1&hide_legend=1&save_image=false&backgroundColor=%23000000&upColor=%2326a69a&downColor=%23ef5350&borderUpColor=%2326a69a&borderDownColor=%23ef5350&wickUpColor=%2326a69a&wickDownColor=%23ef5350`;
 }
 
 async function closePopups(page) {
@@ -1432,13 +1433,34 @@ async function capturePanel(symbol, tf, tfKey) {
         return largest.width * largest.height >= threshold;
       }, MIN_CANVAS_AREA, { timeout: 20000 });
 
-      // E. Remove loading overlays
+      // E. Wait for candle/price data to actually paint — check canvas is non-black
+      // Samples pixels from the largest canvas; rejects if all pixels are near-black
+      await page.waitForFunction(() => {
+        const canvases = Array.from(document.querySelectorAll('canvas'));
+        if (!canvases.length) return false;
+        const largest = canvases.reduce((best, c) => (c.width * c.height > best.width * best.height ? c : best), canvases[0]);
+        try {
+          const ctx  = largest.getContext('2d');
+          if (!ctx) return false;
+          // Sample a strip across the middle of the canvas
+          const w = largest.width, h = largest.height;
+          const data = ctx.getImageData(w * 0.1, h * 0.3, w * 0.8, h * 0.4);
+          let nonBlack = 0;
+          for (let i = 0; i < data.data.length; i += 16) {
+            const r = data.data[i], g = data.data[i+1], b = data.data[i+2];
+            if (r > 20 || g > 20 || b > 20) nonBlack++;
+          }
+          return nonBlack > 50; // at least 50 non-black pixels = candles are painting
+        } catch { return false; }
+      }, { timeout: 15000 });
+
+      // F. Remove loading overlays
       await page.evaluate(() => {
         document.querySelectorAll('.loading, .spinner, [class*="loading"], [class*="spinner"]').forEach(el => el.remove());
       }).catch(() => {});
 
-      // F. Stability delay
-      await page.waitForTimeout(3000);
+      // G. Stability delay — let chart fully settle
+      await page.waitForTimeout(2500);
 
       await closePopups(page);
       await cleanUI(page);
@@ -1466,8 +1488,8 @@ async function capturePanel(symbol, tf, tfKey) {
       await page.close().catch(() => {});
 
       // I. Reject blank/corrupt buffers
-      if (!buffer || buffer.length < MIN_BUFFER_BYTES) {
-        throw new Error(`Blank render — buffer ${buffer?.length || 0}B < ${MIN_BUFFER_BYTES}B minimum`);
+      if (!buffer || buffer.length < 80000) {
+        throw new Error(`Weak/blank render — buffer ${buffer?.length || 0}B (minimum 80KB required)`);
       }
 
       log('INFO', `[OK] ${symbol} ${tfKey} ${(buffer.length / 1024).toFixed(0)}KB`);
@@ -1628,8 +1650,10 @@ function getBiasEmoji(bias) {
 }
 
 function getConvictionBar(conviction) {
+  if (!conviction || conviction <= 0) return '`──────────`  0%';
   const filled = Math.round(conviction * 10);
-  return '█'.repeat(filled) + '░'.repeat(10 - filled) + ` ${(conviction * 100).toFixed(0)}%`;
+  const pct    = (conviction * 100).toFixed(0);
+  return '`' + '█'.repeat(filled) + '─'.repeat(10 - filled) + '`' + `  ${pct}%`;
 }
 
 function formatAssetContext(symbol, macro) {
