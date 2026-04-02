@@ -77,7 +77,7 @@ function sanitiseCookies(raw) {
       out.sameSite = SAMESITE_MAP[key] || 'Lax';
       if (!out.domain) out.domain = '.tradingview.com';
       if (!out.path)   out.path   = '/';
-      delete out.hostOnly; delete out.storeId; delete out.id;
+      delete out.hostOnly; delete out.storeId; delete out.id; delete out.partitionKey; delete out.session;
       return out;
     })
     .filter((c) => c.domain && c.domain.includes('tradingview'));
