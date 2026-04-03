@@ -104,12 +104,22 @@ client.once('clientReady',()=>{
   // Register pipeline trigger — Dark Horse feeds Corey → Spidey → Jane
   // Jane NEVER receives raw Dark Horse data directly
   dhSetPipelineTrigger(darkHorsePipelineTrigger);
-  // Scheduler — every 5 minutes
+  // Dark Horse Scheduler — every 15 minutes, market hours only (Mon-Fri UTC)
+  function isMarketHours(){
+    const now=new Date();
+    const day=now.getUTCDay(); // 0=Sun, 6=Sat
+    if(day===0||day===6)return false; // Weekend — no scanning
+    const h=now.getUTCHours();
+    // FX/global markets approx Mon 00:00 – Fri 22:00 UTC
+    if(day===5&&h>=22)return false; // Friday after 22:00 UTC — markets closed
+    return true;
+  }
   setInterval(async()=>{
+    if(!isMarketHours()){log('INFO','[DH SCHEDULER] Market closed — scan skipped');return;}
     try{await runDarkHorseScan();}
     catch(e){log('ERROR',`[DH SCHEDULER] ${e.message}`);}
-  },5*60*1000);
-  log('INFO','[BOOT] Dark Horse Engine active — scanning every 5 minutes');
+  },15*60*1000);
+  log('INFO','[BOOT] Dark Horse Engine active — scanning every 15 minutes (market hours Mon-Fri only)');
 });
 
 // ── CONSTANTS ────────────────────────────────────────────────
@@ -673,7 +683,7 @@ function resolveAstraStatus(jane,ps){
 // ── ASTRA STATUS BLOCK FORMATTER ─────────────────────────────
 // Produces exact Discord output per Astra spec.
 // Inserted directly under charts in formatExecutionV4.
-function formatAstraBlock(astraStatus,jane,symbol,capital){
+function formatAstraBlock(astraStatus,jane,symbol,capital,ps){
   const cap=capital||ATLAS_USER_CAPITAL;
   const showExtended=cap>=5000;
   if(astraStatus==='hold'){
@@ -732,24 +742,36 @@ function formatAstraBlock(astraStatus,jane,symbol,capital){
     const ez=jane.entryZone,inv=jane.invalidationLevel,tgt=jane.targets&&jane.targets.length>0?jane.targets:null;
     const entryP=ez?`${fmtPrice(ez.low,symbol)} – ${fmtPrice(ez.high,symbol)}`:'N/A';
     const entryE=ez?`${fmtPrice(ez.low*(jane.finalBias==='Bullish'?0.9990:1.0010),symbol)} – ${fmtPrice(ez.low,symbol)}`:'N/A';
-    const exitP=tgt?`${fmtPrice(tgt[0].level,symbol)}${tgt.length>1?' – '+fmtPrice(tgt[tgt.length-1].level,symbol):''}`:'N/A';
+    const exitLow=tgt?fmtPrice(tgt[0].level,symbol):'N/A';
+    const exitHigh=tgt&&tgt.length>1?fmtPrice(tgt[tgt.length-1].level,symbol):exitLow;
+    const exitP=tgt?(tgt.length>1?`${exitLow} – ${exitHigh}`:exitLow):'N/A';
     const stopP=inv?fmtPrice(inv,symbol):'N/A';
     const stopE=inv?fmtPrice(inv*(jane.finalBias==='Bullish'?0.9985:1.0015),symbol):'N/A';
+    // TREND row — one row only, determined by posState
+    const psLabel=ps?ps.label:'';
+    const trendVal=psLabel==='APPROACHING'?'⬆️ TOWARDS POI':psLabel==='DIVERGING'?'⬇️ AWAY FROM POI':psLabel==='ENTRY ZONE ACTIVE'?'🎯 AT POI':'⬆️ TOWARDS POI';
+    const W='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+    const col1=28,col2=22;
+    const row=(a,b)=>`${('**'+a+'**').padEnd(col1)}${b}`;
     const lines=[
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      '**ATLAS EXECUTION MAP**',
-      '',
-      `🟢 **ENTRY POINT:** ${entryP}`,
+      W,
+      `${'**RECOMMENDED**'.padEnd(col1)}${'**RANGE / ACTION**'}`,
+      W,
+      row('🟢 ENTRY POINT:',entryP),
+      W,
     ];
-    if(showExtended)lines.push(`🟠 **ENTRY EXTENDED:** ${entryE}`);
-    lines.push('');
-    lines.push(`🔴 **EXIT POINT:** ${exitP}`);
-    lines.push('');
-    lines.push(`🛑 **SET STOP LOSS:** ${stopP}`);
-    if(showExtended)lines.push(`🛑 **EXTENDED STOP LOSS:** ${stopE}`);
-    lines.push('');
-    lines.push('⚠️ **SELECT ONE STOP LOSS ONLY**');
-    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    if(showExtended){lines.push(row('🟠 ENTRY EXTENDED:',entryE));lines.push(W);}
+    lines.push(row('🔴 EXIT POINT:',exitP));
+    lines.push(W);
+    lines.push(row('🟨 TREND:',trendVal));
+    lines.push(W);
+    lines.push(row('⚪ NEUTRAL MARKET:','NO BIAS — WAIT — HOLD'));
+    lines.push(W);
+    lines.push(row('🛑 SET STOP LOSS (1):',stopP));
+    lines.push(W);
+    if(showExtended){lines.push(row('🛑 EXT STOP LOSS (2):',stopE));lines.push(W);}
+    lines.push(row('⚠️ STOP LOSS RULE:','SELECT ONE (1) OR (2)'));
+    lines.push(W);
     return lines.join('\n');
   }
   return'⚪ **HOLD — AWAITING SIGNAL**';
@@ -791,7 +813,7 @@ function formatExecutionV4(result){
     L.push('');
   }
   // ── ASTRA STATUS BLOCK — appears directly under charts ──────
-  L.push(formatAstraBlock(astraStatus,jane,symbol,ATLAS_USER_CAPITAL));
+  L.push(formatAstraBlock(astraStatus,jane,symbol,ATLAS_USER_CAPITAL,ps));
   L.push('');
   L.push(`**ATLAS POSITION STATE:** ${ps.icon} ${ps.label}`);
   if(cp)L.push(`**Current Price:** ${fmtPrice(cp,symbol)}`);
