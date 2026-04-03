@@ -187,23 +187,66 @@ const CRYPTO_KW=new Set(['BTC','ETH','XRP','SOL','DOGE','ADA','BNB','DOT','MATIC
 const REJECTED_TERMS=new Set(['LH','HL','HH','LL','BUY','SELL','BULLISH','BEARISH','LONG','SHORT','MACRO','UP','DOWN','CALL','PUT','H','L']);
 const REJECTED_GENERIC=new Set(['GOLD','SILVER','OIL','BRENT','WTI','GAS','NATGAS','NAS','NASDAQ','SP500','SPX','DOW','DJI','DAX','FTSE','MICRON','MU']);
 
+// ===== ATLAS SYMBOL MAP =====
+const symbolMap = {
+  gold: "XAUUSD",
+  silver: "XAGUSD",
+  oil: "USOIL",
+  crude: "USOIL",
+  wti: "USOIL",
+  brent: "UKOIL",
+  gas: "NATGAS",
+  naturalgas: "NATGAS",
+  spx: "US500",
+  sp500: "US500",
+  nasdaq: "NAS100",
+  nas: "NAS100",
+  dow: "US30",
+  euro: "EURUSD",
+  eur: "EURUSD",
+  pound: "GBPUSD",
+  gbp: "GBPUSD",
+  yen: "USDJPY",
+  jpy: "USDJPY",
+  aud: "AUDUSD",
+  dxy: "DXY",
+  dollar: "DXY",
+  usd: "DXY",
+  micron: "MU",
+  tesla: "TSLA",
+  apple: "AAPL",
+  nvidia: "NVDA"
+};
+
 function validateInput(raw){
   const t=(raw||'').trim();
   if(!t.startsWith('!'))return{valid:false,reason:'no_prefix'};
   const content=t.slice(1).trim();
   const tokens=content.split(/\s+/);
+
   if(tokens[0]==='ping')return{valid:false,reason:'ops',op:'ping'};
   if(tokens[0]==='stats')return{valid:false,reason:'ops',op:'stats'};
   if(tokens[0]==='errors')return{valid:false,reason:'ops',op:'errors'};
   if(tokens[0]==='sysstate')return{valid:false,reason:'ops',op:'sysstate'};
+
   if(tokens.length>1)return{valid:false,reason:'extra_tokens'};
-  const sym=tokens[0].toUpperCase();
+
+  // 🔹 MAP FIRST
+  const rawSymbol=tokens[0];
+  const mapped = symbolMap[rawSymbol.toLowerCase()];
+  const sym = (mapped || rawSymbol).toUpperCase();
+
   if(CRYPTO_KW.has(sym)||sym.endsWith('USDT')||sym.endsWith('USDC')||sym.startsWith('BTC'))return{valid:false,reason:'crypto'};
   if(REJECTED_TERMS.has(sym))return{valid:false,reason:'direction_term'};
-  if(REJECTED_GENERIC.has(sym))return{valid:false,reason:'generic_name'};
+
+  // 🔹 ONLY reject generic if NOT mapped
+  if(REJECTED_GENERIC.has(sym) && !mapped)return{valid:false,reason:'generic_name'};
+
   if(!/^[A-Z0-9]{2,10}$/.test(sym))return{valid:false,reason:'format'};
+
   const ac=inferAssetClass(sym);
   if(ac===ASSET_CLASS.UNKNOWN&&!isFxPair(sym)&&sym.length!==6)return{valid:false,reason:'unknown_instrument'};
+
   return{valid:true,symbol:sym};
 }
 function inputErrorMsg(){
