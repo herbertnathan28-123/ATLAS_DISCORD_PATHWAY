@@ -18,7 +18,7 @@ const DH_SCORE_INTERNAL = 5;
 
 // Webhooks — env only, never hardcoded
 // Names match Render environment variables exactly
-const DH_WEBHOOK_URL = process.env.ATLAS_DARKHORSE || null;
+const DH_WEBHOOK_URL = process.env.DARKHORSE_STOCK || null;
 
 const DH_ASTRA_WEBHOOKS = {
   AT: process.env['CHAT-WITH-ASTRA-AT'] || null,
@@ -411,7 +411,7 @@ async function runDarkHorseScan(universe) {
         dhLog('ERROR', `[WEBHOOK] Dark Horse failed — ${candidate.symbol}: ${e.message}`);
       }
     } else {
-      dhLog('WARN', 'ATLAS_DARKHORSE_WEBHOOK_URL not set — Dark Horse channel skipped');
+      dhLog('WARN', 'DARKHORSE_STOCK not set — Dark Horse channel skipped');
     }
 
     // All Astra channels (AT / SK / NM / BR)
