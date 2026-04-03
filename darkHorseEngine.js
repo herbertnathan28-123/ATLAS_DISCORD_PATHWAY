@@ -22,8 +22,32 @@ const DH_WEBHOOK_URL = process.env.DARKHORSE_STOCK || null;
 
 const DH_ASTRA_WEBHOOKS = {
   AT: process.env['CHAT-WITH-ASTRA-AT'] || null,
-
+  SK: process.env['CHAT-WITH-ASTRA-SK'] || null,
+  NM: process.env['CHAT-WITH-ASTRA-NM'] || null,
+  BR: process.env['CHAT-WITH-ASTRA-BR'] || null,
 };
+
+// ── MARKET HOURS GATE ─────────────────────────────────────────
+// No scanning Friday 17:00 NY time through Sunday 17:00 NY time
+// (covers weekend market closure globally)
+function isMarketOpen() {
+  const now = new Date();
+  // Convert to New York time
+  const nyTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const day = nyTime.getDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  const hour = nyTime.getHours();
+  const minute = nyTime.getMinutes();
+  const timeInMinutes = hour * 60 + minute;
+
+  // Friday after 17:00 NY → market closed
+  if (day === 5 && timeInMinutes >= 17 * 60) return false;
+  // Saturday — always closed
+  if (day === 6) return false;
+  // Sunday before 17:00 NY → still closed
+  if (day === 0 && timeInMinutes < 17 * 60) return false;
+
+  return true;
+}
 
 // ── INTERNAL STATE ────────────────────────────────────────────
 // Flagged candidates score 5–7 — stored internally, no Discord output
@@ -366,6 +390,11 @@ async function triggerPipeline(candidate) {
 // MAIN SCAN
 // ============================================================
 async function runDarkHorseScan(universe) {
+  // Market hours gate — no scanning on weekends
+  if (!isMarketOpen()) {
+    dhLog('INFO', '━━━ Scan SKIPPED — market closed (weekend) ━━━');
+    return { watch: [], internal: [], ignored: [], scannedAt: new Date().toISOString(), skipped: true };
+  }
   const symbols = (universe && universe.length) ? universe : DH_UNIVERSE;
   dhLog('INFO', `━━━ Scan START — ${symbols.length} instruments ━━━`);
 
