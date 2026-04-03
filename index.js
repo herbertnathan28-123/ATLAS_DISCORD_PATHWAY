@@ -2,6 +2,7 @@
 // ============================================================
 // ATLAS FX DISCORD BOT — v4.0
 // EXECUTION INTERFACE v4 — INSTITUTIONAL GRADE
+// Dark Horse Engine integrated — v4.0.1
 // ============================================================
 process.on('unhandledRejection',(r)=>{console.error('[UNHANDLED]',r);});
 process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
@@ -13,6 +14,16 @@ const fs=require('fs');
 const https=require('https');
 const http=require('http');
 const{chromium}=require('playwright');
+
+// ── DARK HORSE ENGINE ─────────────────────────────────────────
+const{
+  dhInit,
+  dhSetPipelineTrigger,
+  runDarkHorseScan,
+  getDHInternalStore,
+  getDHCandidate,
+  DH_UNIVERSE,
+}=require('./darkHorseEngine');
 
 // ── ENV ──────────────────────────────────────────────────────
 const TOKEN=process.env.DISCORD_BOT_TOKEN;
@@ -60,7 +71,6 @@ const TS_HISTORY_LIMIT=parseInt(process.env.TRENDSPIDER_HISTORY_LIMIT||'10',10);
 const TS_PERSIST_PATH=process.env.TRENDSPIDER_PERSIST_PATH||null;
 
 // ── COOKIE SANITISATION ──────────────────────────────────────
-// Strip all non-Playwright fields. Fixes partitionKey object error from Firefox Cookie-Editor.
 const SAMESITE_MAP={strict:'Strict',lax:'Lax',none:'None',no_restriction:'None',unspecified:'Lax'};
 const ALLOWED_COOKIE_FIELDS=new Set(['name','value','domain','path','expires','httpOnly','secure','sameSite']);
 function sanitiseCookies(raw){
@@ -85,7 +95,22 @@ console.log(`[BOOT] ATLAS FX v4.0 starting... auth:${TV_COOKIES?'COOKIE':'GUEST'
 
 // ── DISCORD CLIENT ───────────────────────────────────────────
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
-client.once('clientReady',()=>console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`));
+client.once('clientReady',()=>{
+  console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
+
+  // ── DARK HORSE ENGINE INIT ──────────────────────────────────
+  // Inject TwelveData OHLC source — same data pipeline as Spidey/Corey
+  dhInit(safeOHLC);
+  // Register pipeline trigger — Dark Horse feeds Corey → Spidey → Jane
+  // Jane NEVER receives raw Dark Horse data directly
+  dhSetPipelineTrigger(darkHorsePipelineTrigger);
+  // Scheduler — every 5 minutes
+  setInterval(async()=>{
+    try{await runDarkHorseScan();}
+    catch(e){log('ERROR',`[DH SCHEDULER] ${e.message}`);}
+  },5*60*1000);
+  log('INFO','[BOOT] Dark Horse Engine active — scanning every 5 minutes');
+});
 
 // ── CONSTANTS ────────────────────────────────────────────────
 const MAX_RETRIES=2;
@@ -181,72 +206,30 @@ function getFeedName(s){const f=getTVSymbol(s).split(':')[0];return{OANDA:'OANDA
 const log=(level,msg,...a)=>console.log(`[${new Date().toISOString()}] [${level}] ${msg}`,...a);
 
 // ============================================================
-// INPUT VALIDATION — STRICT. NO ALIAS. NO DIRECTION. NO GENERICS.
+// INPUT VALIDATION
 // ============================================================
 const CRYPTO_KW=new Set(['BTC','ETH','XRP','SOL','DOGE','ADA','BNB','DOT','MATIC','AVAX','LINK','LTC','BCH','XLM','ALGO','ATOM','VET','ICP','BITCOIN','ETHEREUM','CRYPTO','USDT','USDC','SHIB','PEPE']);
 const REJECTED_TERMS=new Set(['LH','HL','HH','LL','BUY','SELL','BULLISH','BEARISH','LONG','SHORT','MACRO','UP','DOWN','CALL','PUT','H','L']);
 const REJECTED_GENERIC=new Set(['GOLD','SILVER','OIL','BRENT','WTI','GAS','NATGAS','NAS','NASDAQ','SP500','SPX','DOW','DJI','DAX','FTSE','MICRON','MU']);
-
-// ===== ATLAS SYMBOL MAP =====
-const symbolMap = {
-  gold: "XAUUSD",
-  silver: "XAGUSD",
-  oil: "USOIL",
-  crude: "USOIL",
-  wti: "USOIL",
-  brent: "UKOIL",
-  gas: "NATGAS",
-  naturalgas: "NATGAS",
-  spx: "US500",
-  sp500: "US500",
-  nasdaq: "NAS100",
-  nas: "NAS100",
-  dow: "US30",
-  euro: "EURUSD",
-  eur: "EURUSD",
-  pound: "GBPUSD",
-  gbp: "GBPUSD",
-  yen: "USDJPY",
-  jpy: "USDJPY",
-  aud: "AUDUSD",
-  dxy: "DXY",
-  dollar: "DXY",
-  usd: "DXY",
-  micron: "MU",
-  tesla: "TSLA",
-  apple: "AAPL",
-  nvidia: "NVDA"
-};
 
 function validateInput(raw){
   const t=(raw||'').trim();
   if(!t.startsWith('!'))return{valid:false,reason:'no_prefix'};
   const content=t.slice(1).trim();
   const tokens=content.split(/\s+/);
-
   if(tokens[0]==='ping')return{valid:false,reason:'ops',op:'ping'};
   if(tokens[0]==='stats')return{valid:false,reason:'ops',op:'stats'};
   if(tokens[0]==='errors')return{valid:false,reason:'ops',op:'errors'};
   if(tokens[0]==='sysstate')return{valid:false,reason:'ops',op:'sysstate'};
-
+  if(tokens[0]==='darkhorse')return{valid:false,reason:'ops',op:'darkhorse'};
   if(tokens.length>1)return{valid:false,reason:'extra_tokens'};
-
-  // 🔹 MAP FIRST
-  const rawSymbol=tokens[0];
-  const mapped = symbolMap[rawSymbol.toLowerCase()];
-  const sym = (mapped || rawSymbol).toUpperCase();
-
+  const sym=tokens[0].toUpperCase();
   if(CRYPTO_KW.has(sym)||sym.endsWith('USDT')||sym.endsWith('USDC')||sym.startsWith('BTC'))return{valid:false,reason:'crypto'};
   if(REJECTED_TERMS.has(sym))return{valid:false,reason:'direction_term'};
-
-  // 🔹 ONLY reject generic if NOT mapped
-  if(REJECTED_GENERIC.has(sym) && !mapped)return{valid:false,reason:'generic_name'};
-
+  if(REJECTED_GENERIC.has(sym))return{valid:false,reason:'generic_name'};
   if(!/^[A-Z0-9]{2,10}$/.test(sym))return{valid:false,reason:'format'};
-
   const ac=inferAssetClass(sym);
   if(ac===ASSET_CLASS.UNKNOWN&&!isFxPair(sym)&&sym.length!==6)return{valid:false,reason:'unknown_instrument'};
-
   return{valid:true,symbol:sym};
 }
 function inputErrorMsg(){
@@ -499,6 +482,8 @@ async function runCorey(symbol){
 
 // ============================================================
 // JANE — ARBITRATION ENGINE
+// PROTECTION: Jane only receives symbol + Corey output + Spidey output.
+// Jane NEVER receives Dark Horse data directly.
 // ============================================================
 function buildLevels(spideyHTF,spideyLTF,bias){
   const htfD=Object.entries(spideyHTF.timeframes)[0]?.[1]||null,ltfD=Object.entries(spideyLTF.timeframes)[0]?.[1]||null;
@@ -513,6 +498,8 @@ function buildLevels(spideyHTF,spideyLTF,bias){
 }
 
 function runJane(symbol,spideyHTF,spideyLTF,corey){
+  // JANE PROTECTION: receives symbol + spideyHTF + spideyLTF + corey only.
+  // Dark Horse data does NOT enter this function.
   log('INFO',`[JANE] Synthesising ${symbol}`);
   const htfB=spideyHTF.dominantBias,htfC=spideyHTF.dominantConviction,ltfB=spideyLTF.dominantBias,ltfC=spideyLTF.dominantConviction,cB=corey.combinedBias,cC=corey.confidence,tsB=corey.trendSpider.signalBias,tsG=corey.trendSpider.grade,tsF=corey.trendSpider.fresh,tsA=corey.trendSpider.available;
   const bS={Bullish:1,Neutral:0,Bearish:-1},spS=(bS[htfB]*htfC*0.60)+(bS[ltfB]*ltfC*0.40),cS=bS[cB]*cC;
@@ -542,8 +529,7 @@ function runJane(symbol,spideyHTF,spideyLTF,corey){
 }
 
 // ============================================================
-// CHART ENGINE — PER-JOB BROWSER LIFECYCLE
-// Sequential rendering. No shared browser. No Promise.all for panels.
+// CHART ENGINE
 // ============================================================
 function buildPanelUrl(sym,iv){const tvSym=encodeURIComponent(getTVSymbol(sym)),interval=encodeURIComponent(iv);return`https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${interval}&theme=dark&style=1&hide_top_toolbar=1&hide_side_toolbar=1&hide_legend=1&save_image=false&backgroundColor=%23000000&upColor=%2326a69a&downColor=%23ef5350&borderUpColor=%2326a69a&borderDownColor=%23ef5350&wickUpColor=%2326a69a&wickDownColor=%23ef5350`;}
 async function cleanUI(page){await page.evaluate(()=>{['[data-name="header-toolbar"]','[data-name="right-toolbar"]','[data-name="left-toolbar"]','.layout__area--right','.layout__area--left','.layout__area--top','.tv-side-toolbar','.tv-control-bar','.tv-floating-toolbar','.chart-controls-bar','.header-chart-panel','[data-name="legend"]','.chart-toolbar','.topbar','.top-bar','.tv-watermark','#overlap-manager-root'].forEach(sel=>document.querySelectorAll(sel).forEach(el=>el.remove()));}).catch(()=>{});}
@@ -590,7 +576,6 @@ async function buildGrid(panels){
   return sharp({create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}}).composite([{input:resized[0],left:0,top:0},{input:resized[1],left:CHART_W,top:0},{input:resized[2],left:0,top:CHART_H},{input:resized[3],left:CHART_W,top:CHART_H}]).jpeg({quality:95}).toBuffer();
 }
 
-// renderAllPanels: one browser per job, sequential, close after all done
 async function renderAllPanels(symbol){
   const all=[...HTF_INTERVALS.map(iv=>({iv,set:'HTF',key:tfLabel(iv)})),...LTF_INTERVALS.map(iv=>({iv,set:'LTF',key:tfLabel(iv)}))];
   log('INFO',`[BROWSER] Launching Chromium for ${symbol}`);
@@ -612,11 +597,15 @@ async function renderAllPanels(symbol){
 
 // ============================================================
 // PIPELINE
+// Gate: Corey → Spidey → Jane. No bypass path exists.
+// runJane() signature is (symbol, spideyHTF, spideyLTF, corey).
+// Dark Horse data is never passed to runJane().
 // ============================================================
 async function runFullPipeline(symbol){
   log('INFO',`[PIPELINE] ${symbol} HTF+LTF`);
   const[corey,spideyHTF]=await Promise.all([runCorey(symbol),runSpideyHTF(symbol,HTF_INTERVALS)]);
   const[spideyLTF,spideyMicro]=await Promise.all([runSpideyLTF(symbol,LTF_INTERVALS),runSpideyMicro(symbol,spideyHTF.dominantBias)]);
+  // Jane receives only: symbol + spideyHTF + spideyLTF + corey
   const jane=runJane(symbol,spideyHTF,spideyLTF,corey);
   const{htfGrid,ltfGrid,htfFail,ltfFail,partial}=await renderAllPanels(symbol);
   const ts=Date.now(),outcome=partial?OUTCOME.PARTIAL:OUTCOME.SUCCESS;
@@ -625,11 +614,147 @@ async function runFullPipeline(symbol){
 }
 
 // ============================================================
+// DARK HORSE PIPELINE TRIGGER
+// Called by DarkHorseEngine for WATCH candidates (score ≥ 8).
+// Enforces full pipeline — Jane never sees raw DH data.
+// darkHorseFlag is result metadata only, not passed to any engine.
+// ============================================================
+async function darkHorsePipelineTrigger(symbol,meta){
+  log('INFO',`[DH PIPELINE] ${symbol} — darkHorseFlag:${meta?.darkHorseFlag} score:${meta?.dhScore}`);
+  try{
+    // Full gate: Corey → Spidey → Jane
+    const result=await runFullPipeline(symbol);
+    // Attach DH metadata to result object only — not to any engine
+    result.darkHorseFlag=meta?.darkHorseFlag||false;
+    result.dhScore=meta?.dhScore||null;
+    result.dhReasons=meta?.dhReasons||[];
+    log('INFO',`[DH PIPELINE] ${symbol} complete — bias:${result.jane.finalBias} conviction:${result.jane.convictionLabel}`);
+    // Deliver to shared macros channel
+    const dhCh=await client.channels.fetch(SHARED_MACROS_CHANNEL).catch(()=>null);
+    if(dhCh?.isTextBased()){
+      try{
+        await dhCh.send({content:`🐎 **DARK HORSE → PIPELINE COMPLETE — ${symbol}**\nDH Score: ${meta?.dhScore}/10 | Jane: **${result.jane.finalBias}** | Conviction: **${result.jane.convictionLabel}**`});
+        await dhCh.send({content:`📡 **${symbol} — HTF** (Dark Horse triggered)`,files:[new AttachmentBuilder(result.htfGrid,{name:result.htfGridName})]});
+        await dhCh.send({content:`🔬 **${symbol} — LTF** (Dark Horse triggered)`,files:[new AttachmentBuilder(result.ltfGrid,{name:result.ltfGridName})]});
+        for(const chunk of chunkMsg(formatExecutionV4(result)))await dhCh.send({content:chunk});
+      }catch(e){log('ERROR',`[DH PIPELINE] Deliver failed for ${symbol}: ${e.message}`);}
+    }
+  }catch(e){log('ERROR',`[DH PIPELINE] runFullPipeline failed for ${symbol}: ${e.message}`);}
+}
+
+// ============================================================
 // EXECUTION INTERFACE v4 — OUTPUT FORMATTER
-// Essay output HARD REMOVED. Execution panel only.
 // ============================================================
 const convBar=c=>{if(!c||c<=0)return'`──────────` 0%';const f=Math.round(c*10);return'`'+'█'.repeat(f)+'─'.repeat(10-f)+'`'+` ${(c*100).toFixed(0)}%`;};
 const biasEmoji=b=>b==='Bullish'?'🟢':b==='Bearish'?'🔴':'⚪';
+
+// ── CAPITAL GATING — env-based, never hardcoded ───────────────
+const ATLAS_USER_CAPITAL=Number(process.env.ATLAS_USER_CAPITAL||0);
+
+// ── ASTRA STATUS MAPPING ──────────────────────────────────────
+// Maps Jane output → Astra status. Hard override rules enforced.
+function resolveAstraStatus(jane,ps){
+  // HARD OVERRIDE — always forces HOLD regardless of posState
+  if(jane.doNotTrade||jane.convictionLabel==='Abstain'||jane.finalBias==='Neutral')return'hold';
+  // DIVERGING → HOLD (system invalidation condition)
+  if(ps.label==='DIVERGING')return'hold';
+  // ACTIVE — execution only
+  if(ps.label==='ENTRY ZONE ACTIVE'&&!jane.doNotTrade)return'active';
+  // 30M READY — high conviction approaching
+  if(ps.label==='APPROACHING'&&jane.convictionLabel==='High')return'ready_30m';
+  // 1H WATCH — approaching but not high conviction
+  if(ps.label==='APPROACHING'&&jane.convictionLabel!=='High')return'watch_1h';
+  // 4H WATCH — dormant with low conviction
+  if(ps.label==='DORMANT'&&jane.convictionLabel==='Low')return'watch_4h';
+  // Default fallback
+  return'hold';
+}
+
+// ── ASTRA STATUS BLOCK FORMATTER ─────────────────────────────
+// Produces exact Discord output per Astra spec.
+// Inserted directly under charts in formatExecutionV4.
+function formatAstraBlock(astraStatus,jane,symbol,capital){
+  const cap=capital||ATLAS_USER_CAPITAL;
+  const showExtended=cap>=5000;
+  if(astraStatus==='hold'){
+    return[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS STATUS**',
+      '',
+      '⚪ **HOLD — NEUTRAL / NO TREND**',
+      '',
+      '• No directional bias',
+      '• Structure not confirmed',
+      '• Awaiting alignment',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ].join('\n');
+  }
+  if(astraStatus==='watch_4h'){
+    return[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS PRE-TRADE WARNING**',
+      '',
+      '🟨 **4H WATCH**',
+      '',
+      '• Structure forming toward POI',
+      '• Conditions building',
+      '• No execution yet',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ].join('\n');
+  }
+  if(astraStatus==='watch_1h'){
+    return[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS PRE-TRADE WARNING**',
+      '',
+      '🟧 **1H WATCH**',
+      '',
+      '• Price approaching zone',
+      '• Liquidity likely in play',
+      '• Monitor closely',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ].join('\n');
+  }
+  if(astraStatus==='ready_30m'){
+    return[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS PRE-TRADE WARNING**',
+      '',
+      '🟩 **30M READY**',
+      '',
+      '• Zone nearing activation',
+      '• Possible reaction forming',
+      '• Prepare for confirmation',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ].join('\n');
+  }
+  if(astraStatus==='active'){
+    const ez=jane.entryZone,inv=jane.invalidationLevel,tgt=jane.targets&&jane.targets.length>0?jane.targets:null;
+    const entryP=ez?`${fmtPrice(ez.low,symbol)} – ${fmtPrice(ez.high,symbol)}`:'N/A';
+    const entryE=ez?`${fmtPrice(ez.low*(jane.finalBias==='Bullish'?0.9990:1.0010),symbol)} – ${fmtPrice(ez.low,symbol)}`:'N/A';
+    const exitP=tgt?`${fmtPrice(tgt[0].level,symbol)}${tgt.length>1?' – '+fmtPrice(tgt[tgt.length-1].level,symbol):''}`:'N/A';
+    const stopP=inv?fmtPrice(inv,symbol):'N/A';
+    const stopE=inv?fmtPrice(inv*(jane.finalBias==='Bullish'?0.9985:1.0015),symbol):'N/A';
+    const lines=[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS EXECUTION MAP**',
+      '',
+      `🟢 **ENTRY POINT:** ${entryP}`,
+    ];
+    if(showExtended)lines.push(`🟠 **ENTRY EXTENDED:** ${entryE}`);
+    lines.push('');
+    lines.push(`🔴 **EXIT POINT:** ${exitP}`);
+    lines.push('');
+    lines.push(`🛑 **SET STOP LOSS:** ${stopP}`);
+    if(showExtended)lines.push(`🛑 **EXTENDED STOP LOSS:** ${stopE}`);
+    lines.push('');
+    lines.push('⚠️ **SELECT ONE STOP LOSS ONLY**');
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    return lines.join('\n');
+  }
+  return'⚪ **HOLD — AWAITING SIGNAL**';
+}
+
 
 function posState(jane,cp){
   if(jane.doNotTrade||jane.finalBias==='Neutral')return{icon:'⚪️',label:'DORMANT'};
@@ -651,7 +776,7 @@ function tradingPermission(jane,renderOk){
 
 function formatExecutionV4(result){
   const{symbol,spideyHTF,spideyLTF,jane,corey,htfFail,ltfFail}=result;
-  const cp=spideyHTF.currentPrice,renderOk=htfFail===0&&ltfFail===0,perm=tradingPermission(jane,renderOk),ps=posState(jane,cp);
+  const cp=spideyHTF.currentPrice,renderOk=htfFail===0&&ltfFail===0,perm=tradingPermission(jane,renderOk),ps=posState(jane,cp),astraStatus=resolveAstraStatus(jane,ps);
   const now=new Date(),dateStr=now.toLocaleDateString('en-AU',{weekday:'short',day:'2-digit',month:'short',year:'numeric',timeZone:'Australia/Perth'}),timeStr=now.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',timeZone:'Australia/Perth',timeZoneName:'short'}),utcTs=now.toISOString().replace('T',' ').slice(0,19)+' UTC';
   const vLine=buildVerificationLine(symbol,utcTs),feed=getFeedName(symbol),W='═'.repeat(32);
   const L=[];
@@ -660,6 +785,14 @@ function formatExecutionV4(result){
   L.push(`  📅 ${dateStr} · ⏰ ${timeStr}`);
   L.push(`  HTF + LTF · Weekly · Daily · 4H · 1H · 30M · 15M · 5M · 1M`);
   L.push(`╚${W}╝`);L.push('');
+  // Dark Horse flag indicator (metadata only — does not affect engine outputs)
+  if(result.darkHorseFlag){
+    L.push(`🐎 **Dark Horse Engine Flag** — Score: ${result.dhScore}/10`);
+    L.push('');
+  }
+  // ── ASTRA STATUS BLOCK — appears directly under charts ──────
+  L.push(formatAstraBlock(astraStatus,jane,symbol,ATLAS_USER_CAPITAL));
+  L.push('');
   L.push(`**ATLAS POSITION STATE:** ${ps.icon} ${ps.label}`);
   if(cp)L.push(`**Current Price:** ${fmtPrice(cp,symbol)}`);
   L.push('');
@@ -794,6 +927,41 @@ client.on('messageCreate',async msg=>{
       case'stats':{const top=Object.entries(STATS.symbols).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([s,c])=>`${s}:${c}`).join(' · ')||'none';await safeReply(msg,[`📊 **ATLAS FX v4.0 — Stats**`,`Total: **${STATS.total}** · Success: **${STATS.success}** · Partial: **${STATS.partial}** · Failed: **${STATS.failed}** · Blocked: **${STATS.blocked}**`,`Top symbols: ${top}`].join('\n'));return;}
       case'errors':{const rec=REQUEST_LOG.filter(r=>r.outcome===OUTCOME.FAILED||r.outcome===OUTCOME.PARTIAL).slice(0,5);if(!rec.length){await safeReply(msg,'✅ No recent errors.');return;}await safeReply(msg,`⚠️ **Recent Issues:**\n${rec.map(r=>`\`${r.time.slice(11,19)}\` ${r.symbol||'?'} — **${r.outcome}**`).join('\n')}`);return;}
       case'sysstate':await safeReply(msg,[`**SYSTEM STATE:** ${isBuildMode()?'⚠️ BUILD MODE':'✅ FULLY OPERATIONAL'}`,`**AUTH:** ${AUTH_AVAILABLE?`✅ VERIFIED — ${ATLAS_INSTANCE_ID}`:'❌ UNVERIFIED — auth env vars absent'}`,`**TRADE PERMITTED:** ${isTradePermitAllowed()?'🟢 POSSIBLE (subject to gating)':'🔴 BLOCKED'}`].join('\n'));return;
+
+      // ── DARK HORSE COMMAND ────────────────────────────────────
+      case'darkhorse':{
+        const group=CHANNEL_GROUP_MAP[msg.channel.id];
+        if(!group)return; // DH command only from known channels
+        const dhProgress=await safeReply(msg,
+          `🐎 **DARK HORSE** — Manual scan triggered.\nScanning ${DH_UNIVERSE.length} instruments: ${DH_UNIVERSE.join(' · ')}`
+        );
+        try{
+          const scanResult=await runDarkHorseScan();
+          const{watch,internal,ignored}=scanResult;
+          const watchLines=watch.length
+            ?watch.map(c=>`🟢 **${c.symbol}** — ${c.score}/10 → WATCH (pipeline triggered)`).join('\n')
+            :'None above threshold.';
+          const internalLines=internal.length
+            ?internal.map(c=>`🟡 ${c.symbol} — ${c.score}/10 (stored internally)`).join('\n')
+            :'None.';
+          const reply=
+            `🐎 **ATLAS DARK HORSE — SCAN COMPLETE**\n\n`+
+            `**Universe:** ${DH_UNIVERSE.join(' · ')}\n\n`+
+            `**WATCH (≥8):**\n${watchLines}\n\n`+
+            `**INTERNAL (5–7):**\n${internalLines}\n\n`+
+            `**Ignored (<5):** ${ignored.length} instrument(s)\n\n`+
+            `**Pipeline:** WATCH candidates have entered Corey → Spidey → Jane.\n`+
+            `**Rule:** Dark Horse is a scan flag only. Jane has final authority.`;
+          if(dhProgress)await safeEdit(dhProgress,reply);
+          else await safeReply(msg,reply);
+        }catch(e){
+          log('ERROR',`[DH CMD] ${e.message}`);
+          const errMsg=`❌ Dark Horse scan failed.\n\`${e.message}\``;
+          if(dhProgress)await safeEdit(dhProgress,errMsg);
+          else await safeReply(msg,errMsg);
+        }
+        return;
+      }
     }
   }
 
