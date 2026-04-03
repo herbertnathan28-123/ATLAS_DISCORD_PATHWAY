@@ -22,9 +22,7 @@ const DH_WEBHOOK_URL = process.env.DARKHORSE_STOCK || null;
 
 const DH_ASTRA_WEBHOOKS = {
   AT: process.env['CHAT-WITH-ASTRA-AT'] || null,
-  SK: process.env['CHAT-WITH-ASTRA-SK'] || null,
-  NM: process.env['CHAT-WITH-ASTRA-NM'] || null,
-  BR: process.env['CHAT-WITH-ASTRA-BR'] || null,
+
 };
 
 // ── INTERNAL STATE ────────────────────────────────────────────
