@@ -4,6 +4,7 @@
 // EXECUTION INTERFACE v4 — INSTITUTIONAL GRADE
 // Dark Horse Engine integrated — v4.0.1
 // Execution Map table locked format — v4.0.3
+// Chart engine: chartjs-node-canvas — v4.1.0
 // ============================================================
 process.on('unhandledRejection',(r)=>{console.error('[UNHANDLED]',r);});
 process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
@@ -14,7 +15,7 @@ const crypto=require('crypto');
 const fs=require('fs');
 const https=require('https');
 const http=require('http');
-const{chromium}=require('playwright');
+// Playwright removed — replaced by chartjs-node-canvas
 
 // ── DARK HORSE ENGINE ─────────────────────────────────────────
 const{
@@ -530,89 +531,239 @@ function runJane(symbol,spideyHTF,spideyLTF,corey){
 }
 
 // ============================================================
-// CHART ENGINE
+// CHART ENGINE — Native Canvas Rendering
+// chartjs-node-canvas + TwelveData OHLC — no browser required
+// Replaces Playwright/TradingView screenshotting entirely
 // ============================================================
-function buildPanelUrl(sym,iv){const tvSym=encodeURIComponent(getTVSymbol(sym)),interval=encodeURIComponent(iv);return`https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${interval}&theme=dark&style=1&hide_top_toolbar=1&hide_side_toolbar=1&hide_legend=1&save_image=false&backgroundColor=%23000000&upColor=%2326a69a&downColor=%23ef5350&borderUpColor=%2326a69a&borderDownColor=%23ef5350&wickUpColor=%2326a69a&wickDownColor=%23ef5350`;}
-async function cleanUI(page){await page.evaluate(()=>{['[data-name="header-toolbar"]','[data-name="right-toolbar"]','[data-name="left-toolbar"]','.layout__area--right','.layout__area--left','.layout__area--top','.tv-side-toolbar','.tv-control-bar','.tv-floating-toolbar','.chart-controls-bar','.header-chart-panel','[data-name="legend"]','.chart-toolbar','.topbar','.top-bar','.tv-watermark','#overlap-manager-root'].forEach(sel=>document.querySelectorAll(sel).forEach(el=>el.remove()));}).catch(()=>{});}
-async function closePopups(page){const sels=['button[aria-label="Close"]','button:has-text("Accept")','button:has-text("Got it")'];for(const sel of sels){try{const btn=page.locator(sel).first();if(await btn.isVisible({timeout:500}))await btn.click();}catch{}}}
-async function makePlaceholder(sym,tfKey,reason){const label=`${sym} ${tfKey}`,r2=(reason||'RENDER FAILED').replace(/[\x00-\x1F\x7F]/g,'').replace(/[<>&"']/g,'').slice(0,60);const svg=Buffer.from(`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/><text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#444" text-anchor="middle">${label}</text><text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#333" text-anchor="middle">${r2}</text><text x="${CHART_W/2}" y="${CHART_H/2+80}" font-family="monospace" font-size="22" fill="#222" text-anchor="middle">PLACEHOLDER — DATA UNAVAILABLE</text></svg>`);return await sharp(svg).resize(CHART_W,CHART_H).jpeg({quality:60}).toBuffer();}
+const{ChartJSNodeCanvas}=require('chartjs-node-canvas');
+const{Chart,registerables}=require('chart.js');
+Chart.register(...registerables);
 
-async function capturePanel(browser,sym,iv,tfKey){
-  const url=buildPanelUrl(sym,iv);
-  for(let attempt=1;attempt<=MAX_RETRIES;attempt++){
-    let page;
-    try{
-      log('INFO',`[PANEL START] ${sym} ${tfKey} attempt ${attempt}`);
-      page=await browser.newPage();
-      await page.setViewportSize({width:CHART_W,height:CHART_H});
-      if(TV_COOKIES&&TV_COOKIES.length>0)await page.context().addCookies(TV_COOKIES);
-      page.setDefaultNavigationTimeout(RENDER_TIMEOUT_MS);page.setDefaultTimeout(RENDER_TIMEOUT_MS);
-      await page.addInitScript(()=>{try{localStorage.setItem('theme','dark');}catch{}});
-      await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
-      await page.waitForTimeout(5000); // allow TV JS to initialise after DOM load
-      const bodyTxt=await page.evaluate(()=>document.body?.innerText||'').catch(()=>'');
-      if(/symbol.{0,30}(doesn't|does not|not found|invalid)/i.test(bodyTxt))throw new Error(`Symbol not found: ${sym}`);
-      await page.waitForSelector('canvas',{timeout:25000});
-      await page.waitForFunction(threshold=>{const c=Array.from(document.querySelectorAll('canvas'));if(!c.length)return false;const l=c.reduce((b,x)=>x.width*x.height>b.width*b.height?x:b,c[0]);return l.width*l.height>=threshold;},MIN_CANVAS_AREA,{timeout:30000});
-      await page.waitForFunction(()=>{const c=Array.from(document.querySelectorAll('canvas'));if(!c.length)return false;const l=c.reduce((b,x)=>x.width*x.height>b.width*b.height?x:b,c[0]);try{const ctx=l.getContext('2d');if(!ctx)return false;const w=l.width,h=l.height,d=ctx.getImageData(w*0.1,h*0.3,w*0.8,h*0.4);let nb=0;for(let i=0;i<d.data.length;i+=16){if(d.data[i]>20||d.data[i+1]>20||d.data[i+2]>20)nb++;}return nb>50;}catch{return false;}},{timeout:25000});
-      await page.evaluate(()=>{document.querySelectorAll('.loading,.spinner,[class*="loading"],[class*="spinner"]').forEach(el=>el.remove());}).catch(()=>{});
-      await page.waitForTimeout(4000);await closePopups(page);await cleanUI(page);
-      await page.evaluate((w,h)=>{document.querySelectorAll('.chart-container,.layout__area--center,[class*="chart-markup-table"],.pane-html').forEach(el=>{el.style.width=w+'px';el.style.height=h+'px';});window.dispatchEvent(new Event('resize'));},CHART_W,CHART_H).catch(()=>{});
-      await page.waitForTimeout(2000);
-      const buf=await page.screenshot({type:'png',fullPage:false,clip:{x:0,y:0,width:CHART_W,height:CHART_H}});
-      await page.close().catch(()=>{});
-      if(!buf||buf.length<80000)throw new Error(`Weak/blank render — buffer ${buf?.length||0}B (minimum 80KB required)`);
-      log('INFO',`[OK] ${sym} ${tfKey} ${(buf.length/1024).toFixed(0)}KB`);
-      return buf;
-    }catch(err){
-      log('ERROR',`[FAIL] ${sym} ${tfKey}: ${err.message}`);
-      if(page){try{await page.close();}catch{}}
-      if(attempt===MAX_RETRIES)throw err;
-      await new Promise(r=>setTimeout(r,3000));
-    }
+// CHART_W and CHART_H defined in constants above
+
+// ── COLOUR PALETTE ────────────────────────────────────────────
+const C={
+  bg:'#000000',
+  gridLine:'#1a1a2e',
+  axisText:'#888888',
+  upBody:'#26a69a',
+  downBody:'#ef5350',
+  upWick:'#26a69a',
+  downWick:'#ef5350',
+  label:'#cccccc',
+  currentPrice:'#f0b90b',
+};
+
+// ── CHART RENDERER ────────────────────────────────────────────
+const renderer=new ChartJSNodeCanvas({
+  width:CHART_W,
+  height:CHART_H,
+  backgroundColour:C.bg,
+  plugins:{modern:['chartjs-chart-financial']},
+});
+
+// ── DRAW SINGLE CANDLESTICK CHART ─────────────────────────────
+async function renderCandleChart(candles,symbol,tfLabel){
+  if(!candles||candles.length<2){
+    return makePlaceholder(symbol,tfLabel,'No data');
   }
-}
 
-async function buildGrid(panels){
-  const resized=await Promise.all(panels.map(img=>sharp(img).resize(CHART_W,CHART_H,{fit:'cover',position:'centre'}).png().toBuffer()));
-  return sharp({create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}}).composite([{input:resized[0],left:0,top:0},{input:resized[1],left:CHART_W,top:0},{input:resized[2],left:0,top:CHART_H},{input:resized[3],left:CHART_W,top:CHART_H}]).jpeg({quality:95}).toBuffer();
-}
+  // Slice to last 80 candles for clarity
+  const data=candles.slice(-80);
+  const cp=data[data.length-1].close;
 
-// ── BROWSER LAUNCH ARGS ──────────────────────────────────────
-// Fresh browser per panel — prevents one crash cascading to all panels
-const BROWSER_ARGS=['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding','--disable-extensions','--disable-software-rasterizer','--disable-features=VizDisplayCompositor'];
+  // Build OHLC dataset
+  const ohlcData=data.map(c=>({
+    x:c.time*1000,
+    o:c.open,
+    h:c.high,
+    l:c.low,
+    c:c.close,
+  }));
 
-async function capturePanelFreshBrowser(sym,iv,tfKey){
-  // Each panel gets its own browser instance — crash isolation
-  const browser=await chromium.launch({headless:true,args:BROWSER_ARGS});
+  // Price range with 2% padding
+  const allH=data.map(c=>c.high),allL=data.map(c=>c.low);
+  const pMax=Math.max(...allH),pMin=Math.min(...allL);
+  const pad=(pMax-pMin)*0.08;
+  const yMin=pMin-pad,yMax=pMax+pad;
+
+  // Format price for y-axis
+  const{dp}=getPipSize(symbol);
+  const fmtY=v=>Number(v).toFixed(dp);
+
+  // Format time for x-axis based on timeframe
+  const tfKey=tfLabel.toUpperCase();
+  const fmtX=ts=>{
+    const d=new Date(ts);
+    if(tfKey==='WEEKLY'||tfKey==='DAILY')
+      return d.toLocaleDateString('en-AU',{day:'2-digit',month:'short'});
+    if(tfKey==='4H'||tfKey==='1H')
+      return d.toLocaleString('en-AU',{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+    return d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false});
+  };
+
+  const config={
+    type:'candlestick',
+    data:{
+      datasets:[{
+        label:symbol,
+        data:ohlcData,
+        color:{
+          up:C.upBody,
+          down:C.downBody,
+          unchanged:C.upBody,
+        },
+        borderColor:{
+          up:C.upWick,
+          down:C.downWick,
+          unchanged:C.upWick,
+        },
+        borderWidth:1.5,
+      }]
+    },
+    options:{
+      responsive:false,
+      animation:false,
+      plugins:{
+        legend:{display:false},
+        tooltip:{enabled:false},
+      },
+      scales:{
+        x:{
+          type:'timeseries',
+          ticks:{
+            color:C.axisText,
+            maxTicksLimit:10,
+            maxRotation:0,
+            font:{size:18},
+            callback:(v)=>fmtX(v),
+          },
+          grid:{color:C.gridLine,lineWidth:0.5},
+          border:{color:C.gridLine},
+        },
+        y:{
+          position:'right',
+          min:yMin,
+          max:yMax,
+          ticks:{
+            color:C.axisText,
+            maxTicksLimit:8,
+            font:{size:18},
+            callback:(v)=>fmtY(v),
+          },
+          grid:{color:C.gridLine,lineWidth:0.5},
+          border:{color:C.gridLine},
+        },
+      },
+    },
+    plugins:[{
+      id:'atlasOverlay',
+      afterDraw(chart){
+        const{ctx,chartArea:{left,right,top,bottom},scales:{y}}=chart;
+
+        // Current price line
+        const cpY=y.getPixelForValue(cp);
+        ctx.save();
+        ctx.strokeStyle=C.currentPrice;
+        ctx.lineWidth=1.5;
+        ctx.setLineDash([8,4]);
+        ctx.beginPath();ctx.moveTo(left,cpY);ctx.lineTo(right,cpY);ctx.stroke();
+
+        // Current price label
+        ctx.fillStyle=C.currentPrice;
+        ctx.font=`bold 20px monospace`;
+        ctx.fillText(fmtY(cp),right+8,cpY+6);
+        ctx.restore();
+
+        // Timeframe label top-left
+        ctx.save();
+        ctx.fillStyle=C.label;
+        ctx.font=`bold 28px monospace`;
+        ctx.fillText(`${symbol}  ${tfLabel}`,left+20,top+40);
+        ctx.restore();
+      }
+    }],
+  };
+
   try{
-    const buf=await capturePanel(browser,sym,iv,tfKey);
-    return buf;
-  }finally{
-    try{await browser.close();}catch(e){log('WARN',`[BROWSER] Close error ${tfKey}: ${e.message}`);}
+    return await renderer.renderToBuffer(config,'image/png');
+  }catch(e){
+    log('WARN',`[CHART] ${symbol} ${tfLabel} render error: ${e.message}`);
+    return makePlaceholder(symbol,tfLabel,e.message);
   }
 }
 
+// ── PLACEHOLDER (no browser needed) ──────────────────────────
+async function makePlaceholder(sym,tfKey,reason){
+  const label=`${sym} ${tfKey}`,r2=(reason||'NO DATA').slice(0,60);
+  // Use sharp to create a plain dark rectangle with text via SVG
+  const svg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/>
+    <text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#333" text-anchor="middle">${label}</text>
+    <text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#222" text-anchor="middle">${r2}</text>
+  </svg>`;
+  return sharp(Buffer.from(svg)).resize(CHART_W,CHART_H).png().toBuffer();
+}
+
+// ── BUILD 2x2 GRID ────────────────────────────────────────────
+async function buildGrid(panels){
+  const halfW=CHART_W,halfH=CHART_H;
+  const resized=await Promise.all(
+    panels.map(img=>sharp(img).resize(halfW,halfH,{fit:'cover',position:'centre'}).png().toBuffer())
+  );
+  return sharp({
+    create:{width:halfW*2,height:halfH*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}
+  }).composite([
+    {input:resized[0],left:0,top:0},
+    {input:resized[1],left:halfW,top:0},
+    {input:resized[2],left:0,top:halfH},
+    {input:resized[3],left:halfW,top:halfH},
+  ]).jpeg({quality:95}).toBuffer();
+}
+
+// ── RENDER ALL PANELS ─────────────────────────────────────────
 async function renderAllPanels(symbol){
-  const all=[...HTF_INTERVALS.map(iv=>({iv,set:'HTF',key:tfLabel(iv)})),...LTF_INTERVALS.map(iv=>({iv,set:'LTF',key:tfLabel(iv)}))];
-  log('INFO',`[RENDER] ${symbol} — launching fresh browser per panel (crash isolation)`);
-  const htfP=[],ltfP=[];let htfFail=0,ltfFail=0;
-  for(const{iv,set,key}of all){
-    let buf;
+  log('INFO',`[CHART] Rendering 8 panels for ${symbol}`);
+  const htfP=[],ltfP=[];
+  let htfFail=0,ltfFail=0;
+
+  for(const iv of HTF_INTERVALS){
+    const key=tfLabel(iv);
     try{
-      buf=await capturePanelFreshBrowser(symbol,iv,key);
-    }catch(err){
-      log('WARN',`[RENDER SKIP] ${symbol} ${key}: ${err.message}`);
-      buf=await makePlaceholder(symbol,key,err.message);
-      if(set==='HTF')htfFail++;else ltfFail++;
+      const candles=await safeOHLC(symbol,iv,120);
+      const buf=await renderCandleChart(candles,symbol,key);
+      htfP.push(buf);
+      log('INFO',`[CHART] ${symbol} ${key} OK`);
+    }catch(e){
+      log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);
+      htfP.push(await makePlaceholder(symbol,key,e.message));
+      htfFail++;
     }
-    if(set==='HTF')htfP.push(buf);else ltfP.push(buf);
   }
-  if(htfFail/HTF_INTERVALS.length>ABORT_THRESHOLD||ltfFail/LTF_INTERVALS.length>ABORT_THRESHOLD)throw new Error(`[ABORT] ${symbol} render integrity failed — HTF:${htfFail}/4 LTF:${ltfFail}/4 panels failed`);
+
+  for(const iv of LTF_INTERVALS){
+    const key=tfLabel(iv);
+    try{
+      const candles=await safeOHLC(symbol,iv,120);
+      const buf=await renderCandleChart(candles,symbol,key);
+      ltfP.push(buf);
+      log('INFO',`[CHART] ${symbol} ${key} OK`);
+    }catch(e){
+      log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);
+      ltfP.push(await makePlaceholder(symbol,key,e.message));
+      ltfFail++;
+    }
+  }
+
+  if(htfFail/HTF_INTERVALS.length>ABORT_THRESHOLD||ltfFail/LTF_INTERVALS.length>ABORT_THRESHOLD)
+    throw new Error(`[ABORT] ${symbol} chart render failed — HTF:${htfFail}/4 LTF:${ltfFail}/4`);
+
   const htfGrid=await buildGrid(htfP),ltfGrid=await buildGrid(ltfP);
-  log('INFO',`[GRID] ${symbol} HTF:${htfFail===0?'OK':`${htfFail} placeholder(s)`} LTF:${ltfFail===0?'OK':`${ltfFail} placeholder(s)`}`);
+  log('INFO',`[CHART] ${symbol} grids built — HTF:${htfFail===0?'OK':`${htfFail} placeholder(s)`} LTF:${ltfFail===0?'OK':`${ltfFail} placeholder(s)`}`);
   return{htfGrid,ltfGrid,htfFail,ltfFail,partial:htfFail>0||ltfFail>0};
 }
+
+
 
 // ============================================================
 // PIPELINE
