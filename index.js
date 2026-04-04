@@ -3,7 +3,7 @@
 // ATLAS FX DISCORD BOT — v4.0
 // EXECUTION INTERFACE v4 — INSTITUTIONAL GRADE
 // Dark Horse Engine integrated — v4.0.1
-// Chart engine: chartjs-node-canvas v4.1.0
+// Chart engine: chart-img.com API v4.2.0
 // ============================================================
 process.on('unhandledRejection',(r)=>{console.error('[UNHANDLED]',r);});
 process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
@@ -530,124 +530,158 @@ function runJane(symbol,spideyHTF,spideyLTF,corey){
 }
 
 // ============================================================
-// CHART ENGINE — chartjs-node-canvas
-// Candlesticks drawn via custom plugin — no external chart plugin
+// CHART ENGINE — chart-img.com API
+// TradingView native rendering — 2048x1920 per panel
+// No browser, no crashes, institutional grade quality
 // ============================================================
-const{ChartJSNodeCanvas}=require('chartjs-node-canvas');
 
-const CHART_COLORS={
-  bg:'#000000',grid:'#1a1a2e',axis:'#888888',
-  up:'#26a69a',down:'#ef5350',label:'#cccccc',price:'#f0b90b',
+const CHART_IMG_API_KEY = process.env.CHART_IMG_API_KEY || null;
+const CHART_IMG_BASE = 'https://api.chart-img.com/v1/tradingview/advanced-chart';
+
+// Timeframe map — chart-img.com interval format
+const CI_INTERVAL_MAP = {
+  '1W':'1W','1D':'1D','240':'4H','60':'1H',
+  '30':'30m','15':'15m','5':'5m','1':'1m'
 };
 
-const candlestickPlugin={
-  id:'cs',
-  afterDatasetsDraw(chart){
-    const{ctx,data,scales:{x,y}}=chart;
-    const raw=data.datasets[0]?.data;
-    if(!raw?.length)return;
-    const bw=Math.max(2,Math.min(16,(x.right-x.left)/raw.length*0.6));
-    ctx.save();
-    raw.forEach((d,i)=>{
-      if(!d)return;
-      const xp=x.getPixelForValue(i);
-      const op=y.getPixelForValue(d.o),cp=y.getPixelForValue(d.c);
-      const hp=y.getPixelForValue(d.h),lp=y.getPixelForValue(d.l);
-      const up=d.c>=d.o,col=up?CHART_COLORS.up:CHART_COLORS.down;
-      ctx.strokeStyle=col;ctx.lineWidth=1;
-      ctx.beginPath();ctx.moveTo(xp,hp);ctx.lineTo(xp,lp);ctx.stroke();
-      ctx.fillStyle=col;
-      ctx.fillRect(xp-bw/2,Math.min(op,cp),bw,Math.max(1,Math.abs(cp-op)));
-    });
-    ctx.restore();
-  }
-};
-
-const chartRenderer=new ChartJSNodeCanvas({width:CHART_W,height:CHART_H,backgroundColour:CHART_COLORS.bg});
-
-async function makePlaceholder(sym,tfKey,reason){
-  const r2=(reason||'NO DATA').slice(0,60);
-  const svg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/><text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#333" text-anchor="middle">${sym} ${tfKey}</text><text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#222" text-anchor="middle">${r2}</text></svg>`;
-  return sharp(Buffer.from(svg)).resize(CHART_W,CHART_H).png().toBuffer();
-}
-
-async function renderCandleChart(candles,symbol,tfKey){
-  if(!candles||candles.length<2)return makePlaceholder(symbol,tfKey,'No data');
-  const data=candles.slice(-80);
-  const{dp}=getPipSize(symbol);
-  const allH=data.map(c=>c.high),allL=data.map(c=>c.low);
-  const pMax=Math.max(...allH),pMin=Math.min(...allL),pad=(pMax-pMin)*0.08;
-  const lastClose=data[data.length-1].close;
-  const step=Math.max(1,Math.floor(data.length/10));
-  const labels=data.map((c,i)=>{
-    if(i%step!==0)return'';
-    const d=new Date(c.time*1000),u=tfKey.toUpperCase();
-    if(u==='WEEKLY'||u==='DAILY')return d.toLocaleDateString('en-AU',{day:'2-digit',month:'short'});
-    if(u==='4H'||u==='1H')return d.toLocaleString('en-AU',{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
-    return d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false});
-  });
-  const priceLabel=`${symbol}  ${tfKey}`;
-  const config={
-    type:'bar',
-    plugins:[candlestickPlugin,{
-      id:'ov',
-      afterDraw(chart){
-        const{ctx,chartArea:{left,right,top},scales:{y}}=chart;
-        const cpY=y.getPixelForValue(lastClose);
-        ctx.save();
-        ctx.strokeStyle=CHART_COLORS.price;ctx.lineWidth=1.5;ctx.setLineDash([8,4]);
-        ctx.beginPath();ctx.moveTo(left,cpY);ctx.lineTo(right,cpY);ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle=CHART_COLORS.price;ctx.font='bold 20px monospace';
-        ctx.fillText(Number(lastClose).toFixed(dp),right+8,cpY+6);
-        ctx.fillStyle=CHART_COLORS.label;ctx.font='bold 28px monospace';
-        ctx.fillText(priceLabel,left+20,top+40);
-        ctx.restore();
-      }
-    }],
-    data:{
-      labels,
-      datasets:[{data:data.map(c=>({o:c.open,h:c.high,l:c.low,c:c.close})),backgroundColor:'transparent',borderColor:'transparent'}]
-    },
-    options:{
-      responsive:false,animation:false,
-      plugins:{legend:{display:false},tooltip:{enabled:false}},
-      scales:{
-        x:{ticks:{color:CHART_COLORS.axis,maxRotation:0,font:{size:18}},grid:{color:CHART_COLORS.grid,lineWidth:0.5},border:{color:CHART_COLORS.grid}},
-        y:{position:'right',min:pMin-pad,max:pMax+pad,ticks:{color:CHART_COLORS.axis,maxTicksLimit:8,font:{size:18},callback:v=>Number(v).toFixed(dp)},grid:{color:CHART_COLORS.grid,lineWidth:0.5},border:{color:CHART_COLORS.grid}},
-      },
-    },
+// Symbol map — OANDA format for FX/metals, standard for indices/equities
+function getCISymbol(symbol) {
+  const overrides = {
+    XAUUSD:'OANDA:XAUUSD',XAGUSD:'OANDA:XAGUSD',
+    BCOUSD:'OANDA:BCOUSD',USOIL:'OANDA:BCOUSD',
+    NAS100:'OANDA:NAS100USD',US500:'OANDA:SPX500USD',
+    US30:'OANDA:US30USD',EURUSD:'OANDA:EURUSD',
+    GBPUSD:'OANDA:GBPUSD',USDJPY:'OANDA:USDJPY',
+    AUDUSD:'OANDA:AUDUSD',AUDJPY:'OANDA:AUDJPY',
+    GBPJPY:'OANDA:GBPJPY',USDCAD:'OANDA:USDCAD',
+    USDCHF:'OANDA:USDCHF',NZDUSD:'OANDA:NZDUSD',
+    MICRON:'NASDAQ:MU',AMD:'NASDAQ:AMD',
+    NVDA:'NASDAQ:NVDA',ASML:'NASDAQ:ASML',
   };
-  try{return await chartRenderer.renderToBuffer(config,'image/png');}
-  catch(e){log('WARN',`[CHART] ${symbol} ${tfKey}: ${e.message}`);return makePlaceholder(symbol,tfKey,e.message);}
+  if(overrides[symbol]) return overrides[symbol];
+  if(/^[A-Z]{6}$/.test(symbol)) return `OANDA:${symbol}`;
+  return `NASDAQ:${symbol}`;
 }
 
-async function buildGrid(panels){
-  const resized=await Promise.all(panels.map(img=>sharp(img).resize(CHART_W,CHART_H,{fit:'cover',position:'centre'}).png().toBuffer()));
-  return sharp({create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}})
-    .composite([{input:resized[0],left:0,top:0},{input:resized[1],left:CHART_W,top:0},{input:resized[2],left:0,top:CHART_H},{input:resized[3],left:CHART_W,top:CHART_H}])
-    .jpeg({quality:95}).toBuffer();
+async function fetchChartImage(symbol, iv) {
+  if(!CHART_IMG_API_KEY) throw new Error('CHART_IMG_API_KEY not set');
+  const ciSym = getCISymbol(symbol);
+  const ciInt = CI_INTERVAL_MAP[iv] || '1D';
+
+  const params = new URLSearchParams({
+    symbol: ciSym,
+    interval: ciInt,
+    theme: 'dark',
+    style: '1',           // Candles
+    width: '2048',
+    height: '1080',
+    timezone: 'Australia/Perth',
+    hide_top_toolbar: '1',
+    hide_side_toolbar: '1',
+    save_image: 'false',
+  });
+
+  const url = `${CHART_IMG_BASE}?${params.toString()}`;
+
+  return new Promise((resolve, reject) => {
+    const parsedUrl = new URL(url);
+    const opts = {
+      hostname: parsedUrl.hostname,
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${CHART_IMG_API_KEY}`,
+        'User-Agent': 'ATLAS-FX/4.2.0',
+      },
+      timeout: 60000,
+    };
+
+    const req = https.request(opts, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        if(res.statusCode !== 200) {
+          const body = Buffer.concat(chunks).toString();
+          reject(new Error(`chart-img ${res.statusCode}: ${body.slice(0,200)}`));
+          return;
+        }
+        resolve(Buffer.concat(chunks));
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => reject(new Error('chart-img timeout')));
+    req.end();
+  });
 }
 
-async function renderAllPanels(symbol){
-  log('INFO',`[CHART] ${symbol} — rendering 8 panels`);
-  const htfP=[],ltfP=[];let htfFail=0,ltfFail=0;
-  for(const iv of HTF_INTERVALS){
-    const key=tfLabel(iv);
-    try{htfP.push(await renderCandleChart(await safeOHLC(symbol,iv,120),symbol,key));log('INFO',`[CHART] ${symbol} ${key} OK`);}
-    catch(e){log('WARN',`[CHART] ${symbol} ${key}: ${e.message}`);htfP.push(await makePlaceholder(symbol,key,e.message));htfFail++;}
-  }
-  for(const iv of LTF_INTERVALS){
-    const key=tfLabel(iv);
-    try{ltfP.push(await renderCandleChart(await safeOHLC(symbol,iv,120),symbol,key));log('INFO',`[CHART] ${symbol} ${key} OK`);}
-    catch(e){log('WARN',`[CHART] ${symbol} ${key}: ${e.message}`);ltfP.push(await makePlaceholder(symbol,key,e.message));ltfFail++;}
-  }
-  if(htfFail/HTF_INTERVALS.length>ABORT_THRESHOLD||ltfFail/LTF_INTERVALS.length>ABORT_THRESHOLD)
-    throw new Error(`[ABORT] ${symbol} render failed — HTF:${htfFail}/4 LTF:${ltfFail}/4`);
-  const htfGrid=await buildGrid(htfP),ltfGrid=await buildGrid(ltfP);
-  log('INFO',`[CHART] ${symbol} complete`);
-  return{htfGrid,ltfGrid,htfFail,ltfFail,partial:htfFail>0||ltfFail>0};
+async function makePlaceholder(sym, tfKey, reason) {
+  const r2 = (reason || 'NO DATA').slice(0, 60);
+  const svg = `<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/>
+    <text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#333" text-anchor="middle">${sym} ${tfKey}</text>
+    <text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#222" text-anchor="middle">${r2}</text>
+  </svg>`;
+  return sharp(Buffer.from(svg)).resize(CHART_W, CHART_H).png().toBuffer();
 }
+
+async function buildGrid(panels) {
+  const resized = await Promise.all(
+    panels.map(img => sharp(img).resize(CHART_W, CHART_H, {fit:'cover',position:'centre'}).png().toBuffer())
+  );
+  return sharp({
+    create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}
+  }).composite([
+    {input:resized[0],left:0,top:0},
+    {input:resized[1],left:CHART_W,top:0},
+    {input:resized[2],left:0,top:CHART_H},
+    {input:resized[3],left:CHART_W,top:CHART_H},
+  ]).jpeg({quality:95}).toBuffer();
+}
+
+async function renderAllPanels(symbol) {
+  if(!CHART_IMG_API_KEY) {
+    log('ERROR','[CHART] CHART_IMG_API_KEY not set — cannot render charts');
+    throw new Error('CHART_IMG_API_KEY missing from environment');
+  }
+  log('INFO',`[CHART] ${symbol} — fetching 8 panels from chart-img.com`);
+  const htfP=[], ltfP=[];
+  let htfFail=0, ltfFail=0;
+
+  for(const iv of HTF_INTERVALS) {
+    const key = tfLabel(iv);
+    try {
+      const buf = await fetchChartImage(symbol, iv);
+      htfP.push(buf);
+      log('INFO',`[CHART] ${symbol} ${key} OK (${(buf.length/1024).toFixed(0)}KB)`);
+    } catch(e) {
+      log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);
+      htfP.push(await makePlaceholder(symbol, key, e.message));
+      htfFail++;
+    }
+  }
+
+  for(const iv of LTF_INTERVALS) {
+    const key = tfLabel(iv);
+    try {
+      const buf = await fetchChartImage(symbol, iv);
+      ltfP.push(buf);
+      log('INFO',`[CHART] ${symbol} ${key} OK (${(buf.length/1024).toFixed(0)}KB)`);
+    } catch(e) {
+      log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);
+      ltfP.push(await makePlaceholder(symbol, key, e.message));
+      ltfFail++;
+    }
+  }
+
+  if(htfFail/HTF_INTERVALS.length > ABORT_THRESHOLD || ltfFail/LTF_INTERVALS.length > ABORT_THRESHOLD)
+    throw new Error(`[ABORT] ${symbol} chart render failed — HTF:${htfFail}/4 LTF:${ltfFail}/4`);
+
+  const htfGrid = await buildGrid(htfP);
+  const ltfGrid = await buildGrid(ltfP);
+  log('INFO',`[CHART] ${symbol} grids built — HTF:${htfFail===0?'OK':`${htfFail} placeholder(s)`} LTF:${ltfFail===0?'OK':`${ltfFail} placeholder(s)`}`);
+  return {htfGrid, ltfGrid, htfFail, ltfFail, partial:htfFail>0||ltfFail>0};
+}
+
 
 
 
