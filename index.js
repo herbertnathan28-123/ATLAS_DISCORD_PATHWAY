@@ -536,7 +536,8 @@ function runJane(symbol,spideyHTF,spideyLTF,corey){
 // ============================================================
 
 const CHART_IMG_API_KEY = process.env.CHART_IMG_API_KEY || null;
-const CHART_IMG_BASE = 'https://api.chart-img.com/v1/tradingview/advanced-chart';
+// chart-img.com v2 API — POST with JSON — full colour and study control
+const CHART_IMG_V2_HOST = 'api.chart-img.com';
 
 // Timeframe map — chart-img.com interval format
 const CI_INTERVAL_MAP = {
@@ -568,25 +569,42 @@ async function fetchChartImage(symbol, iv) {
   const ciSym = getCISymbol(symbol);
   const ciInt = CI_INTERVAL_MAP[iv] || '1D';
 
-  const params = new URLSearchParams({
+  // v2 API — POST with JSON body — full colour control, volume removal
+  const payload = JSON.stringify({
     symbol: ciSym,
     interval: ciInt,
     theme: 'dark',
-    width: '2048',
-    height: '1080',
+    width: 2048,
+    height: 1080,
     timezone: 'Australia/Perth',
+    // Override candle colours — neon vibrant
+    override: {
+      'mainSeriesProperties.candleStyle.upColor': 'rgb(0,255,170)',
+      'mainSeriesProperties.candleStyle.downColor': 'rgb(255,50,50)',
+      'mainSeriesProperties.candleStyle.borderUpColor': 'rgb(0,255,170)',
+      'mainSeriesProperties.candleStyle.borderDownColor': 'rgb(255,50,50)',
+      'mainSeriesProperties.candleStyle.wickUpColor': 'rgb(0,200,130)',
+      'mainSeriesProperties.candleStyle.wickDownColor': 'rgb(200,40,40)',
+      'paneProperties.background': 'rgb(5,5,10)',
+      'paneProperties.backgroundType': 'solid',
+      'paneProperties.vertGridProperties.color': 'rgba(40,40,60,0.8)',
+      'paneProperties.horzGridProperties.color': 'rgba(40,40,60,0.8)',
+      'scalesProperties.textColor': 'rgb(180,180,220)',
+      'scalesProperties.lineColor': 'rgba(60,60,90,0.8)',
+    },
+    // No studies = no volume bar
+    studies: [],
   });
 
-  const url = `${CHART_IMG_BASE}?${params.toString()}`;
-
   return new Promise((resolve, reject) => {
-    const parsedUrl = new URL(url);
     const opts = {
-      hostname: parsedUrl.hostname,
-      path: parsedUrl.pathname + parsedUrl.search,
-      method: 'GET',
+      hostname: 'api.chart-img.com',
+      path: '/v2/tradingview/advanced-chart',
+      method: 'POST',
       headers: {
-        'Authorization': `Bearer ${CHART_IMG_API_KEY}`,
+        'x-api-key': CHART_IMG_API_KEY,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(payload),
         'User-Agent': 'ATLAS-FX/4.2.0',
       },
       timeout: 60000,
@@ -606,6 +624,7 @@ async function fetchChartImage(symbol, iv) {
     });
     req.on('error', reject);
     req.on('timeout', () => reject(new Error('chart-img timeout')));
+    req.write(payload);
     req.end();
   });
 }
