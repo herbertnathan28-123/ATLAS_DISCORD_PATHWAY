@@ -548,7 +548,8 @@ async function capturePanel(browser,sym,iv,tfKey){
       if(TV_COOKIES&&TV_COOKIES.length>0)await page.context().addCookies(TV_COOKIES);
       page.setDefaultNavigationTimeout(RENDER_TIMEOUT_MS);page.setDefaultTimeout(RENDER_TIMEOUT_MS);
       await page.addInitScript(()=>{try{localStorage.setItem('theme','dark');}catch{}});
-      await page.goto(url,{waitUntil:'networkidle',timeout:45000});
+      await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+      await page.waitForTimeout(5000); // allow TV JS to initialise after DOM load
       const bodyTxt=await page.evaluate(()=>document.body?.innerText||'').catch(()=>'');
       if(/symbol.{0,30}(doesn't|does not|not found|invalid)/i.test(bodyTxt))throw new Error(`Symbol not found: ${sym}`);
       await page.waitForSelector('canvas',{timeout:25000});
