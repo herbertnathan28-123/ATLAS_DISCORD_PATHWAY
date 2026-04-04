@@ -577,19 +577,36 @@ async function buildGrid(panels){
   return sharp({create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}}).composite([{input:resized[0],left:0,top:0},{input:resized[1],left:CHART_W,top:0},{input:resized[2],left:0,top:CHART_H},{input:resized[3],left:CHART_W,top:CHART_H}]).jpeg({quality:95}).toBuffer();
 }
 
+// ── BROWSER LAUNCH ARGS ──────────────────────────────────────
+// Fresh browser per panel — prevents one crash cascading to all panels
+const BROWSER_ARGS=['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding','--disable-extensions','--disable-software-rasterizer','--disable-features=VizDisplayCompositor'];
+
+async function capturePanelFreshBrowser(sym,iv,tfKey){
+  // Each panel gets its own browser instance — crash isolation
+  const browser=await chromium.launch({headless:true,args:BROWSER_ARGS});
+  try{
+    const buf=await capturePanel(browser,sym,iv,tfKey);
+    return buf;
+  }finally{
+    try{await browser.close();}catch(e){log('WARN',`[BROWSER] Close error ${tfKey}: ${e.message}`);}
+  }
+}
+
 async function renderAllPanels(symbol){
   const all=[...HTF_INTERVALS.map(iv=>({iv,set:'HTF',key:tfLabel(iv)})),...LTF_INTERVALS.map(iv=>({iv,set:'LTF',key:tfLabel(iv)}))];
-  log('INFO',`[BROWSER] Launching Chromium for ${symbol}`);
-  const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-background-timer-throttling','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding']});
+  log('INFO',`[RENDER] ${symbol} — launching fresh browser per panel (crash isolation)`);
   const htfP=[],ltfP=[];let htfFail=0,ltfFail=0;
-  try{
-    for(const{iv,set,key}of all){
-      let buf;
-      try{buf=await capturePanel(browser,symbol,iv,key);}
-      catch(err){log('WARN',`[RENDER SKIP] ${symbol} ${key}: ${err.message}`);buf=await makePlaceholder(symbol,key,err.message);if(set==='HTF')htfFail++;else ltfFail++;}
-      if(set==='HTF')htfP.push(buf);else ltfP.push(buf);
+  for(const{iv,set,key}of all){
+    let buf;
+    try{
+      buf=await capturePanelFreshBrowser(symbol,iv,key);
+    }catch(err){
+      log('WARN',`[RENDER SKIP] ${symbol} ${key}: ${err.message}`);
+      buf=await makePlaceholder(symbol,key,err.message);
+      if(set==='HTF')htfFail++;else ltfFail++;
     }
-  }finally{try{await browser.close();log('INFO',`[BROWSER] Closed for ${symbol}`);}catch(e){log('WARN',`[BROWSER] Close error: ${e.message}`);}}
+    if(set==='HTF')htfP.push(buf);else ltfP.push(buf);
+  }
   if(htfFail/HTF_INTERVALS.length>ABORT_THRESHOLD||ltfFail/LTF_INTERVALS.length>ABORT_THRESHOLD)throw new Error(`[ABORT] ${symbol} render integrity failed — HTF:${htfFail}/4 LTF:${ltfFail}/4 panels failed`);
   const htfGrid=await buildGrid(htfP),ltfGrid=await buildGrid(ltfP);
   log('INFO',`[GRID] ${symbol} HTF:${htfFail===0?'OK':`${htfFail} placeholder(s)`} LTF:${ltfFail===0?'OK':`${ltfFail} placeholder(s)`}`);
