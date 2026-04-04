@@ -3,8 +3,7 @@
 // ATLAS FX DISCORD BOT — v4.0
 // EXECUTION INTERFACE v4 — INSTITUTIONAL GRADE
 // Dark Horse Engine integrated — v4.0.1
-// Execution Map table locked format — v4.0.3
-// Chart engine: chartjs-node-canvas — v4.1.0
+// Chart engine: chartjs-node-canvas v4.1.0
 // ============================================================
 process.on('unhandledRejection',(r)=>{console.error('[UNHANDLED]',r);});
 process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
@@ -15,7 +14,7 @@ const crypto=require('crypto');
 const fs=require('fs');
 const https=require('https');
 const http=require('http');
-// Playwright removed — replaced by chartjs-node-canvas
+// Playwright removed
 
 // ── DARK HORSE ENGINE ─────────────────────────────────────────
 const{
@@ -531,227 +530,122 @@ function runJane(symbol,spideyHTF,spideyLTF,corey){
 }
 
 // ============================================================
-// CHART ENGINE — Native Canvas Rendering
-// chartjs-node-canvas — candlesticks drawn via custom plugin
-// No chartjs-chart-financial dependency
+// CHART ENGINE — chartjs-node-canvas
+// Candlesticks drawn via custom plugin — no external chart plugin
 // ============================================================
 const{ChartJSNodeCanvas}=require('chartjs-node-canvas');
 
-// ── COLOUR PALETTE ────────────────────────────────────────────
-const C={
-  bg:'#000000',
-  gridLine:'#1a1a2e',
-  axisText:'#888888',
-  upBody:'#26a69a',
-  downBody:'#ef5350',
-  upWick:'#26a69a',
-  downWick:'#ef5350',
-  label:'#cccccc',
-  currentPrice:'#f0b90b',
-  borderColor:'#222244',
+const CHART_COLORS={
+  bg:'#000000',grid:'#1a1a2e',axis:'#888888',
+  up:'#26a69a',down:'#ef5350',label:'#cccccc',price:'#f0b90b',
 };
 
-// ── CANDLESTICK PLUGIN ────────────────────────────────────────
-// Draws OHLC candlesticks directly on canvas — no financial plugin needed
 const candlestickPlugin={
-  id:'candlestick',
+  id:'cs',
   afterDatasetsDraw(chart){
     const{ctx,data,scales:{x,y}}=chart;
-    if(!data.datasets[0])return;
-    const raw=data.datasets[0].data;
-    if(!raw||!raw.length)return;
-    const barW=Math.max(2,Math.min(16,(x.right-x.left)/raw.length*0.6));
+    const raw=data.datasets[0]?.data;
+    if(!raw?.length)return;
+    const bw=Math.max(2,Math.min(16,(x.right-x.left)/raw.length*0.6));
     ctx.save();
     raw.forEach((d,i)=>{
       if(!d)return;
-      const xPx=x.getPixelForValue(i);
-      const oY=y.getPixelForValue(d.o);
-      const cY=y.getPixelForValue(d.c);
-      const hY=y.getPixelForValue(d.h);
-      const lY=y.getPixelForValue(d.l);
-      const up=d.c>=d.o;
-      const col=up?C.upBody:C.downBody;
-      // Wick
-      ctx.strokeStyle=col;
-      ctx.lineWidth=1;
-      ctx.beginPath();ctx.moveTo(xPx,hY);ctx.lineTo(xPx,lY);ctx.stroke();
-      // Body
-      const bodyTop=Math.min(oY,cY);
-      const bodyH=Math.max(1,Math.abs(cY-oY));
+      const xp=x.getPixelForValue(i);
+      const op=y.getPixelForValue(d.o),cp=y.getPixelForValue(d.c);
+      const hp=y.getPixelForValue(d.h),lp=y.getPixelForValue(d.l);
+      const up=d.c>=d.o,col=up?CHART_COLORS.up:CHART_COLORS.down;
+      ctx.strokeStyle=col;ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(xp,hp);ctx.lineTo(xp,lp);ctx.stroke();
       ctx.fillStyle=col;
-      ctx.fillRect(xPx-barW/2,bodyTop,barW,bodyH);
+      ctx.fillRect(xp-bw/2,Math.min(op,cp),bw,Math.max(1,Math.abs(cp-op)));
     });
     ctx.restore();
   }
 };
 
-// ── CHART RENDERER ────────────────────────────────────────────
-const renderer=new ChartJSNodeCanvas({
-  width:CHART_W,
-  height:CHART_H,
-  backgroundColour:C.bg,
-});
+const chartRenderer=new ChartJSNodeCanvas({width:CHART_W,height:CHART_H,backgroundColour:CHART_COLORS.bg});
 
-// ── PLACEHOLDER ───────────────────────────────────────────────
 async function makePlaceholder(sym,tfKey,reason){
-  const label=`${sym} ${tfKey}`,r2=(reason||'NO DATA').slice(0,60);
-  const svg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/>
-    <text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#333" text-anchor="middle">${label}</text>
-    <text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#222" text-anchor="middle">${r2}</text>
-  </svg>`;
+  const r2=(reason||'NO DATA').slice(0,60);
+  const svg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/><text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#333" text-anchor="middle">${sym} ${tfKey}</text><text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#222" text-anchor="middle">${r2}</text></svg>`;
   return sharp(Buffer.from(svg)).resize(CHART_W,CHART_H).png().toBuffer();
 }
 
-// ── RENDER SINGLE CHART ───────────────────────────────────────
 async function renderCandleChart(candles,symbol,tfKey){
-  if(!candles||candles.length<2){
-    return makePlaceholder(symbol,tfKey,'No data');
-  }
+  if(!candles||candles.length<2)return makePlaceholder(symbol,tfKey,'No data');
   const data=candles.slice(-80);
-  const cp=data[data.length-1].close;
   const{dp}=getPipSize(symbol);
   const allH=data.map(c=>c.high),allL=data.map(c=>c.low);
-  const pMax=Math.max(...allH),pMin=Math.min(...allL);
-  const pad=(pMax-pMin)*0.08;
-  const yMin=pMin-pad,yMax=pMax+pad;
-
-  // Time labels — every N candles
+  const pMax=Math.max(...allH),pMin=Math.min(...allL),pad=(pMax-pMin)*0.08;
+  const lastClose=data[data.length-1].close;
   const step=Math.max(1,Math.floor(data.length/10));
   const labels=data.map((c,i)=>{
     if(i%step!==0)return'';
-    const d=new Date(c.time*1000);
-    const tfU=tfKey.toUpperCase();
-    if(tfU==='WEEKLY'||tfU==='DAILY')
-      return d.toLocaleDateString('en-AU',{day:'2-digit',month:'short'});
-    if(tfU==='4H'||tfU==='1H')
-      return d.toLocaleString('en-AU',{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+    const d=new Date(c.time*1000),u=tfKey.toUpperCase();
+    if(u==='WEEKLY'||u==='DAILY')return d.toLocaleDateString('en-AU',{day:'2-digit',month:'short'});
+    if(u==='4H'||u==='1H')return d.toLocaleString('en-AU',{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
     return d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false});
   });
-
-  const ohlcData=data.map(c=>({o:c.open,h:c.high,l:c.low,c:c.close}));
-
+  const priceLabel=`${symbol}  ${tfKey}`;
   const config={
     type:'bar',
-    plugins:[candlestickPlugin],
-    data:{
-      labels,
-      datasets:[{
-        data:ohlcData,
-        backgroundColor:'transparent',
-        borderColor:'transparent',
-      }]
-    },
-    options:{
-      responsive:false,
-      animation:false,
-      plugins:{
-        legend:{display:false},
-        tooltip:{enabled:false},
-      },
-      scales:{
-        x:{
-          ticks:{
-            color:C.axisText,
-            maxRotation:0,
-            font:{size:18},
-          },
-          grid:{color:C.gridLine,lineWidth:0.5},
-          border:{color:C.gridLine},
-        },
-        y:{
-          position:'right',
-          min:yMin,
-          max:yMax,
-          ticks:{
-            color:C.axisText,
-            maxTicksLimit:8,
-            font:{size:18},
-            callback:(v)=>Number(v).toFixed(dp),
-          },
-          grid:{color:C.gridLine,lineWidth:0.5},
-          border:{color:C.gridLine},
-        },
-      },
-    },
-    // Overlay plugin — current price line + labels
     plugins:[candlestickPlugin,{
-      id:'overlay',
+      id:'ov',
       afterDraw(chart){
         const{ctx,chartArea:{left,right,top},scales:{y}}=chart;
-        const cpY=y.getPixelForValue(cp);
+        const cpY=y.getPixelForValue(lastClose);
         ctx.save();
-        ctx.strokeStyle=C.currentPrice;
-        ctx.lineWidth=1.5;
-        ctx.setLineDash([8,4]);
+        ctx.strokeStyle=CHART_COLORS.price;ctx.lineWidth=1.5;ctx.setLineDash([8,4]);
         ctx.beginPath();ctx.moveTo(left,cpY);ctx.lineTo(right,cpY);ctx.stroke();
-        ctx.fillStyle=C.currentPrice;
-        ctx.font='bold 20px monospace';
-        ctx.fillText(Number(cp).toFixed(dp),right+8,cpY+6);
-        ctx.fillStyle=C.label;
-        ctx.font='bold 28px monospace';
-        ctx.fillText(`${symbol}  ${tfKey}`,left+20,top+40);
+        ctx.setLineDash([]);
+        ctx.fillStyle=CHART_COLORS.price;ctx.font='bold 20px monospace';
+        ctx.fillText(Number(lastClose).toFixed(dp),right+8,cpY+6);
+        ctx.fillStyle=CHART_COLORS.label;ctx.font='bold 28px monospace';
+        ctx.fillText(priceLabel,left+20,top+40);
         ctx.restore();
       }
     }],
+    data:{
+      labels,
+      datasets:[{data:data.map(c=>({o:c.open,h:c.high,l:c.low,c:c.close})),backgroundColor:'transparent',borderColor:'transparent'}]
+    },
+    options:{
+      responsive:false,animation:false,
+      plugins:{legend:{display:false},tooltip:{enabled:false}},
+      scales:{
+        x:{ticks:{color:CHART_COLORS.axis,maxRotation:0,font:{size:18}},grid:{color:CHART_COLORS.grid,lineWidth:0.5},border:{color:CHART_COLORS.grid}},
+        y:{position:'right',min:pMin-pad,max:pMax+pad,ticks:{color:CHART_COLORS.axis,maxTicksLimit:8,font:{size:18},callback:v=>Number(v).toFixed(dp)},grid:{color:CHART_COLORS.grid,lineWidth:0.5},border:{color:CHART_COLORS.grid}},
+      },
+    },
   };
-
-  try{
-    return await renderer.renderToBuffer(config,'image/png');
-  }catch(e){
-    log('WARN',`[CHART] ${symbol} ${tfKey} error: ${e.message}`);
-    return makePlaceholder(symbol,tfKey,e.message);
-  }
+  try{return await chartRenderer.renderToBuffer(config,'image/png');}
+  catch(e){log('WARN',`[CHART] ${symbol} ${tfKey}: ${e.message}`);return makePlaceholder(symbol,tfKey,e.message);}
 }
 
-// ── BUILD 2x2 GRID ────────────────────────────────────────────
 async function buildGrid(panels){
-  const resized=await Promise.all(
-    panels.map(img=>sharp(img).resize(CHART_W,CHART_H,{fit:'cover',position:'centre'}).png().toBuffer())
-  );
-  return sharp({
-    create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}
-  }).composite([
-    {input:resized[0],left:0,top:0},
-    {input:resized[1],left:CHART_W,top:0},
-    {input:resized[2],left:0,top:CHART_H},
-    {input:resized[3],left:CHART_W,top:CHART_H},
-  ]).jpeg({quality:95}).toBuffer();
+  const resized=await Promise.all(panels.map(img=>sharp(img).resize(CHART_W,CHART_H,{fit:'cover',position:'centre'}).png().toBuffer()));
+  return sharp({create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}})
+    .composite([{input:resized[0],left:0,top:0},{input:resized[1],left:CHART_W,top:0},{input:resized[2],left:0,top:CHART_H},{input:resized[3],left:CHART_W,top:CHART_H}])
+    .jpeg({quality:95}).toBuffer();
 }
 
-// ── RENDER ALL PANELS ─────────────────────────────────────────
 async function renderAllPanels(symbol){
-  log('INFO',`[CHART] Rendering 8 panels for ${symbol}`);
-  const htfP=[],ltfP=[];
-  let htfFail=0,ltfFail=0;
+  log('INFO',`[CHART] ${symbol} — rendering 8 panels`);
+  const htfP=[],ltfP=[];let htfFail=0,ltfFail=0;
   for(const iv of HTF_INTERVALS){
     const key=tfLabel(iv);
-    try{
-      const candles=await safeOHLC(symbol,iv,120);
-      htfP.push(await renderCandleChart(candles,symbol,key));
-      log('INFO',`[CHART] ${symbol} ${key} OK`);
-    }catch(e){
-      log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);
-      htfP.push(await makePlaceholder(symbol,key,e.message));
-      htfFail++;
-    }
+    try{htfP.push(await renderCandleChart(await safeOHLC(symbol,iv,120),symbol,key));log('INFO',`[CHART] ${symbol} ${key} OK`);}
+    catch(e){log('WARN',`[CHART] ${symbol} ${key}: ${e.message}`);htfP.push(await makePlaceholder(symbol,key,e.message));htfFail++;}
   }
   for(const iv of LTF_INTERVALS){
     const key=tfLabel(iv);
-    try{
-      const candles=await safeOHLC(symbol,iv,120);
-      ltfP.push(await renderCandleChart(candles,symbol,key));
-      log('INFO',`[CHART] ${symbol} ${key} OK`);
-    }catch(e){
-      log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);
-      ltfP.push(await makePlaceholder(symbol,key,e.message));
-      ltfFail++;
-    }
+    try{ltfP.push(await renderCandleChart(await safeOHLC(symbol,iv,120),symbol,key));log('INFO',`[CHART] ${symbol} ${key} OK`);}
+    catch(e){log('WARN',`[CHART] ${symbol} ${key}: ${e.message}`);ltfP.push(await makePlaceholder(symbol,key,e.message));ltfFail++;}
   }
   if(htfFail/HTF_INTERVALS.length>ABORT_THRESHOLD||ltfFail/LTF_INTERVALS.length>ABORT_THRESHOLD)
-    throw new Error(`[ABORT] ${symbol} chart render failed — HTF:${htfFail}/4 LTF:${ltfFail}/4`);
+    throw new Error(`[ABORT] ${symbol} render failed — HTF:${htfFail}/4 LTF:${ltfFail}/4`);
   const htfGrid=await buildGrid(htfP),ltfGrid=await buildGrid(ltfP);
-  log('INFO',`[CHART] ${symbol} grids built — HTF:${htfFail===0?'OK':`${htfFail} placeholder(s)`} LTF:${ltfFail===0?'OK':`${ltfFail} placeholder(s)`}`);
+  log('INFO',`[CHART] ${symbol} complete`);
   return{htfGrid,ltfGrid,htfFail,ltfFail,partial:htfFail>0||ltfFail>0};
 }
 
@@ -814,59 +708,104 @@ const biasEmoji=b=>b==='Bullish'?'🟢':b==='Bearish'?'🔴':'⚪';
 const ATLAS_USER_CAPITAL=Number(process.env.ATLAS_USER_CAPITAL||0);
 
 // ── ASTRA STATUS MAPPING ──────────────────────────────────────
+// Maps Jane output → Astra status. Hard override rules enforced.
 function resolveAstraStatus(jane,ps){
+  // HARD OVERRIDE — always forces HOLD regardless of posState
   if(jane.doNotTrade||jane.convictionLabel==='Abstain'||jane.finalBias==='Neutral')return'hold';
+  // DIVERGING → HOLD (system invalidation condition)
   if(ps.label==='DIVERGING')return'hold';
+  // ACTIVE — execution only
   if(ps.label==='ENTRY ZONE ACTIVE'&&!jane.doNotTrade)return'active';
+  // 30M READY — high conviction approaching
   if(ps.label==='APPROACHING'&&jane.convictionLabel==='High')return'ready_30m';
+  // 1H WATCH — approaching but not high conviction
   if(ps.label==='APPROACHING'&&jane.convictionLabel!=='High')return'watch_1h';
+  // 4H WATCH — dormant with low conviction
   if(ps.label==='DORMANT'&&jane.convictionLabel==='Low')return'watch_4h';
+  // Default fallback
   return'hold';
 }
 
-// ── ASTRA STATUS BLOCK FORMATTER — LOCKED v1.0 ───────────────
-// Discord does not render markdown tables. Each row is plain text.
-// NEUTRAL MARKET row always present in ACTIVE block.
-// Column A: label | Column B: recommended action (NO BIAS = wait)
+// ── ASTRA STATUS BLOCK FORMATTER ─────────────────────────────
+// Produces exact Discord output per Astra spec.
+// Inserted directly under charts in formatExecutionV4.
 function formatAstraBlock(astraStatus,jane,symbol,capital,ps){
   const cap=capital||ATLAS_USER_CAPITAL;
   const showExtended=cap>=5000;
-  const SEP='──────────────────────────────────';
   if(astraStatus==='hold'){
-    return[SEP,'**ATLAS STATUS**','','⚪ **HOLD — NEUTRAL / NO TREND**','','• No directional bias','• Structure not confirmed','• Awaiting alignment',SEP].join('\n');
+    return[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS STATUS**',
+      '',
+      '⚪ **HOLD — NEUTRAL / NO TREND**',
+      '',
+      '• No directional bias',
+      '• Structure not confirmed',
+      '• Awaiting alignment',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ].join('\n');
   }
   if(astraStatus==='watch_4h'){
-    return[SEP,'**ATLAS PRE-TRADE WARNING**','','🟨 **4H WATCH**','','• Structure forming toward POI','• Conditions building','• No execution yet',SEP].join('\n');
+    return[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS PRE-TRADE WARNING**',
+      '',
+      '🟨 **4H WATCH**',
+      '',
+      '• Structure forming toward POI',
+      '• Conditions building',
+      '• No execution yet',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ].join('\n');
   }
   if(astraStatus==='watch_1h'){
-    return[SEP,'**ATLAS PRE-TRADE WARNING**','','🟧 **1H WATCH**','','• Price approaching zone','• Liquidity likely in play','• Monitor closely',SEP].join('\n');
+    return[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS PRE-TRADE WARNING**',
+      '',
+      '🟧 **1H WATCH**',
+      '',
+      '• Price approaching zone',
+      '• Liquidity likely in play',
+      '• Monitor closely',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ].join('\n');
   }
   if(astraStatus==='ready_30m'){
-    return[SEP,'**ATLAS PRE-TRADE WARNING**','','🟩 **30M READY**','','• Zone nearing activation','• Possible reaction forming','• Prepare for confirmation',SEP].join('\n');
+    return[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS PRE-TRADE WARNING**',
+      '',
+      '🟩 **30M READY**',
+      '',
+      '• Zone nearing activation',
+      '• Possible reaction forming',
+      '• Prepare for confirmation',
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    ].join('\n');
   }
   if(astraStatus==='active'){
     const ez=jane.entryZone,inv=jane.invalidationLevel,tgt=jane.targets&&jane.targets.length>0?jane.targets:null;
     const entryP=ez?`${fmtPrice(ez.low,symbol)} – ${fmtPrice(ez.high,symbol)}`:'N/A';
-    const entryE=ez?(jane.finalBias==='Bullish'?`${fmtPrice(ez.low*(1-0.0010),symbol)} – ${fmtPrice(ez.low,symbol)}`:`${fmtPrice(ez.high,symbol)} – ${fmtPrice(ez.high*(1+0.0010),symbol)}`):'N/A';
-    const exitP=tgt?(tgt.length>1?`${fmtPrice(tgt[0].level,symbol)} – ${fmtPrice(tgt[tgt.length-1].level,symbol)}`:fmtPrice(tgt[0].level,symbol)):'N/A';
+    const entryE=ez?`${fmtPrice(ez.low*(jane.finalBias==='Bullish'?0.9990:1.0010),symbol)} – ${fmtPrice(ez.low,symbol)}`:'N/A';
+    const exitP=tgt?`${fmtPrice(tgt[0].level,symbol)}${tgt.length>1?' – '+fmtPrice(tgt[tgt.length-1].level,symbol):''}`:'N/A';
     const stopP=inv?fmtPrice(inv,symbol):'N/A';
     const stopE=inv?fmtPrice(inv*(jane.finalBias==='Bullish'?0.9985:1.0015),symbol):'N/A';
-    const psLabel=ps?ps.label:'';
-    const trendVal=psLabel==='APPROACHING'?'⬆️ TOWARDS POI':psLabel==='DIVERGING'?'⬇️ AWAY FROM POI':psLabel==='ENTRY ZONE ACTIVE'?'🎯 AT POI':'⬆️ TOWARDS POI';
-    const row=(label,value)=>`**${label}**\n\`${value}\``;
-    const lines=[SEP,'**ATLAS EXECUTION MAP**',SEP,'**RECOMMENDED**           **RANGE / ACTION**',SEP,row('🟢 ENTRY POINT',entryP),SEP];
-    if(showExtended){lines.push(row('🟠 ENTRY EXTENDED',entryE));lines.push(SEP);}
-    lines.push(row('🔴 EXIT POINT',exitP));
-    lines.push(SEP);
-    lines.push(row('🟨 TREND',trendVal));
-    lines.push(SEP);
-    lines.push(row('⚪ NEUTRAL MARKET','NO BIAS'));
-    lines.push(SEP);
-    lines.push(row('🛑 SET STOP LOSS (1)',stopP));
-    lines.push(SEP);
-    if(showExtended){lines.push(row('🛑 EXT STOP LOSS (2)',stopE));lines.push(SEP);}
-    lines.push(row('⚠️ STOP LOSS RULE','SELECT ONE (1) OR (2)'));
-    lines.push(SEP);
+    const lines=[
+      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+      '**ATLAS EXECUTION MAP**',
+      '',
+      `🟢 **ENTRY POINT:** ${entryP}`,
+    ];
+    if(showExtended)lines.push(`🟠 **ENTRY EXTENDED:** ${entryE}`);
+    lines.push('');
+    lines.push(`🔴 **EXIT POINT:** ${exitP}`);
+    lines.push('');
+    lines.push(`🛑 **SET STOP LOSS:** ${stopP}`);
+    if(showExtended)lines.push(`🛑 **EXTENDED STOP LOSS:** ${stopE}`);
+    lines.push('');
+    lines.push('⚠️ **SELECT ONE STOP LOSS ONLY**');
+    lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     return lines.join('\n');
   }
   return'⚪ **HOLD — AWAITING SIGNAL**';
