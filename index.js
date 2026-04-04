@@ -540,7 +540,7 @@ const CHART_IMG_BASE = 'https://api.chart-img.com/v1/tradingview/advanced-chart'
 
 // Timeframe map — chart-img.com interval format
 const CI_INTERVAL_MAP = {
-  '1W':'1W','1D':'1D','240':'4H','60':'1H',
+  '1W':'1W','1D':'1D','240':'4h','60':'1h',
   '30':'30m','15':'15m','5':'5m','1':'1m'
 };
 
@@ -572,13 +572,9 @@ async function fetchChartImage(symbol, iv) {
     symbol: ciSym,
     interval: ciInt,
     theme: 'dark',
-    style: '1',           // Candles
     width: '2048',
     height: '1080',
     timezone: 'Australia/Perth',
-    hide_top_toolbar: '1',
-    hide_side_toolbar: '1',
-    save_image: 'false',
   });
 
   const url = `${CHART_IMG_BASE}?${params.toString()}`;
