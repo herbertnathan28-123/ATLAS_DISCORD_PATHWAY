@@ -109,8 +109,8 @@ client.once('clientReady',()=>{
   setInterval(async()=>{
     try{await runDarkHorseScan();}
     catch(e){log('ERROR',`[DH SCHEDULER] ${e.message}`);}
-  },5*60*1000);
-  log('INFO','[BOOT] Dark Horse Engine active — scanning every 5 minutes');
+  },15*60*1000);
+  log('INFO','[BOOT] Dark Horse Engine active — scanning every 15 minutes (market hours Mon-Fri only)');
 });
 
 // ── CONSTANTS ────────────────────────────────────────────────
@@ -535,7 +535,7 @@ function runJane(symbol,spideyHTF,spideyLTF,corey){
 function buildPanelUrl(sym,iv){const tvSym=encodeURIComponent(getTVSymbol(sym)),interval=encodeURIComponent(iv);return`https://www.tradingview.com/chart/?symbol=${tvSym}&interval=${interval}&theme=dark&style=1&hide_top_toolbar=1&hide_side_toolbar=1&hide_legend=1&save_image=false&backgroundColor=%23000000&upColor=%2326a69a&downColor=%23ef5350&borderUpColor=%2326a69a&borderDownColor=%23ef5350&wickUpColor=%2326a69a&wickDownColor=%23ef5350`;}
 async function cleanUI(page){await page.evaluate(()=>{['[data-name="header-toolbar"]','[data-name="right-toolbar"]','[data-name="left-toolbar"]','.layout__area--right','.layout__area--left','.layout__area--top','.tv-side-toolbar','.tv-control-bar','.tv-floating-toolbar','.chart-controls-bar','.header-chart-panel','[data-name="legend"]','.chart-toolbar','.topbar','.top-bar','.tv-watermark','#overlap-manager-root'].forEach(sel=>document.querySelectorAll(sel).forEach(el=>el.remove()));}).catch(()=>{});}
 async function closePopups(page){const sels=['button[aria-label="Close"]','button:has-text("Accept")','button:has-text("Got it")'];for(const sel of sels){try{const btn=page.locator(sel).first();if(await btn.isVisible({timeout:500}))await btn.click();}catch{}}}
-async function makePlaceholder(sym,tfKey,reason){const label=`${sym} ${tfKey}`,r2=(reason||'RENDER FAILED').slice(0,60);const svg=Buffer.from(`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/><text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#444" text-anchor="middle">${label}</text><text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#333" text-anchor="middle">${r2}</text><text x="${CHART_W/2}" y="${CHART_H/2+80}" font-family="monospace" font-size="22" fill="#222" text-anchor="middle">PLACEHOLDER — DATA UNAVAILABLE</text></svg>`);return await sharp(svg).resize(CHART_W,CHART_H).jpeg({quality:60}).toBuffer();}
+async function makePlaceholder(sym,tfKey,reason){const label=`${sym} ${tfKey}`,r2=(reason||'RENDER FAILED').replace(/[\x00-\x1F\x7F]/g,'').replace(/[<>&"']/g,'').slice(0,60);const svg=Buffer.from(`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/><text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#444" text-anchor="middle">${label}</text><text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#333" text-anchor="middle">${r2}</text><text x="${CHART_W/2}" y="${CHART_H/2+80}" font-family="monospace" font-size="22" fill="#222" text-anchor="middle">PLACEHOLDER — DATA UNAVAILABLE</text></svg>`);return await sharp(svg).resize(CHART_W,CHART_H).jpeg({quality:60}).toBuffer();}
 
 async function capturePanel(browser,sym,iv,tfKey){
   const url=buildPanelUrl(sym,iv);
@@ -548,16 +548,16 @@ async function capturePanel(browser,sym,iv,tfKey){
       if(TV_COOKIES&&TV_COOKIES.length>0)await page.context().addCookies(TV_COOKIES);
       page.setDefaultNavigationTimeout(RENDER_TIMEOUT_MS);page.setDefaultTimeout(RENDER_TIMEOUT_MS);
       await page.addInitScript(()=>{try{localStorage.setItem('theme','dark');}catch{}});
-      await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+      await page.goto(url,{waitUntil:'networkidle',timeout:45000});
       const bodyTxt=await page.evaluate(()=>document.body?.innerText||'').catch(()=>'');
       if(/symbol.{0,30}(doesn't|does not|not found|invalid)/i.test(bodyTxt))throw new Error(`Symbol not found: ${sym}`);
-      await page.waitForSelector('canvas',{timeout:15000});
-      await page.waitForFunction(threshold=>{const c=Array.from(document.querySelectorAll('canvas'));if(!c.length)return false;const l=c.reduce((b,x)=>x.width*x.height>b.width*b.height?x:b,c[0]);return l.width*l.height>=threshold;},MIN_CANVAS_AREA,{timeout:20000});
-      await page.waitForFunction(()=>{const c=Array.from(document.querySelectorAll('canvas'));if(!c.length)return false;const l=c.reduce((b,x)=>x.width*x.height>b.width*b.height?x:b,c[0]);try{const ctx=l.getContext('2d');if(!ctx)return false;const w=l.width,h=l.height,d=ctx.getImageData(w*0.1,h*0.3,w*0.8,h*0.4);let nb=0;for(let i=0;i<d.data.length;i+=16){if(d.data[i]>20||d.data[i+1]>20||d.data[i+2]>20)nb++;}return nb>50;}catch{return false;}},{timeout:15000});
+      await page.waitForSelector('canvas',{timeout:25000});
+      await page.waitForFunction(threshold=>{const c=Array.from(document.querySelectorAll('canvas'));if(!c.length)return false;const l=c.reduce((b,x)=>x.width*x.height>b.width*b.height?x:b,c[0]);return l.width*l.height>=threshold;},MIN_CANVAS_AREA,{timeout:30000});
+      await page.waitForFunction(()=>{const c=Array.from(document.querySelectorAll('canvas'));if(!c.length)return false;const l=c.reduce((b,x)=>x.width*x.height>b.width*b.height?x:b,c[0]);try{const ctx=l.getContext('2d');if(!ctx)return false;const w=l.width,h=l.height,d=ctx.getImageData(w*0.1,h*0.3,w*0.8,h*0.4);let nb=0;for(let i=0;i<d.data.length;i+=16){if(d.data[i]>20||d.data[i+1]>20||d.data[i+2]>20)nb++;}return nb>50;}catch{return false;}},{timeout:25000});
       await page.evaluate(()=>{document.querySelectorAll('.loading,.spinner,[class*="loading"],[class*="spinner"]').forEach(el=>el.remove());}).catch(()=>{});
-      await page.waitForTimeout(2500);await closePopups(page);await cleanUI(page);
+      await page.waitForTimeout(4000);await closePopups(page);await cleanUI(page);
       await page.evaluate((w,h)=>{document.querySelectorAll('.chart-container,.layout__area--center,[class*="chart-markup-table"],.pane-html').forEach(el=>{el.style.width=w+'px';el.style.height=h+'px';});window.dispatchEvent(new Event('resize'));},CHART_W,CHART_H).catch(()=>{});
-      await page.waitForTimeout(1500);
+      await page.waitForTimeout(2000);
       const buf=await page.screenshot({type:'png',fullPage:false,clip:{x:0,y:0,width:CHART_W,height:CHART_H}});
       await page.close().catch(()=>{});
       if(!buf||buf.length<80000)throw new Error(`Weak/blank render — buffer ${buf?.length||0}B (minimum 80KB required)`);
