@@ -532,14 +532,10 @@ function runJane(symbol,spideyHTF,spideyLTF,corey){
 
 // ============================================================
 // CHART ENGINE — Native Canvas Rendering
-// chartjs-node-canvas + TwelveData OHLC — no browser required
-// Replaces Playwright/TradingView screenshotting entirely
+// chartjs-node-canvas — candlesticks drawn via custom plugin
+// No chartjs-chart-financial dependency
 // ============================================================
 const{ChartJSNodeCanvas}=require('chartjs-node-canvas');
-const{Chart,registerables}=require('chart.js');
-Chart.register(...registerables);
-
-// CHART_W and CHART_H defined in constants above
 
 // ── COLOUR PALETTE ────────────────────────────────────────────
 const C={
@@ -552,6 +548,41 @@ const C={
   downWick:'#ef5350',
   label:'#cccccc',
   currentPrice:'#f0b90b',
+  borderColor:'#222244',
+};
+
+// ── CANDLESTICK PLUGIN ────────────────────────────────────────
+// Draws OHLC candlesticks directly on canvas — no financial plugin needed
+const candlestickPlugin={
+  id:'candlestick',
+  afterDatasetsDraw(chart){
+    const{ctx,data,scales:{x,y}}=chart;
+    if(!data.datasets[0])return;
+    const raw=data.datasets[0].data;
+    if(!raw||!raw.length)return;
+    const barW=Math.max(2,Math.min(16,(x.right-x.left)/raw.length*0.6));
+    ctx.save();
+    raw.forEach((d,i)=>{
+      if(!d)return;
+      const xPx=x.getPixelForValue(i);
+      const oY=y.getPixelForValue(d.o);
+      const cY=y.getPixelForValue(d.c);
+      const hY=y.getPixelForValue(d.h);
+      const lY=y.getPixelForValue(d.l);
+      const up=d.c>=d.o;
+      const col=up?C.upBody:C.downBody;
+      // Wick
+      ctx.strokeStyle=col;
+      ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(xPx,hY);ctx.lineTo(xPx,lY);ctx.stroke();
+      // Body
+      const bodyTop=Math.min(oY,cY);
+      const bodyH=Math.max(1,Math.abs(cY-oY));
+      ctx.fillStyle=col;
+      ctx.fillRect(xPx-barW/2,bodyTop,barW,bodyH);
+    });
+    ctx.restore();
+  }
 };
 
 // ── CHART RENDERER ────────────────────────────────────────────
@@ -559,66 +590,56 @@ const renderer=new ChartJSNodeCanvas({
   width:CHART_W,
   height:CHART_H,
   backgroundColour:C.bg,
-  plugins:{modern:['chartjs-chart-financial']},
 });
 
-// ── DRAW SINGLE CANDLESTICK CHART ─────────────────────────────
-async function renderCandleChart(candles,symbol,tfLabel){
-  if(!candles||candles.length<2){
-    return makePlaceholder(symbol,tfLabel,'No data');
-  }
+// ── PLACEHOLDER ───────────────────────────────────────────────
+async function makePlaceholder(sym,tfKey,reason){
+  const label=`${sym} ${tfKey}`,r2=(reason||'NO DATA').slice(0,60);
+  const svg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/>
+    <text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#333" text-anchor="middle">${label}</text>
+    <text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#222" text-anchor="middle">${r2}</text>
+  </svg>`;
+  return sharp(Buffer.from(svg)).resize(CHART_W,CHART_H).png().toBuffer();
+}
 
-  // Slice to last 80 candles for clarity
+// ── RENDER SINGLE CHART ───────────────────────────────────────
+async function renderCandleChart(candles,symbol,tfKey){
+  if(!candles||candles.length<2){
+    return makePlaceholder(symbol,tfKey,'No data');
+  }
   const data=candles.slice(-80);
   const cp=data[data.length-1].close;
-
-  // Build OHLC dataset
-  const ohlcData=data.map(c=>({
-    x:c.time*1000,
-    o:c.open,
-    h:c.high,
-    l:c.low,
-    c:c.close,
-  }));
-
-  // Price range with 2% padding
+  const{dp}=getPipSize(symbol);
   const allH=data.map(c=>c.high),allL=data.map(c=>c.low);
   const pMax=Math.max(...allH),pMin=Math.min(...allL);
   const pad=(pMax-pMin)*0.08;
   const yMin=pMin-pad,yMax=pMax+pad;
 
-  // Format price for y-axis
-  const{dp}=getPipSize(symbol);
-  const fmtY=v=>Number(v).toFixed(dp);
-
-  // Format time for x-axis based on timeframe
-  const tfKey=tfLabel.toUpperCase();
-  const fmtX=ts=>{
-    const d=new Date(ts);
-    if(tfKey==='WEEKLY'||tfKey==='DAILY')
+  // Time labels — every N candles
+  const step=Math.max(1,Math.floor(data.length/10));
+  const labels=data.map((c,i)=>{
+    if(i%step!==0)return'';
+    const d=new Date(c.time*1000);
+    const tfU=tfKey.toUpperCase();
+    if(tfU==='WEEKLY'||tfU==='DAILY')
       return d.toLocaleDateString('en-AU',{day:'2-digit',month:'short'});
-    if(tfKey==='4H'||tfKey==='1H')
+    if(tfU==='4H'||tfU==='1H')
       return d.toLocaleString('en-AU',{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
     return d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:false});
-  };
+  });
+
+  const ohlcData=data.map(c=>({o:c.open,h:c.high,l:c.low,c:c.close}));
 
   const config={
-    type:'candlestick',
+    type:'bar',
+    plugins:[candlestickPlugin],
     data:{
+      labels,
       datasets:[{
-        label:symbol,
         data:ohlcData,
-        color:{
-          up:C.upBody,
-          down:C.downBody,
-          unchanged:C.upBody,
-        },
-        borderColor:{
-          up:C.upWick,
-          down:C.downWick,
-          unchanged:C.upWick,
-        },
-        borderWidth:1.5,
+        backgroundColor:'transparent',
+        borderColor:'transparent',
       }]
     },
     options:{
@@ -630,13 +651,10 @@ async function renderCandleChart(candles,symbol,tfLabel){
       },
       scales:{
         x:{
-          type:'timeseries',
           ticks:{
             color:C.axisText,
-            maxTicksLimit:10,
             maxRotation:0,
             font:{size:18},
-            callback:(v)=>fmtX(v),
           },
           grid:{color:C.gridLine,lineWidth:0.5},
           border:{color:C.gridLine},
@@ -649,37 +667,30 @@ async function renderCandleChart(candles,symbol,tfLabel){
             color:C.axisText,
             maxTicksLimit:8,
             font:{size:18},
-            callback:(v)=>fmtY(v),
+            callback:(v)=>Number(v).toFixed(dp),
           },
           grid:{color:C.gridLine,lineWidth:0.5},
           border:{color:C.gridLine},
         },
       },
     },
-    plugins:[{
-      id:'atlasOverlay',
+    // Overlay plugin — current price line + labels
+    plugins:[candlestickPlugin,{
+      id:'overlay',
       afterDraw(chart){
-        const{ctx,chartArea:{left,right,top,bottom},scales:{y}}=chart;
-
-        // Current price line
+        const{ctx,chartArea:{left,right,top},scales:{y}}=chart;
         const cpY=y.getPixelForValue(cp);
         ctx.save();
         ctx.strokeStyle=C.currentPrice;
         ctx.lineWidth=1.5;
         ctx.setLineDash([8,4]);
         ctx.beginPath();ctx.moveTo(left,cpY);ctx.lineTo(right,cpY);ctx.stroke();
-
-        // Current price label
         ctx.fillStyle=C.currentPrice;
-        ctx.font=`bold 20px monospace`;
-        ctx.fillText(fmtY(cp),right+8,cpY+6);
-        ctx.restore();
-
-        // Timeframe label top-left
-        ctx.save();
+        ctx.font='bold 20px monospace';
+        ctx.fillText(Number(cp).toFixed(dp),right+8,cpY+6);
         ctx.fillStyle=C.label;
-        ctx.font=`bold 28px monospace`;
-        ctx.fillText(`${symbol}  ${tfLabel}`,left+20,top+40);
+        ctx.font='bold 28px monospace';
+        ctx.fillText(`${symbol}  ${tfKey}`,left+20,top+40);
         ctx.restore();
       }
     }],
@@ -688,36 +699,23 @@ async function renderCandleChart(candles,symbol,tfLabel){
   try{
     return await renderer.renderToBuffer(config,'image/png');
   }catch(e){
-    log('WARN',`[CHART] ${symbol} ${tfLabel} render error: ${e.message}`);
-    return makePlaceholder(symbol,tfLabel,e.message);
+    log('WARN',`[CHART] ${symbol} ${tfKey} error: ${e.message}`);
+    return makePlaceholder(symbol,tfKey,e.message);
   }
-}
-
-// ── PLACEHOLDER (no browser needed) ──────────────────────────
-async function makePlaceholder(sym,tfKey,reason){
-  const label=`${sym} ${tfKey}`,r2=(reason||'NO DATA').slice(0,60);
-  // Use sharp to create a plain dark rectangle with text via SVG
-  const svg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg">
-    <rect width="${CHART_W}" height="${CHART_H}" fill="#0d0d0d"/>
-    <text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#333" text-anchor="middle">${label}</text>
-    <text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#222" text-anchor="middle">${r2}</text>
-  </svg>`;
-  return sharp(Buffer.from(svg)).resize(CHART_W,CHART_H).png().toBuffer();
 }
 
 // ── BUILD 2x2 GRID ────────────────────────────────────────────
 async function buildGrid(panels){
-  const halfW=CHART_W,halfH=CHART_H;
   const resized=await Promise.all(
-    panels.map(img=>sharp(img).resize(halfW,halfH,{fit:'cover',position:'centre'}).png().toBuffer())
+    panels.map(img=>sharp(img).resize(CHART_W,CHART_H,{fit:'cover',position:'centre'}).png().toBuffer())
   );
   return sharp({
-    create:{width:halfW*2,height:halfH*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}
+    create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:10,g:10,b:10,alpha:1}}
   }).composite([
     {input:resized[0],left:0,top:0},
-    {input:resized[1],left:halfW,top:0},
-    {input:resized[2],left:0,top:halfH},
-    {input:resized[3],left:halfW,top:halfH},
+    {input:resized[1],left:CHART_W,top:0},
+    {input:resized[2],left:0,top:CHART_H},
+    {input:resized[3],left:CHART_W,top:CHART_H},
   ]).jpeg({quality:95}).toBuffer();
 }
 
@@ -726,13 +724,11 @@ async function renderAllPanels(symbol){
   log('INFO',`[CHART] Rendering 8 panels for ${symbol}`);
   const htfP=[],ltfP=[];
   let htfFail=0,ltfFail=0;
-
   for(const iv of HTF_INTERVALS){
     const key=tfLabel(iv);
     try{
       const candles=await safeOHLC(symbol,iv,120);
-      const buf=await renderCandleChart(candles,symbol,key);
-      htfP.push(buf);
+      htfP.push(await renderCandleChart(candles,symbol,key));
       log('INFO',`[CHART] ${symbol} ${key} OK`);
     }catch(e){
       log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);
@@ -740,13 +736,11 @@ async function renderAllPanels(symbol){
       htfFail++;
     }
   }
-
   for(const iv of LTF_INTERVALS){
     const key=tfLabel(iv);
     try{
       const candles=await safeOHLC(symbol,iv,120);
-      const buf=await renderCandleChart(candles,symbol,key);
-      ltfP.push(buf);
+      ltfP.push(await renderCandleChart(candles,symbol,key));
       log('INFO',`[CHART] ${symbol} ${key} OK`);
     }catch(e){
       log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);
@@ -754,10 +748,8 @@ async function renderAllPanels(symbol){
       ltfFail++;
     }
   }
-
   if(htfFail/HTF_INTERVALS.length>ABORT_THRESHOLD||ltfFail/LTF_INTERVALS.length>ABORT_THRESHOLD)
     throw new Error(`[ABORT] ${symbol} chart render failed — HTF:${htfFail}/4 LTF:${ltfFail}/4`);
-
   const htfGrid=await buildGrid(htfP),ltfGrid=await buildGrid(ltfP);
   log('INFO',`[CHART] ${symbol} grids built — HTF:${htfFail===0?'OK':`${htfFail} placeholder(s)`} LTF:${ltfFail===0?'OK':`${ltfFail} placeholder(s)`}`);
   return{htfGrid,ltfGrid,htfFail,ltfFail,partial:htfFail>0||ltfFail>0};
