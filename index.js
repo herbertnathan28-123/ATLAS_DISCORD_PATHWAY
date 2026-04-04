@@ -3,6 +3,7 @@
 // ATLAS FX DISCORD BOT — v4.0
 // EXECUTION INTERFACE v4 — INSTITUTIONAL GRADE
 // Dark Horse Engine integrated — v4.0.1
+// Execution Map table locked format — v4.0.3
 // ============================================================
 process.on('unhandledRejection',(r)=>{console.error('[UNHANDLED]',r);});
 process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
@@ -104,22 +105,12 @@ client.once('clientReady',()=>{
   // Register pipeline trigger — Dark Horse feeds Corey → Spidey → Jane
   // Jane NEVER receives raw Dark Horse data directly
   dhSetPipelineTrigger(darkHorsePipelineTrigger);
-  // Dark Horse Scheduler — every 15 minutes, market hours only (Mon-Fri UTC)
-  function isMarketHours(){
-    const now=new Date();
-    const day=now.getUTCDay(); // 0=Sun, 6=Sat
-    if(day===0||day===6)return false; // Weekend — no scanning
-    const h=now.getUTCHours();
-    // FX/global markets approx Mon 00:00 – Fri 22:00 UTC
-    if(day===5&&h>=22)return false; // Friday after 22:00 UTC — markets closed
-    return true;
-  }
+  // Scheduler — every 5 minutes
   setInterval(async()=>{
-    if(!isMarketHours()){log('INFO','[DH SCHEDULER] Market closed — scan skipped');return;}
     try{await runDarkHorseScan();}
     catch(e){log('ERROR',`[DH SCHEDULER] ${e.message}`);}
-  },15*60*1000);
-  log('INFO','[BOOT] Dark Horse Engine active — scanning every 15 minutes (market hours Mon-Fri only)');
+  },5*60*1000);
+  log('INFO','[BOOT] Dark Horse Engine active — scanning every 5 minutes');
 });
 
 // ── CONSTANTS ────────────────────────────────────────────────
@@ -658,120 +649,63 @@ async function darkHorsePipelineTrigger(symbol,meta){
 const convBar=c=>{if(!c||c<=0)return'`──────────` 0%';const f=Math.round(c*10);return'`'+'█'.repeat(f)+'─'.repeat(10-f)+'`'+` ${(c*100).toFixed(0)}%`;};
 const biasEmoji=b=>b==='Bullish'?'🟢':b==='Bearish'?'🔴':'⚪';
 
-// ── CAPITAL GATING — env-based, never hardcoded ───────────────
+// ── CAPITAL GATING ────────────────────────────────────────────
 const ATLAS_USER_CAPITAL=Number(process.env.ATLAS_USER_CAPITAL||0);
 
 // ── ASTRA STATUS MAPPING ──────────────────────────────────────
-// Maps Jane output → Astra status. Hard override rules enforced.
 function resolveAstraStatus(jane,ps){
-  // HARD OVERRIDE — always forces HOLD regardless of posState
   if(jane.doNotTrade||jane.convictionLabel==='Abstain'||jane.finalBias==='Neutral')return'hold';
-  // DIVERGING → HOLD (system invalidation condition)
   if(ps.label==='DIVERGING')return'hold';
-  // ACTIVE — execution only
   if(ps.label==='ENTRY ZONE ACTIVE'&&!jane.doNotTrade)return'active';
-  // 30M READY — high conviction approaching
   if(ps.label==='APPROACHING'&&jane.convictionLabel==='High')return'ready_30m';
-  // 1H WATCH — approaching but not high conviction
   if(ps.label==='APPROACHING'&&jane.convictionLabel!=='High')return'watch_1h';
-  // 4H WATCH — dormant with low conviction
   if(ps.label==='DORMANT'&&jane.convictionLabel==='Low')return'watch_4h';
-  // Default fallback
   return'hold';
 }
 
-// ── ASTRA STATUS BLOCK FORMATTER ─────────────────────────────
-// Produces exact Discord output per Astra spec.
-// Inserted directly under charts in formatExecutionV4.
+// ── ASTRA STATUS BLOCK FORMATTER — LOCKED v1.0 ───────────────
+// Discord does not render markdown tables. Each row is plain text.
+// NEUTRAL MARKET row always present in ACTIVE block.
+// Column A: label | Column B: recommended action (NO BIAS = wait)
 function formatAstraBlock(astraStatus,jane,symbol,capital,ps){
   const cap=capital||ATLAS_USER_CAPITAL;
   const showExtended=cap>=5000;
+  const SEP='──────────────────────────────────';
   if(astraStatus==='hold'){
-    return[
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      '**ATLAS STATUS**',
-      '',
-      '⚪ **HOLD — NEUTRAL / NO TREND**',
-      '',
-      '• No directional bias',
-      '• Structure not confirmed',
-      '• Awaiting alignment',
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    ].join('\n');
+    return[SEP,'**ATLAS STATUS**','','⚪ **HOLD — NEUTRAL / NO TREND**','','• No directional bias','• Structure not confirmed','• Awaiting alignment',SEP].join('\n');
   }
   if(astraStatus==='watch_4h'){
-    return[
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      '**ATLAS PRE-TRADE WARNING**',
-      '',
-      '🟨 **4H WATCH**',
-      '',
-      '• Structure forming toward POI',
-      '• Conditions building',
-      '• No execution yet',
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    ].join('\n');
+    return[SEP,'**ATLAS PRE-TRADE WARNING**','','🟨 **4H WATCH**','','• Structure forming toward POI','• Conditions building','• No execution yet',SEP].join('\n');
   }
   if(astraStatus==='watch_1h'){
-    return[
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      '**ATLAS PRE-TRADE WARNING**',
-      '',
-      '🟧 **1H WATCH**',
-      '',
-      '• Price approaching zone',
-      '• Liquidity likely in play',
-      '• Monitor closely',
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    ].join('\n');
+    return[SEP,'**ATLAS PRE-TRADE WARNING**','','🟧 **1H WATCH**','','• Price approaching zone','• Liquidity likely in play','• Monitor closely',SEP].join('\n');
   }
   if(astraStatus==='ready_30m'){
-    return[
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-      '**ATLAS PRE-TRADE WARNING**',
-      '',
-      '🟩 **30M READY**',
-      '',
-      '• Zone nearing activation',
-      '• Possible reaction forming',
-      '• Prepare for confirmation',
-      '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    ].join('\n');
+    return[SEP,'**ATLAS PRE-TRADE WARNING**','','🟩 **30M READY**','','• Zone nearing activation','• Possible reaction forming','• Prepare for confirmation',SEP].join('\n');
   }
   if(astraStatus==='active'){
     const ez=jane.entryZone,inv=jane.invalidationLevel,tgt=jane.targets&&jane.targets.length>0?jane.targets:null;
     const entryP=ez?`${fmtPrice(ez.low,symbol)} – ${fmtPrice(ez.high,symbol)}`:'N/A';
-    const entryE=ez?`${fmtPrice(ez.low*(jane.finalBias==='Bullish'?0.9990:1.0010),symbol)} – ${fmtPrice(ez.low,symbol)}`:'N/A';
-    const exitLow=tgt?fmtPrice(tgt[0].level,symbol):'N/A';
-    const exitHigh=tgt&&tgt.length>1?fmtPrice(tgt[tgt.length-1].level,symbol):exitLow;
-    const exitP=tgt?(tgt.length>1?`${exitLow} – ${exitHigh}`:exitLow):'N/A';
+    const entryE=ez?(jane.finalBias==='Bullish'?`${fmtPrice(ez.low*(1-0.0010),symbol)} – ${fmtPrice(ez.low,symbol)}`:`${fmtPrice(ez.high,symbol)} – ${fmtPrice(ez.high*(1+0.0010),symbol)}`):'N/A';
+    const exitP=tgt?(tgt.length>1?`${fmtPrice(tgt[0].level,symbol)} – ${fmtPrice(tgt[tgt.length-1].level,symbol)}`:fmtPrice(tgt[0].level,symbol)):'N/A';
     const stopP=inv?fmtPrice(inv,symbol):'N/A';
     const stopE=inv?fmtPrice(inv*(jane.finalBias==='Bullish'?0.9985:1.0015),symbol):'N/A';
-    // TREND row — one row only, determined by posState
     const psLabel=ps?ps.label:'';
     const trendVal=psLabel==='APPROACHING'?'⬆️ TOWARDS POI':psLabel==='DIVERGING'?'⬇️ AWAY FROM POI':psLabel==='ENTRY ZONE ACTIVE'?'🎯 AT POI':'⬆️ TOWARDS POI';
-    const W='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
-    const col1=28,col2=22;
-    const row=(a,b)=>`${('**'+a+'**').padEnd(col1)}${b}`;
-    const lines=[
-      W,
-      `${'**RECOMMENDED**'.padEnd(col1)}${'**RANGE / ACTION**'}`,
-      W,
-      row('🟢 ENTRY POINT:',entryP),
-      W,
-    ];
-    if(showExtended){lines.push(row('🟠 ENTRY EXTENDED:',entryE));lines.push(W);}
-    lines.push(row('🔴 EXIT POINT:',exitP));
-    lines.push(W);
-    lines.push(row('🟨 TREND:',trendVal));
-    lines.push(W);
-    lines.push(row('⚪ NEUTRAL MARKET:','NO BIAS — WAIT — HOLD'));
-    lines.push(W);
-    lines.push(row('🛑 SET STOP LOSS (1):',stopP));
-    lines.push(W);
-    if(showExtended){lines.push(row('🛑 EXT STOP LOSS (2):',stopE));lines.push(W);}
-    lines.push(row('⚠️ STOP LOSS RULE:','SELECT ONE (1) OR (2)'));
-    lines.push(W);
+    const row=(label,value)=>`**${label}**\n\`${value}\``;
+    const lines=[SEP,'**ATLAS EXECUTION MAP**',SEP,'**RECOMMENDED**           **RANGE / ACTION**',SEP,row('🟢 ENTRY POINT',entryP),SEP];
+    if(showExtended){lines.push(row('🟠 ENTRY EXTENDED',entryE));lines.push(SEP);}
+    lines.push(row('🔴 EXIT POINT',exitP));
+    lines.push(SEP);
+    lines.push(row('🟨 TREND',trendVal));
+    lines.push(SEP);
+    lines.push(row('⚪ NEUTRAL MARKET','NO BIAS'));
+    lines.push(SEP);
+    lines.push(row('🛑 SET STOP LOSS (1)',stopP));
+    lines.push(SEP);
+    if(showExtended){lines.push(row('🛑 EXT STOP LOSS (2)',stopE));lines.push(SEP);}
+    lines.push(row('⚠️ STOP LOSS RULE','SELECT ONE (1) OR (2)'));
+    lines.push(SEP);
     return lines.join('\n');
   }
   return'⚪ **HOLD — AWAITING SIGNAL**';
