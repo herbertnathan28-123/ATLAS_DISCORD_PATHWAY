@@ -58,7 +58,7 @@ client.once('clientReady',()=>{
   console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
   dhInit(safeOHLC);
   dhSetPipelineTrigger(darkHorsePipelineTrigger);
-  setInterval(async()=>{try{await runDarkHorseScan();}catch(e){log('ERROR',`[DH SCHEDULER] ${e.message}`);}},15*60*1000);
+  setInterval(async()=>{try{await runDarkHorseScan();}catch(e){log('ERROR',`[DH SCHEDULER] ${e.message}`);}},55*60*1000);
   log('INFO','[BOOT] Dark Horse Engine active — scanning every 15 minutes (market hours Mon-Fri only)');
 });
 
