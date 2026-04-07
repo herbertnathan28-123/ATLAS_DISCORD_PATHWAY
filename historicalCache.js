@@ -1,5 +1,3 @@
-const { harvest } = require('./historicalCache');
-harvest().catch(err => console.error('Harvest error:', err));
 'use strict';
 
 /**
