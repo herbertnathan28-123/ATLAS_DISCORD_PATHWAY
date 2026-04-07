@@ -1,3 +1,5 @@
+const { harvest } = require('./historicalCache');
+harvest().catch(err => console.error('Harvest error:', err));
 'use strict';
 // ============================================================
 // ATLAS FX DISCORD BOT — v4.0
