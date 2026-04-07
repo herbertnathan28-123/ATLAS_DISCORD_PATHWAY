@@ -56,7 +56,8 @@ function fetchHistory(symbol) {
       symbol:     symbol,
       interval:   TIMEFRAME,
       outputsize: String(OUTPUTSIZE),
-      apikey:     apikey: TWELVEDATA_KEY,
+      apikey:     TWELVEDATA_KEY,
+
 ,
       format:     'JSON',
       order:      'ASC',
