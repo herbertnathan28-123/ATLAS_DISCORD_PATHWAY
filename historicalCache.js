@@ -40,7 +40,7 @@ function getFileName(symbol) {
   return FILE_NAME_MAP[symbol] || symbol.replace('/', '');
 }
 
-const TWELVEDATA_KEY = process.env.TWELVEDATA_API_KEY;
+const TWELVEDATA_KEY = process.env.TWELVE_DATA_API_KEY;
 const TIMEFRAME      = '1day';
 const OUTPUTSIZE     = 5000;
 const DELAY_MS       = 200;
@@ -48,7 +48,7 @@ const DELAY_MS       = 200;
 function fetchHistory(symbol) {
   return new Promise((resolve, reject) => {
     if (!TWELVEDATA_KEY) {
-      reject(new Error('TWELVEDATA_API_KEY env var not set'));
+      reject(new Error('TWELVE_DATA_API_KEY env var not set'));
       return;
     }
 
@@ -56,7 +56,7 @@ function fetchHistory(symbol) {
       symbol:     symbol,
       interval:   TIMEFRAME,
       outputsize: String(OUTPUTSIZE),
-      apikey:     TWELVEDATA_KEY,
+      apikey:     TWELVE_DATA_API_KEY,
       format:     'JSON',
       order:      'ASC',
     });
@@ -103,7 +103,7 @@ async function harvest() {
   console.log('═══════════════════════════════════════════════════════\n');
 
   if (!TWELVEDATA_KEY) {
-    console.error('TWELVEDATA_API_KEY not set. Aborting.');
+    console.error('TWELVE_DATA_API_KEY not set. Aborting.');
     process.exit(1);
   }
 
