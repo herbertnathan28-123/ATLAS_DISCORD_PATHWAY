@@ -9,7 +9,7 @@
 const https = require('https');
 
 // ── ENV ─────────────────────────────────────────────────────
-const TWELVEDATA_KEY = process.env.TWELVEDATA_KEY;
+const TWELVEDATA_KEY = process.env.TTWELVE_DATA_API_KEY;
 const FRED_KEY       = process.env.FRED_KEY;
 
 // ── FETCH HELPER ────────────────────────────────────────────
