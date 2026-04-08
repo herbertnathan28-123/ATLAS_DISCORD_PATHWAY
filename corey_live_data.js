@@ -139,3 +139,16 @@ async function getCoreyLiveData() {
 module.exports = {
   getCoreyLiveData
 };
+module.exports = {
+  getCoreyLiveData
+};
+
+// ── TEST BLOCK (TEMPORARY) ─────────────────────────────
+(async () => {
+  try {
+    const data = await getCoreyLiveData();
+    console.log("COREY LIVE DATA:", JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.error("COREY DATA ERROR:", e.message);
+  }
+})();
