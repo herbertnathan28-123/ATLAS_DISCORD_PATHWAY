@@ -53,21 +53,48 @@ let TV_COOKIES=null;
 try{if(process.env.TV_COOKIES){TV_COOKIES=sanitiseCookies(JSON.parse(process.env.TV_COOKIES));console.log(`[BOOT] TV_COOKIES: ${TV_COOKIES.length} cookies loaded`);}}catch(e){console.error('[BOOT] TV_COOKIES parse error:',e.message);}
 console.log(`[BOOT] ATLAS FX v4.0 starting... auth:${TV_COOKIES?'COOKIE':'GUEST'} trendspider:${TS_ENABLED?'ENABLED':'DISABLED'}`);
 
-const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent]});
-client.once('clientReady',()=>{
-  console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
-  dhInit(safeOHLC);
-  dhSetPipelineTrigger(darkHorsePipelineTrigger);
-  setInterval(async()=>{try{await runDarkHorseScan();}catch(e){log('ERROR',`[DH SCHEDULER] ${e.message}`);}},55*60*1000);
-  log('INFO','[BOOT] Dark Horse Engine active — scanning every 15 minutes (market hours Mon-Fri only)');
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
-const MAX_RETRIES=2;
-const RENDER_TIMEOUT_MS=45000;
-const MESSAGE_DEDUPE_TTL_MS=30000;
-const SHARED_MACROS_CHANNEL=process.env.SHARED_MACROS_CHANNEL_ID||'1434253776360968293';
-const CACHE_TTL_MS=55*60*1000;
+client.once('clientReady', async () => {
 
+  console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
+
+  // COREY LIVE DATA TEST
+  try {
+    const { getCoreyLiveData } = require('./corey_live_data');
+    const data = await getCoreyLiveData();
+
+    console.log("COREY LIVE DATA:", JSON.stringify(data, null, 2));
+
+  } catch (e) {
+    console.error("COREY DATA ERROR:", e.message);
+  }
+
+  dhInit(safeOHLC);
+  dhSetPipelineTrigger(darkHorsePipelineTrigger);
+
+  setInterval(async () => {
+    try {
+      await runDarkHorseScan();
+    } catch (e) {
+      log('ERROR', `[DH SCHEDULER] ${e.message}`);
+    }
+  }, 15 * 60 * 1000);
+
+  log('INFO', '[BOOT] Dark Horse Engine active — scanning every 15 minutes (market hours Mon-Fri only)');
+});
+
+const MAX_RETRIES = 2;
+const RENDER_TIMEOUT_MS = 45000;
+const MESSAGE_DEDUPE_TTL_MS = 30000;
+const SHARED_MACROS_CHANNEL = process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
+const CACHE_TTL_MS = 15 * 60 * 1000;
 // ── RENDERING LAYER v2 — RESOLUTION ──────────────────────────
 const CHART_W=2048;
 const CHART_H=1920;
