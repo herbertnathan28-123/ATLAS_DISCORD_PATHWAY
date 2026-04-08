@@ -67,19 +67,21 @@ client.once('clientReady', async () => {
 
   // COREY LIVE DATA TEST
   try {
-    console.log("COREY: loading module...");
+  console.log("COREY: loading module...");
 
-    const { getCoreyLiveData } = require('./corey_live_data');
+  const { getCoreyLiveData } = require('./corey_live_data');
 
-    console.log("COREY: module loaded");
+  console.log("COREY: module loaded");
 
-    const data = await getCoreyLiveData();
+  console.log("COREY: fetching data...");
 
-    console.log("COREY LIVE DATA:", JSON.stringify(data, null, 2));
+  const data = await getCoreyLiveData();
 
-  } catch (e) {
-    console.error("COREY DATA ERROR:", e);
-  }
+  console.log("COREY LIVE DATA:", JSON.stringify(data, null, 2));
+
+} catch (e) {
+  console.error("COREY DATA ERROR FULL:", e);
+}
 
   dhInit(safeOHLC);
   dhSetPipelineTrigger(darkHorsePipelineTrigger);
