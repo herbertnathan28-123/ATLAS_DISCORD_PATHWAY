@@ -61,7 +61,7 @@ const client = new Client({
   ]
 });
 
-client.once('clientReady', async () => {
+  client.once('ready', async () => {
 
   console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
 
