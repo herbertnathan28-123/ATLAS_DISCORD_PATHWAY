@@ -61,19 +61,24 @@ const client = new Client({
   ]
 });
 
-  client.once('ready', async () => {
+client.once('clientReady', async () => {
 
   console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
 
   // COREY LIVE DATA TEST
   try {
+    console.log("COREY: loading module...");
+
     const { getCoreyLiveData } = require('./corey_live_data');
+
+    console.log("COREY: module loaded");
+
     const data = await getCoreyLiveData();
 
     console.log("COREY LIVE DATA:", JSON.stringify(data, null, 2));
 
   } catch (e) {
-    console.error("COREY DATA ERROR:", e.message);
+    console.error("COREY DATA ERROR:", e);
   }
 
   dhInit(safeOHLC);
@@ -93,7 +98,8 @@ const client = new Client({
 const MAX_RETRIES = 2;
 const RENDER_TIMEOUT_MS = 45000;
 const MESSAGE_DEDUPE_TTL_MS = 30000;
-const SHARED_MACROS_CHANNEL = process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
+const SHARED_MACROS_CHANNEL =
+  process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
 const CACHE_TTL_MS = 15 * 60 * 1000;
 // ── RENDERING LAYER v2 — RESOLUTION ──────────────────────────
 const CHART_W=2048;
