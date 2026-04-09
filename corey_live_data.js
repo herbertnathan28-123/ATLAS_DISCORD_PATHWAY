@@ -334,6 +334,7 @@ async function fetchVIX() {
 
 async function fetchYieldSpread() {
   try {
+    // Primary: FRED 10Y-2Y spread
     const fred = await fetchFredLatestObservation('T10Y2Y');
 
     return makeSuccess(
@@ -348,10 +349,47 @@ async function fetchYieldSpread() {
         requestedLabel: '10Y-2Y'
       }
     );
+
   } catch (error) {
-    return makeFailure('fred', error, {
-      requestedLabel: '10Y-2Y'
-    });
+
+    // Fallback: calculate using US10Y - US02Y
+    try {
+      const [tenY, twoY] = await Promise.all([
+        fetchQuoteWithFallbacks('US10Y', ['US10Y', 'TNX', '^TNX']),
+        fetchQuoteWithFallbacks('US02Y', ['US02Y', 'IRX', '^IRX'])
+      ]);
+
+      if (tenY.ok && twoY.ok) {
+        const spread = tenY.value.price - twoY.value.price;
+
+        return makeSuccess(
+          'twelvedata',
+          {
+            spread: spread,
+            date: new Date().toISOString(),
+            seriesId: 'US10Y-US02Y'
+          },
+          {
+            tenY: tenY.raw,
+            twoY: twoY.raw
+          },
+          {
+            requestedLabel: '10Y-2Y'
+          }
+        );
+      }
+
+      return makeFailure('fred', error, {
+        requestedLabel: '10Y-2Y'
+      });
+
+    } catch (fallbackError) {
+
+      return makeFailure('fred', error, {
+        requestedLabel: '10Y-2Y'
+      });
+
+    }
   }
 }
 
