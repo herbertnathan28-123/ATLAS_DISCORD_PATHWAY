@@ -352,11 +352,11 @@ async function fetchYieldSpread() {
 
   } catch (error) {
 
-    // Fallback: calculate using US10Y - US02Y
+    // Fallback: calculate using TNX - IRX (TwelveData supported)
     try {
       const [tenY, twoY] = await Promise.all([
-        fetchQuoteWithFallbacks('US10Y', ['US10Y', 'TNX', '^TNX']),
-        fetchQuoteWithFallbacks('US02Y', ['US02Y', 'IRX', '^IRX'])
+        fetchQuoteWithFallbacks('TNX', ['TNX']),
+        fetchQuoteWithFallbacks('IRX', ['IRX'])
       ]);
 
       if (tenY.ok && twoY.ok) {
@@ -367,7 +367,7 @@ async function fetchYieldSpread() {
           {
             spread: spread,
             date: new Date().toISOString(),
-            seriesId: 'US10Y-US02Y'
+            seriesId: 'TNX-IRX'
           },
           {
             tenY: tenY.raw,
@@ -384,11 +384,9 @@ async function fetchYieldSpread() {
       });
 
     } catch (fallbackError) {
-
       return makeFailure('fred', error, {
         requestedLabel: '10Y-2Y'
       });
-
     }
   }
 }
