@@ -15,15 +15,19 @@ const https = require('https');
 const DEFAULT_UNIVERSE = [
   // FX Majors
   'EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','USDCHF','NZDUSD',
+
   // FX Crosses
   'EURGBP','EURJPY','GBPJPY','AUDJPY','CADJPY','CHFJPY','EURAUD',
   'EURCAD','GBPAUD','GBPCAD','GBPCHF','AUDCAD','AUDNZD','NZDCAD',
+
   // Indices
-  'NAS100','US500','US30','GER40','UK100',
+  'NAS100','US500','DJI','GER40','UK100',
+
   // Equities
   'NVDA','AMD','ASML','AAPL','MSFT','META','GOOGL','AMZN','TSLA',
+
   // Commodities
-  'XAUUSD','XAGUSD','BCOUSD',
+  'XAUUSD','XAGUSD','BRENT'
 ];
 
 const DH_UNIVERSE = (process.env.DARKHORSE_UNIVERSE || '')
