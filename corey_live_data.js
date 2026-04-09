@@ -19,7 +19,7 @@ const TWELVEDATA_KEY =
 
 const FRED_KEY = process.env.FRED_KEY || '';
 
-const HTTP_TIMEOUT_MS = parseInt(process.env.COREY_HTTP_TIMEOUT_MS || '12000', 10);
+const HTTP_TIMEOUT_MS = parseInt(process.env.COREY_HTTP_TIMEOUT_MS || '25000', 10);
 const USER_AGENT = 'ATLAS-FX/COREY-LIVE-DATA/1.0';
 
 // ── HELPERS ─────────────────────────────────────────────────
@@ -309,10 +309,10 @@ async function fetchDXY() {
 
 async function fetchVIX() {
   const result = await fetchQuoteWithFallbacks('VIX', [
-    'VIX',
-    'CBOE:VIX',
-    'VIX:IND',
-    'TVIX'
+    'VXX',
+    'UVXY',
+    'SVXY',
+    'VIXY'
   ]);
 
   if (!result.ok) return result;
