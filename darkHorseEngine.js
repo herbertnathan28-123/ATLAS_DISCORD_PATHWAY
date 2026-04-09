@@ -30,10 +30,7 @@ const DEFAULT_UNIVERSE = [
   'XAUUSD','XAGUSD','BRENT'
 ];
 
-const DH_UNIVERSE = (process.env.DARKHORSE_UNIVERSE || '')
-  .split(',').map(s => s.trim().toUpperCase()).filter(Boolean).length
-    ? (process.env.DARKHORSE_UNIVERSE || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
-    : DEFAULT_UNIVERSE;
+const DH_UNIVERSE = DEFAULT_UNIVERSE;
 
 // Crypto exclusion filter — applied before every scan
 const CRYPTO_BANNED = new Set([
