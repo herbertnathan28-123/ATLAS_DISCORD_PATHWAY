@@ -369,6 +369,5 @@ Bias: ${macro.bias}
 Confidence: ${macro.confidence}`,
   components: [row]
 });
-});
 
 client.login(TOKEN);
