@@ -296,6 +296,13 @@ async function initTVBrowser(){
   const page=await context.newPage();
   await page.goto(TV_CHART_URL,{waitUntil:'networkidle'});
   log('INFO',`[TV] Page loaded: ${TV_CHART_URL}`);
+  await page.evaluate(()=>{
+    const tv=window.TradingViewApi?._chartWidgetCollection;
+    if(!tv)return;
+    tv.setChartLayoutWithUndo('4');
+  });
+  await page.waitForTimeout(500);
+  log('INFO','[TV] 2x2 layout forced (4 panes)');
   setTVPage(page);
   log('INFO','[TV] Renderer initialised — setTVPage() called');
   return{browser,context,page};
