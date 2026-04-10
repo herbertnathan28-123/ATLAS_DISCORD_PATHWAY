@@ -66,20 +66,37 @@ client.on('messageCreate', async (msg) => {
     if (msg.author.bot) return;
     if (!msg.content.startsWith('!')) return;
 
-    console.log("[MSG]", msg.content);
-
     const symbol = msg.content.slice(1).trim().toUpperCase();
+
+    console.log("[REQUEST]", symbol);
+
+    const {
+      htfGrid,
+      ltfGrid,
+      htfGridName,
+      ltfGridName
+    } = await renderAllPanels(symbol);
+
+    await msg.channel.send({
+      content: `📡 **${symbol} — HTF**`,
+      files: [new AttachmentBuilder(htfGrid, { name: htfGridName })]
+    });
+
+    await msg.channel.send({
+      content: `🔬 **${symbol} — LTF**`,
+      files: [new AttachmentBuilder(ltfGrid, { name: ltfGridName })]
+    });
 
     const macro = await runCorey(symbol);
 
     await msg.channel.send(
-`MACRO ${symbol}
+`⚡ ATLAS FX — ${symbol}
 Bias: ${macro.bias}
 Confidence: ${macro.confidence}`
     );
 
   } catch (e) {
-    console.error("[MACRO ERROR]", e);
+    console.error("handler error", e);
   }
 });
   client.once('clientReady', async () => {
