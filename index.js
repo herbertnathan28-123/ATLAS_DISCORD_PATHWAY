@@ -62,20 +62,26 @@ const client = new Client({
 });
 
 client.on('messageCreate', async (msg) => {
-  if (msg.author.bot) return;
-  if (!msg.content.startsWith('!')) return;
+  try {
+    if (msg.author.bot) return;
+    if (!msg.content.startsWith('!')) return;
 
-  const symbol = msg.content.slice(1).toUpperCase();
+    console.log("[MSG]", msg.content);
 
-  const macro = await runCorey(symbol);
+    const symbol = msg.content.slice(1).trim().toUpperCase();
 
-  await msg.reply(
-    `MACRO ${symbol}
-    Bias: ${macro.bias}
-    Confidence: ${macro.confidence}`
-  );
+    const macro = await runCorey(symbol);
+
+    await msg.channel.send(
+`MACRO ${symbol}
+Bias: ${macro.bias}
+Confidence: ${macro.confidence}`
+    );
+
+  } catch (e) {
+    console.error("[MACRO ERROR]", e);
+  }
 });
-
   client.once('clientReady', async () => {
 
   console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
@@ -365,3 +371,8 @@ components:[row]
 });
 
 }
+... existing code ...
+
+});
+
+client.login(TOKEN);
