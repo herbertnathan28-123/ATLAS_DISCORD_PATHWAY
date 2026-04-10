@@ -97,8 +97,6 @@ client.once('clientReady', async () => {
   log('INFO', '[BOOT] Dark Horse Engine active — scanning every 15 minutes (market hours Mon-Fri only)');
 });
 
-const MAX_RETRIES = 2;
-const RENDER_TIMEOUT_MS = 45000;
 const MESSAGE_DEDUPE_TTL_MS = 30000;
 const SHARED_MACROS_CHANNEL =
   process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
@@ -108,8 +106,6 @@ const CHART_W=2048;
 const CHART_H=1920;
 // ─────────────────────────────────────────────────────────────
 
-const MIN_CANVAS_AREA=150000;
-const ABORT_THRESHOLD=0.25;
 const HTF_INTERVALS=['1W','1D','240','60'];
 const LTF_INTERVALS=['30','15','5','1'];
 const TF_LABELS={'1W':'Weekly','1D':'Daily','240':'4H','60':'1H','30':'30M','15':'15M','5':'5M','1':'1M'};
@@ -263,12 +259,6 @@ async function fetchChartImage(symbol,iv){
   });
 }
 
-async function makePlaceholder(sym,tfKey,reason){
-  const r2=(reason||'NO DATA').slice(0,60);
-  const svg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect width="${CHART_W}" height="${CHART_H}" fill="#0A0F1A"/><text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#333" text-anchor="middle">${sym} ${tfKey}</text><text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#222" text-anchor="middle">${r2}</text></svg>`;
-  return sharp(Buffer.from(svg)).resize(CHART_W,CHART_H).png().toBuffer();
-}
-
 async function buildGrid(panels){
   const resized=await Promise.all(panels.map(img=>sharp(img).resize(CHART_W,CHART_H,{fit:'cover',position:'centre'}).png().toBuffer()));
   return sharp({create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:10,g:15,b:26,alpha:1}}})
@@ -279,13 +269,21 @@ async function buildGrid(panels){
 async function renderAllPanels(symbol){
   if(!CHART_IMG_API_KEY){log('ERROR','[CHART] CHART_IMG_API_KEY not set');throw new Error('CHART_IMG_API_KEY missing from environment');}
   log('INFO',`[CHART] ${symbol} — fetching 8 panels from chart-img.com`);
-  const htfP=[],ltfP=[];let htfFail=0,ltfFail=0;
-  for(const iv of HTF_INTERVALS){const key=tfLabel(iv);try{const buf=await fetchChartImage(symbol,iv);htfP.push(buf);log('INFO',`[CHART] ${symbol} ${key} OK (${(buf.length/1024).toFixed(0)}KB)`);}catch(e){log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);htfP.push(await makePlaceholder(symbol,key,e.message));htfFail++;}}
-  for(const iv of LTF_INTERVALS){const key=tfLabel(iv);try{const buf=await fetchChartImage(symbol,iv);ltfP.push(buf);log('INFO',`[CHART] ${symbol} ${key} OK (${(buf.length/1024).toFixed(0)}KB)`);}catch(e){log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);ltfP.push(await makePlaceholder(symbol,key,e.message));ltfFail++;}}
-  if(htfFail/HTF_INTERVALS.length>ABORT_THRESHOLD||ltfFail/LTF_INTERVALS.length>ABORT_THRESHOLD)throw new Error(`[ABORT] ${symbol} chart render failed — HTF:${htfFail}/4 LTF:${ltfFail}/4`);
+  const htfP=[];
+  for(let i=0;i<HTF_INTERVALS.length;i++){
+    const buf=await fetchChartImage(symbol,HTF_INTERVALS[i]);
+    await new Promise(r=>setTimeout(r,150));
+    htfP.push(buf);
+  }
+  const ltfP=[];
+  for(let i=0;i<LTF_INTERVALS.length;i++){
+    const buf=await fetchChartImage(symbol,LTF_INTERVALS[i]);
+    await new Promise(r=>setTimeout(r,150));
+    ltfP.push(buf);
+  }
   const htfGrid=await buildGrid(htfP),ltfGrid=await buildGrid(ltfP);
-  log('INFO',`[CHART] ${symbol} grids built — HTF:${htfFail===0?'OK':`${htfFail} placeholder(s)`} LTF:${ltfFail===0?'OK':`${ltfFail} placeholder(s)`}`);
-  return{htfGrid,ltfGrid,htfFail,ltfFail,partial:htfFail>0||ltfFail>0};
+  log('INFO',`[CHART] ${symbol} grids built`);
+  return{htfGrid,ltfGrid};
 }
 // ── END RENDERING LAYER v2 ────────────────────────────────────
 
