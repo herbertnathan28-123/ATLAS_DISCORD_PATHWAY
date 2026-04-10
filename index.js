@@ -234,16 +234,11 @@ async function pane_focus(index){
 }
 
 async function chart_set_timeframe(tf){
-  await _tvFrame.evaluate(()=>document.activeElement?.blur());
-  await _tvFrame.click('.header-chart-panel .value-OcJGo6ig');
-  await _tvFrame.waitForSelector('.menuWrap-Kq3ruQo8',{timeout:2000});
-  const items=await _tvFrame.$$('.menuWrap-Kq3ruQo8 .item-jFqVJoPk');
-  for(const item of items){
-    const txt=await item.evaluate(el=>el.textContent.trim());
-    if(txt===String(tf)){await item.click();return;}
-  }
-  const input=await _tvFrame.$('.menuWrap-Kq3ruQo8 input');
-  if(input){await input.type(String(tf));await input.press('Enter');}
+  await _tvFrame.evaluate((resolution)=>{
+    const charts=window.TradingViewApi?._chartWidgetCollection?._charts;
+    const active=charts?.find(c=>c.isActive());
+    if(active){active.setResolution(resolution);}
+  },tf);
 }
 
 async function wait(ms){return new Promise(r=>setTimeout(r,ms));}
