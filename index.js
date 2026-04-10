@@ -379,12 +379,18 @@ await msg.channel.send({
 const macro = await runCorey(symbol);
 
 await msg.channel.send({
-  content:
-`⚡ **ATLAS FX — ${symbol}**
+content: `
+⚡ **ATLAS FX — ${symbol}**
 
 Bias: ${macro.bias}
 Confidence: ${macro.confidence}`,
-  components: [row]
+components: [row]
+});
+
+  } catch (e) {
+    console.error("[MESSAGE HANDLER ERROR]", e);
+  }
+
 });
 
 client.login(TOKEN);
