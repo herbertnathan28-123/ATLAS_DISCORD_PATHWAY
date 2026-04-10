@@ -61,6 +61,74 @@ const client = new Client({
   ]
 });
 
+// ==============================
+// ATLAS MACRO ENGINE
+// ==============================
+
+async function buildMacro(symbol) {
+  const corey = await runCorey(symbol);
+
+  return {
+    symbol,
+
+    bias: corey.bias ?? "neutral",
+    confidence: corey.confidence ?? 0,
+
+    structure: corey.structure ?? "mixed",
+    regime: corey.regime ?? "range",
+    risk: corey.risk ?? "normal",
+
+    htf: corey.htf ?? null,
+    ltf: corey.ltf ?? null,
+
+    timestamp: Date.now()
+  };
+}
+
+// ==============================
+// MACRO FORMATTER
+// ==============================
+
+function formatMacro(m) {
+  return `
+⚡ **ATLAS FX — ${m.symbol}**
+
+Bias: ${m.bias}
+Confidence: ${m.confidence}
+
+Structure: ${m.structure}
+Regime: ${m.regime}
+Risk: ${m.risk}
+`;
+}
+
+// ==============================
+// DISCORD MACRO SENDER
+// ==============================
+
+async function sendMacro(msg, symbol) {
+  const macro = await buildMacro(symbol);
+
+  await msg.channel.send({
+    content: formatMacro(macro)
+  });
+
+  return macro;
+}
+
+// ==============================
+// DARK HORSE PIPELINE MACRO
+// ==============================
+
+async function runMacroPipeline(symbol) {
+  const macro = await buildMacro(symbol);
+
+  return {
+    symbol,
+    macro
+  };
+}
+
 client.on('messageCreate', async (msg) => {
   try {
     if (msg.author.bot) return;
@@ -87,13 +155,7 @@ client.on('messageCreate', async (msg) => {
       files: [new AttachmentBuilder(ltfGrid, { name: ltfGridName })]
     });
 
-    const macro = await runCorey(symbol);
-
-    await msg.channel.send(
-`⚡ ATLAS FX — ${symbol}
-Bias: ${macro.bias}
-Confidence: ${macro.confidence}`
-    );
+    await sendMacro(msg, symbol);
 
   } catch (e) {
     console.error("handler error", e);
@@ -125,11 +187,8 @@ Confidence: ${macro.confidence}`
   dhSetPipelineTrigger(async (symbol, opts) => {
     log('INFO', `[DH PIPELINE] Triggered for ${symbol} (score: ${opts.dhScore})`);
     try {
-      const htfResult = await runSpideyHTF(symbol, HTF_INTERVALS);
-      const ltfResult = await runSpideyLTF(symbol, LTF_INTERVALS);
-      const corey = await runCorey(symbol);
-      const jane = runJane(symbol, htfResult, ltfResult, corey);
-      log('INFO', `[DH PIPELINE] ${symbol} → ${jane.finalBias} (${jane.convictionLabel})`);
+      const result = await runMacroPipeline(symbol);
+      log('INFO', `[DH PIPELINE] ${symbol} → ${result.macro.bias} (${result.macro.confidence})`);
     } catch (e) {
       log('ERROR', `[DH PIPELINE] ${symbol} failed: ${e.message}`);
     }
