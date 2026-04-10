@@ -223,26 +223,27 @@ function runJane(symbol,spideyHTF,spideyLTF,corey){log('INFO',`[JANE] Synthesisi
 // No REST API | No chart-img | Direct pane focus + capture
 // ============================================================
 
+let _tvFrame=null;
 let _tvPage=null;
-function setTVPage(page){_tvPage=page;}
+function setTVFrame(frame,page){_tvFrame=frame;_tvPage=page;}
 
 async function pane_focus(index){
-  const panes=await _tvPage.$$('.chart-markup-table .pane');
+  const panes=await _tvFrame.$$('.chart-markup-table .pane');
   if(!panes[index])throw new Error(`Pane ${index} not found`);
   await panes[index].click();
 }
 
 async function chart_set_timeframe(tf){
-  await _tvPage.keyboard.press('Escape');
-  await _tvPage.click('.header-chart-panel .value-OcJGo6ig');
-  await _tvPage.waitForSelector('.menuWrap-Kq3ruQo8',{timeout:2000});
-  const items=await _tvPage.$$('.menuWrap-Kq3ruQo8 .item-jFqVJoPk');
+  await _tvFrame.evaluate(()=>document.activeElement?.blur());
+  await _tvFrame.click('.header-chart-panel .value-OcJGo6ig');
+  await _tvFrame.waitForSelector('.menuWrap-Kq3ruQo8',{timeout:2000});
+  const items=await _tvFrame.$$('.menuWrap-Kq3ruQo8 .item-jFqVJoPk');
   for(const item of items){
     const txt=await item.evaluate(el=>el.textContent.trim());
     if(txt===String(tf)){await item.click();return;}
   }
-  await _tvPage.keyboard.type(String(tf));
-  await _tvPage.keyboard.press('Enter');
+  const input=await _tvFrame.$('.menuWrap-Kq3ruQo8 input');
+  if(input){await input.type(String(tf));await input.press('Enter');}
 }
 
 async function wait(ms){return new Promise(r=>setTimeout(r,ms));}
@@ -259,7 +260,7 @@ async function buildGrid(panels){
 }
 
 async function renderAllPanels(symbol){
-  if(!_tvPage)throw new Error('TradingView page not initialised — call setTVPage(page) first');
+  if(!_tvFrame)throw new Error('TradingView frame not initialised — call setTVFrame(frame,page) first');
   log('INFO',`[CHART] ${symbol} — capturing 8 panes via TradingView direct control`);
   const htfP=[];
   for(let i=0;i<HTF_INTERVALS.length;i++){
@@ -296,16 +297,19 @@ async function initTVBrowser(){
   const page=await context.newPage();
   await page.goto(TV_CHART_URL,{waitUntil:'networkidle'});
   log('INFO',`[TV] Page loaded: ${TV_CHART_URL}`);
-  await page.evaluate(()=>{
+  const frame=page.frames().find(f=>f.url().includes('tradingview')||f.url().includes('chart'));
+  if(!frame)throw new Error('TradingView frame not found');
+  log('INFO',`[TV] Frame bound: ${frame.url()}`);
+  await frame.evaluate(()=>{
     const tv=window.TradingViewApi?._chartWidgetCollection;
     if(!tv)return;
     tv.setChartLayoutWithUndo('4');
   });
   await page.waitForTimeout(500);
   log('INFO','[TV] 2x2 layout forced (4 panes)');
-  setTVPage(page);
-  log('INFO','[TV] Renderer initialised — setTVPage() called');
-  return{browser,context,page};
+  setTVFrame(frame,page);
+  log('INFO','[TV] Renderer initialised — setTVFrame() called');
+  return{browser,context,page,frame};
 }
 
 async function deliverResult(msg,result){
