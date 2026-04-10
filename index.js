@@ -378,10 +378,6 @@ await msg.channel.send({
 
 const macro = await runCorey(symbol);
 
-}
-
-const macro = await runCorey(symbol);
-
 await msg.channel.send({
   content: `
 ⚡ **ATLAS FX — ${symbol}**
