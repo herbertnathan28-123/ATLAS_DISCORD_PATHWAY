@@ -346,33 +346,29 @@ new ButtonBuilder()
 );
 
 await msg.channel.send({
-content:`📡 **${symbol} — HTF** · Weekly · Daily · 4H · 1H`,
-files:[
-new AttachmentBuilder(
-htfGrid,
-{name:htfGridName}
-)
-]
+  content: `📡 **${symbol} — HTF** · Weekly · Daily · 4H · 1H`,
+  files: [
+    new AttachmentBuilder(htfGrid, { name: htfGridName })
+  ]
 });
 
 await msg.channel.send({
-content:`🔬 **${symbol} — LTF** · 30M · 15M · 5M · 1M`,
-files:[
-new AttachmentBuilder(
-ltfGrid,
-{name:ltfGridName}
-)
-]
+  content: `🔬 **${symbol} — LTF** · 30M · 15M · 5M · 1M`,
+  files: [
+    new AttachmentBuilder(ltfGrid, { name: ltfGridName })
+  ]
 });
+
+const macro = await runCorey(symbol);
 
 await msg.channel.send({
-content:`⚡ **ATLAS FX — ${symbol}**\nCharts generated · Macro disabled`,
-components:[row]
+  content:
+`⚡ **ATLAS FX — ${symbol}**
+
+Bias: ${macro.bias}
+Confidence: ${macro.confidence}`,
+  components: [row]
 });
-
-}
-... existing code ...
-
 });
 
 client.login(TOKEN);
