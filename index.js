@@ -3,7 +3,7 @@
 // ATLAS FX DISCORD BOT — v4.0
 // EXECUTION INTERFACE v4 — INSTITUTIONAL GRADE
 // Dark Horse Engine integrated — v4.0.1
-// Chart engine: chart-img.com API — RENDERING LAYER v2
+// Chart engine: TradingView direct pane control — RENDERING LAYER v3
 // Resolution: 2048x1920 | Theme: deep dark | Candles: high contrast
 // ============================================================
 process.on('unhandledRejection',(r)=>{console.error('[UNHANDLED]',r);});
@@ -211,52 +211,36 @@ function buildLevels(spideyHTF,spideyLTF,bias){const htfD=Object.entries(spideyH
 function runJane(symbol,spideyHTF,spideyLTF,corey){log('INFO',`[JANE] Synthesising ${symbol}`);const htfB=spideyHTF.dominantBias,htfC=spideyHTF.dominantConviction,ltfB=spideyLTF.dominantBias,ltfC=spideyLTF.dominantConviction,cB=corey.combinedBias,cC=corey.confidence,tsB=corey.trendSpider.signalBias,tsG=corey.trendSpider.grade,tsF=corey.trendSpider.fresh,tsA=corey.trendSpider.available;const bS={Bullish:1,Neutral:0,Bearish:-1},spS=(bS[htfB]*htfC*0.60)+(bS[ltfB]*ltfC*0.40),cS=bS[cB]*cC;let tsAdj=0,tsEff='Unavailable';if(tsA&&tsF&&(tsG==='FreshHigh'||tsG==='FreshMedium')){const ts2=bS[tsB]*corey.trendSpider.confidence,agree=tsB===htfB&&tsB===cB,conf2=tsB!=='Neutral'&&(tsB!==htfB||tsB!==cB);if(agree){tsAdj=ts2>0?0.08:-0.08;tsEff='Boosted';}else if(conf2){tsAdj=ts2>0?-0.06:0.06;tsEff='Reduced';}else{tsAdj=0;tsEff='Neutral';}}else{tsEff=tsA?'Ignored':'Unavailable';}const comp=(spS*0.40)+(cS*0.30)+tsAdj;let fb,conv,cl,dnt=false,dntR=null,cs;const spN=htfB==='Neutral',cN=cB==='Neutral',tsN=tsB==='Neutral'||!tsA||!tsF,ltfConf=ltfB!=='Neutral'&&ltfB!==htfB,sAc=!spN&&!cN&&htfB===cB,sCo=!spN&&!cN&&htfB!==cB,tsCS=!tsN&&tsB!==htfB;if(htfB==='Bullish'&&cB==='Bullish'&&(!tsA||!tsF||tsB==='Bullish')){fb='Bullish';conv=Math.min(comp+0.1,1);cs='Aligned';}else if(htfB==='Bearish'&&cB==='Bearish'&&(!tsA||!tsF||tsB==='Bearish')){fb='Bearish';conv=Math.min(Math.abs(comp)+0.1,1);cs='Aligned';}else if(sAc&&tsN){fb=htfB;conv=Math.abs(comp);cs='Aligned';}else if(sAc&&tsCS&&tsG==='FreshLow'){fb=htfB;conv=Math.abs(comp)*0.85;cs='PartialConflict';}else if(sAc&&tsCS&&tsG==='FreshHigh'){if(htfC>0.65&&cC>0.55){fb=htfB;conv=Math.abs(comp)*0.70;cs='PartialConflict';}else{fb='Neutral';conv=0.2;cs='HardConflict';dnt=true;dntR=`${htfB} structure+macro, strong TS ${tsB} conflict.`;}}else if(sCo&&!tsN&&tsB===htfB){fb=htfB;conv=Math.abs(comp)*0.60;cs='PartialConflict';if(htfC<0.55){dnt=true;dntR=`Structure (${htfB}) vs macro (${cB}) conflict.`;}}else if(sCo&&!tsN&&tsB===cB){fb='Neutral';conv=0.2;cs='HardConflict';dnt=true;dntR=`Structure (${htfB}) and macro+TS (${cB}) in direct conflict.`;}else if(spN&&!cN&&!tsN&&cB===tsB){fb=cB;conv=Math.abs(comp)*0.55;cs='PartialConflict';if(conv<0.35){dnt=true;dntR='Structure neutral. Macro+TS aligned but insufficient confirmation.';}}else if(!spN&&cN&&!tsN&&tsB===htfB){fb=htfB;conv=Math.abs(comp)*0.65;cs='PartialConflict';}else{fb='Neutral';conv=0;cs='HardConflict';dnt=true;dntR='Evidence fragmented. No clean bias.';}if(ltfConf&&!dnt){conv*=0.80;cs=cs==='Aligned'?'PartialConflict':cs;}if(conv<0.25&&!dnt){dnt=true;dntR=`Conviction ${(conv*100).toFixed(0)}% — below minimum threshold.`;}conv=Math.round(Math.min(conv,1)*100)/100;cl=conv>=0.65?'High':conv>=0.40?'Medium':conv>=0.20?'Low':'Abstain';if(dnt)cl=conv<0.10?'Abstain':cl;const levels=buildLevels(spideyHTF,spideyLTF,fb);log('INFO',`[JANE] ${symbol} → ${fb} | ${cl} | conflict:${cs} | TS:${tsEff} | DNT:${dnt}`);return{finalBias:fb,conviction:conv,convictionLabel:cl,compositeScore:Math.round(comp*100)/100,doNotTrade:dnt,doNotTradeReason:dntR,trendSpiderEffect:tsEff,conflictState:cs,ltfAligned:!ltfConf,ltfConflict:ltfConf,entryZone:levels.entryZone,invalidationLevel:levels.invalidationLevel,targets:levels.targets,rrRatio:levels.rrRatio};}
 
 // ============================================================
-// RENDERING LAYER v2 — chart-img.com
-// POST JSON | native https | 2048x1920 | deep dark theme
+// RENDERING LAYER v3 — TradingView direct pane control
+// No REST API | No chart-img | Direct pane focus + capture
 // ============================================================
-const CHART_IMG_API_KEY=process.env.CHART_IMG_API_KEY||null;
 
-function getCISymbol(symbol){const overrides={XAUUSD:'OANDA:XAUUSD',XAGUSD:'OANDA:XAGUSD',BCOUSD:'OANDA:BCOUSD',USOIL:'OANDA:BCOUSD',NAS100:'OANDA:NAS100USD',US500:'OANDA:SPX500USD',US30:'OANDA:US30USD',EURUSD:'OANDA:EURUSD',GBPUSD:'OANDA:GBPUSD',USDJPY:'OANDA:USDJPY',AUDUSD:'OANDA:AUDUSD',AUDJPY:'OANDA:AUDJPY',GBPJPY:'OANDA:GBPJPY',USDCAD:'OANDA:USDCAD',USDCHF:'OANDA:USDCHF',NZDUSD:'OANDA:NZDUSD',MICRON:'NASDAQ:MU',AMD:'NASDAQ:AMD',NVDA:'NASDAQ:NVDA',ASML:'NASDAQ:ASML'};if(overrides[symbol])return overrides[symbol];if(/^[A-Z]{6}$/.test(symbol))return`OANDA:${symbol}`;return`NASDAQ:${symbol}`;}
+let _tvPage=null;
+function setTVPage(page){_tvPage=page;}
 
-const CI_INTERVAL_MAP={'1W':'1W','1D':'1D','240':'4h','60':'1h','30':'30m','15':'15m','5':'5m','1':'1m'};
+async function pane_focus(index){
+  const panes=await _tvPage.$$('.chart-markup-table .pane');
+  if(!panes[index])throw new Error(`Pane ${index} not found`);
+  await panes[index].click();
+}
 
-async function fetchChartImage(symbol,iv){
-  if(!CHART_IMG_API_KEY)throw new Error('CHART_IMG_API_KEY not set');
-  const ciSym=getCISymbol(symbol);
-  const ciInt=CI_INTERVAL_MAP[iv]||'1D';
-  const payload=JSON.stringify({
-    symbol:ciSym,
-    interval:ciInt,
-    theme:'dark',
-    style:'candle',
-    width:CHART_W,
-    height:CHART_H,
-    timezone:'Australia/Perth',
-    overrides:{
-      'paneProperties.background':'#0A0F1A',
-      'paneProperties.vertGridProperties.color':'#121826',
-      'paneProperties.horzGridProperties.color':'#121826',
-      'paneProperties.crossHairProperties.color':'#2A3345',
-      'paneProperties.vertGridProperties.style':0,
-      'paneProperties.horzGridProperties.style':0,
-      'scalesProperties.textColor':'#AAB4C3',
-      'scalesProperties.lineColor':'#1C2433',
-      'symbolWatermarkProperties.transparency':90,
-      'mainSeriesProperties.candleStyle.upColor':'#00C896',
-      'mainSeriesProperties.candleStyle.downColor':'#FF4D4F',
-      'mainSeriesProperties.candleStyle.borderUpColor':'#00C896',
-      'mainSeriesProperties.candleStyle.borderDownColor':'#FF4D4F',
-      'mainSeriesProperties.candleStyle.wickUpColor':'#00C896',
-      'mainSeriesProperties.candleStyle.wickDownColor':'#FF4D4F',
-      'mainSeriesProperties.candleStyle.barColorsOnPrevClose':false,
-    },
-    studies:[],
-  });
-  return new Promise((resolve,reject)=>{
-    const opts={hostname:'api.chart-img.com',path:'/v2/tradingview/advanced-chart',method:'POST',headers:{'x-api-key':CHART_IMG_API_KEY,'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload),'User-Agent':'ATLAS-FX/4.2.0'},timeout:60000};
-    const req=https.request(opts,res=>{const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>{if(res.statusCode!==200){const body=Buffer.concat(chunks).toString();reject(new Error(`chart-img ${res.statusCode}: ${body.slice(0,200)}`));return;}resolve(Buffer.concat(chunks));});});
-    req.on('error',reject);req.on('timeout',()=>reject(new Error('chart-img timeout')));req.write(payload);req.end();
-  });
+async function chart_set_timeframe(tf){
+  await _tvPage.keyboard.press('Escape');
+  await _tvPage.click('.header-chart-panel .value-OcJGo6ig');
+  await _tvPage.waitForSelector('.menuWrap-Kq3ruQo8',{timeout:2000});
+  const items=await _tvPage.$$('.menuWrap-Kq3ruQo8 .item-jFqVJoPk');
+  for(const item of items){
+    const txt=await item.evaluate(el=>el.textContent.trim());
+    if(txt===String(tf)){await item.click();return;}
+  }
+  await _tvPage.keyboard.type(String(tf));
+  await _tvPage.keyboard.press('Enter');
+}
+
+async function wait(ms){return new Promise(r=>setTimeout(r,ms));}
+
+async function capture_screenshot(){
+  return _tvPage.screenshot({type:'png',clip:{x:0,y:0,width:CHART_W,height:CHART_H}});
 }
 
 async function buildGrid(panels){
@@ -267,25 +251,29 @@ async function buildGrid(panels){
 }
 
 async function renderAllPanels(symbol){
-  if(!CHART_IMG_API_KEY){log('ERROR','[CHART] CHART_IMG_API_KEY not set');throw new Error('CHART_IMG_API_KEY missing from environment');}
-  log('INFO',`[CHART] ${symbol} — fetching 8 panels from chart-img.com`);
+  if(!_tvPage)throw new Error('TradingView page not initialised — call setTVPage(page) first');
+  log('INFO',`[CHART] ${symbol} — capturing 8 panes via TradingView direct control`);
   const htfP=[];
   for(let i=0;i<HTF_INTERVALS.length;i++){
-    const buf=await fetchChartImage(symbol,HTF_INTERVALS[i]);
-    await new Promise(r=>setTimeout(r,150));
-    htfP.push(buf);
+    await pane_focus(i);
+    await chart_set_timeframe(HTF_INTERVALS[i]);
+    await wait(120);
+    const img=await capture_screenshot();
+    htfP.push(img);
   }
   const ltfP=[];
   for(let i=0;i<LTF_INTERVALS.length;i++){
-    const buf=await fetchChartImage(symbol,LTF_INTERVALS[i]);
-    await new Promise(r=>setTimeout(r,150));
-    ltfP.push(buf);
+    await pane_focus(i);
+    await chart_set_timeframe(LTF_INTERVALS[i]);
+    await wait(120);
+    const img=await capture_screenshot();
+    ltfP.push(img);
   }
   const htfGrid=await buildGrid(htfP),ltfGrid=await buildGrid(ltfP);
   log('INFO',`[CHART] ${symbol} grids built`);
   return{htfGrid,ltfGrid};
 }
-// ── END RENDERING LAYER v2 ────────────────────────────────────
+// ── END RENDERING LAYER v3 ────────────────────────────────────
 
 async function deliverResult(msg,result){
 
