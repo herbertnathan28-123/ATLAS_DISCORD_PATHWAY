@@ -122,7 +122,18 @@ Confidence: ${macro.confidence}`
 }
 
   dhInit(safeOHLC);
-  dhSetPipelineTrigger(darkHorsePipelineTrigger);
+  dhSetPipelineTrigger(async (symbol, opts) => {
+    log('INFO', `[DH PIPELINE] Triggered for ${symbol} (score: ${opts.dhScore})`);
+    try {
+      const htfResult = await runSpideyHTF(symbol, HTF_INTERVALS);
+      const ltfResult = await runSpideyLTF(symbol, LTF_INTERVALS);
+      const corey = await runCorey(symbol);
+      const jane = runJane(symbol, htfResult, ltfResult, corey);
+      log('INFO', `[DH PIPELINE] ${symbol} → ${jane.finalBias} (${jane.convictionLabel})`);
+    } catch (e) {
+      log('ERROR', `[DH PIPELINE] ${symbol} failed: ${e.message}`);
+    }
+  });
 
   setInterval(async () => {
     try {
