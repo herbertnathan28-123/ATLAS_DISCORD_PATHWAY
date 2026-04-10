@@ -61,7 +61,22 @@ const client = new Client({
   ]
 });
 
-client.once('clientReady', async () => {
+client.on('messageCreate', async (msg) => {
+  if (msg.author.bot) return;
+  if (!msg.content.startsWith('!')) return;
+
+  const symbol = msg.content.slice(1).toUpperCase();
+
+  const macro = await runCorey(symbol);
+
+  await msg.reply(
+    `MACRO ${symbol}
+    Bias: ${macro.bias}
+    Confidence: ${macro.confidence}`
+  );
+});
+
+  client.once('clientReady', async () => {
 
   console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
 
