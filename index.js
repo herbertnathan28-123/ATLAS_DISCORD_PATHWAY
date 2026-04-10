@@ -10,6 +10,7 @@ process.on('unhandledRejection',(r)=>{console.error('[UNHANDLED]',r);});
 process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
 
 const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,AttachmentBuilder}=require('discord.js');
+const{chromium}=require('playwright');
 const sharp=require('sharp');
 const crypto=require('crypto');
 const fs=require('fs');
@@ -64,6 +65,13 @@ const client = new Client({
 client.once('clientReady', async () => {
 
   console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
+
+  // ── TradingView browser — must init before any renderAllPanels call ──
+  try {
+    await initTVBrowser();
+  } catch (e) {
+    log('ERROR', `[TV] Browser init failed: ${e.message}`);
+  }
 
   // COREY LIVE DATA TEST
   try {
@@ -274,6 +282,24 @@ async function renderAllPanels(symbol){
   return{htfGrid,ltfGrid};
 }
 // ── END RENDERING LAYER v3 ────────────────────────────────────
+
+const TV_CHART_URL=process.env.TV_CHART_URL||'https://www.tradingview.com/chart/';
+
+async function initTVBrowser(){
+  log('INFO','[TV] Launching Chromium for TradingView…');
+  const browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage']});
+  const context=await browser.newContext({viewport:{width:CHART_W,height:CHART_H},deviceScaleFactor:1});
+  if(TV_COOKIES&&TV_COOKIES.length){
+    await context.addCookies(TV_COOKIES);
+    log('INFO',`[TV] Injected ${TV_COOKIES.length} cookies`);
+  }
+  const page=await context.newPage();
+  await page.goto(TV_CHART_URL,{waitUntil:'networkidle'});
+  log('INFO',`[TV] Page loaded: ${TV_CHART_URL}`);
+  setTVPage(page);
+  log('INFO','[TV] Renderer initialised — setTVPage() called');
+  return{browser,context,page};
+}
 
 async function deliverResult(msg,result){
 
