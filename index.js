@@ -387,10 +387,6 @@ Confidence: ${macro.confidence}`,
 components: [row]
 });
 
-  } catch (e) {
-    console.error("[MESSAGE HANDLER ERROR]", e);
-  }
-
 });
 
 client.login(TOKEN);
