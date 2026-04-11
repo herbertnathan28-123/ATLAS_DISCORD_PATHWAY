@@ -169,7 +169,7 @@ client.on('messageCreate', async (msg) => {
     console.error("handler error", e);
   }
 });
-  client.once('ready', async () => {
+  client.once('clientReady', async () => {
 
   console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
 

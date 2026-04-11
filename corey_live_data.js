@@ -145,8 +145,11 @@ async function fetchJSONWithRetry(url, retries = 3, delayMs = 2000) {
       return await fetchJSON(url);
     } catch (err) {
       lastError = err;
-      logWarn();
-      if (attempt < retries) await sleep(delayMs * attempt);
+      logWarn('Fetch attempt ' + attempt + '/' + retries + ' failed: ' + err.message);
+      if (attempt < retries) {
+        logWarn('Retrying in ' + (delayMs * attempt) + 'ms...');
+        await sleep(delayMs * attempt);
+      }
     }
   }
   throw lastError;
@@ -188,7 +191,7 @@ async function fetchTwelveDataQuote(symbol) {
 
   const encodedSymbol = encodeURIComponent(symbol);
   const url = `https://api.twelvedata.com/quote?symbol=${encodedSymbol}&apikey=${TWELVEDATA_KEY}`;
-  const data = await (typeof fetchJSONWithRetry === 'function' ? fetchJSONWithRetry(url, 3, 2000) : fetchJSON(url));
+  const data = await fetchJSONWithRetry(url, 3, 2000);
 
   if (data.status === 'error') {
     throw buildError(`TwelveData error: ${data.message || 'unknown'}`, {
