@@ -213,9 +213,9 @@ const MESSAGE_DEDUPE_TTL_MS = 30000;
 const SHARED_MACROS_CHANNEL =
   process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
 const CACHE_TTL_MS = 15 * 60 * 1000;
-// ── RENDERING LAYER v2 — RESOLUTION ──────────────────────────
-const CHART_W=2048;
-const CHART_H=1920;
+// ── RENDERING LAYER v3 — RESOLUTION ──────────────────────────
+const CHART_W=1920;
+const CHART_H=1080;
 // ─────────────────────────────────────────────────────────────
 
 const MIN_CANVAS_AREA=150000;
@@ -351,14 +351,19 @@ async function fetchChartImage(symbol,iv){
     width:CHART_W,
     height:CHART_H,
     timezone:'Australia/Perth',
+    backgroundColor:'#000000',
     hideControls:true,
     hideLegend:false,
     hideVolume:true,
+    hideSideToolbar:true,
+    hideTopToolbar:true,
+    hideDrawingToolbar:true,
+    range:60,
     overrides:{
       'paneProperties.background':'#000000',
       'paneProperties.backgroundType':'solid',
-      'paneProperties.vertGridProperties.color':'#0D0D0D',
-      'paneProperties.horzGridProperties.color':'#0D0D0D',
+      'paneProperties.vertGridProperties.color':'#111111',
+      'paneProperties.horzGridProperties.color':'#111111',
       'paneProperties.crossHairProperties.color':'#1A1A1A',
       'paneProperties.vertGridProperties.style':2,
       'paneProperties.horzGridProperties.style':2,
@@ -369,16 +374,16 @@ async function fetchChartImage(symbol,iv){
       'paneProperties.legendProperties.showSeriesOHLC':true,
       'paneProperties.legendProperties.showLegend':true,
       'scalesProperties.backgroundColor':'#000000',
-      'scalesProperties.textColor':'#555555',
-      'scalesProperties.lineColor':'#0D0D0D',
-      'scalesProperties.fontSize':11,
+      'scalesProperties.textColor':'#444444',
+      'scalesProperties.lineColor':'#111111',
+      'scalesProperties.fontSize':12,
       'symbolWatermarkProperties.transparency':100,
-      'mainSeriesProperties.candleStyle.upColor':'#00E676',
-      'mainSeriesProperties.candleStyle.downColor':'#FF1744',
-      'mainSeriesProperties.candleStyle.borderUpColor':'#00E676',
-      'mainSeriesProperties.candleStyle.borderDownColor':'#FF1744',
-      'mainSeriesProperties.candleStyle.wickUpColor':'#00E676',
-      'mainSeriesProperties.candleStyle.wickDownColor':'#FF1744',
+      'mainSeriesProperties.candleStyle.upColor':'#26A69A',
+      'mainSeriesProperties.candleStyle.downColor':'#EF5350',
+      'mainSeriesProperties.candleStyle.borderUpColor':'#26A69A',
+      'mainSeriesProperties.candleStyle.borderDownColor':'#EF5350',
+      'mainSeriesProperties.candleStyle.wickUpColor':'#26A69A',
+      'mainSeriesProperties.candleStyle.wickDownColor':'#EF5350',
       'mainSeriesProperties.candleStyle.barColorsOnPrevClose':false,
       'mainSeriesProperties.candleStyle.drawBorder':true,
       'mainSeriesProperties.showPriceLine':false,
@@ -393,10 +398,10 @@ async function fetchChartImage(symbol,iv){
 }
 
 function priceBoxSVG(label,value,color,y){
-  const bw=140,bh=44,x=CHART_W-bw-8;
-  return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="#000000" stroke="${color}" stroke-width="2"/>`
-    +`<text x="${x+bw/2}" y="${y+15}" font-family="monospace" font-size="10" font-weight="bold" fill="${color}" text-anchor="middle">${label}</text>`
-    +`<text x="${x+bw/2}" y="${y+35}" font-family="monospace" font-size="14" fill="#FFFFFF" text-anchor="middle">${value}</text>`;
+  const bw=120,bh=36,x=CHART_W-bw-4;
+  return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="${color}" rx="0"/>`
+    +`<text x="${x+6}" y="${y+13}" font-family="monospace" font-size="9" font-weight="bold" fill="#000000">${label}</text>`
+    +`<text x="${x+6}" y="${y+29}" font-family="monospace" font-size="12" font-weight="bold" fill="#000000">${value}</text>`;
 }
 
 async function overlayPriceBoxes(imgBuf,candles){
@@ -408,10 +413,10 @@ async function overlayPriceBoxes(imgBuf,candles){
   const last=candles[candles.length-1];
   const entry=last.close>last.open?(last.low+last.close)/2:(last.high+last.close)/2;
   const fmt=v=>v>100?v.toFixed(2):v>1?v.toFixed(4):v.toFixed(5);
-  const boxes=priceBoxSVG('HIGH',fmt(high),BOX_HIGH,60)
-    +priceBoxSVG('CURRENT',fmt(current),BOX_CURRENT,114)
-    +priceBoxSVG('ENTRY',fmt(entry),BOX_ENTRY,168)
-    +priceBoxSVG('LOW',fmt(low),BOX_LOW,222);
+  const boxes=priceBoxSVG('HIGH',fmt(high),BOX_HIGH,50)
+    +priceBoxSVG('CURRENT',fmt(current),BOX_CURRENT,96)
+    +priceBoxSVG('ENTRY',fmt(entry),BOX_ENTRY,CHART_H-86)
+    +priceBoxSVG('LOW',fmt(low),BOX_LOW,CHART_H-44);
   const overlaySvg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg">${boxes}</svg>`;
   return sharp(imgBuf).composite([{input:Buffer.from(overlaySvg),top:0,left:0}]).png().toBuffer();
 }
