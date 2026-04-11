@@ -10,6 +10,7 @@ process.on('unhandledRejection',(r)=>{console.error('[UNHANDLED]',r);});
 process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
 
 const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,AttachmentBuilder}=require('discord.js');
+const { chromium } = require("playwright");
 const sharp=require('sharp');
 const crypto=require('crypto');
 const fs=require('fs');
@@ -128,7 +129,89 @@ async function runMacroPipeline(symbol) {
     macro
   };
 }
+// ==============================
+// ATLAS RENDER ENGINE — DIRECT TV DOM
+// ==============================
 
+const { chromium } = require("playwright");
+
+async function captureTF(symbol, interval) {
+  const browser = await chromium.launch({
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
+  });
+
+  const page = await browser.newPage({
+    viewport: { width: 1920, height: 1080 }
+  });
+
+  const url =
+    `https://www.tradingview.com/chart/?symbol=${symbol}` +
+    `&interval=${interval}` +
+    `&theme=dark`;
+
+  await page.goto(url, { waitUntil: "networkidle" });
+
+  await page.waitForTimeout(3000);
+
+  const canvas = await page.locator("canvas").first();
+  const buffer = await canvas.screenshot();
+
+  await browser.close();
+
+  return buffer;
+}
+
+async function renderAllPanels(symbol) {
+
+  const htf = ["1W","1D","240","60"];
+  const ltf = ["30","15","5","1"];
+
+  const htfShots = [];
+  const ltfShots = [];
+
+  for (const tf of htf) {
+    htfShots.push(await captureTF(symbol, tf));
+  }
+
+  for (const tf of ltf) {
+    ltfShots.push(await captureTF(symbol, tf));
+  }
+
+  const htfGrid = await sharp({
+    create: {
+      width: 1920*2,
+      height: 1080*2,
+      channels: 3,
+      background: "#000"
+    }
+  }).composite([
+    { input: htfShots[0], left:0, top:0 },
+    { input: htfShots[1], left:1920, top:0 },
+    { input: htfShots[2], left:0, top:1080 },
+    { input: htfShots[3], left:1920, top:1080 }
+  ]).png().toBuffer();
+
+  const ltfGrid = await sharp({
+    create: {
+      width: 1920*2,
+      height: 1080*2,
+      channels: 3,
+      background: "#000"
+    }
+  }).composite([
+    { input: ltfShots[0], left:0, top:0 },
+    { input: ltfShots[1], left:1920, top:0 },
+    { input: ltfShots[2], left:0, top:1080 },
+    { input: ltfShots[3], left:1920, top:1080 }
+  ]).png().toBuffer();
+
+  return {
+    htfGrid,
+    ltfGrid,
+    htfGridName: `${symbol}_HTF.png`,
+    ltfGridName: `${symbol}_LTF.png`
+  };
+}
 client.on('messageCreate', async (msg) => {
   try {
     if (msg.author.bot) return;
