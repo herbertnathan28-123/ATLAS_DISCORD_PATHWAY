@@ -133,10 +133,8 @@ async function runMacroPipeline(symbol) {
 // ATLAS RENDER ENGINE — DIRECT TV DOM
 // ==============================
 
-const { chromium } = require("playwright");
-
 async function captureTF(symbol, interval) {
-  const browser = await chromium.launch({
+  const browser = await require("playwright").chromium.launch({
     args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
@@ -150,14 +148,12 @@ async function captureTF(symbol, interval) {
     `&theme=dark`;
 
   await page.goto(url, { waitUntil: "networkidle" });
-
   await page.waitForTimeout(3000);
 
   const canvas = await page.locator("canvas").first();
   const buffer = await canvas.screenshot();
 
   await browser.close();
-
   return buffer;
 }
 
