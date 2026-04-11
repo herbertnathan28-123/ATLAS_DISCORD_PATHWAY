@@ -130,8 +130,10 @@ async function runMacroPipeline(symbol) {
   };
 }
 // ==============================
-// ATLAS RENDER ENGINE — DIRECT TV DOM
+// ATLAS RENDER ENGINE — TV LAYOUT PARITY
 // ==============================
+
+const TV_LAYOUT = "CI1Z7wn0";
 
 async function captureTF(symbol, interval) {
   const browser = await require("playwright").chromium.launch({
@@ -143,12 +145,13 @@ async function captureTF(symbol, interval) {
   });
 
   const url =
-    `https://www.tradingview.com/chart/?symbol=${symbol}` +
-    `&interval=${interval}` +
-    `&theme=dark`;
+    `https://www.tradingview.com/chart/${TV_LAYOUT}/` +
+    `?symbol=${symbol}` +
+    `&interval=${interval}`;
 
   await page.goto(url, { waitUntil: "networkidle" });
-  await page.waitForTimeout(3000);
+
+  await page.waitForTimeout(4000);
 
   const canvas = await page.locator("canvas").first();
   const buffer = await canvas.screenshot();
