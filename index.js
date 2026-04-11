@@ -10,8 +10,9 @@ process.on('unhandledRejection',(r)=>{console.error('[UNHANDLED]',r);});
 process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
 
 const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,AttachmentBuilder}=require('discord.js');
-const { chromium } = require("playwright");
+
 const sharp=require('sharp');
+const { renderAllPanels: renderCharts } = require("./renderer");
 const crypto=require('crypto');
 const fs=require('fs');
 const https=require('https');
@@ -130,103 +131,10 @@ async function runMacroPipeline(symbol) {
   };
 }
 // ==============================
-// ATLAS RENDER ENGINE — TV LAYOUT PARITY
+// ATLAS RENDER ENGINE — PUPPETEER + TV WIDGET
 // ==============================
-
-const TV_LAYOUT = "CI1Z7wn0";
-
-async function captureTF(symbol, interval) {
-  const browser = await require("playwright").chromium.launch({
-    args: ["--no-sandbox", "--disable-setuid-sandbox"]
-  });
-
-  const page = await browser.newPage({
-    viewport: { width: 1920, height: 1080 }
-  });
-
-  const url =
-    `https://www.tradingview.com/chart/CI1Z7wn0/?symbol=${symbol}`;
-
-  await page.goto(url, { waitUntil: "networkidle" });
-
-  await page.waitForTimeout(4000);
-
-  // force timeframe using TradingView keyboard shortcuts
-  const map = {
-    "1W": "1W",
-    "1D": "1D",
-    "240": "4H",
-    "60": "1H",
-    "30": "30",
-    "15": "15",
-    "5": "5",
-    "1": "1"
-  };
-
-  await page.keyboard.press("Escape");
-  await page.keyboard.type(map[interval]);
-  await page.keyboard.press("Enter");
-
-  await page.waitForTimeout(1500);
-
-  const canvas = await page.locator("canvas").first();
-  const buffer = await canvas.screenshot();
-
-  await browser.close();
-  return buffer;
-}
-
-async function renderAllPanels(symbol) {
-
-  const htf = ["1W","1D","240","60"];
-  const ltf = ["30","15","5","1"];
-
-  const htfShots = [];
-  const ltfShots = [];
-
-  for (const tf of htf) {
-    htfShots.push(await captureTF(symbol, tf));
-  }
-
-  for (const tf of ltf) {
-    ltfShots.push(await captureTF(symbol, tf));
-  }
-
-  const htfGrid = await sharp({
-    create: {
-      width: 1920*2,
-      height: 1080*2,
-      channels: 3,
-      background: "#000"
-    }
-  }).composite([
-    { input: htfShots[0], left:0, top:0 },
-    { input: htfShots[1], left:1920, top:0 },
-    { input: htfShots[2], left:0, top:1080 },
-    { input: htfShots[3], left:1920, top:1080 }
-  ]).png().toBuffer();
-
-  const ltfGrid = await sharp({
-    create: {
-      width: 1920*2,
-      height: 1080*2,
-      channels: 3,
-      background: "#000"
-    }
-  }).composite([
-    { input: ltfShots[0], left:0, top:0 },
-    { input: ltfShots[1], left:1920, top:0 },
-    { input: ltfShots[2], left:0, top:1080 },
-    { input: ltfShots[3], left:1920, top:1080 }
-  ]).png().toBuffer();
-
-  return {
-    htfGrid,
-    ltfGrid,
-    htfGridName: `${symbol}_HTF.png`,
-    ltfGridName: `${symbol}_LTF.png`
-  };
-}
+// Rendering delegated to renderer.js (Puppeteer + TradingView widget + custom candle colors)
+// renderCharts imported at top of file
 client.on('messageCreate', async (msg) => {
   try {
     if (msg.author.bot) return;
@@ -243,7 +151,7 @@ client.on('messageCreate', async (msg) => {
       ltfGrid,
       htfGridName,
       ltfGridName
-    } = await renderAllPanels(symbol);
+    } = await renderCharts(symbol);
 
     await msg.channel.send({
       content: `📡 **${symbol} — HTF**`,
@@ -261,7 +169,7 @@ client.on('messageCreate', async (msg) => {
     console.error("handler error", e);
   }
 });
-  client.once('clientReady', async () => {
+  client.once('ready', async () => {
 
   console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
 
@@ -538,35 +446,10 @@ async function buildGrid(panels,tfKeys){
     .png({compressionLevel:6}).toBuffer();
 }
 
-async function renderAllPanels(symbol){
-  if(!CHART_IMG_API_KEY){log('ERROR','[CHART] CHART_IMG_API_KEY not set');throw new Error('CHART_IMG_API_KEY missing from environment');}
-  log('INFO',`[CHART] ${symbol} — fetching 8 panels (ATLAS style)`);
-  const htfP=[],ltfP=[],htfKeys=[],ltfKeys=[];let htfFail=0,ltfFail=0;
-  for(const iv of HTF_INTERVALS){
-    const key=tfLabel(iv);htfKeys.push(key);
-    try{
-      const candles=await safeOHLC(symbol,iv,200);
-      let buf=await fetchChartImage(symbol,iv);
-      buf=await overlayPriceBoxes(buf,candles);
-      htfP.push(buf);
-      log('INFO',`[CHART] ${symbol} ${key} OK (${(buf.length/1024).toFixed(0)}KB)`);
-    }catch(e){log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);htfP.push(await makePlaceholder(symbol,key,e.message));htfFail++;}
-  }
-  for(const iv of LTF_INTERVALS){
-    const key=tfLabel(iv);ltfKeys.push(key);
-    try{
-      const candles=await safeOHLC(symbol,iv,150);
-      let buf=await fetchChartImage(symbol,iv);
-      buf=await overlayPriceBoxes(buf,candles);
-      ltfP.push(buf);
-      log('INFO',`[CHART] ${symbol} ${key} OK (${(buf.length/1024).toFixed(0)}KB)`);
-    }catch(e){log('WARN',`[CHART] ${symbol} ${key} failed: ${e.message}`);ltfP.push(await makePlaceholder(symbol,key,e.message));ltfFail++;}
-  }
-  if(htfFail/HTF_INTERVALS.length>ABORT_THRESHOLD||ltfFail/LTF_INTERVALS.length>ABORT_THRESHOLD)throw new Error(`[ABORT] ${symbol} chart render failed — HTF:${htfFail}/4 LTF:${ltfFail}/4`);
-  const htfGrid=await buildGrid(htfP,htfKeys),ltfGrid=await buildGrid(ltfP,ltfKeys);
-  const htfGridName=`${symbol}_HTF.png`,ltfGridName=`${symbol}_LTF.png`;
-  log('INFO',`[CHART] ${symbol} grids built — HTF:${htfFail===0?'OK':`${htfFail} placeholder(s)`} LTF:${ltfFail===0?'OK':`${ltfFail} placeholder(s)`}`);
-  return{htfGrid,ltfGrid,htfGridName,ltfGridName,htfFail,ltfFail,partial:htfFail>0||ltfFail>0};
+async function renderAllPanelsV3(symbol){
+  log("INFO", "[CHART] " + symbol + " — rendering via Puppeteer/TradingView widget");
+  const result = await renderCharts(symbol);
+  return { ...result, htfFail: 0, ltfFail: 0, partial: false };
 }
 // ── END RENDERING LAYER v3 ────────────────────────────────────
 

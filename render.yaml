@@ -3,7 +3,7 @@ services:
     name: atlas-fx-discord-bot
     env: node
     plan: free
-    buildCommand: rm -rf node_modules && npm install && npx playwright install chromium
+    buildCommand: npm install
     startCommand: npm start
     autoDeploy: true
     disk:

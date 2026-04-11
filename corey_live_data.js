@@ -19,7 +19,7 @@ const TWELVEDATA_KEY =
 
 const FRED_KEY = process.env.FRED_KEY || '';
 
-const HTTP_TIMEOUT_MS = parseInt(process.env.COREY_HTTP_TIMEOUT_MS || '25000', 10);
+const HTTP_TIMEOUT_MS = parseInt(process.env.COREY_HTTP_TIMEOUT_MS || '10000', 10);
 const USER_AGENT = 'ATLAS-FX/COREY-LIVE-DATA/1.0';
 
 // ── HELPERS ─────────────────────────────────────────────────
@@ -120,7 +120,7 @@ function fetchJSON(url) {
     );
 
     req.setTimeout(HTTP_TIMEOUT_MS, () => {
-      req.destroy(buildError('Request timeout', { url, timeoutMs: HTTP_TIMEOUT_MS }));
+      req.destroy(buildError('Request timeout', { url: url.replace(/api_key=[^&]+/, 'api_key=***'), timeoutMs: HTTP_TIMEOUT_MS }));
     });
 
     req.on('error', (error) => {
@@ -131,6 +131,25 @@ function fetchJSON(url) {
       );
     });
   });
+}
+
+
+
+// ── FETCH WITH RETRY ────────────────────────────────────────
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function fetchJSONWithRetry(url, retries = 3, delayMs = 2000) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fetchJSON(url);
+    } catch (err) {
+      lastError = err;
+      logWarn();
+      if (attempt < retries) await sleep(delayMs * attempt);
+    }
+  }
+  throw lastError;
 }
 
 // ── RESULT WRAPPERS ─────────────────────────────────────────
@@ -169,7 +188,7 @@ async function fetchTwelveDataQuote(symbol) {
 
   const encodedSymbol = encodeURIComponent(symbol);
   const url = `https://api.twelvedata.com/quote?symbol=${encodedSymbol}&apikey=${TWELVEDATA_KEY}`;
-  const data = await fetchJSON(url);
+  const data = await (typeof fetchJSONWithRetry === 'function' ? fetchJSONWithRetry(url, 3, 2000) : fetchJSON(url));
 
   if (data.status === 'error') {
     throw buildError(`TwelveData error: ${data.message || 'unknown'}`, {
@@ -367,11 +386,10 @@ async function fetchYieldSpread() {
           {
             spread: spread,
             date: new Date().toISOString(),
-            seriesId: 'TNX-IRX'
+            seriesId: 'TLT-SHY-PROXY'
           },
           {
-            tenY: tenY.raw,
-            twoY: twoY.raw
+            longBond: longBond.raw, shortBond: shortBond.raw
           },
           {
             requestedLabel: '10Y-2Y'
