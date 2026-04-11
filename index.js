@@ -138,6 +138,8 @@ client.on('messageCreate', async (msg) => {
 
     console.log("[REQUEST]", symbol);
 
+    await msg.channel.send({ content: `Rendering ${symbol}...` });
+
     const {
       htfGrid,
       ltfGrid,
@@ -429,8 +431,10 @@ async function buildGrid(panels,tfKeys){
     const labelSvg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="8" width="${lw}" height="26" fill="#000000"/><text x="18" y="27" font-family="monospace" font-size="15" font-weight="bold" fill="#888888">${label}</text></svg>`;
     return sharp(base).composite([{input:Buffer.from(labelSvg),top:0,left:0}]).png().toBuffer();
   }));
-  return sharp({create:{width:CHART_W*2,height:CHART_H*2,channels:4,background:{r:0,g:0,b:0,alpha:1}}})
-    .composite([{input:resized[0],left:0,top:0},{input:resized[1],left:CHART_W,top:0},{input:resized[2],left:0,top:CHART_H},{input:resized[3],left:CHART_W,top:CHART_H}])
+  const gw=CHART_W*2,gh=CHART_H*2;
+  const divSvg=`<svg width="${gw}" height="${gh}" xmlns="http://www.w3.org/2000/svg"><line x1="${CHART_W}" y1="0" x2="${CHART_W}" y2="${gh}" stroke="#1A1A1A" stroke-width="2"/><line x1="0" y1="${CHART_H}" x2="${gw}" y2="${CHART_H}" stroke="#1A1A1A" stroke-width="2"/></svg>`;
+  return sharp({create:{width:gw,height:gh,channels:4,background:{r:0,g:0,b:0,alpha:1}}})
+    .composite([{input:resized[0],left:0,top:0},{input:resized[1],left:CHART_W,top:0},{input:resized[2],left:0,top:CHART_H},{input:resized[3],left:CHART_W,top:CHART_H},{input:Buffer.from(divSvg),left:0,top:0}])
     .png({compressionLevel:6}).toBuffer();
 }
 
