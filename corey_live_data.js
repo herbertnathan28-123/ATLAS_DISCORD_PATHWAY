@@ -98,7 +98,7 @@ function fetchJSON(url) {
             if (res.statusCode < 200 || res.statusCode >= 300) {
               return reject(
                 buildError(`HTTP ${res.statusCode}`, {
-                  url,
+                  url: url.replace(/api_key=[^&]+/, 'api_key=***'),
                   statusCode: res.statusCode,
                   bodyPreview: data.slice(0, 300)
                 })
@@ -110,7 +110,7 @@ function fetchJSON(url) {
           } catch (error) {
             reject(
               buildError(`JSON parse failed: ${error.message}`, {
-                url,
+                url: url.replace(/api_key=[^&]+/, 'api_key=***'),
                 bodyPreview: data.slice(0, 300)
               })
             );
@@ -126,7 +126,7 @@ function fetchJSON(url) {
     req.on('error', (error) => {
       reject(
         buildError(error.message || 'Network error', {
-          url
+          url: url.replace(/api_key=[^&]+/, 'api_key=***')
         })
       );
     });
