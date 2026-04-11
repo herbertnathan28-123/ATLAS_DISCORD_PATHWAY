@@ -145,13 +145,29 @@ async function captureTF(symbol, interval) {
   });
 
   const url =
-    `https://www.tradingview.com/chart/${TV_LAYOUT}/` +
-    `?symbol=${symbol}` +
-    `&interval=${interval}`;
+    `https://www.tradingview.com/chart/CI1Z7wn0/?symbol=${symbol}`;
 
   await page.goto(url, { waitUntil: "networkidle" });
 
   await page.waitForTimeout(4000);
+
+  // force timeframe using TradingView keyboard shortcuts
+  const map = {
+    "1W": "1W",
+    "1D": "1D",
+    "240": "4H",
+    "60": "1H",
+    "30": "30",
+    "15": "15",
+    "5": "5",
+    "1": "1"
+  };
+
+  await page.keyboard.press("Escape");
+  await page.keyboard.type(map[interval]);
+  await page.keyboard.press("Enter");
+
+  await page.waitForTimeout(1500);
 
   const canvas = await page.locator("canvas").first();
   const buffer = await canvas.screenshot();
