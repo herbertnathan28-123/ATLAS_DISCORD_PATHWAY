@@ -12,6 +12,7 @@
 // ============================================================
 
 const https = require('https');
+const axios = require('axios');
 
 // ── ENV ─────────────────────────────────────────────────────
 const TWELVEDATA_KEY =
@@ -258,7 +259,7 @@ async function fetchQuoteWithFallbacks(label, candidateSymbols) {
   );
 }
 
-// ── FRED FETCH ──────────────────────────────────────────────
+// ── FRED FETCH (AXIOS — bypasses Node https DNS hang) ───────
 async function fetchFredLatestObservation(seriesId) {
   if (!FRED_KEY) {
     throw buildError('Missing FRED API key', {
@@ -272,7 +273,29 @@ async function fetchFredLatestObservation(seriesId) {
     `&api_key=${encodeURIComponent(FRED_KEY)}` +
     `&file_type=json&sort_order=desc&limit=5`;
 
-  const data = await fetchJSON(url);
+  let data = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      logInfo('FRED fetch attempt ' + attempt + '/3...');
+      const resp = await axios.get(url, {
+        timeout: HTTP_TIMEOUT_MS,
+        headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' }
+      });
+      data = resp.data;
+      logInfo('FRED fetch succeeded on attempt ' + attempt);
+      break;
+    } catch (err) {
+      logWarn('FRED fetch attempt ' + attempt + '/3 failed: ' + (err.message || 'unknown'));
+      if (attempt < 3) {
+        logWarn('Retrying in ' + (2000 * attempt) + 'ms...');
+        await sleep(2000 * attempt);
+      } else {
+        throw buildError('FRED fetch failed after 3 attempts: ' + err.message, {
+          url: url.replace(/api_key=[^&]+/, 'api_key=***')
+        });
+      }
+    }
+  }
 
   if (!data || !Array.isArray(data.observations)) {
     throw buildError('Invalid FRED observations payload', {
