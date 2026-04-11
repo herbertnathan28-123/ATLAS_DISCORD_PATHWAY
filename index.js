@@ -353,12 +353,6 @@ async function fetchChartImage(symbol,iv){
     timezone:'Australia/Perth',
     backgroundColor:'#000000',
     hideControls:true,
-    hideLegend:false,
-    hideVolume:true,
-    hideSideToolbar:true,
-    hideTopToolbar:true,
-    hideDrawingToolbar:true,
-    range:60,
     overrides:{
       'paneProperties.background':'#000000',
       'paneProperties.backgroundType':'solid',
