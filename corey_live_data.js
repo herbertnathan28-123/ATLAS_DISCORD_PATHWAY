@@ -1,728 +1,347 @@
 'use strict';
-
 // ============================================================
-// COREY — LIVE DATA LAYER
-// Production-ready full replacement
-// Purpose:
-//   - Fetch live macro inputs for Corey scoring engine
-//   - Preserve existing Render env naming
-//   - Harden network/error handling
-//   - Return stable structured data
-//   - Do NOT change Corey scoring logic directly
+// ATLAS FX — COREY LIVE DATA LAYER
+// Fetches: DXY (TwelveData/UUP), VIX (VXX), Yield Curve (FRED)
+// Stores result in module-level cache — refreshes every 15 min
+// Exports: getLiveContext() — always returns last known good data
 // ============================================================
 
 const https = require('https');
 const axios = require('axios');
 
-// ── ENV ─────────────────────────────────────────────────────
-const TWELVEDATA_KEY =
-  process.env.TWELVE_DATA_API_KEY || process.env.TWELVE_DATA_API_KEY || '';
-
-const FRED_KEY = process.env.FRED_KEY || '';
-
-const HTTP_TIMEOUT_MS = parseInt(process.env.COREY_HTTP_TIMEOUT_MS || '10000', 10);
-const USER_AGENT = 'ATLAS-FX/COREY-LIVE-DATA/1.0';
-
-// ── HELPERS ─────────────────────────────────────────────────
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function isFiniteNumber(value) {
-  return Number.isFinite(value);
-}
-
-function toNumber(value) {
-  const n = parseFloat(value);
-  return Number.isFinite(n) ? n : null;
-}
-
-function clamp(value, min, max) {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(Math.max(value, min), max);
-}
-
-function safeString(value, fallback = '') {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function buildError(message, meta = {}) {
-  const err = new Error(message);
-  err.meta = meta;
-  return err;
-}
-
-function logInfo(message, meta) {
-  if (meta !== undefined) {
-    console.log(`[COREY LIVE DATA] ${message}`, meta);
-  } else {
-    console.log(`[COREY LIVE DATA] ${message}`);
-  }
-}
-
-function logWarn(message, meta) {
-  if (meta !== undefined) {
-    console.warn(`[COREY LIVE DATA] ${message}`, meta);
-  } else {
-    console.warn(`[COREY LIVE DATA] ${message}`);
-  }
-}
-
-function logError(message, meta) {
-  if (meta !== undefined) {
-    console.error(`[COREY LIVE DATA] ${message}`, meta);
-  } else {
-    console.error(`[COREY LIVE DATA] ${message}`);
-  }
-}
-
-// ── HTTP JSON FETCH ─────────────────────────────────────────
-function fetchJSON(url) {
-  return new Promise((resolve, reject) => {
-    const req = https.get(
-      url,
-      {
-        headers: {
-          'User-Agent': USER_AGENT,
-          'Accept': 'application/json'
-        }
-      },
-      (res) => {
-        let data = '';
-
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-
-        res.on('end', () => {
-          try {
-            if (res.statusCode < 200 || res.statusCode >= 300) {
-              return reject(
-                buildError(`HTTP ${res.statusCode}`, {
-                  url: url.replace(/api_key=[^&]+/, 'api_key=***'),
-                  statusCode: res.statusCode,
-                  bodyPreview: data.slice(0, 300)
-                })
-              );
-            }
-
-            const parsed = JSON.parse(data);
-            resolve(parsed);
-          } catch (error) {
-            reject(
-              buildError(`JSON parse failed: ${error.message}`, {
-                url: url.replace(/api_key=[^&]+/, 'api_key=***'),
-                bodyPreview: data.slice(0, 300)
-              })
-            );
-          }
-        });
-      }
-    );
-
-    req.setTimeout(HTTP_TIMEOUT_MS, () => {
-      req.destroy(buildError('Request timeout', { url: url.replace(/api_key=[^&]+/, 'api_key=***'), timeoutMs: HTTP_TIMEOUT_MS }));
-    });
-
-    req.on('error', (error) => {
-      reject(
-        buildError(error.message || 'Network error', {
-          url: url.replace(/api_key=[^&]+/, 'api_key=***')
-        })
-      );
-    });
-  });
-}
-
-
-
-// ── FETCH WITH RETRY ────────────────────────────────────────
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-async function fetchJSONWithRetry(url, retries = 3, delayMs = 2000) {
-  let lastError = null;
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      return await fetchJSON(url);
-    } catch (err) {
-      lastError = err;
-      logWarn('Fetch attempt ' + attempt + '/' + retries + ' failed: ' + err.message);
-      if (attempt < retries) {
-        logWarn('Retrying in ' + (delayMs * attempt) + 'ms...');
-        await sleep(delayMs * attempt);
-      }
-    }
-  }
-  throw lastError;
-}
-
-// ── RESULT WRAPPERS ─────────────────────────────────────────
-function makeSuccess(source, value, raw, extra = {}) {
-  return {
-    ok: true,
-    source,
-    value,
-    raw,
-    error: null,
-    ...extra
-  };
-}
-
-function makeFailure(source, error, extra = {}) {
-  return {
-    ok: false,
-    source,
-    value: null,
-    raw: null,
-    error: {
-      message: error?.message || 'Unknown error',
-      meta: error?.meta || null
-    },
-    ...extra
-  };
-}
-
-// ── TWELVEDATA QUOTE FETCH ──────────────────────────────────
-async function fetchTwelveDataQuote(symbol) {
-  if (!TWELVEDATA_KEY) {
-    throw buildError('Missing TwelveData API key', {
-      envExpected: ['TWELVE_DATA_API_KEY', 'TWELVE_DATA_API_KEY']
-    });
-  }
-
-  const encodedSymbol = encodeURIComponent(symbol);
-  const url = `https://api.twelvedata.com/quote?symbol=${encodedSymbol}&apikey=${TWELVEDATA_KEY}`;
-  const data = await fetchJSONWithRetry(url, 3, 2000);
-
-  if (data.status === 'error') {
-    throw buildError(`TwelveData error: ${data.message || 'unknown'}`, {
-      symbol,
-      code: data.code || null,
-      raw: data
-    });
-  }
-
-  const price =
-    toNumber(data.close) ??
-    toNumber(data.price) ??
-    toNumber(data.previous_close);
-
-  const changePct =
-    toNumber(data.percent_change) ??
-    toNumber(data.change_percent) ??
-    null;
-
-  if (!isFiniteNumber(price)) {
-    throw buildError('Invalid quote price returned', {
-      symbol,
-      raw: data
-    });
-  }
-
-  return {
-    symbol,
-    price,
-    changePct,
-    raw: data
-  };
-}
-
-async function fetchQuoteWithFallbacks(label, candidateSymbols) {
-  const failures = [];
-
-  for (const symbol of candidateSymbols) {
-    try {
-      const result = await fetchTwelveDataQuote(symbol);
-      return makeSuccess('twelvedata', result, result.raw, {
-        requestedLabel: label,
-        resolvedSymbol: symbol
-      });
-    } catch (error) {
-      failures.push({
-        symbol,
-        message: error.message,
-        meta: error.meta || null
-      });
-    }
-  }
-
-  return makeFailure(
-    'twelvedata',
-    buildError(`All quote fallbacks failed for ${label}`, {
-      label,
-      failures
-    }),
-    {
-      requestedLabel: label,
-      attemptedSymbols: candidateSymbols
-    }
-  );
-}
-
-// ── FRED FETCH (AXIOS — bypasses Node https DNS hang) ───────
-async function fetchFredLatestObservation(seriesId) {
-  if (!FRED_KEY) {
-    throw buildError('Missing FRED API key', {
-      envExpected: ['FRED_KEY']
-    });
-  }
-
-  const encodedSeriesId = encodeURIComponent(seriesId);
-  const url =
-    `https://api.stlouisfed.org/fred/series/observations?series_id=${encodedSeriesId}` +
-    `&api_key=${encodeURIComponent(FRED_KEY)}` +
-    `&file_type=json&sort_order=desc&limit=5`;
-
-  let data = null;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      logInfo('FRED fetch attempt ' + attempt + '/3...');
-      const resp = await axios.get(url, {
-        timeout: HTTP_TIMEOUT_MS,
-        headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' }
-      });
-      data = resp.data;
-      logInfo('FRED fetch succeeded on attempt ' + attempt);
-      break;
-    } catch (err) {
-      logWarn('FRED fetch attempt ' + attempt + '/3 failed: ' + (err.message || 'unknown'));
-      if (attempt < 3) {
-        logWarn('Retrying in ' + (2000 * attempt) + 'ms...');
-        await sleep(2000 * attempt);
-      } else {
-        throw buildError('FRED fetch failed after 3 attempts: ' + err.message, {
-          url: url.replace(/api_key=[^&]+/, 'api_key=***')
-        });
-      }
-    }
-  }
-
-  if (!data || !Array.isArray(data.observations)) {
-    throw buildError('Invalid FRED observations payload', {
-      seriesId,
-      raw: data
-    });
-  }
-
-  const validObservation = data.observations.find((obs) => {
-    const value = safeString(obs?.value, '.');
-    return value !== '.' && Number.isFinite(parseFloat(value));
-  });
-
-  if (!validObservation) {
-    throw buildError('No valid FRED observation found', {
-      seriesId,
-      raw: data
-    });
-  }
-
-  const value = parseFloat(validObservation.value);
-
-  return {
-    seriesId,
-    value,
-    date: validObservation.date || null,
-    raw: data
-  };
-}
-
-// ── LIVE INPUT FETCHERS ─────────────────────────────────────
-async function fetchDXY() {
-  const result = await fetchQuoteWithFallbacks('DXY', [
-    'DXY',
-    'DXY:IND',
-    'TVC:DXY',
-    'UUP'
-  ]);
-
-  if (!result.ok) return result;
-
-  return makeSuccess(
-    result.source,
-    {
-      price: result.value.price,
-      changePct: result.value.changePct,
-      symbol: result.resolvedSymbol
-    },
-    result.raw,
-    {
-      requestedLabel: 'DXY',
-      resolvedSymbol: result.resolvedSymbol
-    }
-  );
-}
-
-async function fetchVIX() {
-  const result = await fetchQuoteWithFallbacks('VIX', [
-    'VXX',
-    'UVXY',
-    'SVXY',
-    'VIXY'
-  ]);
-
-  if (!result.ok) return result;
-
-  return makeSuccess(
-    result.source,
-    {
-      price: result.value.price,
-      changePct: result.value.changePct,
-      symbol: result.resolvedSymbol
-    },
-    result.raw,
-    {
-      requestedLabel: 'VIX',
-      resolvedSymbol: result.resolvedSymbol
-    }
-  );
-}
-
-async function fetchYieldSpread() {
-  try {
-    // Primary: FRED 10Y-2Y spread
-    const fred = await fetchFredLatestObservation('T10Y2Y');
-
-    return makeSuccess(
-      'fred',
-      {
-        spread: fred.value,
-        date: fred.date,
-        seriesId: fred.seriesId
-      },
-      fred.raw,
-      {
-        requestedLabel: '10Y-2Y'
-      }
-    );
-
-  } catch (error) {
-
-    // Fallback: calculate using TNX - IRX (TwelveData supported)
-    try {
-      const [tenY, twoY] = await Promise.all([
-        fetchQuoteWithFallbacks('TNX', ['TNX']),
-        fetchQuoteWithFallbacks('IRX', ['IRX'])
-      ]);
-
-      if (tenY.ok && twoY.ok) {
-        const spread = tenY.value.price - twoY.value.price;
-
-        return makeSuccess(
-          'twelvedata',
-          {
-            spread: spread,
-            date: new Date().toISOString(),
-            seriesId: 'TLT-SHY-PROXY'
-          },
-          {
-            longBond: longBond.raw, shortBond: shortBond.raw
-          },
-          {
-            requestedLabel: '10Y-2Y'
-          }
-        );
-      }
-
-      return makeFailure('fred', error, {
-        requestedLabel: '10Y-2Y'
-      });
-
-    } catch (fallbackError) {
-      return makeFailure('fred', error, {
-        requestedLabel: '10Y-2Y'
-      });
-    }
-  }
-}
-
-// ── CLASSIFIERS ─────────────────────────────────────────────
-function classifyDXY(changePct) {
-  if (!isFiniteNumber(changePct)) return 'unknown';
-  if (changePct > 0.25) return 'bullish';
-  if (changePct < -0.25) return 'bearish';
-  return 'neutral';
-}
-
-function classifyVIX(price) {
-  if (!isFiniteNumber(price)) return 'unknown';
-  if (price > 22) return 'risk_off';
-  if (price < 16) return 'risk_on';
-  return 'neutral';
-}
-
-function classifyYield(spread) {
-  if (!isFiniteNumber(spread)) return 'unknown';
-  if (spread < 0) return 'inverted';
-  if (spread > 1) return 'steep';
-  return 'normal';
-}
-
-// ── NORMALISERS / SCORING HELPERS ───────────────────────────
-function normaliseDxyScore(changePct) {
-  if (!isFiniteNumber(changePct)) return 0;
-  return clamp(changePct / 1.0, -1, 1);
-}
-
-function normaliseVixScore(price) {
-  if (!isFiniteNumber(price)) return 0;
-  if (price >= 30) return -1;
-  if (price <= 12) return 1;
-  const mid = 21;
-  const range = 9;
-  return clamp((mid - price) / range, -1, 1);
-}
-
-function normaliseYieldScore(spread) {
-  if (!isFiniteNumber(spread)) return 0;
-  return clamp(spread / 2.0, -1, 1);
-}
-
-function buildHealthSummary(results) {
-  const keys = Object.keys(results);
-  const okCount = keys.filter((key) => results[key]?.ok).length;
-  const total = keys.length;
-
-  let status = 'degraded';
-  if (okCount === total) status = 'ok';
-  else if (okCount === 0) status = 'down';
-
-  return {
-    status,
-    okCount,
-    total,
-    ratio: total > 0 ? okCount / total : 0
-  };
-}
-
-// ── DEFAULT CENTRAL BANK PLACEHOLDER ────────────────────────
-function buildCentralBankPlaceholder() {
-  return {
-    fed: 'manual',
-    ecb: 'manual',
-    boe: 'manual',
-    boj: 'manual',
-    rba: 'manual',
-    rbnz: 'manual',
-    boc: 'manual',
-    snb: 'manual'
-  };
-}
-
-// ── MAIN COREY INPUT OBJECT ─────────────────────────────────
-async function getCoreyLiveData() {
-  const startedAt = Date.now();
-
-  const [dxyResult, vixResult, yieldResult] = await Promise.all([
-    fetchDXY(),
-    fetchVIX(),
-    fetchYieldSpread()
-  ]);
-
-  const fetchResults = {
-    dxy: dxyResult,
-    vix: vixResult,
-    yieldCurve: yieldResult
-  };
-
-  const health = buildHealthSummary(fetchResults);
-
-  if (health.okCount === 0) {
-    const error = buildError('All Corey live inputs failed', {
-      fetchResults
-    });
-    logError('All Corey live inputs failed', error.meta);
-    throw error;
-  }
-
-  const dxyPrice = dxyResult.ok ? dxyResult.value.price : null;
-  const dxyChangePct = dxyResult.ok ? dxyResult.value.changePct : null;
-  const dxyRegime = dxyResult.ok ? classifyDXY(dxyChangePct) : 'unknown';
-
-  const vixPrice = vixResult.ok ? vixResult.value.price : null;
-  const vixChangePct = vixResult.ok ? vixResult.value.changePct : null;
-  const vixRegime = vixResult.ok ? classifyVIX(vixPrice) : 'unknown';
-
-  const yieldSpread = yieldResult.ok ? yieldResult.value.spread : null;
-  const yieldRegime = yieldResult.ok ? classifyYield(yieldSpread) : 'unknown';
-
-  const dxyScore = normaliseDxyScore(dxyChangePct);
-  const vixScore = normaliseVixScore(vixPrice);
-  const yieldScore = normaliseYieldScore(yieldSpread);
-
-  const compositeMacroPressure = clamp(
-    (dxyScore * 0.40) + (vixScore * 0.35) + (yieldScore * 0.25),
-    -1,
-    1
-  );
-
-  const coreyInputs = {
-    ok: health.okCount > 0,
-    timestamp: Date.now(),
-    asOf: nowIso(),
-    latencyMs: Date.now() - startedAt,
-
-    health,
-
-    dxy: {
-      ok: dxyResult.ok,
-      symbol: dxyResult.ok ? dxyResult.value.symbol : null,
-      price: dxyPrice,
-      changePct: dxyChangePct,
-      regime: dxyRegime,
-      score: dxyScore,
-      source: dxyResult.source,
-      error: dxyResult.error
-    },
-
-    vix: {
-      ok: vixResult.ok,
-      symbol: vixResult.ok ? vixResult.value.symbol : null,
-      price: vixPrice,
-      changePct: vixChangePct,
-      regime: vixRegime,
-      score: vixScore,
-      source: vixResult.source,
-      error: vixResult.error
-    },
-
-    yieldCurve: {
-      ok: yieldResult.ok,
-      spread: yieldSpread,
-      regime: yieldRegime,
-      score: yieldScore,
-      source: yieldResult.source,
-      seriesId: yieldResult.ok ? yieldResult.value.seriesId : 'T10Y2Y',
-      date: yieldResult.ok ? yieldResult.value.date : null,
-      error: yieldResult.error
-    },
-
-    centralBank: buildCentralBankPlaceholder(),
-
-    derived: {
-      compositeMacroPressure,
-      usdPressure:
-        dxyRegime === 'bullish'
-          ? 'stronger'
-          : dxyRegime === 'bearish'
-            ? 'weaker'
-            : 'neutral',
-      riskEnvironment:
-        vixRegime === 'risk_off'
-          ? 'defensive'
-          : vixRegime === 'risk_on'
-            ? 'supportive'
-            : 'neutral',
-      curveState: yieldRegime
-    },
-
-    debug: {
-      env: {
-        hasTwelveDataKey: !!process.env.TWELVE_DATA_API_KEY,
-        hasTwelveDataKey: !!process.env.TWELVE_DATA_API_KEY,
-        hasFredKey: !!process.env.FRED_KEY,
-        usingTwelveDataEnv: process.env.TWELVE_DATA_API_KEY
-          ? 'TWELVE_DATA_API_KEY'
-          : process.env.TWELVE_DATA_API_KEY
-            ? 'TWELVE_DATA_API_KEY'
-            : null
-      },
-      rawSources: {
-        dxy: dxyResult.raw || null,
-        vix: vixResult.raw || null,
-        yieldCurve: yieldResult.raw || null
-      }
-    }
-  };
-
-  logInfo(`Corey live data built — status: ${health.status}`, {
-    latencyMs: coreyInputs.latencyMs,
-    okCount: health.okCount,
-    total: health.total
-  });
-
-  return coreyInputs;
-}
-
-// ── OPTIONAL SAFE WRAPPER ───────────────────────────────────
-async function getCoreyLiveDataSafe() {
-  try {
-    return await getCoreyLiveData();
-  } catch (error) {
-    logError('getCoreyLiveDataSafe fallback triggered', {
-      message: error.message,
-      meta: error.meta || null
-    });
-
-    return {
-      ok: false,
-      timestamp: Date.now(),
-      asOf: nowIso(),
-      latencyMs: 0,
-      health: {
-        status: 'down',
-        okCount: 0,
-        total: 3,
-        ratio: 0
-      },
-      dxy: {
-        ok: false,
-        symbol: null,
-        price: null,
-        changePct: null,
-        regime: 'unknown',
-        score: 0,
-        source: null,
-        error: { message: error.message, meta: error.meta || null }
-      },
-      vix: {
-        ok: false,
-        symbol: null,
-        price: null,
-        changePct: null,
-        regime: 'unknown',
-        score: 0,
-        source: null,
-        error: { message: error.message, meta: error.meta || null }
-      },
-      yieldCurve: {
-        ok: false,
-        spread: null,
-        regime: 'unknown',
-        score: 0,
-        source: null,
-        seriesId: 'T10Y2Y',
-        date: null,
-        error: { message: error.message, meta: error.meta || null }
-      },
-      centralBank: buildCentralBankPlaceholder(),
-      derived: {
-        compositeMacroPressure: 0,
-        usdPressure: 'neutral',
-        riskEnvironment: 'neutral',
-        curveState: 'unknown'
-      },
-      debug: {
-        env: {
-          hasTwelveDataKey: !!process.env.TWELVE_DATA_API_KEY,
-          hasTwelveDataKey: !!process.env.TWELVE_DATA_API_KEY,
-          hasFredKey: !!process.env.FRED_KEY,
-          usingTwelveDataEnv: process.env.TWELVE_DATA_API_KEY
-            ? 'TWELVE_DATA_API_KEY'
-            : process.env.TWELVE_DATA_API_KEY
-              ? 'TWELVE_DATA_API_KEY'
-              : null
-        },
-        rawSources: {
-          dxy: null,
-          vix: null,
-          yieldCurve: null
-        }
-      }
-    };
-  }
-}
-
-module.exports = {
-  getCoreyLiveData,
-  getCoreyLiveDataSafe
+const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY || '';
+const FRED_KEY        = process.env.FRED_KEY || '';
+
+const REFRESH_MS = 15 * 60 * 1000; // 15 minutes
+
+// ── MODULE-LEVEL CACHE ────────────────────────────────────────
+// Always available after first fetch — never null after boot
+let _cache = {
+  dxy: {
+    price:     null,
+    change1d:  null,
+    bias:      'Neutral',  // 'Bullish' | 'Bearish' | 'Neutral'
+    score:     0,          // -1.0 to +1.0
+  },
+  vix: {
+    price:     null,
+    level:     'Normal',   // 'Low' | 'Normal' | 'Elevated' | 'High' | 'Extreme'
+    score:     0,          // risk-off pressure: 0 to 1.0
+  },
+  yield: {
+    spread:    null,       // 10Y - 2Y in percent
+    regime:    'Normal',   // 'Inverted' | 'Flat' | 'Normal' | 'Steep'
+    score:     0,          // -1.0 to +1.0 (negative = inverted = recessionary)
+  },
+  // Derived composite fields for globalMacro()
+  context: {
+    usdFlow:           0,
+    safeHavenFlow:     0,
+    creditStress:      0,
+    geopoliticalStress:0,
+    recessionRisk:     0,
+    bondStress:        0,
+    realYieldPressure: 0,
+    growthImpulse:     0,
+    equityBreadth:     0,
+    oilShock:          0,
+    inflationImpulse:  0,
+    commodityDemand:   0,
+    semiconductorCycle:0,
+    aiCapexImpulse:    0,
+  },
+  lastUpdated: null,
+  status: 'uninitialised',
 };
+
+// ── FETCH HELPERS ─────────────────────────────────────────────
+
+function fetchTwelveDataQuote(symbol) {
+  return new Promise((resolve, reject) => {
+    const tdSym = encodeURIComponent(symbol);
+    const opts = {
+      hostname: 'api.twelvedata.com',
+      path: `/quote?symbol=${tdSym}&apikey=${TWELVE_DATA_KEY}`,
+      method: 'GET',
+      headers: { 'User-Agent': 'ATLAS-FX/4.0' },
+      timeout: 10000,
+    };
+    const req = https.request(opts, res => {
+      let data = '';
+      res.on('data', c => { data += c; });
+      res.on('end', () => {
+        try {
+          const p = JSON.parse(data);
+          if (p.status === 'error' || !p.close) {
+            reject(new Error(`TwelveData quote error: ${p.message || 'no close'}`));
+            return;
+          }
+          resolve({
+            price:    parseFloat(p.close),
+            change1d: parseFloat(p.percent_change || 0),
+            symbol:   p.symbol,
+          });
+        } catch (e) {
+          reject(new Error(`TwelveData parse error: ${e.message}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => reject(new Error('TwelveData timeout')));
+    req.end();
+  });
+}
+
+async function fetchFREDSeries(seriesId) {
+  const url = `https://api.stlouisfed.org/fred/series/observations` +
+    `?series_id=${seriesId}&api_key=${FRED_KEY}&file_type=json` +
+    `&sort_order=desc&limit=5`;
+  const res = await axios.get(url, { timeout: 8000 });
+  const obs = res.data?.observations || [];
+  const latest = obs.find(o => o.value !== '.' && o.value !== '');
+  return latest ? parseFloat(latest.value) : null;
+}
+
+// ── DXY SCORING ───────────────────────────────────────────────
+// UUP ETF used as DXY proxy via TwelveData
+// DXY above 104 = strong USD | below 100 = weak USD
+// Change-based momentum also factored
+
+function scoreDXY(price, change1d) {
+  if (price == null) return { bias: 'Neutral', score: 0 };
+  
+  let score = 0;
+  
+  // Price level component
+  if (price > 106)      score += 0.60;
+  else if (price > 104) score += 0.40;
+  else if (price > 102) score += 0.20;
+  else if (price > 100) score += 0.05;
+  else if (price > 98)  score -= 0.20;
+  else if (price > 96)  score -= 0.40;
+  else                  score -= 0.60;
+
+  // Momentum component (1-day change)
+  if (change1d > 0.5)       score += 0.15;
+  else if (change1d > 0.2)  score += 0.08;
+  else if (change1d < -0.5) score -= 0.15;
+  else if (change1d < -0.2) score -= 0.08;
+
+  score = Math.max(-1, Math.min(1, score));
+  const bias = score > 0.10 ? 'Bullish' : score < -0.10 ? 'Bearish' : 'Neutral';
+  return { bias, score: Math.round(score * 100) / 100 };
+}
+
+// ── VIX SCORING ───────────────────────────────────────────────
+// VXX ETF used as VIX proxy
+// VIX < 15 = low fear | 15-20 = normal | 20-25 = elevated | 25-35 = high | >35 = extreme
+
+function scoreVIX(price) {
+  if (price == null) return { level: 'Normal', score: 0 };
+
+  let level, score;
+
+  if (price < 13) {
+    level = 'Low';
+    score = 0.05; // near complacency
+  } else if (price < 18) {
+    level = 'Normal';
+    score = 0.10;
+  } else if (price < 25) {
+    level = 'Elevated';
+    score = 0.35;
+  } else if (price < 35) {
+    level = 'High';
+    score = 0.65;
+  } else {
+    level = 'Extreme';
+    score = 0.90;
+  }
+
+  return { level, score };
+}
+
+// ── YIELD CURVE SCORING ───────────────────────────────────────
+// Spread = 10Y minus 2Y
+// Negative = inverted = recessionary signal
+// Deeply positive = growth/expansion
+
+function scoreYield(spread) {
+  if (spread == null) return { regime: 'Normal', score: 0 };
+
+  let regime, score;
+
+  if (spread < -0.75) {
+    regime = 'Inverted';
+    score  = -0.80;
+  } else if (spread < -0.25) {
+    regime = 'Inverted';
+    score  = -0.50;
+  } else if (spread < 0.25) {
+    regime = 'Flat';
+    score  = -0.10;
+  } else if (spread < 0.75) {
+    regime = 'Normal';
+    score  = 0.20;
+  } else if (spread < 1.50) {
+    regime = 'Normal';
+    score  = 0.40;
+  } else {
+    regime = 'Steep';
+    score  = 0.60;
+  }
+
+  return { regime, score };
+}
+
+// ── DERIVE MARKET CONTEXT ─────────────────────────────────────
+// Maps live DXY/VIX/yield scores into the DEFAULT_MARKET_CONTEXT
+// fields that globalMacro() uses for its calculations
+
+function deriveContext(dxy, vix, yield_) {
+  const d = dxy.score;     // -1 to +1, positive = strong USD
+  const v = vix.score;     // 0 to 1, higher = more fear
+  const y = yield_.score;  // -1 to +1, negative = inverted
+
+  return {
+    // USD-related
+    usdFlow:            clamp(d * 0.80),
+    safeHavenFlow:      clamp(v * 0.60 + (d > 0 ? d * 0.20 : 0)),
+
+    // Risk environment
+    creditStress:       clamp(v * 0.70),
+    geopoliticalStress: clamp(v * 0.40),
+    recessionRisk:      clamp(v * 0.35 + (y < 0 ? Math.abs(y) * 0.50 : 0)),
+
+    // Bond / yield
+    bondStress:         clamp(v * 0.45 + (y < 0 ? Math.abs(y) * 0.35 : 0)),
+    realYieldPressure:  clamp(d * 0.30 + (y > 0 ? y * 0.25 : 0)),
+    growthImpulse:      clamp(y * 0.60 + (v < 0.20 ? 0.15 : 0)),
+
+    // Equity / breadth
+    equityBreadth:      clamp(1 - v * 0.80),
+
+    // Commodity / inflation (limited without direct feeds — stubbed at 0 for Phase 1)
+    oilShock:           0,
+    inflationImpulse:   0,
+    commodityDemand:    0,
+    semiconductorCycle: 0,
+    aiCapexImpulse:     0,
+  };
+}
+
+function clamp(v, min = -1, max = 1) {
+  if (!Number.isFinite(v)) return 0;
+  return Math.min(Math.max(v, min), max);
+}
+
+// ── MAIN FETCH ────────────────────────────────────────────────
+
+async function fetchAll() {
+  const results = { dxy: null, vix: null, yield: null };
+  const errors  = [];
+
+  // DXY via UUP ETF
+  try {
+    const q = await fetchTwelveDataQuote('UUP');
+    const scored = scoreDXY(q.price, q.change1d);
+    results.dxy = { price: q.price, change1d: q.change1d, ...scored };
+  } catch (e) {
+    errors.push(`DXY: ${e.message}`);
+    // Try fallback — DX-Y.NYB direct
+    try {
+      const q2 = await fetchTwelveDataQuote('DX-Y.NYB');
+      const scored = scoreDXY(q2.price, q2.change1d);
+      results.dxy = { price: q2.price, change1d: q2.change1d, ...scored };
+    } catch (e2) {
+      errors.push(`DXY fallback: ${e2.message}`);
+    }
+  }
+
+  // VIX via VXX ETF
+  try {
+    const q = await fetchTwelveDataQuote('VXX');
+    const scored = scoreVIX(q.price);
+    results.vix = { price: q.price, ...scored };
+  } catch (e) {
+    errors.push(`VIX: ${e.message}`);
+  }
+
+  // Yield curve via FRED (T10Y2Y = 10Y-2Y spread)
+  if (FRED_KEY) {
+    try {
+      const spread = await fetchFREDSeries('T10Y2Y');
+      const scored = scoreYield(spread);
+      results.yield = { spread, ...scored };
+    } catch (e) {
+      errors.push(`FRED yield: ${e.message}`);
+    }
+  } else {
+    errors.push('FRED_KEY not set — yield curve unavailable');
+  }
+
+  return { results, errors };
+}
+
+// ── UPDATE CACHE ──────────────────────────────────────────────
+
+async function refreshCache() {
+  console.log('[COREY-LIVE] Refreshing live data...');
+  try {
+    const { results, errors } = await fetchAll();
+
+    const dxy   = results.dxy   || _cache.dxy;
+    const vix   = results.vix   || _cache.vix;
+    const yield_ = results.yield || _cache.yield;
+
+    const context = deriveContext(dxy, vix, yield_);
+
+    _cache = {
+      dxy,
+      vix,
+      yield: yield_,
+      context,
+      lastUpdated: new Date().toISOString(),
+      status: errors.length === 0 ? 'ok' : errors.length < 3 ? 'partial' : 'degraded',
+      errors,
+    };
+
+    console.log(`[COREY-LIVE] Updated — DXY:${dxy.price?.toFixed(2)||'N/A'} (${dxy.bias}) | VIX:${vix.price?.toFixed(2)||'N/A'} (${vix.level}) | Yield:${yield_.spread?.toFixed(2)||'N/A'} (${yield_.regime}) | Status:${_cache.status}`);
+    if (errors.length > 0) console.warn('[COREY-LIVE] Errors:', errors.join(' | '));
+
+  } catch (err) {
+    console.error('[COREY-LIVE] Refresh failed:', err.message);
+    _cache.status = 'error';
+  }
+}
+
+// ── INITIALISE ────────────────────────────────────────────────
+// Called once at boot — sets up initial data and starts 15-min refresh
+
+let _initialised = false;
+
+async function init() {
+  if (_initialised) return;
+  _initialised = true;
+  await refreshCache();
+  setInterval(refreshCache, REFRESH_MS);
+}
+
+// ── PUBLIC API ────────────────────────────────────────────────
+
+/**
+ * Returns the current live macro context.
+ * Always returns data — falls back to last known good or safe defaults.
+ */
+function getLiveContext() {
+  return _cache;
+}
+
+/**
+ * Returns just the market context fields for globalMacro()
+ */
+function getMarketContext() {
+  return { ..._cache.context };
+}
+
+module.exports = { init, getLiveContext, getMarketContext, refreshCache };
