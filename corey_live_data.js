@@ -103,29 +103,32 @@ async function fetchFREDSeries(seriesId) {
 }
 
 // ── DXY SCORING ───────────────────────────────────────────────
-// UUP ETF used as DXY proxy via TwelveData
-// DXY above 104 = strong USD | below 100 = weak USD
-// Change-based momentum also factored
+// UUP ETF price range reference (NOT true DXY index values):
+//   ~$29+     = strong USD
+//   ~$27-29   = neutral
+//   ~$25-27   = weak USD
+//   <$25      = very weak USD
+// 1-day change momentum still applies.
 
 function scoreDXY(price, change1d) {
   if (price == null) return { bias: 'Neutral', score: 0 };
-  
-  let score = 0;
-  
-  // Price level component
-  if (price > 106)      score += 0.60;
-  else if (price > 104) score += 0.40;
-  else if (price > 102) score += 0.20;
-  else if (price > 100) score += 0.05;
-  else if (price > 98)  score -= 0.20;
-  else if (price > 96)  score -= 0.40;
-  else                  score -= 0.60;
 
-  // Momentum component (1-day change)
-  if (change1d > 0.5)       score += 0.15;
-  else if (change1d > 0.2)  score += 0.08;
-  else if (change1d < -0.5) score -= 0.15;
-  else if (change1d < -0.2) score -= 0.08;
+  let score = 0;
+
+  // UUP ETF price level (calibrated to actual ETF trading range)
+  if (price > 29.5)      score += 0.60;  // strong USD
+  else if (price > 28.5) score += 0.35;
+  else if (price > 27.5) score += 0.15;
+  else if (price > 26.5) score -= 0.05;  // slight USD weakness
+  else if (price > 25.5) score -= 0.30;
+  else if (price > 24.5) score -= 0.50;
+  else                   score -= 0.70;  // very weak USD
+
+  // Momentum component (1-day change %)
+  if (change1d > 0.5)        score += 0.15;
+  else if (change1d > 0.2)   score += 0.08;
+  else if (change1d < -0.5)  score -= 0.15;
+  else if (change1d < -0.2)  score -= 0.08;
 
   score = Math.max(-1, Math.min(1, score));
   const bias = score > 0.10 ? 'Bullish' : score < -0.10 ? 'Bearish' : 'Neutral';
@@ -133,29 +136,35 @@ function scoreDXY(price, change1d) {
 }
 
 // ── VIX SCORING ───────────────────────────────────────────────
-// VXX ETF used as VIX proxy
-// VIX < 15 = low fear | 15-20 = normal | 20-25 = elevated | 25-35 = high | >35 = extreme
+// VXX ETF price range reference (NOT true VIX index values):
+//   VXX < $18  = low fear
+//   VXX $18-25 = normal
+//   VXX $25-33 = elevated
+//   VXX $33-45 = high
+//   VXX > $45  = extreme
+// Note: VXX decays over time due to roll cost — these levels may
+// need periodic recalibration vs the true VIX scale.
 
 function scoreVIX(price) {
   if (price == null) return { level: 'Normal', score: 0 };
 
   let level, score;
 
-  if (price < 13) {
+  if (price < 18) {
     level = 'Low';
-    score = 0.05; // near complacency
-  } else if (price < 18) {
-    level = 'Normal';
-    score = 0.10;
+    score = 0.05;
   } else if (price < 25) {
+    level = 'Normal';
+    score = 0.12;
+  } else if (price < 33) {
     level = 'Elevated';
-    score = 0.35;
-  } else if (price < 35) {
+    score = 0.38;
+  } else if (price < 45) {
     level = 'High';
     score = 0.65;
   } else {
     level = 'Extreme';
-    score = 0.90;
+    score = 0.88;
   }
 
   return { level, score };
