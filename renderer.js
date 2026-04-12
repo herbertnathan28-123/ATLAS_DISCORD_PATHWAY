@@ -6,8 +6,9 @@ const CELL_W = 960;
 const CELL_H = 540;
 const VIEWPORT = { width: CELL_W, height: CELL_H };
 const CHART_LOAD_TIMEOUT = 15000;
-const CANVAS_DRAWN_TIMEOUT = 8000;   // max wait for candle pixels
-const SETTLE_FALLBACK_MS = 400;      // brief post-draw wait
+const CANVAS_DRAWN_TIMEOUT = 8000;
+const SETTLE_FALLBACK_MS = 400;
+const STAGGER_MS = 250;             // FIX 2 — delay between parallel widget creations
 const UP_COLOR = '#00ff00';
 const DOWN_COLOR = '#ff0015';
 const BG_COLOR = '#131722';
@@ -39,17 +40,19 @@ function toTVSymbol(s) {
   return 'NASDAQ:' + up;
 }
 
+// FIX 5 — added bar_spacing:8, drawWick:true (drawBorder already present),
+//         scalesProperties.fontSize:14
+// FIX 6 — hide_top_toolbar:true (was false), rest already hidden
 function buildWidgetHtml(symbol, interval) {
-  return '<html><head><meta charset="utf-8"><style>*{margin:0;padding:0}html,body{width:'+CELL_W+'px;height:'+CELL_H+'px;overflow:hidden;background:'+BG_COLOR+'}#tv{width:'+CELL_W+'px;height:'+CELL_H+'px}</style></head><body><div id="tv"></div><script src="https://s3.tradingview.com/tv.js"><\/script><script>new TradingView.widget({container_id:"tv",autosize:false,width:'+CELL_W+',height:'+CELL_H+',symbol:"'+symbol+'",interval:"'+interval+'",timezone:"exchange",theme:"dark",style:"1",locale:"en",toolbar_bg:"'+BG_COLOR+'",enable_publishing:false,hide_side_toolbar:true,hide_top_toolbar:false,hide_legend:false,save_image:false,allow_symbol_change:false,hotlist:false,calendar:false,show_popup_button:false,withdateranges:false,details:false,studies:[],overrides:{"paneProperties.background":"'+BG_COLOR+'","paneProperties.backgroundType":"solid","mainSeriesProperties.candleStyle.upColor":"'+UP_COLOR+'","mainSeriesProperties.candleStyle.downColor":"'+DOWN_COLOR+'","mainSeriesProperties.candleStyle.borderUpColor":"'+UP_COLOR+'","mainSeriesProperties.candleStyle.borderDownColor":"'+DOWN_COLOR+'","mainSeriesProperties.candleStyle.wickUpColor":"'+UP_COLOR+'","mainSeriesProperties.candleStyle.wickDownColor":"'+DOWN_COLOR+'","mainSeriesProperties.candleStyle.drawBorder":true,"scalesProperties.backgroundColor":"'+BG_COLOR+'","scalesProperties.textColor":"#AAA"}});<\/script></body></html>';
+  return '<html><head><meta charset="utf-8"><style>*{margin:0;padding:0}html,body{width:'+CELL_W+'px;height:'+CELL_H+'px;overflow:hidden;background:'+BG_COLOR+'}#tv{width:'+CELL_W+'px;height:'+CELL_H+'px}</style></head><body><div id="tv"></div><script src="https://s3.tradingview.com/tv.js"><\/script><script>new TradingView.widget({container_id:"tv",autosize:false,width:'+CELL_W+',height:'+CELL_H+',symbol:"'+symbol+'",interval:"'+interval+'",timezone:"exchange",theme:"dark",style:"1",locale:"en",toolbar_bg:"'+BG_COLOR+'",enable_publishing:false,hide_side_toolbar:true,hide_top_toolbar:true,hide_legend:false,save_image:false,allow_symbol_change:false,hotlist:false,calendar:false,show_popup_button:false,withdateranges:false,details:false,bar_spacing:8,studies:[],overrides:{"paneProperties.background":"'+BG_COLOR+'","paneProperties.backgroundType":"solid","mainSeriesProperties.candleStyle.upColor":"'+UP_COLOR+'","mainSeriesProperties.candleStyle.downColor":"'+DOWN_COLOR+'","mainSeriesProperties.candleStyle.borderUpColor":"'+UP_COLOR+'","mainSeriesProperties.candleStyle.borderDownColor":"'+DOWN_COLOR+'","mainSeriesProperties.candleStyle.wickUpColor":"'+UP_COLOR+'","mainSeriesProperties.candleStyle.wickDownColor":"'+DOWN_COLOR+'","mainSeriesProperties.candleStyle.drawBorder":true,"mainSeriesProperties.candleStyle.drawWick":true,"scalesProperties.backgroundColor":"'+BG_COLOR+'","scalesProperties.textColor":"#AAA","scalesProperties.fontSize":14}});<\/script></body></html>';
 }
 
-// Wait until the canvas has green or red candle pixels (not just gridlines).
-// Previous version matched any non-background pixel, which triggered on
-// gray axis/gridlines drawn before candles — causing blank screenshots
-// on larger timeframes that need more time to fetch + render candles.
+// FIX 1 — range-based candle detection, rename isGreen/isRed -> isUp/isDn
+//         with R/G/B thresholds per spec: isUp g>180 r<80 b<80, isDn r>180 g<80 b<80
+// FIX 4 — scope canvas query to .tv-lightweight-charts
 async function waitForCanvasDrawn(frame, maxMs) {
   return frame.waitForFunction(() => {
-    const canvases = document.querySelectorAll('canvas');
+    const canvases = document.querySelectorAll('.tv-lightweight-charts canvas');
     if (!canvases.length) return false;
     let best = null, bestArea = 0;
     for (const c of canvases) {
@@ -61,21 +64,15 @@ async function waitForCanvasDrawn(frame, maxMs) {
     if (!ctx) return false;
     try {
       const W = best.width, H = best.height;
-      // Sample a 10x6 grid across the chart body. Require at least 1 pixel
-      // strongly matching the custom candle colors set in the widget:
-      //   upColor   #00ff00  -> R<60,  G>160, B<60
-      //   downColor #ff0015  -> R>160, G<60,  B<90
-      // Gridlines/axis text are gray (R≈G≈B), never match these.
       let hits = 0;
       for (let xi = 0; xi < 10; xi++) {
         for (let yi = 0; yi < 6; yi++) {
           const x = Math.floor(W * (0.1 + xi * 0.08));
           const y = Math.floor(H * (0.1 + yi * 0.13));
           const d = ctx.getImageData(x, y, 1, 1).data;
-          const r = d[0], g = d[1], b = d[2];
-          const isGreen = r < 60 && g > 160 && b < 60;
-          const isRed   = r > 160 && g < 60 && b < 90;
-          if (isGreen || isRed) { hits++; if (hits >= 2) return true; }
+          const isUp = d[1] > 180 && d[0] < 80 && d[2] < 80;
+          const isDn = d[0] > 180 && d[1] < 80 && d[2] < 80;
+          if (isUp || isDn) { hits++; if (hits >= 2) return true; }
         }
       }
       return false;
@@ -90,6 +87,8 @@ async function captureSingleChart(browser, symbol, timeframe) {
   try {
     await page.setViewport(VIEWPORT);
     await page.setContent(buildWidgetHtml(symbol, timeframe), { waitUntil: 'domcontentloaded', timeout: CHART_LOAD_TIMEOUT });
+    // FIX 3 — wait for TradingView global to be defined before looking for widget
+    await page.waitForFunction(() => typeof TradingView !== 'undefined', { timeout: 15000 }).catch(() => {});
     const iframeHandle = await page.waitForSelector('#tv iframe', { timeout: CHART_LOAD_TIMEOUT }).catch(() => null);
     let drawn = false;
     if (iframeHandle) {
@@ -125,6 +124,9 @@ async function buildTwoByTwoGrid(buffers) {
   ]).png().toBuffer();
 }
 
+// FIX 2 — stagger each parallel capture by STAGGER_MS so tv.js widget creations
+//         don't pile up simultaneously (previously caused the "first 2 of each
+//         wave blank" pattern under resource contention)
 async function renderAllPanels(symbol) {
   const tvSymbol = toTVSymbol(symbol);
   console.log('[RENDERER] Starting render for ' + symbol + (tvSymbol !== symbol ? ' (TV: ' + tvSymbol + ')' : ''));
@@ -139,8 +141,12 @@ async function renderAllPanels(symbol) {
     const HTF_TFS = ['W', 'D', '240', '60'];
     const LTF_TFS = ['30', '15', '5', '1'];
 
-    const htfShots = await Promise.all(HTF_TFS.map(tf => captureSingleChart(browser, tvSymbol, tf)));
-    const ltfShots = await Promise.all(LTF_TFS.map(tf => captureSingleChart(browser, tvSymbol, tf)));
+    const htfShots = await Promise.all(HTF_TFS.map((tf, i) =>
+      new Promise(r => setTimeout(r, i * STAGGER_MS)).then(() => captureSingleChart(browser, tvSymbol, tf))
+    ));
+    const ltfShots = await Promise.all(LTF_TFS.map((tf, i) =>
+      new Promise(r => setTimeout(r, i * STAGGER_MS)).then(() => captureSingleChart(browser, tvSymbol, tf))
+    ));
 
     const [htfGrid, ltfGrid] = await Promise.all([
       buildTwoByTwoGrid(htfShots),
