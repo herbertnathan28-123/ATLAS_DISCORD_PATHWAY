@@ -5,8 +5,8 @@ const sharp = require('sharp');
 const CELL_W = 960;
 const CELL_H = 540;
 const VIEWPORT = { width: CELL_W, height: CELL_H };
-const CHART_LOAD_TIMEOUT = 30000;
-const CANVAS_SETTLE_MS = 5000;
+const CHART_LOAD_TIMEOUT = 15000;
+const CANVAS_SETTLE_MS = 1500;
 const UP_COLOR = '#00ff00';
 const DOWN_COLOR = '#ff0015';
 const BG_COLOR = '#131722';
@@ -47,10 +47,10 @@ function buildWidgetHtml(symbol, interval) {
 async function captureSingleChart(browser, symbol, timeframe) {
   const page = await browser.newPage();
   let screenshot = null;
+  const t0 = Date.now();
   try {
     await page.setViewport(VIEWPORT);
-    console.log('  [CAPTURE] ' + symbol + ' @ ' + timeframe + ' loading...');
-    await page.setContent(buildWidgetHtml(symbol, timeframe), { waitUntil: 'networkidle2', timeout: CHART_LOAD_TIMEOUT });
+    await page.setContent(buildWidgetHtml(symbol, timeframe), { waitUntil: 'domcontentloaded', timeout: CHART_LOAD_TIMEOUT });
     const iframe = await page.waitForSelector('#tv iframe', { timeout: CHART_LOAD_TIMEOUT }).catch(() => null);
     if (iframe) {
       const f = await iframe.contentFrame();
@@ -58,7 +58,7 @@ async function captureSingleChart(browser, symbol, timeframe) {
     }
     await new Promise(r => setTimeout(r, CANVAS_SETTLE_MS));
     screenshot = await page.screenshot({ type: 'png' });
-    console.log('  [CAPTURE] ' + symbol + ' @ ' + timeframe + ' done (' + screenshot.length + ' bytes)');
+    console.log('  [CAPTURE] ' + symbol + ' @ ' + timeframe + ' done (' + screenshot.length + ' bytes, ' + (Date.now() - t0) + 'ms)');
   } catch (err) {
     console.error('  [CAPTURE] ' + symbol + ' @ ' + timeframe + ' FAILED: ' + err.message);
     screenshot = await sharp({
@@ -93,13 +93,23 @@ async function renderAllPanels(symbol) {
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--single-process', '--no-zygote']
     });
 
-    const htfShots = [];
-    for (const tf of ['W', 'D', '240', '60']) htfShots.push(await captureSingleChart(browser, tvSymbol, tf));
-    const htfGrid = await buildTwoByTwoGrid(htfShots);
+    const HTF_TFS = ['W', 'D', '240', '60'];
+    const LTF_TFS = ['30', '15', '5', '1'];
+    const allTFs = [...HTF_TFS, ...LTF_TFS];
 
-    const ltfShots = [];
-    for (const tf of ['30', '15', '5', '1']) ltfShots.push(await captureSingleChart(browser, tvSymbol, tf));
-    const ltfGrid = await buildTwoByTwoGrid(ltfShots);
+    // Fire all 8 captures concurrently — single browser, 8 tabs.
+    const allShots = await Promise.all(
+      allTFs.map(tf => captureSingleChart(browser, tvSymbol, tf))
+    );
+
+    const htfShots = allShots.slice(0, 4);
+    const ltfShots = allShots.slice(4, 8);
+
+    // Build both grids in parallel.
+    const [htfGrid, ltfGrid] = await Promise.all([
+      buildTwoByTwoGrid(htfShots),
+      buildTwoByTwoGrid(ltfShots)
+    ]);
 
     console.log('[RENDERER] Complete for ' + symbol + ' in ' + ((Date.now() - t) / 1000).toFixed(1) + 's');
     return { htfGrid, ltfGrid, htfGridName: symbol + '_HTF.png', ltfGridName: symbol + '_LTF.png' };
