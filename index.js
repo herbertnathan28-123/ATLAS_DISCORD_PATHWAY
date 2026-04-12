@@ -20,6 +20,10 @@ const http=require('http');
 
 const{dhInit,dhSetPipelineTrigger,runDarkHorseScan,getDHInternalStore,getDHCandidate,DH_UNIVERSE}=require('./darkHorseEngine');
 
+const coreyLive = require('./corey_live_data');
+coreyLive.init();
+
+
 const TOKEN=process.env.DISCORD_BOT_TOKEN;
 const TWELVE_DATA_KEY=process.env.TWELVE_DATA_API_KEY||'';
 if(!TOKEN){console.error('[FATAL] Missing DISCORD_BOT_TOKEN');process.exit(1);}
@@ -174,24 +178,8 @@ client.on('messageCreate', async (msg) => {
   console.log(`[READY] ATLAS FX Bot online as ${client.user.tag}`);
 
   // COREY LIVE DATA TEST
-  try {
-  console.log("COREY: loading module...");
-
-  const { getCoreyLiveData } = require('./corey_live_data');
-
-  console.log("COREY: module loaded");
-
-  console.log("COREY: fetching data...");
-
-  const data = await getCoreyLiveData();
-
-  console.log("COREY LIVE DATA:", JSON.stringify(data, null, 2));
-
-} catch (e) {
-  console.error("COREY DATA ERROR FULL:", e);
-}
-
   dhInit(safeOHLC);
+
   dhSetPipelineTrigger(async (symbol, opts) => {
     log('INFO', `[DH PIPELINE] Triggered for ${symbol} (score: ${opts.dhScore})`);
     try {
@@ -245,7 +233,23 @@ const COMMODITY_SYMBOLS=new Set(['XAUUSD','XAGUSD','XAUEUR','XAGEUR','USOIL','WT
 const INDEX_SYMBOLS=new Set(['NAS100','US500','US30','GER40','UK100','HK50','JPN225','SPX','NDX','DJI']);
 const SEMI_SYMBOLS=new Set(['AMD','MU','ASML','MICRON','NVDA','AVGO','TSM','QCOM','INTC']);
 const CURRENCY_COUNTRY=Object.freeze({USD:{country:'United States',weight:1.00},EUR:{country:'Eurozone',weight:1.00},GBP:{country:'United Kingdom',weight:0.90},JPY:{country:'Japan',weight:0.90},AUD:{country:'Australia',weight:0.85},NZD:{country:'New Zealand',weight:0.75},CAD:{country:'Canada',weight:0.85},CHF:{country:'Switzerland',weight:0.80},SEK:{country:'Sweden',weight:0.60},NOK:{country:'Norway',weight:0.60},DKK:{country:'Denmark',weight:0.55},SGD:{country:'Singapore',weight:0.65},HKD:{country:'Hong Kong',weight:0.55},CNH:{country:'China Offshore',weight:0.80},CNY:{country:'China',weight:0.85}});
-const CENTRAL_BANKS=Object.freeze({USD:{name:'Federal Reserve',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.90,growthSensitivity:0.80},EUR:{name:'European Central Bank',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.85,growthSensitivity:0.70},GBP:{name:'Bank of England',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.90,growthSensitivity:0.75},JPY:{name:'Bank of Japan',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.65,growthSensitivity:0.60},AUD:{name:'Reserve Bank of Australia',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.85,growthSensitivity:0.80},NZD:{name:'Reserve Bank of New Zealand',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.85,growthSensitivity:0.75},CAD:{name:'Bank of Canada',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.85,growthSensitivity:0.75},CHF:{name:'Swiss National Bank',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.75,growthSensitivity:0.65},SEK:{name:'Riksbank',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.75,growthSensitivity:0.65},NOK:{name:'Norges Bank',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.80,growthSensitivity:0.70},DKK:{name:'Danmarks Nationalbank',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.70,growthSensitivity:0.65},SGD:{name:'Monetary Authority of Singapore',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.80,growthSensitivity:0.75},HKD:{name:'Hong Kong Monetary Authority',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.70,growthSensitivity:0.65},CNH:{name:"People's Bank of China Offshore",stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.60,growthSensitivity:0.85},CNY:{name:"People's Bank of China",stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.60,growthSensitivity:0.85}});
+const CENTRAL_BANKS=Object.freeze({
+  USD:{name:'Federal Reserve',stance:STANCE.NEUTRAL,direction:STANCE.DOVISH,rateCycle:RATE_CYCLE.CUTTING,terminalBias:-0.10,inflationSensitivity:0.90,growthSensitivity:0.80},
+  EUR:{name:'European Central Bank',stance:STANCE.DOVISH,direction:STANCE.DOVISH,rateCycle:RATE_CYCLE.CUTTING,terminalBias:-0.15,inflationSensitivity:0.85,growthSensitivity:0.70},
+  GBP:{name:'Bank of England',stance:STANCE.NEUTRAL,direction:STANCE.DOVISH,rateCycle:RATE_CYCLE.HOLDING,terminalBias:-0.05,inflationSensitivity:0.90,growthSensitivity:0.75},
+  JPY:{name:'Bank of Japan',stance:STANCE.HAWKISH,direction:STANCE.HAWKISH,rateCycle:RATE_CYCLE.HIKING,terminalBias:0.15,inflationSensitivity:0.65,growthSensitivity:0.60},
+  AUD:{name:'Reserve Bank of Australia',stance:STANCE.HAWKISH,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0.10,inflationSensitivity:0.85,growthSensitivity:0.80},
+  NZD:{name:'Reserve Bank of New Zealand',stance:STANCE.NEUTRAL,direction:STANCE.DOVISH,rateCycle:RATE_CYCLE.CUTTING,terminalBias:-0.10,inflationSensitivity:0.85,growthSensitivity:0.75},
+  CAD:{name:'Bank of Canada',stance:STANCE.DOVISH,direction:STANCE.DOVISH,rateCycle:RATE_CYCLE.CUTTING,terminalBias:-0.15,inflationSensitivity:0.85,growthSensitivity:0.75},
+  CHF:{name:'Swiss National Bank',stance:STANCE.DOVISH,direction:STANCE.DOVISH,rateCycle:RATE_CYCLE.CUTTING,terminalBias:-0.20,inflationSensitivity:0.75,growthSensitivity:0.65},
+  SEK:{name:'Riksbank',stance:STANCE.DOVISH,direction:STANCE.DOVISH,rateCycle:RATE_CYCLE.CUTTING,terminalBias:-0.15,inflationSensitivity:0.75,growthSensitivity:0.65},
+  NOK:{name:'Norges Bank',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0.05,inflationSensitivity:0.80,growthSensitivity:0.70},
+  DKK:{name:'Danmarks Nationalbank',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.70,growthSensitivity:0.65},
+  SGD:{name:'Monetary Authority of Singapore',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.80,growthSensitivity:0.75},
+  HKD:{name:'Hong Kong Monetary Authority',stance:STANCE.NEUTRAL,direction:STANCE.NEUTRAL,rateCycle:RATE_CYCLE.HOLDING,terminalBias:0,inflationSensitivity:0.70,growthSensitivity:0.65},
+  CNH:{name:"People's Bank of China Offshore",stance:STANCE.DOVISH,direction:STANCE.DOVISH,rateCycle:RATE_CYCLE.CUTTING,terminalBias:-0.10,inflationSensitivity:0.60,growthSensitivity:0.85},
+  CNY:{name:"People's Bank of China",stance:STANCE.DOVISH,direction:STANCE.DOVISH,rateCycle:RATE_CYCLE.CUTTING,terminalBias:-0.10,inflationSensitivity:0.60,growthSensitivity:0.85},
+});
 const ECONOMIC_BASELINES=Object.freeze({USD:{gdpMomentum:0.68,employment:0.72,inflationControl:0.55,fiscalPosition:0.45,politicalStability:0.55},EUR:{gdpMomentum:0.48,employment:0.57,inflationControl:0.60,fiscalPosition:0.48,politicalStability:0.55},GBP:{gdpMomentum:0.44,employment:0.56,inflationControl:0.52,fiscalPosition:0.42,politicalStability:0.50},JPY:{gdpMomentum:0.45,employment:0.66,inflationControl:0.58,fiscalPosition:0.32,politicalStability:0.72},AUD:{gdpMomentum:0.58,employment:0.64,inflationControl:0.52,fiscalPosition:0.58,politicalStability:0.72},NZD:{gdpMomentum:0.49,employment:0.58,inflationControl:0.50,fiscalPosition:0.56,politicalStability:0.76},CAD:{gdpMomentum:0.54,employment:0.60,inflationControl:0.54,fiscalPosition:0.55,politicalStability:0.72},CHF:{gdpMomentum:0.52,employment:0.66,inflationControl:0.72,fiscalPosition:0.74,politicalStability:0.86},SEK:{gdpMomentum:0.46,employment:0.56,inflationControl:0.62,fiscalPosition:0.68,politicalStability:0.80},NOK:{gdpMomentum:0.57,employment:0.59,inflationControl:0.65,fiscalPosition:0.82,politicalStability:0.84},DKK:{gdpMomentum:0.53,employment:0.61,inflationControl:0.67,fiscalPosition:0.79,politicalStability:0.85},SGD:{gdpMomentum:0.62,employment:0.66,inflationControl:0.63,fiscalPosition:0.78,politicalStability:0.88},HKD:{gdpMomentum:0.49,employment:0.58,inflationControl:0.60,fiscalPosition:0.70,politicalStability:0.64},CNH:{gdpMomentum:0.55,employment:0.60,inflationControl:0.58,fiscalPosition:0.62,politicalStability:0.48},CNY:{gdpMomentum:0.56,employment:0.61,inflationControl:0.59,fiscalPosition:0.63,politicalStability:0.48}});
 const DEFAULT_MARKET_CONTEXT=Object.freeze({oilShock:0,creditStress:0,geopoliticalStress:0,growthImpulse:0,inflationImpulse:0,usdFlow:0,bondStress:0,equityBreadth:0,safeHavenFlow:0,semiconductorCycle:0,aiCapexImpulse:0,commodityDemand:0,realYieldPressure:0,recessionRisk:0});
 
@@ -316,8 +320,26 @@ async function runSpideyMicro(symbol,htfBias){const m15=await safeOHLC(symbol,'1
 function cbScore(cb){if(!cb)return 0;let s=0;if(cb.direction===STANCE.HAWKISH)s+=0.20;if(cb.direction===STANCE.DOVISH)s-=0.20;if(cb.stance===STANCE.HAWKISH)s+=0.10;if(cb.stance===STANCE.DOVISH)s-=0.10;if(cb.rateCycle===RATE_CYCLE.HIKING)s+=0.10;if(cb.rateCycle===RATE_CYCLE.CUTTING)s-=0.10;s+=clamp(cb.terminalBias||0,-0.20,0.20);return round2(clamp(s,-0.50,0.50));}
 function getCB(ccy){const bl=CENTRAL_BANKS[normalizeSymbol(ccy)];if(!bl)return makeStubCB('Unknown');const o=deepClone(bl);o.score=cbScore(o);return o;}
 function getEcon(ccy){const bl=ECONOMIC_BASELINES[normalizeSymbol(ccy)]||makeStubEcon();const e={gdpMomentum:clamp01(bl.gdpMomentum),employment:clamp01(bl.employment),inflationControl:clamp01(bl.inflationControl),fiscalPosition:clamp01(bl.fiscalPosition),politicalStability:clamp01(bl.politicalStability)};e.composite=round2(weightedAvg([{value:e.gdpMomentum,weight:0.26},{value:e.employment,weight:0.22},{value:e.inflationControl,weight:0.20},{value:e.fiscalPosition,weight:0.14},{value:e.politicalStability,weight:0.18}]));return e;}
-async function globalMacro(){const c={...DEFAULT_MARKET_CONTEXT};let dxy=c.usdFlow*0.40+c.safeHavenFlow*0.20+c.creditStress*0.18+c.bondStress*0.12+c.realYieldPressure*0.10-c.growthImpulse*0.14-c.equityBreadth*0.12;dxy=round2(clamp(dxy));let risk=-c.geopoliticalStress*0.30-c.creditStress*0.22-c.bondStress*0.12-c.oilShock*0.12-c.recessionRisk*0.18-c.safeHavenFlow*0.20+c.growthImpulse*0.22+c.equityBreadth*0.22+c.aiCapexImpulse*0.08+c.semiconductorCycle*0.08;risk=round2(clamp(risk));return{dxyScore:dxy,dxyBias:dxy>0.10?BIAS.BULLISH:dxy<-0.10?BIAS.BEARISH:BIAS.NEUTRAL,riskScore:risk,riskEnv:risk>0.12?RISK_ENV.RISK_ON:risk<-0.12?RISK_ENV.RISK_OFF:RISK_ENV.NEUTRAL,context:c,confidence:round2(clamp01(average([Math.abs(dxy),Math.abs(risk)])))};}
-function detectRegime(g){let r=REGIME.NEUTRAL;if(g.riskEnv===RISK_ENV.RISK_ON&&g.dxyBias===BIAS.BEARISH)r=REGIME.EXPANSION;else if(g.riskEnv===RISK_ENV.RISK_OFF&&g.dxyBias===BIAS.BULLISH)r=REGIME.CRISIS;else if(g.riskEnv===RISK_ENV.RISK_ON)r=REGIME.GROWTH;else if(g.riskEnv===RISK_ENV.RISK_OFF)r=REGIME.CONTRACTION;else r=REGIME.TRANSITION;return{regime:r,confidence:round2(clamp01(Math.abs(g.riskScore)))};}
+async function globalMacro(){
+  const liveCtx=coreyLive.getMarketContext();
+  const c={...DEFAULT_MARKET_CONTEXT,...liveCtx};
+  let dxy=c.usdFlow*0.40+c.safeHavenFlow*0.20+c.creditStress*0.18+c.bondStress*0.12+c.realYieldPressure*0.10-c.growthImpulse*0.14-c.equityBreadth*0.12;
+  dxy=round2(clamp(dxy));
+  let risk=-c.geopoliticalStress*0.30-c.creditStress*0.22-c.bondStress*0.12-c.oilShock*0.12-c.recessionRisk*0.18-c.safeHavenFlow*0.20+c.growthImpulse*0.22+c.equityBreadth*0.22+c.aiCapexImpulse*0.08+c.semiconductorCycle*0.08;
+  risk=round2(clamp(risk));
+  const liveData=coreyLive.getLiveContext();
+  if(liveData.lastUpdated){log('INFO',`[COREY-MACRO] live DXY:${liveData.dxy?.price?.toFixed(2)||'N/A'} VIX:${liveData.vix?.price?.toFixed(2)||'N/A'} Yield:${liveData.yield?.spread?.toFixed(2)||'N/A'} status:${liveData.status}`);}
+  return{
+    dxyScore:dxy,
+    dxyBias:dxy>0.10?BIAS.BULLISH:dxy<-0.10?BIAS.BEARISH:BIAS.NEUTRAL,
+    riskScore:risk,
+    riskEnv:risk>0.12?RISK_ENV.RISK_ON:risk<-0.12?RISK_ENV.RISK_OFF:RISK_ENV.NEUTRAL,
+    context:c,
+    confidence:round2(clamp01(average([Math.abs(dxy),Math.abs(risk)]))),
+    live:{dxy:liveData.dxy,vix:liveData.vix,yield:liveData.yield,status:liveData.status},
+  };
+}
+
 function detectVol(g){const c=g.context,v=Math.abs(c.geopoliticalStress)*0.35+Math.abs(c.creditStress)*0.22+Math.abs(c.bondStress)*0.18+Math.abs(c.oilShock)*0.12+Math.abs(c.recessionRisk)*0.13;return{volatilityScore:round2(v),level:v>0.60?'High':v>0.30?'Moderate':'Low'};}
 function detectLiq(g){const c=g.context;let s=-c.creditStress*0.40-c.bondStress*0.28-c.realYieldPressure*0.12+c.growthImpulse*0.20+c.equityBreadth*0.12;s=round2(clamp(s));return{liquidityScore:s,state:s>0.20?'Loose':s<-0.20?'Tight':'Neutral'};}
 function sectorScore(sym,g){const s=normalizeSymbol(sym);let score=0,sector='General';if(SEMI_SYMBOLS.has(s)){sector='Semiconductors';score+=g.context.aiCapexImpulse*0.40+g.context.semiconductorCycle*0.40;if(g.riskEnv===RISK_ENV.RISK_OFF)score-=0.20;}else if(EQUITY_SYMBOLS.has(s)){sector='Equity';if(g.riskEnv===RISK_ENV.RISK_ON)score+=0.20;if(g.riskEnv===RISK_ENV.RISK_OFF)score-=0.20;}else if(s==='XAUUSD'||s==='XAUEUR'){sector='Precious Metals';if(g.riskEnv===RISK_ENV.RISK_OFF)score+=0.30;if(g.dxyBias===BIAS.BULLISH)score-=0.18;if(g.dxyBias===BIAS.BEARISH)score+=0.10;}else if(s==='XAGUSD'||s==='XAGEUR'){sector='Silver';if(g.dxyBias===BIAS.BEARISH)score+=0.10;if(g.dxyBias===BIAS.BULLISH)score-=0.10;}else if(/OIL|WTI|BRENT|BCOUSD|USOIL/.test(s)){sector='Energy';score+=g.context.oilShock*0.26+g.context.commodityDemand*0.18;if(g.context.recessionRisk>0)score-=g.context.recessionRisk*0.14;}else if(/NATGAS/.test(s)){sector='Gas';score+=g.context.commodityDemand*0.20;}else if(INDEX_SYMBOLS.has(s)){sector='Index';if(g.riskEnv===RISK_ENV.RISK_ON)score+=0.22;if(g.riskEnv===RISK_ENV.RISK_OFF)score-=0.22;if(g.dxyBias===BIAS.BEARISH)score+=0.06;if(g.dxyBias===BIAS.BULLISH)score-=0.06;}return{sector,score:round2(clamp(score))};}
