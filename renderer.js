@@ -6,11 +6,11 @@ const CELL_W = 960;
 const CELL_H = 540;
 const VIEWPORT = { width: CELL_W, height: CELL_H };
 const CHART_LOAD_TIMEOUT = 15000;
-const CANVAS_DRAWN_TIMEOUT = 5000;   // max wait for canvas to have pixels
-const SETTLE_FALLBACK_MS = 500;      // brief post-draw wait for overlays
+const CANVAS_DRAWN_TIMEOUT = 8000;   // max wait for candle pixels
+const SETTLE_FALLBACK_MS = 400;      // brief post-draw wait
 const UP_COLOR = '#00ff00';
 const DOWN_COLOR = '#ff0015';
-const BG_COLOR = '#131722';           // rgb(19,23,34)
+const BG_COLOR = '#131722';
 
 // ── Symbol translation — mirrors index.js SYMBOL_OVERRIDES ──
 const SYMBOL_OVERRIDES = {
@@ -43,35 +43,44 @@ function buildWidgetHtml(symbol, interval) {
   return '<html><head><meta charset="utf-8"><style>*{margin:0;padding:0}html,body{width:'+CELL_W+'px;height:'+CELL_H+'px;overflow:hidden;background:'+BG_COLOR+'}#tv{width:'+CELL_W+'px;height:'+CELL_H+'px}</style></head><body><div id="tv"></div><script src="https://s3.tradingview.com/tv.js"><\/script><script>new TradingView.widget({container_id:"tv",autosize:false,width:'+CELL_W+',height:'+CELL_H+',symbol:"'+symbol+'",interval:"'+interval+'",timezone:"exchange",theme:"dark",style:"1",locale:"en",toolbar_bg:"'+BG_COLOR+'",enable_publishing:false,hide_side_toolbar:true,hide_top_toolbar:false,hide_legend:false,save_image:false,allow_symbol_change:false,hotlist:false,calendar:false,show_popup_button:false,withdateranges:false,details:false,studies:[],overrides:{"paneProperties.background":"'+BG_COLOR+'","paneProperties.backgroundType":"solid","mainSeriesProperties.candleStyle.upColor":"'+UP_COLOR+'","mainSeriesProperties.candleStyle.downColor":"'+DOWN_COLOR+'","mainSeriesProperties.candleStyle.borderUpColor":"'+UP_COLOR+'","mainSeriesProperties.candleStyle.borderDownColor":"'+DOWN_COLOR+'","mainSeriesProperties.candleStyle.wickUpColor":"'+UP_COLOR+'","mainSeriesProperties.candleStyle.wickDownColor":"'+DOWN_COLOR+'","mainSeriesProperties.candleStyle.drawBorder":true,"scalesProperties.backgroundColor":"'+BG_COLOR+'","scalesProperties.textColor":"#AAA"}});<\/script></body></html>';
 }
 
-// Poll every 100ms: canvas exists, has non-zero dimensions, and has at least
-// one sampled pixel that isn't pure background. Up to CANVAS_DRAWN_TIMEOUT.
+// Wait until the canvas has green or red candle pixels (not just gridlines).
+// Previous version matched any non-background pixel, which triggered on
+// gray axis/gridlines drawn before candles — causing blank screenshots
+// on larger timeframes that need more time to fetch + render candles.
 async function waitForCanvasDrawn(frame, maxMs) {
   return frame.waitForFunction(() => {
     const canvases = document.querySelectorAll('canvas');
     if (!canvases.length) return false;
-    // Check the largest canvas (price chart is usually biggest)
     let best = null, bestArea = 0;
     for (const c of canvases) {
       const a = c.width * c.height;
       if (a > bestArea) { bestArea = a; best = c; }
     }
-    if (!best || bestArea < 10000) return false;
+    if (!best || bestArea < 50000) return false;
     const ctx = best.getContext('2d');
     if (!ctx) return false;
     try {
       const W = best.width, H = best.height;
-      // Sample across the chart body
-      const samples = [
-        ctx.getImageData(Math.floor(W * 0.25), Math.floor(H * 0.5), 1, 1).data,
-        ctx.getImageData(Math.floor(W * 0.5),  Math.floor(H * 0.5), 1, 1).data,
-        ctx.getImageData(Math.floor(W * 0.75), Math.floor(H * 0.5), 1, 1).data,
-        ctx.getImageData(Math.floor(W * 0.5),  Math.floor(H * 0.3), 1, 1).data,
-        ctx.getImageData(Math.floor(W * 0.5),  Math.floor(H * 0.7), 1, 1).data,
-      ];
-      // BG is rgb(19,23,34). Any pixel not matching = chart drew something.
-      return samples.some(p => !(p[0] === 19 && p[1] === 23 && p[2] === 34));
+      // Sample a 10x6 grid across the chart body. Require at least 1 pixel
+      // strongly matching the custom candle colors set in the widget:
+      //   upColor   #00ff00  -> R<60,  G>160, B<60
+      //   downColor #ff0015  -> R>160, G<60,  B<90
+      // Gridlines/axis text are gray (R≈G≈B), never match these.
+      let hits = 0;
+      for (let xi = 0; xi < 10; xi++) {
+        for (let yi = 0; yi < 6; yi++) {
+          const x = Math.floor(W * (0.1 + xi * 0.08));
+          const y = Math.floor(H * (0.1 + yi * 0.13));
+          const d = ctx.getImageData(x, y, 1, 1).data;
+          const r = d[0], g = d[1], b = d[2];
+          const isGreen = r < 60 && g > 160 && b < 60;
+          const isRed   = r > 160 && g < 60 && b < 90;
+          if (isGreen || isRed) { hits++; if (hits >= 2) return true; }
+        }
+      }
+      return false;
     } catch (e) { return false; }
-  }, { timeout: maxMs, polling: 100 }).then(() => true).catch(() => false);
+  }, { timeout: maxMs, polling: 150 }).then(() => true).catch(() => false);
 }
 
 async function captureSingleChart(browser, symbol, timeframe) {
@@ -90,7 +99,6 @@ async function captureSingleChart(browser, symbol, timeframe) {
         drawn = await waitForCanvasDrawn(f, CANVAS_DRAWN_TIMEOUT);
       }
     }
-    // brief post-draw settle so axis labels / last candle finish overlaying
     await new Promise(r => setTimeout(r, SETTLE_FALLBACK_MS));
     screenshot = await page.screenshot({ type: 'png' });
     console.log('  [CAPTURE] ' + symbol + ' @ ' + timeframe + ' ' + (drawn ? 'OK' : 'NO-DRAW') + ' (' + screenshot.length + ' bytes, ' + (Date.now() - t0) + 'ms)');
@@ -131,8 +139,6 @@ async function renderAllPanels(symbol) {
     const HTF_TFS = ['W', 'D', '240', '60'];
     const LTF_TFS = ['30', '15', '5', '1'];
 
-    // Two waves of 4 parallel captures each — reduces network contention
-    // vs. all-8-at-once so high-TF panes (more candles) have headroom to draw.
     const htfShots = await Promise.all(HTF_TFS.map(tf => captureSingleChart(browser, tvSymbol, tf)));
     const ltfShots = await Promise.all(LTF_TFS.map(tf => captureSingleChart(browser, tvSymbol, tf)));
 
