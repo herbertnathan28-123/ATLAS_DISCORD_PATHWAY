@@ -13,6 +13,11 @@
 //   setResolution D -> poll chart.resolution() === D -> wait data + paint -> capture
 //   setResolution 240 -> ... -> capture
 //   ... etc for all 8
+//
+// IMPORTANT: each pane's wait budget is INDEPENDENT. DATA_WAIT_TIMEOUT
+// and PAINT_WAIT_TIMEOUT apply per-capture. There is no global budget
+// spanning all 8 captures — if pane W takes 40s, pane D still gets
+// a full DATA_WAIT_TIMEOUT afresh for its own wait. This is by design.
 // ============================================================
 const puppeteer = require('puppeteer');
 const sharp = require('sharp');
@@ -21,9 +26,10 @@ const CELL_W = 960;
 const CELL_H = 540;
 const VIEWPORT = { width: CELL_W, height: CELL_H };
 const PAGE_LOAD_TIMEOUT = 30000;
-const DATA_WAIT_TIMEOUT = 20000;           // first load may be slow
-const PAINT_WAIT_TIMEOUT = 15000;
-const RESOLUTION_CHANGE_TIMEOUT = 10000;   // time for chart.resolution() to update
+const DATA_WAIT_TIMEOUT = 45000;           // was 20000 — TV can be slow on Render
+const PAINT_WAIT_TIMEOUT = 45000;          // was 15000 — match data budget
+const RESOLUTION_CHANGE_TIMEOUT = 15000;   // was 10000 — allow slower switches
+const POLL_INTERVAL_MS = 500;              // was 200 — 500ms polling per work order
 const SETTLE_MS = 500;
 const UP_COLOR = '#00ff00';
 const DOWN_COLOR = '#ff0015';
@@ -85,15 +91,21 @@ window.__tvWidget = new TradingView.widget({
 </script></body></html>`;
 }
 
+// Polls iframe body text every POLL_INTERVAL_MS for non-zero OHLC.
+// Independent timeout per caller — not shared across captures.
 async function waitForDataPresent(frame, maxMs) {
   return frame.waitForFunction(() => {
     const text = (document.body && document.body.innerText) || '';
     if (/\bH:\s*0\b[\s\S]{0,6}L:\s*0\b[\s\S]{0,6}C:\s*0\b/.test(text)) return false;
     if (/\bO:\s*0(?:\.0+)?\b[\s\S]{0,40}C:\s*0(?:\.0+)?\b/.test(text)) return false;
     return /\bH:\s*\d+\.\d+/.test(text) || /\bC:\s*\d+\.\d+/.test(text);
-  }, { timeout: maxMs, polling: 200 }).then(() => true).catch(() => false);
+  }, { timeout: maxMs, polling: POLL_INTERVAL_MS }).then(() => true).catch(() => false);
 }
 
+// Polls canvas pixels every POLL_INTERVAL_MS until candle-colored pixels
+// are detected on the largest canvas. This is the "actual pixel data on
+// the canvas before capturing" gate per the work order — not a fixed wait.
+// Independent timeout per caller.
 async function waitForCanvasDrawn(frame, maxMs) {
   return frame.waitForFunction(() => {
     let canvases = document.querySelectorAll('.tv-lightweight-charts canvas');
@@ -122,10 +134,9 @@ async function waitForCanvasDrawn(frame, maxMs) {
       }
       return false;
     } catch (e) { return false; }
-  }, { timeout: maxMs, polling: 200 }).then(() => true).catch(() => false);
+  }, { timeout: maxMs, polling: POLL_INTERVAL_MS }).then(() => true).catch(() => false);
 }
 
-// Get chart's current resolution via widget API (returns null on error)
 async function getCurrentResolution(page) {
   return page.evaluate(() => {
     try {
@@ -136,25 +147,20 @@ async function getCurrentResolution(page) {
   });
 }
 
-// Switch the widget's resolution AND wait until chart.resolution() actually
-// reports the new value (not just the callback). This confirms the widget
-// has internally applied the new interval, before we wait for data.
 async function switchResolutionAndConfirm(page, tf) {
-  // Kick off the setResolution call
   await page.evaluate((newTf) => {
     return new Promise((resolve) => {
       if (!window.__tvWidget) { resolve(); return; }
       try {
         const chart = window.__tvWidget.chart();
         chart.setResolution(newTf, () => resolve());
-        setTimeout(resolve, 8000); // callback safety
+        setTimeout(resolve, 10000);
       } catch (e) {
         resolve();
       }
     });
   }, tf);
 
-  // Poll: wait until chart.resolution() reports the new TF
   const confirmed = await page.waitForFunction(
     (expected) => {
       try {
@@ -163,7 +169,7 @@ async function switchResolutionAndConfirm(page, tf) {
         return chart.resolution() === expected;
       } catch (e) { return false; }
     },
-    { timeout: RESOLUTION_CHANGE_TIMEOUT, polling: 200 },
+    { timeout: RESOLUTION_CHANGE_TIMEOUT, polling: POLL_INTERVAL_MS },
     tf
   ).then(() => true).catch(() => false);
 
@@ -183,6 +189,7 @@ async function captureCurrentState(page, frame, symbol, tf, switched) {
     elapsedMs: 0,
   };
 
+  // Each pane waits independently up to DATA_WAIT_TIMEOUT for canvas element.
   try {
     await frame.waitForSelector('canvas', { timeout: DATA_WAIT_TIMEOUT });
     diag.canvasFound = true;
@@ -190,15 +197,16 @@ async function captureCurrentState(page, frame, symbol, tf, switched) {
     diag.timeoutReason = 'canvas';
   }
 
+  // Independent DATA_WAIT_TIMEOUT for data text polling.
   diag.dataPresent = await waitForDataPresent(frame, DATA_WAIT_TIMEOUT);
   if (!diag.dataPresent) diag.timeoutReason = diag.timeoutReason || 'data';
 
+  // Independent PAINT_WAIT_TIMEOUT for candle-pixel polling.
   diag.painted = await waitForCanvasDrawn(frame, PAINT_WAIT_TIMEOUT);
   if (!diag.painted) diag.timeoutReason = diag.timeoutReason || 'paint';
 
   await new Promise(r => setTimeout(r, SETTLE_MS));
 
-  // Read what resolution chart ACTUALLY reports at screenshot time
   diag.reportedRes = await getCurrentResolution(page);
 
   const shot = await page.screenshot({ type: 'png' });
@@ -254,7 +262,6 @@ async function renderAllPanelsInternal(symbol) {
     const page = await browser.newPage();
     await page.setViewport(VIEWPORT);
 
-    // Load widget ONCE with W as starting timeframe
     await page.setContent(buildWidgetHtml(tvSymbol, timeframes[0]), { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
     await page.waitForFunction(() => typeof TradingView !== 'undefined', { timeout: 15000 }).catch(() => {});
     await page.waitForSelector('#tv iframe', { timeout: PAGE_LOAD_TIMEOUT });
@@ -271,8 +278,7 @@ async function renderAllPanelsInternal(symbol) {
     // First capture: widget already on W, no switch needed
     shots.push(await captureCurrentState(page, frame, tvSymbol, timeframes[0], null));
 
-    // Remaining 7: setResolution + confirm + wait + capture
-    // 250ms stagger between timeframe switches (FIX 2)
+    // Remaining 7: setResolution + confirm + independent wait + capture
     for (let i = 1; i < timeframes.length; i++) {
       const tf = timeframes[i];
       await new Promise(r => setTimeout(r, 250));
