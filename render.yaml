@@ -4,7 +4,7 @@ services:
     env: node
     plan: free
     buildCommand: npm install && npx puppeteer browsers install chrome
-    startCommand: npm start
+    startCommand: node index.js
     autoDeploy: true
     disk:
       name: atlas-fx-exports
