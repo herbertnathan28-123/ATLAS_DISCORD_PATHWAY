@@ -27,7 +27,7 @@ const DEFAULT_UNIVERSE = [
   'NVDA','AMD','ASML','AAPL','MSFT','META','GOOGL','AMZN','TSLA',
 
   // Commodities
-  'XAUUSD','XAGUSD','BRENT'
+  'XAUUSD','XAGUSD'
 ];
 
 const DH_UNIVERSE = DEFAULT_UNIVERSE;

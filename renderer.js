@@ -256,7 +256,7 @@ async function renderAllPanelsInternal(symbol) {
 
     // Load widget ONCE with W as starting timeframe
     await page.setContent(buildWidgetHtml(tvSymbol, timeframes[0]), { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
-    await page.waitForFunction(() => typeof TradingView !== 'undefined', { timeout: PAGE_LOAD_TIMEOUT }).catch(() => {});
+    await page.waitForFunction(() => typeof TradingView !== 'undefined', { timeout: 15000 }).catch(() => {});
     await page.waitForSelector('#tv iframe', { timeout: PAGE_LOAD_TIMEOUT });
 
     const iframeHandle = await page.$('#tv iframe');
@@ -272,8 +272,10 @@ async function renderAllPanelsInternal(symbol) {
     shots.push(await captureCurrentState(page, frame, tvSymbol, timeframes[0], null));
 
     // Remaining 7: setResolution + confirm + wait + capture
+    // 250ms stagger between timeframe switches (FIX 2)
     for (let i = 1; i < timeframes.length; i++) {
       const tf = timeframes[i];
+      await new Promise(r => setTimeout(r, 250));
       const switched = await switchResolutionAndConfirm(page, tf);
       shots.push(await captureCurrentState(page, frame, tvSymbol, tf, switched));
     }
