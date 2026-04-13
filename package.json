@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "npx puppeteer browsers install chrome && node index.js"
+    "postinstall": "npx puppeteer browsers install chrome",
+    "build": "npm install && npx puppeteer browsers install chrome",
+    "start": "node index.js"
   },
   "dependencies": {
     "@dsnp/parquetjs": "^1.8.7",
