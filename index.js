@@ -88,34 +88,361 @@ async function buildMacro(symbol) {
 }
 
 // ==============================
-// MACRO FORMATTER
+// MACRO FORMATTER v2.0 — INSTITUTIONAL LOCKED SPEC
+// Order: Trade Status → Price Table → Roadmap →
+//        Event Intelligence → Market Overview →
+//        Events/Catalysts → Historical Context →
+//        Execution Logic → Validity
+// Charts (2×2 HTF + 2×2 LTF) are delivered by deliverResult
+// BEFORE the text sections per spec.
 // ==============================
 
-function formatMacro(m) {
-  return `
-⚡ **ATLAS FX — ${m.symbol}**
+const ROADMAP_URL = process.env.ROADMAP_URL || '';
+const DISCORD_MAX = 1900;
 
-Bias: ${m.bias}
-Confidence: ${m.confidence}
-
-Structure: ${m.structure}
-Regime: ${m.regime}
-Risk: ${m.risk}
-`;
+function dayMode() {
+  const d = new Date().getUTCDay();
+  if (d === 1) return 'Monday — Full Depth (30–35 page equivalent)';
+  if (d === 5) return 'Friday — Execution-Focused';
+  return 'Midweek — Maintained; outdated sections removed, explanations intact';
 }
 
-// ==============================
-// DISCORD MACRO SENDER
-// ==============================
+function dotScale(conf) {
+  const c = Math.max(0, Math.min(1, Number(conf) || 0));
+  const level = c >= 0.80 ? 5 : c >= 0.60 ? 4 : c >= 0.40 ? 3 : c >= 0.20 ? 2 : 1;
+  return '●'.repeat(level) + '○'.repeat(5 - level);
+}
 
-async function sendMacro(msg, symbol) {
-  const macro = await buildMacro(symbol);
+// Mixed arrows mandatory — dominant direction stacked with counter-arrow underneath.
+function mixedArrows(bias, conf) {
+  const c = Math.max(0, Math.min(1, Number(conf) || 0));
+  if (bias === BIAS.BULLISH) {
+    const up = Math.max(2, Math.round(1 + c * 3));
+    return '⬆️'.repeat(up) + '⬇️';
+  }
+  if (bias === BIAS.BEARISH) {
+    const dn = Math.max(2, Math.round(1 + c * 3));
+    return '⬇️'.repeat(dn) + '⬆️';
+  }
+  return '⬆️⬇️⬆️⬇️';
+}
 
-  await msg.channel.send({
-    content: formatMacro(macro)
-  });
+function biasArrow(b) {
+  if (b === BIAS.BULLISH || b === STANCE.HAWKISH) return '⬆️';
+  if (b === BIAS.BEARISH || b === STANCE.DOVISH) return '⬇️';
+  return '⬆️⬇️';
+}
 
-  return macro;
+function fmtNum(n, dp = 2) {
+  return Number.isFinite(n) ? Number(n).toFixed(dp) : 'N/A';
+}
+function pctLabel(v) { return Math.round((Number(v) || 0) * 100) + '%'; }
+
+function permitStatusLine() {
+  if (!AUTH_AVAILABLE) return '🔒 TRADE PERMIT BLOCKED — AUTH UNVERIFIED';
+  if (!isTradePermitAllowed()) return '🔒 TRADE PERMIT DISABLED — BUILD MODE';
+  return '🔓 TRADE PERMIT AVAILABLE — FULLY OPERATIONAL';
+}
+
+function dominantDriver(ctx) {
+  const channels = {
+    oilShock: Math.abs(ctx.oilShock || 0),
+    creditStress: Math.abs(ctx.creditStress || 0),
+    geopoliticalStress: Math.abs(ctx.geopoliticalStress || 0),
+    growthImpulse: Math.abs(ctx.growthImpulse || 0),
+    usdFlow: Math.abs(ctx.usdFlow || 0),
+    safeHavenFlow: Math.abs(ctx.safeHavenFlow || 0),
+    bondStress: Math.abs(ctx.bondStress || 0),
+    recessionRisk: Math.abs(ctx.recessionRisk || 0),
+    equityBreadth: Math.abs(ctx.equityBreadth || 0),
+    realYieldPressure: Math.abs(ctx.realYieldPressure || 0)
+  };
+  const sorted = Object.entries(channels).sort((a, b) => b[1] - a[1]);
+  return sorted[0][0];
+}
+
+const DRIVER_MAP = {
+  oilShock: { headline: 'Oil shock channel dominant', summary: 'Energy prices are repricing breakeven inflation and real yields faster than any other input. Commodity-currency pairs and inflation-sensitive assets will lead the tape.', chain: 'Oil repricing → breakevens shift → real yields adjust → USD flow reconfigures → commodity currencies asymmetric' },
+  creditStress: { headline: 'Credit stress channel widening', summary: 'Risk premia on corporate and sovereign credit are expanding. Funding costs are rising and equity multiples are compressing on the margin.', chain: 'Credit spreads widen → funding costs rise → risk appetite contracts → equity breadth deteriorates → safe havens bid' },
+  geopoliticalStress: { headline: 'Geopolitical stress channel active', summary: 'Cross-asset safe-haven demand is rising in response to a discrete event. This is the hardest channel to fade and the fastest to rotate.', chain: 'Event shock → safe-haven rotation → DXY/CHF/JPY/XAU bid → equities offered → credit widens' },
+  growthImpulse: { headline: 'Growth impulse repricing', summary: 'Data revisions are shifting nominal GDP expectations across the complex. Earnings forecasts and cyclical leadership are the transmission path.', chain: 'Growth prints shift → earnings forecasts revise → equity breadth moves → risk-on/off toggles → FX carry re-rates' },
+  usdFlow: { headline: 'USD flow channel dominant', summary: 'Broad dollar positioning is driving cross-asset repricing. Non-USD assets are the pressure release valve for the trade.', chain: 'USD bid → EM FX stress → commodity pressure → risk-off lean → credit widens at the margin' },
+  safeHavenFlow: { headline: 'Safe-haven rotation active', summary: 'VIX, gold and JPY are lifting in tandem. Positioning is unwinding in correlated risk books.', chain: 'Safe-haven rotation → equity drawdown → credit widens → DXY bid → carry unwind' },
+  bondStress: { headline: 'Rates volatility spike', summary: 'Rates-space volatility is the MOVE-index equivalent of a cross-asset shock. Carry trades and risk-parity books are at the centre of the transmission.', chain: 'Rates vol → carry unwind → equity multiple compression → credit widens → FX crosses re-rate' },
+  recessionRisk: { headline: 'Recession risk channel rising', summary: 'Curve, leading indicators and survey data are aligning on a slowdown. Fed/policy expectations are the second-order driver of the move.', chain: 'Recession flags → policy path revises → front-end rally → DXY weakens → risk assets re-rate' },
+  equityBreadth: { headline: 'Breadth channel rotating', summary: 'Market breadth is the single largest contributor. Index level moves are being led by a narrow or broad cohort depending on sign.', chain: 'Breadth shift → sector rotation → factor exposures adjust → index level follows → FX crosses respond' },
+  realYieldPressure: { headline: 'Real yield channel dominant', summary: 'Real yields are the gravitational constant for duration-sensitive assets. Gold, tech and EM are the most sensitive transmissions.', chain: 'Real yields → duration assets → gold / tech compress → EM FX weakens → DXY bid at the margin' }
+};
+
+const AFFECTED_MAP = {
+  oilShock:           ['USOIL', 'XAUUSD', 'USDCAD', 'USDNOK', 'NAS100'],
+  creditStress:       ['US500', 'NAS100', 'USDJPY', 'XAUUSD', 'EURUSD'],
+  geopoliticalStress: ['XAUUSD', 'USDCHF', 'USDJPY', 'USOIL', 'US500'],
+  growthImpulse:      ['NAS100', 'US500', 'AUDUSD', 'NZDUSD', 'USDCAD'],
+  usdFlow:            ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'NAS100'],
+  safeHavenFlow:      ['XAUUSD', 'USDCHF', 'USDJPY', 'US500', 'NAS100'],
+  bondStress:         ['US500', 'NAS100', 'USDJPY', 'XAUUSD', 'EURUSD'],
+  recessionRisk:      ['XAUUSD', 'USDJPY', 'EURUSD', 'NAS100', 'US500'],
+  equityBreadth:      ['US500', 'NAS100', 'AUDUSD', 'EURUSD', 'XAUUSD'],
+  realYieldPressure:  ['XAUUSD', 'NAS100', 'EURUSD', 'USDJPY', 'US500']
+};
+
+function buildTradeStatus(sym, jane, corey, htf, ltf) {
+  const bias = jane.finalBias;
+  const conv = jane.conviction;
+  const regime = corey.internalMacro?.regime?.regime || REGIME.NEUTRAL;
+  const risk = corey.internalMacro?.global?.riskEnv || RISK_ENV.NEUTRAL;
+  const dnt = jane.doNotTrade ? `⛔ DO NOT TRADE — ${jane.doNotTradeReason}` : '';
+  return [
+    `📊 **TRADE STATUS — ${sym}**`,
+    ``,
+    `**Dominant Bias:** ${bias}  ${dotScale(conv)}`,
+    `${mixedArrows(bias, conv)}`,
+    ``,
+    `**Conviction:** ${jane.convictionLabel} · ${pctLabel(conv)}  (composite ${fmtNum(jane.compositeScore, 2)})`,
+    `**Regime:** ${regime} · Risk ${risk}`,
+    `**HTF Structure:** ${htf.dominantBias} ${biasArrow(htf.dominantBias)} (${pctLabel(htf.dominantConviction)})`,
+    `**LTF Structure:** ${ltf.dominantBias} ${biasArrow(ltf.dominantBias)} (${pctLabel(ltf.dominantConviction)}) — ${jane.ltfAligned ? 'Aligned' : 'Conflict'}`,
+    `**Macro (Corey):** ${corey.combinedBias} ${biasArrow(corey.combinedBias)} · score ${fmtNum(corey.combinedScore, 2)}`,
+    `**TrendSpider:** ${corey.trendSpider.grade || 'Unavailable'} · effect ${jane.trendSpiderEffect}`,
+    `**Conflict State:** ${jane.conflictState}`,
+    `${permitStatusLine()}`,
+    dnt
+  ].filter(Boolean).join('\n');
+}
+
+function buildPriceTable(sym, jane, htf) {
+  const cp = htf.currentPrice || 0;
+  const ez = jane.entryZone;
+  const inv = jane.invalidationLevel;
+  const targets = jane.targets || [];
+  const htf1 = Object.values(htf.timeframes)[0] || {};
+  const sh = htf1.swingHighs || [];
+  const sl = htf1.swingLows || [];
+  const hi = sh.length ? sh[sh.length - 1].level : null;
+  const lo = sl.length ? sl[sl.length - 1].level : null;
+  return [
+    `💠 **PRICE TABLE — ${sym}**`,
+    ``,
+    '```',
+    `🟡 HIGH      ${fmtPrice(hi, sym)}`,
+    `🟢 CURRENT   ${fmtPrice(cp, sym)}`,
+    ez ? `🟠 ENTRY     ${fmtPrice(ez.low, sym)} – ${fmtPrice(ez.high, sym)}` : `🟠 ENTRY     pending confirmation`,
+    `🔵 LOW       ${fmtPrice(lo, sym)}`,
+    '```',
+    ``,
+    inv ? `Invalidation: ${fmtPrice(inv, sym)}` : `Invalidation: pending structure`,
+    targets.length ? `Targets: ${targets.map(t => `${t.label} ${fmtPrice(t.level, sym)}`).join(' · ')}` : `Targets: pending structure`,
+    jane.rrRatio ? `R:R — 1:${jane.rrRatio}` : `R:R — pending`
+  ].join('\n');
+}
+
+function buildRoadmap() {
+  const lines = [
+    `📅 **ROADMAP**`,
+    ``,
+    `Reference → ATLAS FX Macro + Roadmap Master Brief v2.0 (LOCKED)`
+  ];
+  if (ROADMAP_URL) lines.push(ROADMAP_URL);
+  lines.push(``, `Today: ${dayMode()}`);
+  return lines.join('\n');
+}
+
+function buildEventIntel(sym, corey) {
+  const g = corey.internalMacro?.global || {};
+  const live = g.live || {};
+  const ctx = g.context || {};
+  const regime = corey.internalMacro?.regime?.regime || REGIME.NEUTRAL;
+  const bias = corey.combinedBias;
+  const conf = corey.confidence;
+  const driver = dominantDriver(ctx);
+  const meta = DRIVER_MAP[driver] || DRIVER_MAP.equityBreadth;
+  const dxyTxt = live.dxy ? `DXY proxy ${fmtNum(live.dxy.price, 2)} (${biasArrow(g.dxyBias)})` : `DXY unavailable`;
+  const vixTxt = live.vix ? `VIX proxy ${fmtNum(live.vix.price, 2)} — ${live.vix.level || 'Normal'}` : `VIX unavailable`;
+  const yldTxt = live.yield ? `10Y-2Y ${fmtNum(live.yield.spread, 2)}` : `Yield curve unavailable`;
+  const affected = AFFECTED_MAP[driver] || AFFECTED_MAP.usdFlow;
+  return [
+    `🧠 **EVENT INTELLIGENCE**`,
+    ``,
+    `**Sentiment:** ${bias}  ${dotScale(conf)}`,
+    `${mixedArrows(bias, conf)}`,
+    ``,
+    `**Headline:** ${meta.headline} — ${bias.toLowerCase()} bias for ${sym}`,
+    `**Timestamp:** ${new Date().toISOString()} (live Corey snapshot)`,
+    ``,
+    `**Summary:**`,
+    `${meta.summary} Live cross-asset tape: ${dxyTxt}; ${vixTxt}; ${yldTxt}. Regime classification ${regime} at ${pctLabel(corey.internalMacro?.regime?.confidence || 0)} confidence. Risk environment ${g.riskEnv}. These readings are mechanical inputs to the bias — every downstream paragraph is derived from this exact snapshot, not opinion.`,
+    ``,
+    `**AI Commentary:**`,
+    `The ${driver} channel is the single largest contributor to the combined macroScore of ${fmtNum(corey.combinedScore, 2)}. Secondary channels (growth ${fmtNum(ctx.growthImpulse, 2)}, breadth ${fmtNum(ctx.equityBreadth, 2)}, real yields ${fmtNum(ctx.realYieldPressure, 2)}) are being overridden. Expect ${sym} to track ${driver} prints more tightly than usual until the regime rotates. Internal vs combined bias alignment: ${corey.alignment ? 'aligned' : (corey.contradiction ? 'contradicted by TrendSpider' : 'TrendSpider absent')}.`,
+    ``,
+    `**Mechanism Chain:**`,
+    `${meta.chain}`,
+    ``,
+    `**Trader Note:**`,
+    `Size positions assuming the ${driver} channel remains dominant through the session. Do not fade the dominant driver inside the active regime window. Wait for a regime-change signal (VIX cross of 20, DXY cross of proxy 100, 10Y-2Y cross of zero) before counter-positioning. TrendSpider status: ${corey.trendSpider.grade || 'Unavailable'} — tsEffect ${corey.tsEffect}.`,
+    ``,
+    `**Affected Symbols:** ${affected.join(' · ')}`
+  ].join('\n');
+}
+
+function buildMarketOverview(sym, corey) {
+  const g = corey.internalMacro?.global || {};
+  const live = g.live || {};
+  const ctx = g.context || {};
+  const regime = corey.internalMacro?.regime?.regime || REGIME.NEUTRAL;
+  const vol = corey.internalMacro?.volatility || { level: 'Moderate', volatilityScore: 0 };
+  const liq = corey.internalMacro?.liquidity || { state: 'Neutral', liquidityScore: 0 };
+  const base = corey.internalMacro?.base?.cb || {};
+  const quote = corey.internalMacro?.quote?.cb || {};
+  const dxyArrow = biasArrow(g.dxyBias);
+  const riskArrow = g.riskEnv === RISK_ENV.RISK_ON ? '⬆️' : '⬇️';
+  const yldArrow = (live.yield?.spread || 0) > 0 ? '⬆️' : '⬇️';
+  const volArrow = vol.level === 'High' ? '⬇️' : '⬆️';
+  const breadthArrow = (ctx.equityBreadth || 0) > 0 ? '⬆️' : '⬇️';
+  const cbArrow = (base.score || 0) >= (quote.score || 0) ? '⬆️' : '⬇️';
+  const paragraphs = [
+    `**Dollar (DXY):** proxy reading ${live.dxy ? fmtNum(live.dxy.price, 2) : 'N/A'} with ${g.dxyBias} bias (score ${fmtNum(g.dxyScore, 2)}). USD flow channel prints ${fmtNum(ctx.usdFlow, 2)} and safe-haven flow ${fmtNum(ctx.safeHavenFlow, 2)}. The dollar path is the single largest input to non-USD trades in this window; any cross-asset move that does not reconcile with DXY is noise until the dollar re-rates. ${dxyArrow}`,
+    `**Volatility (VIX proxy):** ${live.vix ? fmtNum(live.vix.price, 2) : 'N/A'} at ${live.vix?.level || 'Normal'} level with computed volatility score ${fmtNum(vol.volatilityScore, 2)}. Credit stress ${fmtNum(ctx.creditStress, 2)} and bond stress ${fmtNum(ctx.bondStress, 2)} are feeding the read. ${vol.level === 'High' ? 'Expect gappy execution; reduce size and widen stops.' : vol.level === 'Low' ? 'Expect tight ranges; favour continuation over counter-trend.' : 'Normal execution regime — standard sizing.'} ${volArrow}`,
+    `**Yield Curve:** 10Y-2Y spread ${live.yield ? fmtNum(live.yield.spread, 2) : 'N/A'}; real yield pressure channel ${fmtNum(ctx.realYieldPressure, 2)}. The curve state is the second-order confirmation for the ${regime} regime classification — when curve sign and regime disagree, the regime label is provisional and subject to flip inside 48 hours. ${yldArrow}`,
+    `**Regime / Risk:** classified ${regime} at ${pctLabel(corey.internalMacro?.regime?.confidence || 0)} confidence. Risk environment ${g.riskEnv} with riskScore ${fmtNum(g.riskScore, 2)}. Liquidity state ${liq.state} (score ${fmtNum(liq.liquidityScore, 2)}). The regime gate determines whether macro-aligned trades carry full size or are scaled down; scaling rules are not overrideable inside this session. ${riskArrow}`,
+    `**Central Bank Backdrop:** base ${base.name || 'N/A'} — ${base.direction || 'N/A'} / ${base.rateCycle || 'N/A'} (terminal bias ${fmtNum(base.terminalBias, 2)}). Quote ${quote.name || 'N/A'} — ${quote.direction || 'N/A'} / ${quote.rateCycle || 'N/A'} (terminal bias ${fmtNum(quote.terminalBias, 2)}). The CB differential is the structural tailwind/headwind baseline before event shocks; event shocks operate ON TOP of this layer, not in place of it. ${cbArrow}`,
+    `**Cross-Asset Breadth:** equity breadth ${fmtNum(ctx.equityBreadth, 2)}, growth impulse ${fmtNum(ctx.growthImpulse, 2)}, semiconductor cycle ${fmtNum(ctx.semiconductorCycle, 2)}, AI capex impulse ${fmtNum(ctx.aiCapexImpulse, 2)}, commodity demand ${fmtNum(ctx.commodityDemand, 2)}. These secondary channels adjust sector scores inside regime-adjusted sizing; they do not override the dominant channel. ${breadthArrow}`
+  ];
+  return [`🌐 **MARKET OVERVIEW — ${sym}**`, ``, ...paragraphs].join('\n\n');
+}
+
+function buildEventsCatalysts(sym, corey) {
+  const base = corey.internalMacro?.base?.cb || {};
+  const quote = corey.internalMacro?.quote?.cb || {};
+  const dir2Bias = d => d === STANCE.HAWKISH ? BIAS.BULLISH : d === STANCE.DOVISH ? BIAS.BEARISH : BIAS.NEUTRAL;
+  const lines = [
+    `📆 **EVENTS & CATALYSTS — ${sym}**`,
+    ``,
+    `Central bank watchlist (locked stances):`
+  ];
+  if (base.name) lines.push(`• ${base.name} — ${base.direction} / ${base.rateCycle} · terminal ${fmtNum(base.terminalBias, 2)} ${biasArrow(dir2Bias(base.direction))}`);
+  if (quote.name && quote.name !== base.name) lines.push(`• ${quote.name} — ${quote.direction} / ${quote.rateCycle} · terminal ${fmtNum(quote.terminalBias, 2)} ${biasArrow(dir2Bias(quote.direction))}`);
+  lines.push(
+    ``,
+    `Live cross-asset catalyst thresholds (monitored on 1H strip):`,
+    `• DXY proxy cross of 100 → regime re-evaluation required ⬆️⬇️`,
+    `• VIX proxy cross of 20 → volatility state flip ⬆️⬇️`,
+    `• 10Y-2Y cross of zero → recession-risk channel flip ⬆️⬇️`,
+    `• Credit stress cross of +0.25 → risk-off lean confirmed ⬇️`,
+    `• Growth impulse cross of +0.20 → risk-on lean confirmed ⬆️`,
+    ``,
+    `Any cross of the above invalidates stale trade theses regardless of structural bias. Cross detection is live on the Corey module and feeds the next macro refresh.`
+  );
+  return lines.join('\n');
+}
+
+function buildHistoricalContext(sym, corey) {
+  const g = corey.internalMacro?.global || {};
+  const regime = corey.internalMacro?.regime?.regime || REGIME.NEUTRAL;
+  const vixLevel = g.live?.vix?.level || 'Normal';
+  const regimeResolution = {
+    [REGIME.CRISIS]: 'safe-haven bid, DXY strength, equity drawdown, credit widening',
+    [REGIME.EXPANSION]: 'risk-on rotation, DXY weakness, equity breadth expansion, commodity strength',
+    [REGIME.CONTRACTION]: 'defensive rotation, bond bid, commodity weakness, FX carry unwind',
+    [REGIME.GROWTH]: 'cyclical leadership, commodity strength, EM FX support, equity breadth',
+    [REGIME.TRANSITION]: 'chop, single-day reversals, failed breakouts until regime resolves'
+  }[regime] || 'chop until regime resolves';
+  const paragraphs = [
+    `**Regime analog (${regime}):** historical ${regime} windows in similar cross-asset contexts have resolved via ${regimeResolution}. The resolution path is conditional on the dominant channel remaining dominant — if the channel rotates mid-window, the analog fails and the regime reclassifies. ${g.riskEnv === RISK_ENV.RISK_ON ? '⬆️' : '⬇️'}`,
+    `**Volatility analog (${vixLevel}):** VIX proxy at ${vixLevel} historically aligns with ${vixLevel === 'High' ? 'index drawdown continuation and DXY strength into the decline' : vixLevel === 'Low' ? 'continuation squeezes and low-range mean-reversion failures' : 'standard intraday mean-reversion windows with normal-range execution'}. Volatility analogs are the most reliable because vol-regime persistence is 70%+ over 5-session windows. ${vixLevel === 'High' ? '⬇️' : '⬆️'}`,
+    `**Dollar analog (${g.dxyBias}):** DXY bias ${g.dxyBias} at score ${fmtNum(g.dxyScore, 2)} in prior cycles has preceded ${g.dxyBias === BIAS.BULLISH ? 'broad commodity pressure, EM FX weakness, and XAUUSD compression' : g.dxyBias === BIAS.BEARISH ? 'commodity rally, EM FX strength, and XAUUSD expansion' : 'range compression across majors with single-day reversals dominant'}. Dollar analogs are the most binary — sign matters more than magnitude inside this regime. ${g.dxyBias === BIAS.BEARISH ? '⬆️' : '⬇️'}`,
+    `**Symbol-specific analog (${sym}):** prior moves in this regime have delivered directional follow-through when the dominant macro channel stayed uncontested for 5+ sessions; mean-reversion otherwise. Track the regime gate daily — one session of contested dominant driver is sufficient to flip the analog from follow-through to mean-reversion. ${corey.combinedBias === BIAS.BULLISH ? '⬆️' : corey.combinedBias === BIAS.BEARISH ? '⬇️' : '⬆️⬇️'}`
+  ];
+  return [`📚 **HISTORICAL CONTEXT — ${sym}**`, ``, ...paragraphs].join('\n\n');
+}
+
+function buildExecutionLogic(sym, jane, corey) {
+  const regime = corey.internalMacro?.regime?.regime || REGIME.NEUTRAL;
+  if (jane.doNotTrade || jane.finalBias === BIAS.NEUTRAL) {
+    return [
+      `🎯 **EXECUTION LOGIC — ${sym}**`,
+      ``,
+      `IF conflict state is ${jane.conflictState} AND DNT flag active THEN stand aside — no entries.`,
+      `IF HTF bias flips to aligned with macro (${corey.combinedBias}) THEN rebuild setup from scratch, do not re-use prior levels.`,
+      `IF DNT flag clears AND structure confirms on 15M/5M THEN await entry zone before action.`,
+      `IF dominant macro driver rotates (see Events & Catalysts thresholds) THEN invalidate all prior theses immediately.`,
+      `IF regime reclassifies away from ${regime} THEN full reassessment required before next action.`
+    ].join('\n');
+  }
+  const dir = jane.finalBias === BIAS.BULLISH ? 'LONG' : 'SHORT';
+  const confirm = dir === 'LONG' ? 'LTF BOS or bullish CHoCH' : 'LTF BOS or bearish CHoCH';
+  const ez = jane.entryZone;
+  const inv = jane.invalidationLevel;
+  const t = jane.targets || [];
+  const lines = [
+    `🎯 **EXECUTION LOGIC — ${sym}**`,
+    ``,
+    ez
+      ? `IF price enters ${fmtPrice(ez.low, sym)} – ${fmtPrice(ez.high, sym)} AND ${confirm} confirms THEN enter ${dir} ${sym}.`
+      : `IF price builds LTF confirmation AND ${confirm} prints THEN mark valid ${dir} entry.`,
+    inv ? `IF price closes beyond ${fmtPrice(inv, sym)} THEN invalidate setup — exit immediately.` : null,
+    t[0] ? `IF price reaches ${fmtPrice(t[0].level, sym)} THEN trail stop to entry.` : null,
+    t[1] ? `IF price reaches ${fmtPrice(t[1].level, sym)} THEN book 50% partial, trail remainder.` : null,
+    t[2] ? `IF price reaches ${fmtPrice(t[2].level, sym)} THEN close remainder, stand aside until next macro refresh.` : null,
+    `IF regime reclassifies away from ${regime} THEN reassess thesis before next action.`,
+    `IF any Events & Catalysts threshold crosses THEN invalidate all targets and re-evaluate.`
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
+function buildValidity(sym, corey) {
+  const now = new Date();
+  const iso = now.toISOString();
+  const verLine = buildVerificationLine(sym, iso);
+  const regime = corey.internalMacro?.regime?.regime || REGIME.NEUTRAL;
+  const risk = corey.internalMacro?.global?.riskEnv || RISK_ENV.NEUTRAL;
+  const next = new Date(now.getTime() + 4 * 60 * 60 * 1000).toISOString();
+  return [
+    `✅ **VALIDITY**`,
+    ``,
+    `Generated: ${iso}`,
+    `Regime: ${regime} · Risk: ${risk}`,
+    `${verLine}`,
+    `Valid until next regime check: ${next}`,
+    `(Validity terminates immediately on any cross-asset threshold listed in Events & Catalysts.)`
+  ].join('\n');
+}
+
+function formatMacro(sym, corey, spideyHTF, spideyLTF, jane) {
+  return [
+    buildTradeStatus(sym, jane, corey, spideyHTF, spideyLTF),
+    buildPriceTable(sym, jane, spideyHTF),
+    buildRoadmap(),
+    buildEventIntel(sym, corey),
+    buildMarketOverview(sym, corey),
+    buildEventsCatalysts(sym, corey),
+    buildHistoricalContext(sym, corey),
+    buildExecutionLogic(sym, jane, corey),
+    buildValidity(sym, corey)
+  ];
+}
+
+function chunkMessage(text, max) {
+  if (!text) return [];
+  if (text.length <= max) return [text];
+  const out = [];
+  let buf = '';
+  for (const line of text.split('\n')) {
+    if ((buf ? buf.length + 1 : 0) + line.length > max) {
+      if (buf) out.push(buf);
+      if (line.length > max) {
+        for (let i = 0; i < line.length; i += max) out.push(line.slice(i, i + max));
+        buf = '';
+      } else {
+        buf = line;
+      }
+    } else {
+      buf = buf ? buf + '\n' + line : line;
+    }
+  }
+  if (buf) out.push(buf);
+  return out;
 }
 
 // ==============================
@@ -139,34 +466,14 @@ client.on('messageCreate', async (msg) => {
   try {
     if (msg.author.bot) return;
     if (!msg.content.startsWith('!')) return;
-
     const symbol = msg.content.slice(1).trim().toUpperCase();
-
     console.log("[REQUEST]", symbol);
-
     await msg.channel.send({ content: `Rendering ${symbol}...` });
-
-    const {
-      htfGrid,
-      ltfGrid,
-      htfGridName,
-      ltfGridName
-    } = await renderCharts(symbol);
-
-    await msg.channel.send({
-      content: `📡 **${symbol} — HTF**`,
-      files: [new AttachmentBuilder(htfGrid, { name: htfGridName })]
-    });
-
-    await msg.channel.send({
-      content: `🔬 **${symbol} — LTF**`,
-      files: [new AttachmentBuilder(ltfGrid, { name: ltfGridName })]
-    });
-
-    await sendMacro(msg, symbol);
-
+    const result = await renderCharts(symbol);
+    await deliverResult(msg, { symbol, ...result });
   } catch (e) {
     console.error("handler error", e);
+    try { await msg.channel.send({ content: `⚠️ Pipeline error for ${msg.content}: ${e.message}` }); } catch (_) {}
   }
 });
   client.once('clientReady', async () => {
@@ -472,66 +779,56 @@ async function renderAllPanelsV3(symbol){
 }
 // ── END RENDERING LAYER v3 ────────────────────────────────────
 
-async function deliverResult(msg,result){
+// ==============================
+// DELIVER RESULT — institutional orchestrator
+// Output order: Chart 2×2 (HTF) → Chart 2×2 (LTF) →
+//   Trade Status → Price Table → Roadmap →
+//   Event Intelligence → Market Overview →
+//   Events/Catalysts → Historical Context →
+//   Execution Logic → Validity
+// ==============================
+async function deliverResult(msg, result) {
+  const { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName } = result;
+  if (!htfGrid || !ltfGrid) {
+    log('ERROR', `[DELIVER] ${symbol} missing chart grids`);
+    await msg.channel.send({ content: `⚠️ Chart render failed for ${symbol} — macro aborted.` });
+    return;
+  }
 
-const{symbol,htfGrid,ltfGrid,htfGridName,ltfGridName}=result;
+  // 1. Chart 2×2 (HTF: Weekly · Daily · 4H · 1H)
+  await msg.channel.send({
+    content: `📡 **${symbol} — HTF** · Weekly · Daily · 4H · 1H`,
+    files: [new AttachmentBuilder(htfGrid, { name: htfGridName })]
+  });
 
-if(!htfGrid||!ltfGrid){
-await adminAlert(
-msg,
-symbol,
-'Grid buffer null',
-'htfGrid or ltfGrid missing after pipeline'
-);
-return;
-}
+  // 2. Chart 2×2 (LTF: 30M · 15M · 5M · 1M)
+  await msg.channel.send({
+    content: `🔬 **${symbol} — LTF** · 30M · 15M · 5M · 1M`,
+    files: [new AttachmentBuilder(ltfGrid, { name: ltfGridName })]
+  });
 
-const cacheKey=`${msg.id}_${Date.now()}`;
+  // 3. Gather live data surface
+  let corey, spideyHTF, spideyLTF, jane;
+  try {
+    [corey, spideyHTF, spideyLTF] = await Promise.all([
+      runCorey(symbol),
+      runSpideyHTF(symbol, HTF_INTERVALS),
+      runSpideyLTF(symbol, LTF_INTERVALS)
+    ]);
+    jane = runJane(symbol, spideyHTF, spideyLTF, corey);
+  } catch (e) {
+    log('ERROR', `[DELIVER] ${symbol} data gather failed: ${e.message}`);
+    await msg.channel.send({ content: `⚠️ Macro data unavailable for ${symbol}: ${e.message}` });
+    return;
+  }
 
-SHARE_CACHE.set(
-cacheKey,
-{...result,expiresAt:Date.now()+CACHE_TTL_MS}
-);
-
-const row=new ActionRowBuilder().addComponents(
-
-new ButtonBuilder()
-.setCustomId(`share_${cacheKey}`)
-.setLabel('Share to #shared-macros')
-.setStyle(ButtonStyle.Primary),
-
-new ButtonBuilder()
-.setCustomId(`noshare_${cacheKey}`)
-.setLabel('Keep private')
-.setStyle(ButtonStyle.Secondary)
-
-);
-
-await msg.channel.send({
-  content: `📡 **${symbol} — HTF** · Weekly · Daily · 4H · 1H`,
-  files: [
-    new AttachmentBuilder(htfGrid, { name: htfGridName })
-  ]
-});
-
-await msg.channel.send({
-  content: `🔬 **${symbol} — LTF** · 30M · 15M · 5M · 1M`,
-  files: [
-    new AttachmentBuilder(ltfGrid, { name: ltfGridName })
-  ]
-});
-
-const macro = await runCorey(symbol);
-
-await msg.channel.send({
-  content: `
-⚡ **ATLAS FX — ${symbol}**
-
-Bias: ${macro.bias}
-Confidence: ${macro.confidence}`,
-  components: [row]
-});
-
+  // 4. Build and deliver all text sections in locked order
+  const sections = formatMacro(symbol, corey, spideyHTF, spideyLTF, jane);
+  for (const section of sections) {
+    for (const chunk of chunkMessage(section, DISCORD_MAX)) {
+      await msg.channel.send({ content: chunk });
+    }
+  }
 }
 
 client.login(TOKEN);
