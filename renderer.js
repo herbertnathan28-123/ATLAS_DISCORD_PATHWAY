@@ -1,23 +1,18 @@
 'use strict';
 // ============================================================
-// ATLAS FX RENDERER — Persistent Widget + Confirmed setResolution
-// Root issue: fresh widgets per timeframe ignored the interval
-// config (tv.js falls back to cached user preference). Persistent
-// widget with setResolution + resolution-change confirmation is
-// the correct path.
+// ATLAS FX RENDERER — Fresh widget per timeframe
+// TradingView widget interval is set at init only. setResolution
+// does not reliably change the embedded chart. Correct architecture:
+// destroy and recreate widget per timeframe in sequence.
 //
-// Flow:
-//   open widget on W
-//   wait data + paint
-//   capture W
-//   setResolution D -> poll chart.resolution() === D -> wait data + paint -> capture
-//   setResolution 240 -> ... -> capture
-//   ... etc for all 8
+// Flow (per timeframe W,D,240,60,30,15,5,1):
+//   clear container -> create widget with interval at init
+//   wait for iframe -> wait data -> wait paint -> capture
 //
-// IMPORTANT: each pane's wait budget is INDEPENDENT. DATA_WAIT_TIMEOUT
-// and PAINT_WAIT_TIMEOUT apply per-capture. There is no global budget
+// Each pane's wait budget is INDEPENDENT. DATA_WAIT_TIMEOUT and
+// PAINT_WAIT_TIMEOUT apply per-capture. There is no global budget
 // spanning all 8 captures — if pane W takes 40s, pane D still gets
-// a full DATA_WAIT_TIMEOUT afresh for its own wait. This is by design.
+// a full timeout afresh for its own wait. This is by design.
 // ============================================================
 const puppeteer = require('puppeteer');
 const sharp = require('sharp');
@@ -26,11 +21,12 @@ const CELL_W = 960;
 const CELL_H = 540;
 const VIEWPORT = { width: CELL_W, height: CELL_H };
 const PAGE_LOAD_TIMEOUT = 30000;
-const DATA_WAIT_TIMEOUT = 45000;           // was 20000 — TV can be slow on Render
-const PAINT_WAIT_TIMEOUT = 45000;          // was 15000 — match data budget
-const RESOLUTION_CHANGE_TIMEOUT = 15000;   // was 10000 — allow slower switches
-const POLL_INTERVAL_MS = 500;              // was 200 — 500ms polling per work order
+const DATA_WAIT_TIMEOUT = 45000;
+const PAINT_WAIT_TIMEOUT = 45000;
+const IFRAME_TIMEOUT = 20000;
+const POLL_INTERVAL_MS = 500;
 const SETTLE_MS = 500;
+const BETWEEN_TF_MS = 250;
 const UP_COLOR = '#00ff00';
 const DOWN_COLOR = '#ff0015';
 const BG_COLOR = '#131722';
@@ -61,37 +57,65 @@ function toTVSymbol(s) {
   return 'NASDAQ:' + up;
 }
 
-function buildWidgetHtml(symbol, initialInterval) {
-  return `<html><head><meta charset="utf-8"><style>*{margin:0;padding:0}html,body{width:${CELL_W}px;height:${CELL_H}px;overflow:hidden;background:${BG_COLOR}}#tv{width:${CELL_W}px;height:${CELL_H}px}</style></head><body><div id="tv"></div><script src="https://s3.tradingview.com/tv.js"></script><script>
-window.__tvWidget = new TradingView.widget({
-  container_id:"tv",autosize:false,width:${CELL_W},height:${CELL_H},
-  symbol:"${symbol}",interval:"${initialInterval}",
-  timezone:"exchange",theme:"dark",style:"1",locale:"en",
-  toolbar_bg:"${BG_COLOR}",enable_publishing:false,
-  hide_side_toolbar:true,hide_top_toolbar:true,hide_legend:false,
-  save_image:false,allow_symbol_change:false,hotlist:false,
-  calendar:false,show_popup_button:false,withdateranges:false,details:false,
-  bar_spacing:8,studies:[],
-  overrides:{
-    "paneProperties.background":"${BG_COLOR}",
-    "paneProperties.backgroundType":"solid",
-    "mainSeriesProperties.candleStyle.upColor":"${UP_COLOR}",
-    "mainSeriesProperties.candleStyle.downColor":"${DOWN_COLOR}",
-    "mainSeriesProperties.candleStyle.borderUpColor":"${UP_COLOR}",
-    "mainSeriesProperties.candleStyle.borderDownColor":"${DOWN_COLOR}",
-    "mainSeriesProperties.candleStyle.wickUpColor":"${UP_COLOR}",
-    "mainSeriesProperties.candleStyle.wickDownColor":"${DOWN_COLOR}",
-    "mainSeriesProperties.candleStyle.drawBorder":true,
-    "mainSeriesProperties.candleStyle.drawWick":true,
-    "scalesProperties.backgroundColor":"${BG_COLOR}",
-    "scalesProperties.textColor":"#AAA",
-    "scalesProperties.fontSize":14
-  }
-});
-</script></body></html>`;
+function buildShellHtml() {
+  return `<html><head><meta charset="utf-8"><style>*{margin:0;padding:0}html,body{width:${CELL_W}px;height:${CELL_H}px;overflow:hidden;background:${BG_COLOR}}#tv{width:${CELL_W}px;height:${CELL_H}px}</style></head><body><div id="tv"></div><script src="https://s3.tradingview.com/tv.js"></script></body></html>`;
 }
 
-// Polls iframe body text every POLL_INTERVAL_MS for non-zero OHLC.
+async function createWidget(page, symbol, interval) {
+  await page.evaluate((sym, intv, cellW, cellH, bg, up, dn) => {
+    try {
+      if (window.__tvWidget && typeof window.__tvWidget.remove === 'function') {
+        window.__tvWidget.remove();
+      }
+    } catch (_) {}
+    window.__tvWidget = null;
+    const host = document.getElementById('tv');
+    if (host) host.innerHTML = '';
+
+    window.__tvWidget = new TradingView.widget({
+      container_id: 'tv',
+      autosize: false,
+      width: cellW,
+      height: cellH,
+      symbol: sym,
+      interval: intv,
+      timezone: 'exchange',
+      theme: 'dark',
+      style: '1',
+      locale: 'en',
+      toolbar_bg: bg,
+      enable_publishing: false,
+      hide_side_toolbar: true,
+      hide_top_toolbar: true,
+      hide_legend: false,
+      save_image: false,
+      allow_symbol_change: false,
+      hotlist: false,
+      calendar: false,
+      show_popup_button: false,
+      withdateranges: false,
+      details: false,
+      bar_spacing: 8,
+      studies: [],
+      overrides: {
+        'paneProperties.background': bg,
+        'paneProperties.backgroundType': 'solid',
+        'mainSeriesProperties.candleStyle.upColor': up,
+        'mainSeriesProperties.candleStyle.downColor': dn,
+        'mainSeriesProperties.candleStyle.borderUpColor': up,
+        'mainSeriesProperties.candleStyle.borderDownColor': dn,
+        'mainSeriesProperties.candleStyle.wickUpColor': up,
+        'mainSeriesProperties.candleStyle.wickDownColor': dn,
+        'mainSeriesProperties.candleStyle.drawBorder': true,
+        'mainSeriesProperties.candleStyle.drawWick': true,
+        'scalesProperties.backgroundColor': bg,
+        'scalesProperties.textColor': '#AAA',
+        'scalesProperties.fontSize': 14
+      }
+    });
+  }, symbol, interval, CELL_W, CELL_H, BG_COLOR, UP_COLOR, DOWN_COLOR);
+}
+
 // Independent timeout per caller — not shared across captures.
 async function waitForDataPresent(frame, maxMs) {
   return frame.waitForFunction(() => {
@@ -102,10 +126,8 @@ async function waitForDataPresent(frame, maxMs) {
   }, { timeout: maxMs, polling: POLL_INTERVAL_MS }).then(() => true).catch(() => false);
 }
 
-// Polls canvas pixels every POLL_INTERVAL_MS until candle-colored pixels
-// are detected on the largest canvas. This is the "actual pixel data on
-// the canvas before capturing" gate per the work order — not a fixed wait.
-// Independent timeout per caller.
+// Polls canvas pixels until candle-colored pixels are detected on the
+// largest canvas. Actual pixel data on canvas before capture.
 async function waitForCanvasDrawn(frame, maxMs) {
   return frame.waitForFunction(() => {
     let canvases = document.querySelectorAll('.tv-lightweight-charts canvas');
@@ -137,59 +159,18 @@ async function waitForCanvasDrawn(frame, maxMs) {
   }, { timeout: maxMs, polling: POLL_INTERVAL_MS }).then(() => true).catch(() => false);
 }
 
-async function getCurrentResolution(page) {
-  return page.evaluate(() => {
-    try {
-      const chart = window.__tvWidget && window.__tvWidget.chart && window.__tvWidget.chart();
-      if (!chart) return null;
-      return (typeof chart.resolution === 'function') ? chart.resolution() : null;
-    } catch (e) { return null; }
-  });
-}
-
-async function switchResolutionAndConfirm(page, tf) {
-  await page.evaluate((newTf) => {
-    return new Promise((resolve) => {
-      if (!window.__tvWidget) { resolve(); return; }
-      try {
-        const chart = window.__tvWidget.chart();
-        chart.setResolution(newTf, () => resolve());
-        setTimeout(resolve, 10000);
-      } catch (e) {
-        resolve();
-      }
-    });
-  }, tf);
-
-  const confirmed = await page.waitForFunction(
-    (expected) => {
-      try {
-        const chart = window.__tvWidget && window.__tvWidget.chart && window.__tvWidget.chart();
-        if (!chart || typeof chart.resolution !== 'function') return false;
-        return chart.resolution() === expected;
-      } catch (e) { return false; }
-    },
-    { timeout: RESOLUTION_CHANGE_TIMEOUT, polling: POLL_INTERVAL_MS },
-    tf
-  ).then(() => true).catch(() => false);
-
-  return confirmed;
-}
-
-async function captureCurrentState(page, frame, symbol, tf, switched) {
+async function captureTimeframe(page, symbol, tf) {
   const t0 = Date.now();
-  const diag = {
-    canvasFound: false,
-    dataPresent: false,
-    painted: false,
-    switched: switched,
-    reportedRes: null,
-    timeoutReason: null,
-    bytes: 0,
-    elapsedMs: 0,
-  };
+  const diag = { canvasFound: false, dataPresent: false, painted: false, bytes: 0, elapsedMs: 0, timeoutReason: null };
 
-  // Each pane waits independently up to DATA_WAIT_TIMEOUT for canvas element.
+  await createWidget(page, symbol, tf);
+
+  await page.waitForSelector('#tv iframe', { timeout: IFRAME_TIMEOUT });
+  const iframeHandle = await page.$('#tv iframe');
+  if (!iframeHandle) throw new Error('TradingView iframe not found for ' + tf);
+  const frame = await iframeHandle.contentFrame();
+  if (!frame) throw new Error('Could not attach to iframe contentFrame for ' + tf);
+
   try {
     await frame.waitForSelector('canvas', { timeout: DATA_WAIT_TIMEOUT });
     diag.canvasFound = true;
@@ -197,28 +178,21 @@ async function captureCurrentState(page, frame, symbol, tf, switched) {
     diag.timeoutReason = 'canvas';
   }
 
-  // Independent DATA_WAIT_TIMEOUT for data text polling.
   diag.dataPresent = await waitForDataPresent(frame, DATA_WAIT_TIMEOUT);
   if (!diag.dataPresent) diag.timeoutReason = diag.timeoutReason || 'data';
 
-  // Independent PAINT_WAIT_TIMEOUT for candle-pixel polling.
   diag.painted = await waitForCanvasDrawn(frame, PAINT_WAIT_TIMEOUT);
   if (!diag.painted) diag.timeoutReason = diag.timeoutReason || 'paint';
 
   await new Promise(r => setTimeout(r, SETTLE_MS));
-
-  diag.reportedRes = await getCurrentResolution(page);
 
   const shot = await page.screenshot({ type: 'png' });
   diag.bytes = shot.length;
   diag.elapsedMs = Date.now() - t0;
 
   const ok = diag.canvasFound && diag.dataPresent && diag.painted;
-  const resMatch = diag.reportedRes === tf ? 'yes' : 'MISMATCH(' + diag.reportedRes + ')';
   console.log(
     '  [CAPTURE] ' + symbol + ' @ ' + tf +
-    ' switched:' + (switched === null ? 'n/a' : (switched ? 'yes' : 'no')) +
-    ' res:' + resMatch +
     ' canvas:' + (diag.canvasFound ? 'yes' : 'no') +
     ' data:'   + (diag.dataPresent ? 'yes' : 'no') +
     ' painted:'+ (diag.painted ? 'yes' : 'no') +
@@ -262,28 +236,15 @@ async function renderAllPanelsInternal(symbol) {
     const page = await browser.newPage();
     await page.setViewport(VIEWPORT);
 
-    await page.setContent(buildWidgetHtml(tvSymbol, timeframes[0]), { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
-    await page.waitForFunction(() => typeof TradingView !== 'undefined', { timeout: 15000 }).catch(() => {});
-    await page.waitForSelector('#tv iframe', { timeout: PAGE_LOAD_TIMEOUT });
+    await page.setContent(buildShellHtml(), { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
+    await page.waitForFunction(() => typeof TradingView !== 'undefined', { timeout: 15000 });
 
-    const iframeHandle = await page.$('#tv iframe');
-    if (!iframeHandle) throw new Error('TradingView iframe not found after widget load');
-    const frame = await iframeHandle.contentFrame();
-    if (!frame) throw new Error('Could not attach to TradingView iframe contentFrame');
-
-    console.log('[RENDERER] Widget loaded — starting sequential captures');
+    console.log('[RENDERER] Shell loaded — starting sequential per-timeframe captures');
 
     const shots = [];
-
-    // First capture: widget already on W, no switch needed
-    shots.push(await captureCurrentState(page, frame, tvSymbol, timeframes[0], null));
-
-    // Remaining 7: setResolution + confirm + independent wait + capture
-    for (let i = 1; i < timeframes.length; i++) {
-      const tf = timeframes[i];
-      await new Promise(r => setTimeout(r, 250));
-      const switched = await switchResolutionAndConfirm(page, tf);
-      shots.push(await captureCurrentState(page, frame, tvSymbol, tf, switched));
+    for (let i = 0; i < timeframes.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, BETWEEN_TF_MS));
+      shots.push(await captureTimeframe(page, tvSymbol, timeframes[i]));
     }
 
     const htfShots = shots.slice(0, 4);
