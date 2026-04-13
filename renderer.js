@@ -8,7 +8,6 @@
 //      matching, fallback to settle timer if paint check stalls
 //   4. Sequential capture with independent timeouts per frame
 // ============================================================
-‘use strict’;
 const puppeteer = require(‘puppeteer’);
 const sharp     = require(‘sharp’);
 
