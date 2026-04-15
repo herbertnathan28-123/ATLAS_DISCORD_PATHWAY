@@ -11,7 +11,7 @@ process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
 
 const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,AttachmentBuilder}=require('discord.js');
 
-const { renderAllPanels } = require('./tvRenderer');
+const { renderAllPanels } = require('./renderer');
 const sharp=require('sharp');
 const crypto=require('crypto');
 const fs=require('fs');
@@ -469,7 +469,7 @@ client.on('messageCreate', async (msg) => {
     const symbol = msg.content.slice(1).trim().toUpperCase();
     console.log("[REQUEST]", symbol);
     await msg.channel.send({ content: `Rendering ${symbol}...` });
-    const result = await renderCharts(symbol);
+    const result = await renderAllPanels(symbol);
     await deliverResult(msg, { symbol, ...result });
   } catch (e) {
     console.error("handler error", e);
@@ -774,7 +774,7 @@ async function buildGrid(panels,tfKeys){
 
 async function renderAllPanelsV3(symbol){
   log("INFO", "[CHART] " + symbol + " — rendering via Puppeteer/TradingView widget");
-  const result = await renderCharts(symbol);
+  const result = await renderAllPanels(symbol);
   return { ...result, htfFail: 0, ltfFail: 0, partial: false };
 }
 // ── END RENDERING LAYER v3 ────────────────────────────────────
@@ -830,12 +830,4 @@ async function deliverResult(msg, result) {
     }
   }
 }
-(async () => {
-  try {
-    await renderAllPanels('EURUSD');
-    console.log('[RENDER TEST] SUCCESS');
-  } catch (e) {
-    console.error('[RENDER TEST] FAIL', e);
-  }
-})();
 client.login(TOKEN);
