@@ -23,6 +23,22 @@ const sharp = require('sharp');
 const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 
 // -----------------------------------------------------------------
+// Chart.js registration — MUST happen before chartjs-chart-financial
+// is required, so its UMD can find Chart + its controllers/elements
+// can attach to Chart's registry. Chart.js 3.x + financial 0.1.x +
+// chartjs-node-canvas 4.1.x + Node 20 is the pinned stack.
+// -----------------------------------------------------------------
+const { Chart, registerables } = require('chart.js');
+Chart.register(...registerables);
+const {
+  CandlestickController,
+  CandlestickElement,
+  OhlcController,
+  OhlcElement
+} = require('chartjs-chart-financial');
+Chart.register(CandlestickController, CandlestickElement, OhlcController, OhlcElement);
+
+// -----------------------------------------------------------------
 // TwelveData fetch — copied verbatim from build spec. Do not import.
 // -----------------------------------------------------------------
 const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY || '';
@@ -79,19 +95,15 @@ const UNIT_MS = {
 
 // -----------------------------------------------------------------
 // Chart.js canvas renderer — single instance, reused.
-// Registers candlestick chart + an inline date adapter so we don't
-// need chartjs-adapter-* as a dependency.
+// Candlestick controller/elements are already registered at module
+// top. chartCallback only installs an inline date adapter so we
+// don't need chartjs-adapter-* as a dependency.
 // -----------------------------------------------------------------
 const canvasRenderer = new ChartJSNodeCanvas({
   width: CELL_W,
   height: CELL_H,
   backgroundColour: BG_COLOR,
   chartCallback: (ChartJS) => {
-    // Side-effect import: the UMD build auto-registers
-    // CandlestickController / CandlestickElement / Ohlc* on chart.js's
-    // shared Chart registry, which is the same Chart that chartjs-node-canvas
-    // uses — so the candlestick type becomes available here.
-    require('chartjs-chart-financial');
     ChartJS._adapters._date.override({
       _id: 'atlas-date',
       formats: () => ({
