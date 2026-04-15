@@ -1,8 +1,8 @@
 'use strict';
 // ============================================================
-// ATLAS FX RENDERER — chartjs-node-canvas + chartjs-chart-financial
-// Replaces Puppeteer + TradingView embed pipeline.
-// Target: < 10s total for 8 panels delivered as 2 2x2 PNG grids.
+// ATLAS FX RENDERER — native canvas (no Chart.js, no Puppeteer)
+// Draws candlesticks directly via the Canvas 2D API.
+// Only external rendering dep: `canvas` (node-canvas).
 //
 // Interface (unchanged):
 //   module.exports = { renderAllPanels }
@@ -13,38 +13,27 @@
 //     ltfGridName: string
 //   }>
 //
-// HTF panels: 1W / 1D / 4H / 1H   (2x2 grid)
-// LTF panels: 30M / 15M / 5M / 1M (2x2 grid)
-// Each panel: 1920 x 1080.  Full grid: 3840 x 2160.
+// Layout:
+//   HTF panels: 1W / 1D / 4H / 1H   (2x2)
+//   LTF panels: 30M / 15M / 5M / 1M (2x2)
+//   Each panel: 1920 x 1080.  Full grid: 3840 x 2160.
+//
+// Visual (locked):
+//   background   #131722
+//   bull candle  #07f911
+//   bear candle  #ff0015
+//   grid         rgba(255,255,255,0.04)
+//   axis labels  #9aa4ad
+//   tf label     #666b6a  15px
+//   price boxes  HIGH #FFD600/#000  CURRENT #00FF5A/#000
+//                ENTRY #FF9100/#000  LOW     #00B0FF/#FFF
 // ============================================================
 
 const https = require('https');
-const sharp = require('sharp');
-const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
+const { createCanvas } = require('canvas');
 
 // -----------------------------------------------------------------
-// Chart.js registration — defensive CJS resolve.
-// chart.js@3.9.1's CJS main (`dist/chart.js`) exports the Chart class
-// AS module.exports (a function) and does NOT expose `registerables` —
-// instead it auto-registers all built-in controllers/scales/elements.
-// chartjs-chart-financial@0.1.1 exports nothing via CJS; it
-// auto-registers candlestick + ohlc by side-effect on require.
-// Resolve both paths safely: use named exports if present, otherwise
-// rely on the auto-registration side-effects already in effect.
-// -----------------------------------------------------------------
-const ChartJS = require('chart.js');
-const Chart = ChartJS.Chart || ChartJS.default || ChartJS;
-const registerables = ChartJS.registerables || Chart.registerables;
-if (registerables) Chart.register(...registerables);
-const financial = require('chartjs-chart-financial');
-const CandlestickController = financial.CandlestickController;
-const CandlestickElement = financial.CandlestickElement;
-const OhlcController = financial.OhlcController;
-const OhlcElement = financial.OhlcElement;
-if (CandlestickController) Chart.register(CandlestickController, CandlestickElement, OhlcController, OhlcElement);
-
-// -----------------------------------------------------------------
-// TwelveData fetch — copied verbatim from build spec. Do not import.
+// TwelveData fetch — copied verbatim from build spec.
 // -----------------------------------------------------------------
 const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY || '';
 const TD_SYMBOL_MAP = { XAUUSD:'XAU/USD',XAGUSD:'XAG/USD',NAS100:'NDX',US500:'SPX',US30:'DIA',DJI:'DIA',GER40:'DAX',UK100:'UKX',EURUSD:'EUR/USD',GBPUSD:'GBP/USD',USDJPY:'USD/JPY',AUDUSD:'AUD/USD',NZDUSD:'NZD/USD',USDCAD:'USD/CAD',USDCHF:'USD/CHF',MICRON:'MU',AMD:'AMD',NVDA:'NVDA',ASML:'ASML' };
@@ -63,7 +52,7 @@ function fetchOHLC(symbol, resolution, count=150) {
 }
 
 // -----------------------------------------------------------------
-// Visual spec — locked colours / geometry.
+// Visual spec — locked.
 // -----------------------------------------------------------------
 const CELL_W      = 1920;
 const CELL_H      = 1080;
@@ -74,10 +63,15 @@ const GRID_COLOR  = 'rgba(255,255,255,0.04)';
 const AXIS_COLOR  = '#9aa4ad';
 const LABEL_COLOR = '#666b6a';
 
-const BOX_W  = 120;
-const BOX_H  = 36;
-const BOX_RIGHT_PAD = 10;
-const BOX_GAP       = 4;
+const CHART_PAD_TOP    = 48;
+const CHART_PAD_BOTTOM = 28;
+const CHART_PAD_LEFT   = 16;
+const CHART_PAD_RIGHT  = 160;  // axis labels + price boxes live here
+
+const BOX_W     = 120;
+const BOX_H     = 36;
+const BOX_GAP   = 4;
+const BOX_EDGE  = 10;
 
 const PALETTE = {
   HIGH:    { bg: '#FFD600', fg: '#000000' },
@@ -86,218 +80,6 @@ const PALETTE = {
   LOW:     { bg: '#00B0FF', fg: '#FFFFFF' }
 };
 
-const UNIT_MS = {
-  millisecond: 1,
-  second:      1000,
-  minute:      60 * 1000,
-  hour:        60 * 60 * 1000,
-  day:         24 * 60 * 60 * 1000,
-  week:        7 * 24 * 60 * 60 * 1000,
-  month:       30 * 24 * 60 * 60 * 1000,
-  quarter:     91 * 24 * 60 * 60 * 1000,
-  year:        365 * 24 * 60 * 60 * 1000
-};
-
-// -----------------------------------------------------------------
-// Chart.js canvas renderer — single instance, reused.
-// Candlestick controller/elements are already registered at module
-// top. chartCallback only installs an inline date adapter so we
-// don't need chartjs-adapter-* as a dependency.
-// -----------------------------------------------------------------
-const canvasRenderer = new ChartJSNodeCanvas({
-  width: CELL_W,
-  height: CELL_H,
-  backgroundColour: BG_COLOR,
-  chartCallback: (ChartJS) => {
-    ChartJS._adapters._date.override({
-      _id: 'atlas-date',
-      formats: () => ({
-        datetime:    'yyyy-MM-dd HH:mm',
-        millisecond: 'HH:mm:ss.SSS',
-        second:      'HH:mm:ss',
-        minute:      'HH:mm',
-        hour:        'HH:mm',
-        day:         'MMM d',
-        week:        'MMM d',
-        month:       'MMM yyyy',
-        quarter:     'qqq yyyy',
-        year:        'yyyy'
-      }),
-      parse:  (v) => typeof v === 'number' ? v : new Date(v).getTime(),
-      format: (v) => new Date(v).toISOString(),
-      add:    (v, amount, unit) => v + amount * (UNIT_MS[unit] || 0),
-      diff:   (a, b, unit)      => (a - b) / (UNIT_MS[unit] || 1),
-      startOf: (v) => v,
-      endOf:   (v) => v
-    });
-  }
-});
-
-// -----------------------------------------------------------------
-// Helpers.
-// -----------------------------------------------------------------
-function escapeXml(s) {
-  return String(s).replace(/[<>&"']/g, c => ({
-    '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;','\'':'&apos;'
-  }[c]));
-}
-
-function fmtPrice(v) {
-  if (v == null || !isFinite(v)) return '—';
-  const a = Math.abs(v);
-  if (a >= 1000) return v.toFixed(2);
-  if (a >= 100)  return v.toFixed(3);
-  if (a >= 10)   return v.toFixed(4);
-  return v.toFixed(5);
-}
-
-// -----------------------------------------------------------------
-// Single panel: fetch data, render chart, composite label + boxes.
-// -----------------------------------------------------------------
-async function renderPanel(symbol, resolution, label) {
-  const candles = await fetchOHLC(symbol, resolution, 150);
-  if (!candles.length) return renderEmptyPanel(label);
-
-  const data = candles.map(c => ({
-    x: c.time * 1000,
-    o: c.open,
-    h: c.high,
-    l: c.low,
-    c: c.close
-  }));
-
-  const config = {
-    type: 'candlestick',
-    data: {
-      datasets: [{
-        data,
-        borderColor: {
-          up:        BULL_COLOR,
-          down:      BEAR_COLOR,
-          unchanged: BULL_COLOR
-        },
-        color: {
-          up:        BULL_COLOR,
-          down:      BEAR_COLOR,
-          unchanged: BULL_COLOR
-        }
-      }]
-    },
-    options: {
-      responsive: false,
-      animation: false,
-      parsing: false,
-      plugins: {
-        legend:  { display: false },
-        title:   { display: false },
-        tooltip: { enabled: false }
-      },
-      layout: {
-        padding: { top: 48, bottom: 8, left: 16, right: BOX_W + BOX_RIGHT_PAD + 8 }
-      },
-      scales: {
-        x: {
-          type: 'timeseries',
-          offset: true,
-          grid:   { color: GRID_COLOR, tickColor: GRID_COLOR, drawBorder: false },
-          border: { color: GRID_COLOR },
-          ticks:  { color: AXIS_COLOR, maxRotation: 0, font: { size: 14 } }
-        },
-        y: {
-          position: 'right',
-          grid:   { color: GRID_COLOR, tickColor: GRID_COLOR, drawBorder: false },
-          border: { color: GRID_COLOR },
-          ticks:  { color: AXIS_COLOR, font: { size: 14 } }
-        }
-      }
-    }
-  };
-
-  const chartBuf = await canvasRenderer.renderToBuffer(config, 'image/png');
-
-  const highs = candles.map(c => c.high);
-  const lows  = candles.map(c => c.low);
-  const last  = candles[candles.length - 1];
-  return overlayChrome(chartBuf, label, {
-    high:    Math.max(...highs),
-    low:     Math.min(...lows),
-    current: last.close,
-    entry:   last.open
-  });
-}
-
-// -----------------------------------------------------------------
-// Sharp SVG composite: top-left timeframe label + right-edge price
-// boxes (HIGH / CURRENT / ENTRY / LOW), each 120 x 36.
-// -----------------------------------------------------------------
-async function overlayChrome(chartBuf, label, prices) {
-  const boxX       = CELL_W - BOX_W - BOX_RIGHT_PAD;
-  const totalBoxH  = BOX_H * 4 + BOX_GAP * 3;
-  const boxStartY  = Math.floor((CELL_H - totalBoxH) / 2);
-
-  const rows = [
-    { key: 'HIGH',    val: fmtPrice(prices.high) },
-    { key: 'CURRENT', val: fmtPrice(prices.current) },
-    { key: 'ENTRY',   val: fmtPrice(prices.entry) },
-    { key: 'LOW',     val: fmtPrice(prices.low) }
-  ];
-
-  const boxMarkup = rows.map((r, i) => {
-    const y  = boxStartY + i * (BOX_H + BOX_GAP);
-    const pal = PALETTE[r.key];
-    return `
-      <rect x="${boxX}" y="${y}" width="${BOX_W}" height="${BOX_H}" fill="${pal.bg}"/>
-      <text x="${boxX + 8}"  y="${y + 13}" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" fill="${pal.fg}">${r.key}</text>
-      <text x="${boxX + BOX_W - 8}" y="${y + 29}" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="${pal.fg}" text-anchor="end">${escapeXml(r.val)}</text>
-    `;
-  }).join('');
-
-  const overlaySvg = Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${CELL_W}" height="${CELL_H}">
-      <text x="20" y="30" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="${LABEL_COLOR}">${escapeXml(label)}</text>
-      ${boxMarkup}
-    </svg>`
-  );
-
-  return sharp(chartBuf)
-    .composite([{ input: overlaySvg, left: 0, top: 0 }])
-    .png()
-    .toBuffer();
-}
-
-// -----------------------------------------------------------------
-// Blank fallback when TwelveData returns nothing.
-// -----------------------------------------------------------------
-async function renderEmptyPanel(label) {
-  const svg = Buffer.from(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${CELL_W}" height="${CELL_H}">
-      <rect width="${CELL_W}" height="${CELL_H}" fill="${BG_COLOR}"/>
-      <text x="20" y="30" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="${LABEL_COLOR}">${escapeXml(label)}</text>
-      <text x="${CELL_W / 2}" y="${CELL_H / 2}" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="${AXIS_COLOR}" text-anchor="middle">NO DATA</text>
-    </svg>`
-  );
-  return sharp(svg).png().toBuffer();
-}
-
-// -----------------------------------------------------------------
-// Compose 4 panels into a 2x2 grid.
-// -----------------------------------------------------------------
-async function buildTwoByTwoGrid(panels) {
-  const W = CELL_W * 2;
-  const H = CELL_H * 2;
-  return sharp({
-    create: { width: W, height: H, channels: 3, background: { r: 19, g: 23, b: 34 } }
-  }).composite([
-    { input: panels[0], left: 0,      top: 0      },
-    { input: panels[1], left: CELL_W, top: 0      },
-    { input: panels[2], left: 0,      top: CELL_H },
-    { input: panels[3], left: CELL_W, top: CELL_H }
-  ]).png().toBuffer();
-}
-
-// -----------------------------------------------------------------
-// Public entry point.
-// -----------------------------------------------------------------
 const HTF = [
   { res: '1W',  label: '1W' },
   { res: '1D',  label: '1D' },
@@ -311,21 +93,204 @@ const LTF = [
   { res: '1',  label: '1M'  }
 ];
 
+// -----------------------------------------------------------------
+// Helpers.
+// -----------------------------------------------------------------
+function fmtPrice(v) {
+  if (v == null || !isFinite(v)) return '—';
+  const a = Math.abs(v);
+  if (a >= 1000) return v.toFixed(2);
+  if (a >= 100)  return v.toFixed(3);
+  if (a >= 10)   return v.toFixed(4);
+  return v.toFixed(5);
+}
+
+// -----------------------------------------------------------------
+// Single panel render — assumes ctx origin is at panel top-left.
+// Caller passes panel dimensions W x H.
+// -----------------------------------------------------------------
+function drawPanel(ctx, W, H, candles, label) {
+  // Panel background (defensive; grid canvas also fills bg).
+  ctx.fillStyle = BG_COLOR;
+  ctx.fillRect(0, 0, W, H);
+
+  // Timeframe label top-left.
+  ctx.fillStyle = LABEL_COLOR;
+  ctx.font = '600 15px Arial, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(label, 20, 18);
+
+  // No-data fallback.
+  if (!candles || !candles.length) {
+    ctx.fillStyle = AXIS_COLOR;
+    ctx.font = '28px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('NO DATA', W / 2, H / 2);
+    return;
+  }
+
+  // Chart plot area.
+  const plotX = CHART_PAD_LEFT;
+  const plotY = CHART_PAD_TOP;
+  const plotW = W - CHART_PAD_LEFT - CHART_PAD_RIGHT;
+  const plotH = H - CHART_PAD_TOP - CHART_PAD_BOTTOM;
+
+  // Price range with small padding so extremes don't clip.
+  let pmin = Infinity, pmax = -Infinity;
+  for (const c of candles) {
+    if (c.low  < pmin) pmin = c.low;
+    if (c.high > pmax) pmax = c.high;
+  }
+  if (!isFinite(pmin) || !isFinite(pmax) || pmin === pmax) {
+    pmax = (pmax || 1) + 1;
+    pmin = (pmin || 0) - 1;
+  }
+  const pad = (pmax - pmin) * 0.05;
+  pmin -= pad;
+  pmax += pad;
+  const pspan = pmax - pmin;
+  const priceToY = (p) => plotY + plotH * (1 - (p - pmin) / pspan);
+
+  // Horizontal gridlines + right-axis price labels.
+  const GRID_LINES = 6;
+  ctx.strokeStyle = GRID_COLOR;
+  ctx.lineWidth = 1;
+  ctx.fillStyle = AXIS_COLOR;
+  ctx.font = '14px Arial, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i <= GRID_LINES; i++) {
+    const y = plotY + (plotH * i) / GRID_LINES;
+    ctx.beginPath();
+    ctx.moveTo(plotX, Math.round(y) + 0.5);
+    ctx.lineTo(plotX + plotW, Math.round(y) + 0.5);
+    ctx.stroke();
+    const price = pmax - (pspan * i) / GRID_LINES;
+    ctx.fillText(fmtPrice(price), plotX + plotW + 6, y);
+  }
+
+  // Candlesticks.
+  const N = candles.length;
+  const slotW = plotW / N;
+  const candleW = Math.max(2, Math.floor(slotW * 0.7));
+  for (let i = 0; i < N; i++) {
+    const c = candles[i];
+    const cx = plotX + i * slotW + slotW / 2;
+    const yOpen  = priceToY(c.open);
+    const yClose = priceToY(c.close);
+    const yHigh  = priceToY(c.high);
+    const yLow   = priceToY(c.low);
+    const isUp = c.close >= c.open;
+    const col = isUp ? BULL_COLOR : BEAR_COLOR;
+
+    // Wick.
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.round(cx) + 0.5, yHigh);
+    ctx.lineTo(Math.round(cx) + 0.5, yLow);
+    ctx.stroke();
+
+    // Body.
+    ctx.fillStyle = col;
+    const bodyTop = Math.min(yOpen, yClose);
+    const bodyH   = Math.max(1, Math.abs(yClose - yOpen));
+    ctx.fillRect(Math.round(cx - candleW / 2), bodyTop, candleW, bodyH);
+  }
+
+  // Price boxes, right edge, vertically centred.
+  const highs = candles.map(c => c.high);
+  const lows  = candles.map(c => c.low);
+  const last  = candles[candles.length - 1];
+  drawPriceBoxes(ctx, W, H, {
+    high:    Math.max(...highs),
+    current: last.close,
+    entry:   last.open,
+    low:     Math.min(...lows)
+  });
+}
+
+function drawPriceBoxes(ctx, W, H, prices) {
+  const rows = [
+    { key: 'HIGH',    val: prices.high    },
+    { key: 'CURRENT', val: prices.current },
+    { key: 'ENTRY',   val: prices.entry   },
+    { key: 'LOW',     val: prices.low     }
+  ];
+  const totalH  = BOX_H * rows.length + BOX_GAP * (rows.length - 1);
+  const startY  = Math.floor((H - totalH) / 2);
+  const boxX    = W - BOX_W - BOX_EDGE;
+
+  rows.forEach((r, i) => {
+    const y   = startY + i * (BOX_H + BOX_GAP);
+    const pal = PALETTE[r.key];
+
+    ctx.fillStyle = pal.bg;
+    ctx.fillRect(boxX, y, BOX_W, BOX_H);
+
+    ctx.fillStyle = pal.fg;
+    ctx.font = '700 10px Arial, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(r.key, boxX + 8, y + 4);
+
+    ctx.font = '700 14px Arial, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(fmtPrice(r.val), boxX + BOX_W - 8, y + BOX_H - 4);
+  });
+}
+
+// -----------------------------------------------------------------
+// One 2x2 grid: fetch 4 timeframes in parallel, draw each panel
+// into its quadrant of a single 3840x2160 canvas, encode once.
+// -----------------------------------------------------------------
+async function buildGrid(symbol, timeframes) {
+  const GRID_W = CELL_W * 2;
+  const GRID_H = CELL_H * 2;
+  const gridCanvas = createCanvas(GRID_W, GRID_H);
+  const ctx = gridCanvas.getContext('2d');
+
+  ctx.fillStyle = BG_COLOR;
+  ctx.fillRect(0, 0, GRID_W, GRID_H);
+
+  const datasets = await Promise.all(
+    timeframes.map(tf => fetchOHLC(symbol, tf.res, 150).catch(() => []))
+  );
+
+  const positions = [
+    { x: 0,       y: 0       },
+    { x: CELL_W,  y: 0       },
+    { x: 0,       y: CELL_H  },
+    { x: CELL_W,  y: CELL_H  }
+  ];
+
+  for (let i = 0; i < 4; i++) {
+    ctx.save();
+    ctx.translate(positions[i].x, positions[i].y);
+    ctx.beginPath();
+    ctx.rect(0, 0, CELL_W, CELL_H);
+    ctx.clip();
+    drawPanel(ctx, CELL_W, CELL_H, datasets[i], timeframes[i].label);
+    ctx.restore();
+  }
+
+  return gridCanvas.toBuffer('image/png');
+}
+
+// -----------------------------------------------------------------
+// Public entry point. Returns the same shape as the previous
+// Puppeteer / chartjs-node-canvas implementations.
+// -----------------------------------------------------------------
 async function renderAllPanels(symbol) {
   const t0 = Date.now();
   console.log('[RENDERER] Start ' + symbol);
 
-  const all = [...HTF, ...LTF];
-  const panels = await Promise.all(
-    all.map(tf => renderPanel(symbol, tf.res, tf.label).catch(e => {
-      console.error('[RENDERER] Panel failed ' + symbol + ' ' + tf.label + ': ' + (e && e.message || e));
-      return renderEmptyPanel(tf.label);
-    }))
-  );
-
   const [htfGrid, ltfGrid] = await Promise.all([
-    buildTwoByTwoGrid(panels.slice(0, 4)),
-    buildTwoByTwoGrid(panels.slice(4, 8))
+    buildGrid(symbol, HTF),
+    buildGrid(symbol, LTF)
   ]);
 
   console.log('[RENDERER] Done ' + symbol + ' in ' + ((Date.now() - t0) / 1000).toFixed(2) + 's');
