@@ -832,10 +832,11 @@ async function deliverResult(msg, result) {
 }
 (async () => {
   try {
+    console.log('[RENDER] Starting test render...');
     await renderAllPanels('EURUSD');
-    console.log('[RENDER TEST] SUCCESS');
+    console.log('[RENDER] SUCCESS');
   } catch (e) {
-    console.error('[RENDER TEST] FAIL', e);
+    console.error('[RENDER] FAILED', e.message);
   }
 })();
 client.login(TOKEN);
