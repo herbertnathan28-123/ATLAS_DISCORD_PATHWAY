@@ -830,5 +830,12 @@ async function deliverResult(msg, result) {
     }
   }
 }
-
+(async () => {
+  try {
+    await renderAllPanels('EURUSD');
+    console.log('[RENDER TEST] SUCCESS');
+  } catch (e) {
+    console.error('[RENDER TEST] FAIL', e);
+  }
+})();
 client.login(TOKEN);
