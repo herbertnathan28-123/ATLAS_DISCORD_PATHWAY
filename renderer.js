@@ -23,20 +23,25 @@ const sharp = require('sharp');
 const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 
 // -----------------------------------------------------------------
-// Chart.js registration — MUST happen before chartjs-chart-financial
-// is required, so its UMD can find Chart + its controllers/elements
-// can attach to Chart's registry. Chart.js 3.x + financial 0.1.x +
-// chartjs-node-canvas 4.1.x + Node 20 is the pinned stack.
+// Chart.js registration — defensive CJS resolve.
+// chart.js@3.9.1's CJS main (`dist/chart.js`) exports the Chart class
+// AS module.exports (a function) and does NOT expose `registerables` —
+// instead it auto-registers all built-in controllers/scales/elements.
+// chartjs-chart-financial@0.1.1 exports nothing via CJS; it
+// auto-registers candlestick + ohlc by side-effect on require.
+// Resolve both paths safely: use named exports if present, otherwise
+// rely on the auto-registration side-effects already in effect.
 // -----------------------------------------------------------------
-const { Chart, registerables } = require('chart.js');
-Chart.register(...registerables);
-const {
-  CandlestickController,
-  CandlestickElement,
-  OhlcController,
-  OhlcElement
-} = require('chartjs-chart-financial');
-Chart.register(CandlestickController, CandlestickElement, OhlcController, OhlcElement);
+const ChartJS = require('chart.js');
+const Chart = ChartJS.Chart || ChartJS.default || ChartJS;
+const registerables = ChartJS.registerables || Chart.registerables;
+if (registerables) Chart.register(...registerables);
+const financial = require('chartjs-chart-financial');
+const CandlestickController = financial.CandlestickController;
+const CandlestickElement = financial.CandlestickElement;
+const OhlcController = financial.OhlcController;
+const OhlcElement = financial.OhlcElement;
+if (CandlestickController) Chart.register(CandlestickController, CandlestickElement, OhlcController, OhlcElement);
 
 // -----------------------------------------------------------------
 // TwelveData fetch — copied verbatim from build spec. Do not import.
