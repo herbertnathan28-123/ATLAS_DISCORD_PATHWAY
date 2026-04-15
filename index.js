@@ -11,7 +11,6 @@ process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
 
 const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,AttachmentBuilder}=require('discord.js');
 
-const { renderAllPanels } = require('./tvRenderer');
 const sharp=require('sharp');
 const crypto=require('crypto');
 const fs=require('fs');
@@ -830,13 +829,4 @@ async function deliverResult(msg, result) {
     }
   }
 }
-(async () => {
-  try {
-    console.log('[RENDER] Starting test render...');
-    await renderAllPanels('EURUSD');
-    console.log('[RENDER] SUCCESS');
-  } catch (e) {
-    console.error('[RENDER] FAILED', e.message);
-  }
-})();
 client.login(TOKEN);
