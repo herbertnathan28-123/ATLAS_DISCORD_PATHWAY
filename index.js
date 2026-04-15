@@ -11,6 +11,7 @@ process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
 
 const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,AttachmentBuilder}=require('discord.js');
 
+const { renderAllPanels } = require('./tvRenderer');
 const sharp=require('sharp');
 const crypto=require('crypto');
 const fs=require('fs');
