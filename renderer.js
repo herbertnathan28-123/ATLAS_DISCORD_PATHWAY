@@ -1,286 +1,324 @@
 'use strict';
 // ============================================================
-// ATLAS FX RENDERER — Fresh widget per timeframe
-// TradingView widget interval is set at init only. setResolution
-// does not reliably change the embedded chart. Correct architecture:
-// destroy and recreate widget per timeframe in sequence.
+// ATLAS FX RENDERER — chartjs-node-canvas + chartjs-chart-financial
+// Replaces Puppeteer + TradingView embed pipeline.
+// Target: < 10s total for 8 panels delivered as 2 2x2 PNG grids.
 //
-// Flow (per timeframe W,D,240,60,30,15,5,1):
-//   clear container -> create widget with interval at init
-//   wait for iframe -> wait data -> wait paint -> capture
+// Interface (unchanged):
+//   module.exports = { renderAllPanels }
+//   renderAllPanels(symbol) -> Promise<{
+//     htfGrid:     Buffer (PNG),
+//     ltfGrid:     Buffer (PNG),
+//     htfGridName: string,
+//     ltfGridName: string
+//   }>
 //
-// Each pane's wait budget is INDEPENDENT. DATA_WAIT_TIMEOUT and
-// PAINT_WAIT_TIMEOUT apply per-capture. There is no global budget
-// spanning all 8 captures — if pane W takes 40s, pane D still gets
-// a full timeout afresh for its own wait. This is by design.
+// HTF panels: 1W / 1D / 4H / 1H   (2x2 grid)
+// LTF panels: 30M / 15M / 5M / 1M (2x2 grid)
+// Each panel: 1920 x 1080.  Full grid: 3840 x 2160.
 // ============================================================
-const puppeteer = require('puppeteer');
+
+const https = require('https');
 const sharp = require('sharp');
+const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 
-const CELL_W = 960;
-const CELL_H = 540;
-const VIEWPORT = { width: CELL_W, height: CELL_H };
-const PAGE_LOAD_TIMEOUT = 30000;
-const DATA_WAIT_TIMEOUT = 45000;
-const PAINT_WAIT_TIMEOUT = 45000;
-const IFRAME_TIMEOUT = 20000;
-const POLL_INTERVAL_MS = 500;
-const SETTLE_MS = 500;
-const BETWEEN_TF_MS = 250;
-const UP_COLOR = '#00ff00';
-const DOWN_COLOR = '#ff0015';
-const BG_COLOR = '#131722';
+// -----------------------------------------------------------------
+// TwelveData fetch — copied verbatim from build spec. Do not import.
+// -----------------------------------------------------------------
+const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY || '';
+const TD_SYMBOL_MAP = { XAUUSD:'XAU/USD',XAGUSD:'XAG/USD',NAS100:'NDX',US500:'SPX',US30:'DIA',DJI:'DIA',GER40:'DAX',UK100:'UKX',EURUSD:'EUR/USD',GBPUSD:'GBP/USD',USDJPY:'USD/JPY',AUDUSD:'AUD/USD',NZDUSD:'NZD/USD',USDCAD:'USD/CAD',USDCHF:'USD/CHF',MICRON:'MU',AMD:'AMD',NVDA:'NVDA',ASML:'ASML' };
+const TD_INTERVAL_MAP = { '1W':'1week','1D':'1day','240':'4h','60':'1h','30':'30min','15':'15min','5':'5min','1':'1min' };
+function fetchOHLC(symbol, resolution, count=150) {
+  return new Promise((resolve) => {
+    const tdSym = encodeURIComponent(TD_SYMBOL_MAP[symbol]||symbol);
+    const tdInt = TD_INTERVAL_MAP[resolution]||'1day';
+    const path = `/time_series?symbol=${tdSym}&interval=${tdInt}&outputsize=${count}&apikey=${TWELVE_DATA_KEY}&format=JSON`;
+    const req = https.request({hostname:'api.twelvedata.com',path,method:'GET',timeout:15000},r=>{
+      let data=''; r.on('data',c=>data+=c);
+      r.on('end',()=>{ try{ const p=JSON.parse(data); if(!p.values){resolve([]);return;} resolve(p.values.slice().reverse().map(v=>({time:Math.floor(new Date(v.datetime).getTime()/1000),open:parseFloat(v.open),high:parseFloat(v.high),low:parseFloat(v.low),close:parseFloat(v.close)}))); }catch(e){resolve([]);} });
+    });
+    req.on('error',()=>resolve([])); req.on('timeout',()=>{req.destroy();resolve([]);}); req.end();
+  });
+}
 
-const SYMBOL_OVERRIDES = {
-  XAUUSD: 'OANDA:XAUUSD',
-  XAGUSD: 'OANDA:XAGUSD',
-  BCOUSD: 'OANDA:BCOUSD',
-  USOIL:  'OANDA:BCOUSD',
-  NAS100: 'OANDA:NAS100USD',
-  US500:  'OANDA:SPX500USD',
-  US30:   'OANDA:US30USD',
-  GER40:  'OANDA:DE30EUR',
-  UK100:  'OANDA:UK100GBP',
-  NATGAS: 'NYMEX:NG1!',
-  MICRON: 'NASDAQ:MU',
-  AMD:    'NASDAQ:AMD',
-  ASML:   'NASDAQ:ASML',
-  NVDA:   'NASDAQ:NVDA'
+// -----------------------------------------------------------------
+// Visual spec — locked colours / geometry.
+// -----------------------------------------------------------------
+const CELL_W      = 1920;
+const CELL_H      = 1080;
+const BG_COLOR    = '#131722';
+const BULL_COLOR  = '#07f911';
+const BEAR_COLOR  = '#ff0015';
+const GRID_COLOR  = 'rgba(255,255,255,0.04)';
+const AXIS_COLOR  = '#9aa4ad';
+const LABEL_COLOR = '#666b6a';
+
+const BOX_W  = 120;
+const BOX_H  = 36;
+const BOX_RIGHT_PAD = 10;
+const BOX_GAP       = 4;
+
+const PALETTE = {
+  HIGH:    { bg: '#FFD600', fg: '#000000' },
+  CURRENT: { bg: '#00FF5A', fg: '#000000' },
+  ENTRY:   { bg: '#FF9100', fg: '#000000' },
+  LOW:     { bg: '#00B0FF', fg: '#FFFFFF' }
 };
 
-function toTVSymbol(s) {
-  if (!s) return s;
-  const up = String(s).trim().toUpperCase();
-  if (up.includes(':')) return up;
-  if (SYMBOL_OVERRIDES[up]) return SYMBOL_OVERRIDES[up];
-  if (/^[A-Z]{6}$/.test(up)) return 'OANDA:' + up;
-  return 'NASDAQ:' + up;
-}
+const UNIT_MS = {
+  millisecond: 1,
+  second:      1000,
+  minute:      60 * 1000,
+  hour:        60 * 60 * 1000,
+  day:         24 * 60 * 60 * 1000,
+  week:        7 * 24 * 60 * 60 * 1000,
+  month:       30 * 24 * 60 * 60 * 1000,
+  quarter:     91 * 24 * 60 * 60 * 1000,
+  year:        365 * 24 * 60 * 60 * 1000
+};
 
-function buildShellHtml() {
-  return `<html><head><meta charset="utf-8"><style>*{margin:0;padding:0}html,body{width:${CELL_W}px;height:${CELL_H}px;overflow:hidden;background:${BG_COLOR}}#tv{width:${CELL_W}px;height:${CELL_H}px}</style></head><body><div id="tv"></div><script src="https://s3.tradingview.com/tv.js"></script></body></html>`;
-}
-
-async function createWidget(page, symbol, interval) {
-  await page.evaluate((sym, intv, cellW, cellH, bg, up, dn) => {
-    try {
-      if (window.__tvWidget && typeof window.__tvWidget.remove === 'function') {
-        window.__tvWidget.remove();
-      }
-    } catch (_) {}
-    window.__tvWidget = null;
-    const host = document.getElementById('tv');
-    if (host) host.innerHTML = '';
-
-    window.__tvWidget = new TradingView.widget({
-      container_id: 'tv',
-      autosize: false,
-      width: cellW,
-      height: cellH,
-      symbol: sym,
-      interval: intv,
-      timezone: 'exchange',
-      theme: 'dark',
-      style: '1',
-      locale: 'en',
-      toolbar_bg: bg,
-      enable_publishing: false,
-      hide_side_toolbar: true,
-      hide_top_toolbar: true,
-      hide_legend: false,
-      save_image: false,
-      allow_symbol_change: false,
-      hotlist: false,
-      calendar: false,
-      show_popup_button: false,
-      withdateranges: false,
-      details: false,
-      bar_spacing: 8,
-      studies: [],
-      overrides: {
-        'paneProperties.background': bg,
-        'paneProperties.backgroundType': 'solid',
-        'mainSeriesProperties.candleStyle.upColor': up,
-        'mainSeriesProperties.candleStyle.downColor': dn,
-        'mainSeriesProperties.candleStyle.borderUpColor': up,
-        'mainSeriesProperties.candleStyle.borderDownColor': dn,
-        'mainSeriesProperties.candleStyle.wickUpColor': up,
-        'mainSeriesProperties.candleStyle.wickDownColor': dn,
-        'mainSeriesProperties.candleStyle.drawBorder': true,
-        'mainSeriesProperties.candleStyle.drawWick': true,
-        'mainSeriesProperties.candleStyle.barSpacing': 8,
-        'scalesProperties.backgroundColor': bg,
-        'scalesProperties.textColor': '#AAA',
-        'scalesProperties.fontSize': 14
-      }
+// -----------------------------------------------------------------
+// Chart.js canvas renderer — single instance, reused.
+// Registers candlestick chart + an inline date adapter so we don't
+// need chartjs-adapter-* as a dependency.
+// -----------------------------------------------------------------
+const canvasRenderer = new ChartJSNodeCanvas({
+  width: CELL_W,
+  height: CELL_H,
+  backgroundColour: BG_COLOR,
+  chartCallback: (ChartJS) => {
+    // Side-effect import: the UMD build auto-registers
+    // CandlestickController / CandlestickElement / Ohlc* on chart.js's
+    // shared Chart registry, which is the same Chart that chartjs-node-canvas
+    // uses — so the candlestick type becomes available here.
+    require('chartjs-chart-financial');
+    ChartJS._adapters._date.override({
+      _id: 'atlas-date',
+      formats: () => ({
+        datetime:    'yyyy-MM-dd HH:mm',
+        millisecond: 'HH:mm:ss.SSS',
+        second:      'HH:mm:ss',
+        minute:      'HH:mm',
+        hour:        'HH:mm',
+        day:         'MMM d',
+        week:        'MMM d',
+        month:       'MMM yyyy',
+        quarter:     'qqq yyyy',
+        year:        'yyyy'
+      }),
+      parse:  (v) => typeof v === 'number' ? v : new Date(v).getTime(),
+      format: (v) => new Date(v).toISOString(),
+      add:    (v, amount, unit) => v + amount * (UNIT_MS[unit] || 0),
+      diff:   (a, b, unit)      => (a - b) / (UNIT_MS[unit] || 1),
+      startOf: (v) => v,
+      endOf:   (v) => v
     });
-  }, symbol, interval, CELL_W, CELL_H, BG_COLOR, UP_COLOR, DOWN_COLOR);
+  }
+});
+
+// -----------------------------------------------------------------
+// Helpers.
+// -----------------------------------------------------------------
+function escapeXml(s) {
+  return String(s).replace(/[<>&"']/g, c => ({
+    '<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;','\'':'&apos;'
+  }[c]));
 }
 
-// Independent timeout per caller — not shared across captures.
-async function waitForDataPresent(frame, maxMs) {
-  return frame.waitForFunction(() => {
-    const text = (document.body && document.body.innerText) || '';
-    if (/\bH:\s*0\b[\s\S]{0,6}L:\s*0\b[\s\S]{0,6}C:\s*0\b/.test(text)) return false;
-    if (/\bO:\s*0(?:\.0+)?\b[\s\S]{0,40}C:\s*0(?:\.0+)?\b/.test(text)) return false;
-    return /\bH:\s*\d+\.\d+/.test(text) || /\bC:\s*\d+\.\d+/.test(text);
-  }, { timeout: maxMs, polling: POLL_INTERVAL_MS }).then(() => true).catch(() => false);
+function fmtPrice(v) {
+  if (v == null || !isFinite(v)) return '—';
+  const a = Math.abs(v);
+  if (a >= 1000) return v.toFixed(2);
+  if (a >= 100)  return v.toFixed(3);
+  if (a >= 10)   return v.toFixed(4);
+  return v.toFixed(5);
 }
 
-// Polls canvas pixels until candle-colored pixels are detected on the
-// largest canvas. Actual pixel data on canvas before capture.
-async function waitForCanvasDrawn(frame, maxMs) {
-  return frame.waitForFunction(() => {
-    let canvases = document.querySelectorAll('.tv-lightweight-charts canvas');
-    if (!canvases.length) canvases = document.querySelectorAll('canvas');
-    if (!canvases.length) return false;
-    let best = null, bestArea = 0;
-    for (const c of canvases) {
-      const a = c.width * c.height;
-      if (a > bestArea) { bestArea = a; best = c; }
-    }
-    if (!best || best.width <= 0 || best.height <= 0 || bestArea < 50000) return false;
-    const ctx = best.getContext('2d');
-    if (!ctx) return false;
-    try {
-      const W = best.width, H = best.height;
-      let hits = 0;
-      for (let xi = 0; xi < 10; xi++) {
-        for (let yi = 0; yi < 6; yi++) {
-          const x = Math.floor(W * (0.1 + xi * 0.08));
-          const y = Math.floor(H * (0.1 + yi * 0.13));
-          const d = ctx.getImageData(x, y, 1, 1).data;
-          const isUp = d[1] > 180 && d[0] < 80 && d[2] < 80;
-          const isDn = d[0] > 180 && d[1] < 80 && d[2] < 80;
-          if (isUp || isDn) { hits++; if (hits >= 2) return true; }
+// -----------------------------------------------------------------
+// Single panel: fetch data, render chart, composite label + boxes.
+// -----------------------------------------------------------------
+async function renderPanel(symbol, resolution, label) {
+  const candles = await fetchOHLC(symbol, resolution, 150);
+  if (!candles.length) return renderEmptyPanel(label);
+
+  const data = candles.map(c => ({
+    x: c.time * 1000,
+    o: c.open,
+    h: c.high,
+    l: c.low,
+    c: c.close
+  }));
+
+  const config = {
+    type: 'candlestick',
+    data: {
+      datasets: [{
+        data,
+        borderColor: {
+          up:        BULL_COLOR,
+          down:      BEAR_COLOR,
+          unchanged: BULL_COLOR
+        },
+        color: {
+          up:        BULL_COLOR,
+          down:      BEAR_COLOR,
+          unchanged: BULL_COLOR
+        }
+      }]
+    },
+    options: {
+      responsive: false,
+      animation: false,
+      parsing: false,
+      plugins: {
+        legend:  { display: false },
+        title:   { display: false },
+        tooltip: { enabled: false }
+      },
+      layout: {
+        padding: { top: 48, bottom: 8, left: 16, right: BOX_W + BOX_RIGHT_PAD + 8 }
+      },
+      scales: {
+        x: {
+          type: 'timeseries',
+          offset: true,
+          grid:   { color: GRID_COLOR, tickColor: GRID_COLOR, drawBorder: false },
+          border: { color: GRID_COLOR },
+          ticks:  { color: AXIS_COLOR, maxRotation: 0, font: { size: 14 } }
+        },
+        y: {
+          position: 'right',
+          grid:   { color: GRID_COLOR, tickColor: GRID_COLOR, drawBorder: false },
+          border: { color: GRID_COLOR },
+          ticks:  { color: AXIS_COLOR, font: { size: 14 } }
         }
       }
-      return false;
-    } catch (e) { return false; }
-  }, { timeout: maxMs, polling: POLL_INTERVAL_MS }).then(() => true).catch(() => false);
+    }
+  };
+
+  const chartBuf = await canvasRenderer.renderToBuffer(config, 'image/png');
+
+  const highs = candles.map(c => c.high);
+  const lows  = candles.map(c => c.low);
+  const last  = candles[candles.length - 1];
+  return overlayChrome(chartBuf, label, {
+    high:    Math.max(...highs),
+    low:     Math.min(...lows),
+    current: last.close,
+    entry:   last.open
+  });
 }
 
-async function captureTimeframe(page, symbol, tf) {
-  const t0 = Date.now();
-  const diag = { canvasFound: false, dataPresent: false, painted: false, bytes: 0, elapsedMs: 0, timeoutReason: null };
+// -----------------------------------------------------------------
+// Sharp SVG composite: top-left timeframe label + right-edge price
+// boxes (HIGH / CURRENT / ENTRY / LOW), each 120 x 36.
+// -----------------------------------------------------------------
+async function overlayChrome(chartBuf, label, prices) {
+  const boxX       = CELL_W - BOX_W - BOX_RIGHT_PAD;
+  const totalBoxH  = BOX_H * 4 + BOX_GAP * 3;
+  const boxStartY  = Math.floor((CELL_H - totalBoxH) / 2);
 
-  await createWidget(page, symbol, tf);
+  const rows = [
+    { key: 'HIGH',    val: fmtPrice(prices.high) },
+    { key: 'CURRENT', val: fmtPrice(prices.current) },
+    { key: 'ENTRY',   val: fmtPrice(prices.entry) },
+    { key: 'LOW',     val: fmtPrice(prices.low) }
+  ];
 
-  await page.waitForSelector('#tv iframe', { timeout: IFRAME_TIMEOUT });
-  const iframeHandle = await page.$('#tv iframe');
-  if (!iframeHandle) throw new Error('TradingView iframe not found for ' + tf);
-  const frame = await iframeHandle.contentFrame();
-  if (!frame) throw new Error('Could not attach to iframe contentFrame for ' + tf);
+  const boxMarkup = rows.map((r, i) => {
+    const y  = boxStartY + i * (BOX_H + BOX_GAP);
+    const pal = PALETTE[r.key];
+    return `
+      <rect x="${boxX}" y="${y}" width="${BOX_W}" height="${BOX_H}" fill="${pal.bg}"/>
+      <text x="${boxX + 8}"  y="${y + 13}" font-family="Arial, Helvetica, sans-serif" font-size="10" font-weight="700" fill="${pal.fg}">${r.key}</text>
+      <text x="${boxX + BOX_W - 8}" y="${y + 29}" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" fill="${pal.fg}" text-anchor="end">${escapeXml(r.val)}</text>
+    `;
+  }).join('');
 
-  try {
-    await frame.waitForSelector('canvas', { timeout: DATA_WAIT_TIMEOUT });
-    diag.canvasFound = true;
-  } catch (e) {
-    diag.timeoutReason = 'canvas';
-  }
-
-  diag.dataPresent = await waitForDataPresent(frame, DATA_WAIT_TIMEOUT);
-  if (!diag.dataPresent) diag.timeoutReason = diag.timeoutReason || 'data';
-
-  diag.painted = await waitForCanvasDrawn(frame, PAINT_WAIT_TIMEOUT);
-  if (!diag.painted) diag.timeoutReason = diag.timeoutReason || 'paint';
-
-  await new Promise(r => setTimeout(r, SETTLE_MS));
-
-  const shot = await page.screenshot({ type: 'png' });
-  diag.bytes = shot.length;
-  diag.elapsedMs = Date.now() - t0;
-
-  const ok = diag.canvasFound && diag.dataPresent && diag.painted;
-  console.log(
-    '  [CAPTURE] ' + symbol + ' @ ' + tf +
-    ' canvas:' + (diag.canvasFound ? 'yes' : 'no') +
-    ' data:'   + (diag.dataPresent ? 'yes' : 'no') +
-    ' painted:'+ (diag.painted ? 'yes' : 'no') +
-    (ok ? ' OK' : ' timeout:' + (diag.timeoutReason || 'unknown')) +
-    ' bytes:' + diag.bytes +
-    ' ' + diag.elapsedMs + 'ms'
+  const overlaySvg = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${CELL_W}" height="${CELL_H}">
+      <text x="20" y="30" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="${LABEL_COLOR}">${escapeXml(label)}</text>
+      ${boxMarkup}
+    </svg>`
   );
 
-  return shot;
+  return sharp(chartBuf)
+    .composite([{ input: overlaySvg, left: 0, top: 0 }])
+    .png()
+    .toBuffer();
 }
 
-async function buildTwoByTwoGrid(buffers) {
-  const r = await Promise.all(buffers.map(b => sharp(b).resize(CELL_W, CELL_H, { fit: 'fill' }).toBuffer()));
+// -----------------------------------------------------------------
+// Blank fallback when TwelveData returns nothing.
+// -----------------------------------------------------------------
+async function renderEmptyPanel(label) {
+  const svg = Buffer.from(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${CELL_W}" height="${CELL_H}">
+      <rect width="${CELL_W}" height="${CELL_H}" fill="${BG_COLOR}"/>
+      <text x="20" y="30" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="${LABEL_COLOR}">${escapeXml(label)}</text>
+      <text x="${CELL_W / 2}" y="${CELL_H / 2}" font-family="Arial, Helvetica, sans-serif" font-size="28" fill="${AXIS_COLOR}" text-anchor="middle">NO DATA</text>
+    </svg>`
+  );
+  return sharp(svg).png().toBuffer();
+}
+
+// -----------------------------------------------------------------
+// Compose 4 panels into a 2x2 grid.
+// -----------------------------------------------------------------
+async function buildTwoByTwoGrid(panels) {
+  const W = CELL_W * 2;
+  const H = CELL_H * 2;
   return sharp({
-    create: { width: CELL_W * 2, height: CELL_H * 2, channels: 3, background: { r: 19, g: 23, b: 34 } }
+    create: { width: W, height: H, channels: 3, background: { r: 19, g: 23, b: 34 } }
   }).composite([
-    { input: r[0], left: 0, top: 0 },
-    { input: r[1], left: CELL_W, top: 0 },
-    { input: r[2], left: 0, top: CELL_H },
-    { input: r[3], left: CELL_W, top: CELL_H }
+    { input: panels[0], left: 0,      top: 0      },
+    { input: panels[1], left: CELL_W, top: 0      },
+    { input: panels[2], left: 0,      top: CELL_H },
+    { input: panels[3], left: CELL_W, top: CELL_H }
   ]).png().toBuffer();
 }
 
-async function renderAllPanelsInternal(symbol) {
-  const tvSymbol = toTVSymbol(symbol);
-  const timeframes = ['W', 'D', '240', '60', '30', '15', '5', '1'];
-  console.log('[RENDERER] Starting render for ' + symbol + (tvSymbol !== symbol ? ' (TV: ' + tvSymbol + ')' : ''));
-  const t = Date.now();
-  let browser = null;
-  try {
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ]
-    });
-
-    const page = await browser.newPage();
-    await page.setViewport(VIEWPORT);
-
-    await page.setContent(buildShellHtml(), { waitUntil: 'domcontentloaded', timeout: PAGE_LOAD_TIMEOUT });
-    await page.waitForFunction(() => typeof TradingView !== 'undefined', { timeout: 15000 });
-
-    console.log('[RENDERER] Shell loaded — starting sequential per-timeframe captures');
-
-    const shots = [];
-    for (let i = 0; i < timeframes.length; i++) {
-      if (i > 0) await new Promise(r => setTimeout(r, BETWEEN_TF_MS));
-      shots.push(await captureTimeframe(page, tvSymbol, timeframes[i]));
-    }
-
-    const htfShots = shots.slice(0, 4);
-    const ltfShots = shots.slice(4, 8);
-
-    const [htfGrid, ltfGrid] = await Promise.all([
-      buildTwoByTwoGrid(htfShots),
-      buildTwoByTwoGrid(ltfShots)
-    ]);
-
-    console.log('[RENDERER] Complete for ' + symbol + ' in ' + ((Date.now() - t) / 1000).toFixed(1) + 's');
-    return { htfGrid, ltfGrid, htfGridName: symbol + '_HTF.png', ltfGridName: symbol + '_LTF.png' };
-  } finally {
-    if (browser) { try { await browser.close(); } catch (_) {} }
-  }
-}
+// -----------------------------------------------------------------
+// Public entry point.
+// -----------------------------------------------------------------
+const HTF = [
+  { res: '1W',  label: '1W' },
+  { res: '1D',  label: '1D' },
+  { res: '240', label: '4H' },
+  { res: '60',  label: '1H' }
+];
+const LTF = [
+  { res: '30', label: '30M' },
+  { res: '15', label: '15M' },
+  { res: '5',  label: '5M'  },
+  { res: '1',  label: '1M'  }
+];
 
 async function renderAllPanels(symbol) {
-  try {
-    return await renderAllPanelsInternal(symbol);
-  } catch (err) {
-    const msg = err && err.message || String(err);
-    console.error('[RENDERER] First attempt failed: ' + msg);
-    if (/out of memory|oom|killed|ENOMEM|Target closed|crash/i.test(msg)) {
-      console.error('[RENDERER] OOM suspected');
-    }
-    console.log('[RENDERER] Attempting one retry...');
-    await new Promise(r => setTimeout(r, 1500));
-    try {
-      return await renderAllPanelsInternal(symbol);
-    } catch (err2) {
-      console.error('[RENDERER] Retry also failed: ' + (err2 && err2.message || err2));
-      throw err2;
-    }
-  }
+  const t0 = Date.now();
+  console.log('[RENDERER] Start ' + symbol);
+
+  const all = [...HTF, ...LTF];
+  const panels = await Promise.all(
+    all.map(tf => renderPanel(symbol, tf.res, tf.label).catch(e => {
+      console.error('[RENDERER] Panel failed ' + symbol + ' ' + tf.label + ': ' + (e && e.message || e));
+      return renderEmptyPanel(tf.label);
+    }))
+  );
+
+  const [htfGrid, ltfGrid] = await Promise.all([
+    buildTwoByTwoGrid(panels.slice(0, 4)),
+    buildTwoByTwoGrid(panels.slice(4, 8))
+  ]);
+
+  console.log('[RENDERER] Done ' + symbol + ' in ' + ((Date.now() - t0) / 1000).toFixed(2) + 's');
+
+  return {
+    htfGrid,
+    ltfGrid,
+    htfGridName: symbol + '_HTF.png',
+    ltfGridName: symbol + '_LTF.png'
+  };
 }
 
-module.exports = { renderAllPanels, toTVSymbol };
+module.exports = { renderAllPanels };
