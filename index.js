@@ -12,7 +12,6 @@ process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
 const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,AttachmentBuilder}=require('discord.js');
 
 const sharp=require('sharp');
-const { renderAllPanels: renderCharts } = require("./renderer");
 const crypto=require('crypto');
 const fs=require('fs');
 const https=require('https');
