@@ -21,6 +21,7 @@ const http=require('http');
 const{dhInit,dhSetPipelineTrigger,runDarkHorseScan,getDHInternalStore,getDHCandidate,DH_UNIVERSE}=require('./darkHorseEngine');
 
 const coreyLive = require('./corey_live_data');
+const coreyCalendar = require('./corey_calendar');
 coreyLive.init();
 
 
@@ -249,6 +250,8 @@ function buildRoadmap() {
 }
 
 function buildEventIntel(sym, corey) {
+  const calendarIntel = coreyCalendar.getEventIntelligence(sym);
+  if (calendarIntel) return calendarIntel;
   const g = corey.internalMacro?.global || {};
   const live = g.live || {};
   const ctx = g.context || {};
