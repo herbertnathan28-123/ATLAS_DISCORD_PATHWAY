@@ -469,6 +469,32 @@ client.on('messageCreate', async (msg) => {
     const symbol = msg.content.slice(1).trim().toUpperCase();
     console.log("[REQUEST]", symbol);
     await msg.channel.send({ content: `Rendering ${symbol}...` });
+    const CHANNEL_MODE = {
+      '1433501396967358666': 'macro',
+      '1432643749913296978': 'macro',
+      '1432644152176414811': 'macro',
+      '1483859652662792284': 'macro',
+      '1434253776360968293': 'macro',
+      '1434194739384811620': 'training',
+      '1433751873587904563': 'training',
+      '1433755804129038463': 'training',
+      '1486289296376991774': 'training',
+      '1434253016323723294': 'roadmap',
+      '1434253192861843596': 'roadmap',
+    };
+    const mode = CHANNEL_MODE[msg.channelId] || 'macro';
+    const atlasUrl = `https://atlas-fx-dashboard.onrender.com/load?symbol=${symbol}&mode=${mode}`;
+    await msg.channel.send({
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 5,
+          label: 'VIEW',
+          url: atlasUrl
+        }]
+      }]
+    });
     const result = await renderAllPanels(symbol);
     await deliverResult(msg, { symbol, ...result });
   } catch (e) {
