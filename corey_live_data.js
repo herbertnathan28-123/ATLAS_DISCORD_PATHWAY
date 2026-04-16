@@ -8,6 +8,7 @@
 
 const https = require('https');
 const axios = require('axios');
+const calendar = require('./corey_calendar');
 
 const TWELVE_DATA_KEY = process.env.TWELVE_DATA_API_KEY || '';
 const FRED_KEY        = process.env.FRED_KEY || '';
@@ -334,6 +335,7 @@ async function init() {
   _initialised = true;
   await refreshCache();
   setInterval(refreshCache, REFRESH_MS);
+  calendar.startAutoRefresh();
 }
 
 // ── PUBLIC API ────────────────────────────────────────────────
@@ -349,8 +351,15 @@ function getLiveContext() {
 /**
  * Returns just the market context fields for globalMacro()
  */
-function getMarketContext() {
-  return { ..._cache.context };
+function getMarketContext(symbol) {
+  const ctx = { ..._cache.context };
+  if (symbol) {
+    ctx.calendar = {
+      bias: calendar.getCalendarBias(symbol),
+      upcoming: calendar.getUpcomingEvents(symbol).slice(0, 3)
+    };
+  }
+  return ctx;
 }
 
 module.exports = { init, getLiveContext, getMarketContext, refreshCache };
