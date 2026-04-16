@@ -473,24 +473,6 @@ client.on('messageCreate', async (msg) => {
     const validation = validateInput('!' + raw);
     if (!validation.valid) return;
     const symbol = validation.symbol;
-    const CHANNEL_MODE = {
-      '1433501396967358666': 'macro',
-      '1432643749913296978': 'macro',
-      '1432644152176414811': 'macro',
-      '1483859652662792284': 'macro',
-      '1434253776360968293': 'macro',
-      '1434194739384811620': 'training',
-      '1433751873587904563': 'training',
-      '1433755804129038463': 'training',
-      '1486289296376991774': 'training',
-      '1434253016323723294': 'roadmap',
-      '1434253192861843596': 'roadmap',
-    };
-    const mode = CHANNEL_MODE[msg.channelId] || 'macro';
-    // Primary: Discord author ID → dashboard user. IDs are numeric snowflakes;
-    // paste AT / NM / SK / BR values in when known. Unknown authors fall
-    // through to the per-channel map (at-/sk-/nm-/br- prefixed channels are
-    // user-specific). Final fallback is 'AT' per spec.
     const USER_BY_ID = {
       '690861328507731978':  'AT', // AT (atlas.4693)
       '1431173502161129555': 'NM', // NM (Nathan McKay)
@@ -512,10 +494,8 @@ client.on('messageCreate', async (msg) => {
       '1489247239359697067': 'BR', // br-chat-with-astra
     };
     const user = USER_BY_ID[msg.author.id] || USER_BY_CHANNEL[msg.channelId] || 'AT';
-    const atlasUrl = `https://atlas-fx-dashboard.onrender.com/load?symbol=${symbol}&mode=${mode}&user=${user}`;
-    await msg.channel.send({
-      components: [{ type: 1, components: [{ type: 2, style: 5, label: 'VIEW', url: atlasUrl }] }]
-    });
+    const atlasUrl = `https://atlas-fx-dashboard.onrender.com?symbol=${symbol}&user=${user}`;
+    await msg.channel.send({ content: `📊 **${symbol}** — ATLAS Dashboard\n${atlasUrl}` });
   } catch (e) {
     console.error('handler error', e);
   }
