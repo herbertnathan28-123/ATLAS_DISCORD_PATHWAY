@@ -487,7 +487,17 @@ client.on('messageCreate', async (msg) => {
       '1434253192861843596': 'roadmap',
     };
     const mode = CHANNEL_MODE[msg.channelId] || 'macro';
-    const atlasUrl = `https://atlas-fx-dashboard.onrender.com/load?symbol=${symbol}&mode=${mode}`;
+    // Discord user ID → dashboard user code. IDs are numeric snowflakes.
+    // AT (Nathan Herbert, handle atlas.4693) / NM (Nathan McKay) / SK / BR.
+    // Unknown authors fall through to 'AT'. Drop the four IDs in below.
+    const USER_BY_ID = {
+      '': 'AT', // AT (atlas.4693) — paste Discord ID
+      ' ': 'NM', // NM (Nathan McKay) — paste Discord ID
+      '  ': 'SK', // SK — paste Discord ID
+      '   ': 'BR', // BR — paste Discord ID
+    };
+    const user = USER_BY_ID[msg.author.id] || 'AT';
+    const atlasUrl = `https://atlas-fx-dashboard.onrender.com/load?symbol=${symbol}&mode=${mode}&user=${user}`;
     await msg.channel.send({
       components: [{ type: 1, components: [{ type: 2, style: 5, label: 'VIEW', url: atlasUrl }] }]
     });
