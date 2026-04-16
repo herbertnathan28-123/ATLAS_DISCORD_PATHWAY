@@ -492,10 +492,10 @@ client.on('messageCreate', async (msg) => {
     // through to the per-channel map (at-/sk-/nm-/br- prefixed channels are
     // user-specific). Final fallback is 'AT' per spec.
     const USER_BY_ID = {
-      '': 'AT', // AT (atlas.4693) — paste Discord ID
-      ' ': 'NM', // NM (Nathan McKay) — paste Discord ID
-      '  ': 'SK', // SK — paste Discord ID
-      '   ': 'BR', // BR — paste Discord ID
+      '690861328507731978':  'AT', // AT (atlas.4693)
+      '1431173502161129555': 'NM', // NM (Nathan McKay)
+      '763467091171999814':  'SK', // SK
+      '1244449071977074798': 'BR', // BR
     };
     const USER_BY_CHANNEL = {
       '1432642672287547453': 'AT', // at-chart-macro-request
