@@ -487,16 +487,31 @@ client.on('messageCreate', async (msg) => {
       '1434253192861843596': 'roadmap',
     };
     const mode = CHANNEL_MODE[msg.channelId] || 'macro';
-    // Discord user ID → dashboard user code. IDs are numeric snowflakes.
-    // AT (Nathan Herbert, handle atlas.4693) / NM (Nathan McKay) / SK / BR.
-    // Unknown authors fall through to 'AT'. Drop the four IDs in below.
+    // Primary: Discord author ID → dashboard user. IDs are numeric snowflakes;
+    // paste AT / NM / SK / BR values in when known. Unknown authors fall
+    // through to the per-channel map (at-/sk-/nm-/br- prefixed channels are
+    // user-specific). Final fallback is 'AT' per spec.
     const USER_BY_ID = {
       '': 'AT', // AT (atlas.4693) — paste Discord ID
       ' ': 'NM', // NM (Nathan McKay) — paste Discord ID
       '  ': 'SK', // SK — paste Discord ID
       '   ': 'BR', // BR — paste Discord ID
     };
-    const user = USER_BY_ID[msg.author.id] || 'AT';
+    const USER_BY_CHANNEL = {
+      '1432642672287547453': 'AT', // at-chart-macro-request
+      '1433750991953596428': 'AT', // at-training
+      '1489245537395019908': 'AT', // at-chat-with-astra
+      '1432643496375881748': 'SK', // sk-chart-macro-request
+      '1433751801634488372': 'SK', // sk-training
+      '1489246324552368178': 'SK', // sk-chat-with-astra
+      '1432644116868501595': 'NM', // nm-chart-macro-request
+      '1433755484057501796': 'NM', // nm-training
+      '1489248591854702744': 'NM', // nm-chat-with-astra
+      '1482450651765149816': 'BR', // br-chart-macro-request
+      '1482450900583710740': 'BR', // br-training
+      '1489247239359697067': 'BR', // br-chat-with-astra
+    };
+    const user = USER_BY_ID[msg.author.id] || USER_BY_CHANNEL[msg.channelId] || 'AT';
     const atlasUrl = `https://atlas-fx-dashboard.onrender.com/load?symbol=${symbol}&mode=${mode}&user=${user}`;
     await msg.channel.send({
       components: [{ type: 1, components: [{ type: 2, style: 5, label: 'VIEW', url: atlasUrl }] }]
