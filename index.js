@@ -466,9 +466,10 @@ client.on('messageCreate', async (msg) => {
   try {
     if (msg.author.bot) return;
     if (!msg.content.startsWith('!')) return;
-    const symbol = msg.content.slice(1).trim().toUpperCase();
-    console.log("[REQUEST]", symbol);
-    await msg.channel.send({ content: `Rendering ${symbol}...` });
+    const raw = msg.content.slice(1).trim().toUpperCase();
+    const validation = validateInput('!' + raw);
+    if (!validation.valid) return;
+    const symbol = validation.symbol;
     const CHANNEL_MODE = {
       '1433501396967358666': 'macro',
       '1432643749913296978': 'macro',
@@ -485,21 +486,10 @@ client.on('messageCreate', async (msg) => {
     const mode = CHANNEL_MODE[msg.channelId] || 'macro';
     const atlasUrl = `https://atlas-fx-dashboard.onrender.com/load?symbol=${symbol}&mode=${mode}`;
     await msg.channel.send({
-      components: [{
-        type: 1,
-        components: [{
-          type: 2,
-          style: 5,
-          label: 'VIEW',
-          url: atlasUrl
-        }]
-      }]
+      components: [{ type: 1, components: [{ type: 2, style: 5, label: 'VIEW', url: atlasUrl }] }]
     });
-    const result = await renderAllPanels(symbol);
-    await deliverResult(msg, { symbol, ...result });
   } catch (e) {
-    console.error("handler error", e);
-    try { await msg.channel.send({ content: `⚠️ Pipeline error for ${msg.content}: ${e.message}` }); } catch (_) {}
+    console.error('handler error', e);
   }
 });
   client.once('clientReady', async () => {
