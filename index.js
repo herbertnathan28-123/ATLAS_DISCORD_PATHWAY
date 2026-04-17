@@ -23,6 +23,13 @@ const{dhInit,dhSetPipelineTrigger,runDarkHorseScan,getDHInternalStore,getDHCandi
 const coreyLive = require('./corey_live_data');
 const coreyCalendar = require('./corey_calendar');
 coreyLive.init();
+/* [COREY-CALENDAR] A1.1 — explicit calendar registration. coreyLive.init() is
+   async and not awaited above; if its pre-calendar steps reject, the chained
+   calendar.startAutoRefresh() never runs and the refresh loop is silently
+   orphaned. This line registers the loop unconditionally. Idempotent — the
+   guard inside corey_calendar.startAutoRefresh() ignores the second call from
+   corey_live_data.js when coreyLive.init() does succeed. */
+coreyCalendar.init();
 
 
 const TOKEN=process.env.DISCORD_BOT_TOKEN;

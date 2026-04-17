@@ -330,13 +330,33 @@ async function refreshCalendar() {
   }
 }
 
+let _autoRefreshStarted = false;
 function startAutoRefresh() {
+  /* [COREY-CALENDAR] A1.1 — idempotency guard. The registration chain now has
+     two callers: corey_live_data.js:338 (legacy) and index.js (new, via
+     coreyCalendar.init()). Without this guard, both callers would schedule
+     independent tick timers and the refresh would double-fire. */
+  if (_autoRefreshStarted) {
+    console.log('[COREY-CALENDAR] startAutoRefresh skipped — already running');
+    return;
+  }
+  _autoRefreshStarted = true;
+  console.log('[COREY-CALENDAR] startAutoRefresh registered');
   const tick = async () => {
     const interval = isActiveSession() ? 15 * 60 * 1000 : 60 * 60 * 1000;
     await refreshCalendar();
     setTimeout(tick, interval);
   };
   tick();
+}
+
+/* [COREY-CALENDAR] A1.1 — explicit init() export so index.js can register the
+   refresh loop directly, without depending on coreyLive.init() reaching its
+   own calendar.startAutoRefresh() line. Belt-and-suspenders: if the async
+   coreyLive init path rejects before reaching the calendar, this path still
+   fires. Idempotent via the guard inside startAutoRefresh(). */
+function init() {
+  startAutoRefresh();
 }
 
 // ── PUBLIC API ───────────────────────────────────────────────
@@ -457,6 +477,7 @@ function getCalendarSnapshot() {
 }
 
 module.exports = {
+  init,
   refreshCalendar,
   startAutoRefresh,
   getUpcomingEvents,
