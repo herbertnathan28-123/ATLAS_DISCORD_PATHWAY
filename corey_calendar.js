@@ -75,12 +75,22 @@ function httpGet(urlStr, timeout = 12000, extraHeaders = {}) {
   });
 }
 
-/* [COREY-CALENDAR] Per-source health surface. Updated by every fetch attempt;
-   read by getCalendarHealth() and the *available* flag on bias/intel returns.
-   status: 'unknown' (boot) | 'ok' | 'failed'. */
+/* [COREY-CALENDAR] Per-source health surface (Phase 2 A2a reshape — no ff).
+   Sources: tv (primary), te (env-gated middle tier), degraded (emergency
+   internal fallback). Status values:
+     'unknown'         — boot, never attempted
+     'ok'              — fetch returned events > 0
+     'nonproductive'   — fetch returned HTTP 200 JSON but events = 0 after
+                         normalisation (per Nathan's health rule — a 200 with
+                         zero events is NOT healthy for source_used purposes)
+     'failed'          — fetch rejected by validation (non-2xx / non-JSON /
+                         parse error / shape error / network error)
+     'skipped'         — source gated off (te without TRADING_ECONOMICS_KEY)
+     'active'          — degraded-mode generator produced events */
 const _sourceHealth = {
-  tv: { status: 'unknown', lastFetched: 0, lastCount: 0, lastError: null, lastStatusCode: null, lastContentType: null },
-  ff: { status: 'unknown', lastFetched: 0, lastCount: 0, lastError: null, lastStatusCode: null, lastContentType: null }
+  tv:       { status: 'unknown', lastFetched: 0, lastCount: 0, rawCount: 0, lastError: null, lastStatusCode: null, lastContentType: null, lastUrl: null },
+  te:       { status: 'unknown', lastFetched: 0, lastCount: 0, lastError: null, lastStatusCode: null, lastContentType: null },
+  degraded: { status: 'unknown', lastFetched: 0, lastCount: 0, lastError: null }
 };
 
 function markSourceFailed(source, reason, statusCode, contentType) {
@@ -90,7 +100,7 @@ function markSourceFailed(source, reason, statusCode, contentType) {
   _sourceHealth[source].lastError = reason;
   _sourceHealth[source].lastStatusCode = statusCode || null;
   _sourceHealth[source].lastContentType = contentType || null;
-  console.error(`[COREY-CALENDAR] source ${source} FAILED status:${statusCode || 'n/a'} content-type:${contentType || 'n/a'} reason:${reason}`);
+  console.error(`[COREY-CALENDAR] source=${source} status=FAILED http=${statusCode || 'n/a'} content-type=${contentType || 'n/a'} reason=${reason}`);
 }
 
 function markSourceOk(source, count, statusCode, contentType) {
@@ -100,7 +110,23 @@ function markSourceOk(source, count, statusCode, contentType) {
   _sourceHealth[source].lastError = null;
   _sourceHealth[source].lastStatusCode = statusCode || 200;
   _sourceHealth[source].lastContentType = contentType || null;
-  console.log(`[COREY-CALENDAR] source ${source} OK status:${statusCode} content-type:${contentType} count:${count}`);
+  console.log(`[COREY-CALENDAR] source=${source} status=${statusCode || 200} content-type=${contentType || 'n/a'} events=${count} health=ok`);
+}
+
+/* [COREY-CALENDAR] Phase 2 A2a — Nathan's health rule. A source that returns
+   HTTP 200 JSON but produces zero events after normalisation is NOT healthy
+   for source_used purposes. Distinguished from 'failed' so downstream can see
+   that the upstream is reachable but not carrying events for the active
+   window/countries — a data-quality signal, not a transport failure. */
+function markSourceNonProductive(source, reason, statusCode, contentType, rawCount) {
+  _sourceHealth[source].status = 'nonproductive';
+  _sourceHealth[source].lastFetched = Date.now();
+  _sourceHealth[source].lastCount = 0;
+  if (_sourceHealth[source].rawCount !== undefined) _sourceHealth[source].rawCount = rawCount || 0;
+  _sourceHealth[source].lastError = reason;
+  _sourceHealth[source].lastStatusCode = statusCode || 200;
+  _sourceHealth[source].lastContentType = contentType || null;
+  console.warn(`[COREY-CALENDAR] source=${source} status=${statusCode || 200} content-type=${contentType || 'n/a'} events=0 raw=${rawCount || 0} health=nonproductive reason=${reason}`);
 }
 
 // ── FEED 1: TRADINGVIEW ECONOMIC CALENDAR ────────────────────
@@ -109,21 +135,24 @@ async function fetchTradingView() {
   const now = new Date();
   const from = now.toISOString().slice(0, 10);
   const to = new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  const countries = 'US,EU,GB,JP,AU,CA,CH,NZ,CN';
   /* [COREY-CALENDAR] Phase 2 A1 — TradingView JSON endpoint is usable only
      when the Origin header is set to a TradingView sub-domain. Without it the
      endpoint serves the Cloudflare HTML block page, which was the root cause
-     of the prior "Unexpected token '<'" parse failure. CN added to the country
-     set per revised source order. TV remains UNOFFICIAL — observed behaviour,
-     not a public contract — so all the existing hard validation stays. */
-  const url = `https://economic-calendar.tradingview.com/events?from=${from}&to=${to}&countries=US,EU,GB,JP,AU,CA,CH,NZ,CN`;
+     of the prior "Unexpected token '<'" parse failure. TV remains UNOFFICIAL —
+     observed behaviour, not a public contract — so all the existing hard
+     validation stays. */
+  const url = `https://economic-calendar.tradingview.com/events?from=${from}&to=${to}&countries=${countries}`;
+  _sourceHealth.tv.lastUrl = url;
+  /* [COREY-CALENDAR] A2a — TV request diagnostic. Logs the exact URL + active
+     params so post-mortem on a zero-count return can check whether the window
+     or country filter is the cause. */
+  console.log(`[COREY-CALENDAR] tv request url=${url} window=${from}..${to} countries=${countries}`);
   let status = null, contentType = null;
   try {
     const resp = await httpGet(url, 12000, { 'Origin': 'https://in.tradingview.com' });
     status = resp.status;
     contentType = resp.contentType;
-    /* [COREY-CALENDAR] hard response-type validation per Phase 2.2 / 2.3.
-       Refuse to parse anything that is not a 2xx JSON response. The previous
-       code blindly fed HTML / 4xx text into JSON.parse. */
     if (status < 200 || status >= 300) {
       markSourceFailed('tv', `non-2xx status: ${status}`, status, contentType);
       return [];
@@ -145,19 +174,35 @@ async function fetchTradingView() {
       markSourceFailed('tv', 'response shape unexpected — no array at .result or top level', status, contentType);
       return [];
     }
-    const events = list
-      .filter(e => (e.importance || 0) >= 2)
-      .map(e => normalizeEvent({
-        source: 'tv',
-        title: e.title || e.indicator || '',
-        currency: mapTVCountry(e.country),
-        scheduled_time: new Date(e.date || e.time).getTime(),
-        impact: e.importance >= 3 ? 'high' : 'medium',
-        expected: e.forecast != null ? String(e.forecast) : null,
-        previous: e.previous != null ? String(e.previous) : null,
-        actual:   e.actual   != null ? String(e.actual)   : null
-      }));
-    markSourceOk('tv', events.length, status, contentType);
+    /* [COREY-CALENDAR] A2a — zero-count diagnostic per Nathan's health rule.
+       Log raw count (before any filter), the importance filter count, and the
+       final normalised count. If the normalised count is zero, mark the source
+       nonproductive — a 200 with zero events is NOT healthy. */
+    const rawCount = list.length;
+    const filteredByImportance = list.filter(e => (e.importance || 0) >= 2);
+    const postFilterCount = filteredByImportance.length;
+    const events = filteredByImportance.map(e => normalizeEvent({
+      source: 'tv',
+      id: e.id != null ? `tv-${e.id}` : null,
+      title: e.title || e.indicator || '',
+      country: (e.country || '').toUpperCase(),
+      currency: mapTVCountry(e.country),
+      scheduled_time: new Date(e.date || e.time).getTime(),
+      impact: e.importance >= 3 ? 'high' : 'medium',
+      expected: e.forecast != null ? String(e.forecast) : null,
+      previous: e.previous != null ? String(e.previous) : null,
+      actual:   e.actual   != null ? String(e.actual)   : null,
+      ticker:   e.ticker || null,
+      comment:  e.comment || null
+    }));
+    const normalizedCount = events.length;
+    console.log(`[COREY-CALENDAR] tv diagnostic raw=${rawCount} after-importance-filter=${postFilterCount} normalized=${normalizedCount}`);
+    if (normalizedCount === 0) {
+      markSourceNonProductive('tv', `raw=${rawCount} postFilter=${postFilterCount} — endpoint reachable but zero events in active window/countries`, status, contentType, rawCount);
+      return [];
+    }
+    markSourceOk('tv', normalizedCount, status, contentType);
+    _sourceHealth.tv.rawCount = rawCount;
     return events;
   } catch (e) {
     markSourceFailed('tv', e.message || String(e), status, contentType);
@@ -170,63 +215,100 @@ function mapTVCountry(c) {
   return m[(c || '').toUpperCase()] || 'USD';
 }
 
-// ── FEED 2: FOREX FACTORY (JSON via faireconomy.media) ───────
-// The legacy ff_calendar_thisweek.xml endpoint at forexfactory.com is defunct
-// (returned 0 events for weeks per production logs). The JSON feed at
-// nfs.faireconomy.media/ff_calendar_thisweek.json is the canonical free
-// retail FF calendar feed and is the same one the dashboard frontend
-// (echarts.min.js/data-feed.js) already consumes successfully.
+// ── FEED 2: TRADING ECONOMICS (env-gated, optional fallback) ─
+// Middle tier between TradingView (primary) and the degraded-mode
+// internal cadence fallback. Activated only when process.env
+// .TRADING_ECONOMICS_KEY is set. Free tier is email-only signup; no
+// card required. When the key is unset, this path logs te:skipped
+// and returns an empty array. Future env add activates the path
+// with zero code change.
+//
+// Endpoint shape (per TE docs):
+//   https://api.tradingeconomics.com/calendar?c=<KEY>
+//     &country=united states,euro area,united kingdom,japan,...
+//     &importance=2,3&format=json
+// Response: top-level array of { Date, Country, Currency, Event,
+//   Reference, Source, Actual, Previous, Forecast, Importance, ... }
 
-async function fetchForexFactory() {
-  const url = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json';
+const TE_COUNTRY_MAP = {
+  US: 'united states', EU: 'euro area',     GB: 'united kingdom',
+  JP: 'japan',         AU: 'australia',     CA: 'canada',
+  CH: 'switzerland',   NZ: 'new zealand',   CN: 'china'
+};
+const TE_CCY_MAP = {
+  'united states':   'USD', 'euro area':      'EUR',
+  'united kingdom':  'GBP', 'japan':          'JPY',
+  'australia':       'AUD', 'canada':         'CAD',
+  'switzerland':     'CHF', 'new zealand':    'NZD',
+  'china':           'CNY'
+};
+
+async function fetchTradingEconomics() {
+  const key = process.env.TRADING_ECONOMICS_KEY;
+  if (!key) {
+    /* [COREY-CALENDAR] te skipped — no TRADING_ECONOMICS_KEY env var.
+       The path is wired and validated; set the env var on Render to
+       activate without any code change. */
+    _sourceHealth.te.status = 'skipped';
+    _sourceHealth.te.lastFetched = Date.now();
+    _sourceHealth.te.lastCount = 0;
+    _sourceHealth.te.lastError = 'TRADING_ECONOMICS_KEY not set';
+    console.log('[COREY-CALENDAR] source=te status=skipped events=0 reason=TRADING_ECONOMICS_KEY not set');
+    return [];
+  }
+
+  const countries = Object.values(TE_COUNTRY_MAP).join(',');
+  const url = `https://api.tradingeconomics.com/calendar?c=${encodeURIComponent(key)}&country=${encodeURIComponent(countries)}&importance=2,3&format=json`;
   let status = null, contentType = null;
   try {
     const resp = await httpGet(url);
-    status = resp.status;
-    contentType = resp.contentType;
+    status = resp.status; contentType = resp.contentType;
     if (status < 200 || status >= 300) {
-      markSourceFailed('ff', `non-2xx status: ${status}`, status, contentType);
+      markSourceFailed('te', `non-2xx status: ${status}`, status, contentType);
       return [];
     }
-    /* [COREY-CALENDAR] FF JSON feed sometimes serves application/octet-stream
-       or text/plain depending on edge cache. Accept any of those if the body
-       parses as a JSON array — but reject HTML outright. */
-    if (/text\/html/i.test(contentType || '')) {
+    if (!/application\/json|text\/json/i.test(contentType || '')) {
       const preview = (resp.body || '').slice(0, 80).replace(/\s+/g, ' ');
-      markSourceFailed('ff', `HTML content-type — body preview: ${preview}`, status, contentType);
+      markSourceFailed('te', `non-JSON content-type — body preview: ${preview}`, status, contentType);
       return [];
     }
     let raw;
     try { raw = JSON.parse(resp.body); }
     catch (parseErr) {
       const preview = (resp.body || '').slice(0, 80).replace(/\s+/g, ' ');
-      markSourceFailed('ff', `JSON parse error: ${parseErr.message} — body preview: ${preview}`, status, contentType);
+      markSourceFailed('te', `JSON parse error: ${parseErr.message} — body preview: ${preview}`, status, contentType);
       return [];
     }
     if (!Array.isArray(raw)) {
-      markSourceFailed('ff', 'response shape unexpected — top level is not an array', status, contentType);
+      markSourceFailed('te', 'response shape unexpected — top level is not an array', status, contentType);
       return [];
     }
     const events = raw
-      .filter(e => e && (e.impact === 'High' || e.impact === 'Medium'))
       .map(e => {
-        const t = e.date ? Date.parse(e.date) : NaN;
+        const t = e.Date ? Date.parse(e.Date) : NaN;
+        const importance = Number(e.Importance || 0);
+        const country = (e.Country || '').toLowerCase();
+        const currency = e.Currency || TE_CCY_MAP[country] || 'USD';
         return normalizeEvent({
-          source: 'ff',
-          title: e.title || '',
-          currency: (e.country || 'USD').toUpperCase(),
+          source: 'te',
+          id: e.CalendarId != null ? `te-${e.CalendarId}` : null,
+          title: e.Event || '',
+          country,
+          currency,
           scheduled_time: isFinite(t) ? t : null,
-          impact: e.impact === 'High' ? 'high' : 'medium',
-          expected: (e.forecast != null && e.forecast !== '') ? String(e.forecast) : null,
-          previous: (e.previous != null && e.previous !== '') ? String(e.previous) : null,
-          actual:   null
+          impact: importance >= 3 ? 'high' : importance >= 2 ? 'medium' : 'low',
+          expected: e.Forecast != null && e.Forecast !== '' ? String(e.Forecast) : null,
+          previous: e.Previous != null && e.Previous !== '' ? String(e.Previous) : null,
+          actual:   e.Actual   != null && e.Actual   !== '' ? String(e.Actual)   : null,
+          ticker:   e.Ticker || null,
+          comment:  e.Reference || null
         });
       })
-      .filter(e => e.scheduled_time != null);
-    markSourceOk('ff', events.length, status, contentType);
+      .filter(e => e.scheduled_time != null && e.impact !== 'low');
+    markSourceOk('te', events.length, status, contentType);
     return events;
   } catch (e) {
-    markSourceFailed('ff', e.message || String(e), status, contentType);
+    markSourceFailed('te', e.message || String(e), status, contentType);
     return [];
   }
 }
@@ -265,22 +347,26 @@ function normalizeEvent(e) {
   const directional_bias_note = buildBiasNote(type, e.currency);
   const volatility_note = buildVolNote(type, e.currency);
   return {
-    /* spec 2.5 canonical fields */
+    /* spec 2.5 canonical fields (revised Phase 2 — adds id/country/ticker/comment) */
+    id: e.id != null ? e.id : null,
     title: e.title || '',
+    country: e.country || null,
     currency: e.currency || 'USD',
     impact: e.impact,
     scheduled_time: e.scheduled_time,
-    expected: e.expected != null ? e.expected : null,
+    actual: e.actual != null ? e.actual : null,
     previous: e.previous != null ? e.previous : null,
+    forecast: e.expected != null ? e.expected : null,
     source: e.source,
+    ticker: e.ticker != null ? e.ticker : null,
+    comment: e.comment != null ? e.comment : null,
     directional_bias_note,
     volatility_note,
-    /* operational field — kept outside the spec list because consumers need it */
-    actual: e.actual != null ? e.actual : null,
-    /* back-compat aliases (legacy field names used by getCalendarBias et al) */
+    /* back-compat aliases (legacy field names used by getCalendarBias /
+       getEventIntelligence / getUpcomingEvents before the shape revision) */
     time: e.scheduled_time,
     importance: e.impact,
-    forecast: e.expected != null ? e.expected : null
+    expected: e.expected != null ? e.expected : null
   };
 }
 
@@ -318,13 +404,20 @@ function isActiveSession() {
 async function refreshCalendar() {
   console.log('[COREY-CALENDAR] Refreshing...');
   try {
-    const [tv, ff] = await Promise.all([fetchTradingView(), fetchForexFactory()]);
-    _calendar = deduplicateEvents(tv, ff);
+    /* [COREY-CALENDAR] A2a — FF dropped entirely. Primary = TV, middle tier =
+       TE (env-gated; returns [] and logs 'te:skipped' when key unset). The
+       degraded-mode fallback + source_used/calendar_mode logic lands in A2b —
+       until then the refresh merges whichever of TV / TE produced events,
+       and available is true iff either source is 'ok'. With the revised
+       health rule, TV health='nonproductive' (200 JSON but 0 events) does
+       NOT count as ok — so available will be false if TV returns 0 and TE
+       is skipped, which is the honest state until A2b's degraded-mode
+       generator lands. */
+    const [tv, te] = await Promise.all([fetchTradingView(), fetchTradingEconomics()]);
+    _calendar = deduplicateEvents(tv, te);
     _lastRefresh = Date.now();
-    /* [COREY-CALENDAR] Phase 2.6 — explicit per-source health line so the
-       refresh log distinguishes "feed dead" from "feed alive but quiet". */
-    const tvH = _sourceHealth.tv, ffH = _sourceHealth.ff;
-    console.log(`[COREY-CALENDAR] Loaded ${_calendar.length} events | TV:${tv.length}(${tvH.status}) FF:${ff.length}(${ffH.status}) | available:${getCalendarHealth().available}`);
+    const tvH = _sourceHealth.tv, teH = _sourceHealth.te;
+    console.log(`[COREY-CALENDAR] refresh summary tv=${tv.length}(${tvH.status}) te=${te.length}(${teH.status}) merged=${_calendar.length} available=${getCalendarHealth().available}`);
   } catch (e) {
     console.error('[COREY-CALENDAR] Refresh error:', e.message);
   }
@@ -405,12 +498,13 @@ function getEventIntelligence(symbol) {
      which silently presents calm conditions despite the feed outage. */
   const health = getCalendarHealth();
   if (!health.available) {
-    const tv = _sourceHealth.tv, ff = _sourceHealth.ff;
+    const tv = _sourceHealth.tv, te = _sourceHealth.te, degraded = _sourceHealth.degraded;
     return [
       '**📅 ECONOMIC CALENDAR — FEEDS UNAVAILABLE**',
       '',
-      `TradingView: ${tv.status} (status:${tv.lastStatusCode || 'n/a'} content-type:${tv.lastContentType || 'n/a'}) — ${tv.lastError || 'unknown'}`,
-      `ForexFactory: ${ff.status} (status:${ff.lastStatusCode || 'n/a'} content-type:${ff.lastContentType || 'n/a'}) — ${ff.lastError || 'unknown'}`,
+      `TradingView:       ${tv.status} (http:${tv.lastStatusCode || 'n/a'} content-type:${tv.lastContentType || 'n/a'}) — ${tv.lastError || 'unknown'}`,
+      `Trading Economics: ${te.status} (http:${te.lastStatusCode || 'n/a'} content-type:${te.lastContentType || 'n/a'}) — ${te.lastError || 'unknown'}`,
+      `Degraded fallback: ${degraded.status} (events:${degraded.lastCount || 0}) — ${degraded.lastError || (degraded.status === 'unknown' ? 'not yet fired' : 'n/a')}`,
       '',
       'Event intelligence cannot be computed for this window. Treat the absence of catalysts as unknown, not as a calm period — reduce conviction accordingly.'
     ].join('\n');
@@ -449,21 +543,24 @@ function getNextHighImpact() {
   return _calendar.find(e => e.impact === 'high' && e.scheduled_time > now) || null;
 }
 
-/* [COREY-CALENDAR] Phase 2.6 / 2.7 — public health surface. `available` is
-   true iff at least one source has an `ok` status from its last fetch. The
-   shape mirrors the spec: events[] (full current cache), source health, last
-   updated timestamp. Downstream consumers (Jane validity, Dark Horse) check
-   `available` and `sources` to gate their own outputs. */
+/* [COREY-CALENDAR] Phase 2 A2a — public health surface. `available` is true
+   iff at least one of tv / te / degraded reached status 'ok' or 'active'.
+   Per Nathan's health rule, tv='nonproductive' (200 JSON with 0 events)
+   does NOT count as available. No ff key in the surface — FF is gone. The
+   'degraded' source is reserved for A2b's emergency fallback generator;
+   until A2b lands its status stays 'unknown' and does not contribute. */
 function getCalendarHealth() {
-  const tv = _sourceHealth.tv, ff = _sourceHealth.ff;
-  const available = tv.status === 'ok' || ff.status === 'ok';
+  const tv = _sourceHealth.tv, te = _sourceHealth.te, degraded = _sourceHealth.degraded;
+  const isProductive = s => s.status === 'ok' || s.status === 'active';
+  const available = isProductive(tv) || isProductive(te) || isProductive(degraded);
   return {
     available,
     lastUpdated: _lastRefresh,
     eventCount: _calendar.length,
-    sources: {
-      tv: { ...tv },
-      ff: { ...ff }
+    source_health: {
+      tv:       { ...tv },
+      te:       { ...te },
+      degraded: { ...degraded }
     }
   };
 }
