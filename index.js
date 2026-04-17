@@ -469,7 +469,9 @@ client.on('messageCreate', async (msg) => {
   try {
     if (msg.author.bot) return;
     if (!msg.content.startsWith('!')) return;
-    const raw = resolveSymbol(msg.content.slice(1).trim());
+    const userInput = msg.content.slice(1).trim();
+    const raw = resolveSymbol(userInput);
+    console.log('SYMBOL:', userInput, '→', raw);
     const validation = validateInput('!' + raw);
     if (!validation.valid) return;
     const symbol = validation.symbol;
