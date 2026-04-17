@@ -391,33 +391,207 @@ function normaliseTitle(t) {
   return (t || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 30);
 }
 
-// ── CACHE ────────────────────────────────────────────────────
+// ── CACHE + MODE STATE ───────────────────────────────────────
 
 let _calendar = [];
 let _lastRefresh = 0;
+let _sourceUsed = null;             // 'tradingview' | 'trading_economics' | 'degraded' | null
+let _calendarMode = 'UNKNOWN';      // 'LIVE' | 'FALLBACK' | 'DEGRADED' | 'UNKNOWN'
+const CACHE_TTL_MS = 3600 * 1000;   // 1 hour serve-from-cache guard per spec 2.7
 
 function isActiveSession() {
   const h = new Date().getUTCHours();
   return (h >= 8 && h < 17) || (h >= 13 && h < 22);
 }
 
-async function refreshCalendar() {
+// ── DEGRADED-MODE CADENCE GENERATOR (Phase 2 A2b) ────────────
+//
+// Emergency fallback that produces non-zero events when TV and TE both
+// fail to deliver. Computed from cadence rules, not a static date table:
+//
+//  Monthly (pure day-of-month rules — no anchor):
+//    NFP        — first Friday of month, 12:30 UTC
+//    RBA        — first Tuesday of month except January, 03:30 UTC
+//    US CPI     — second Tuesday of month, 12:30 UTC
+//    EU HICP    — 17th of month, 09:00 UTC (calendar-day approx)
+//    UK CPI     — Wednesday on/after 17th, 06:00 UTC
+//    JP CPI     — last Friday of month, 23:30 UTC
+//
+//  Central banks (interval-from-anchor — anchor needs annual update):
+//    FOMC       — ~49-day cadence
+//    ECB        — ~42-day cadence
+//    BOE MPC    — ~49-day cadence
+//    BOJ        — ~49-day cadence
+//    Each anchor is one published meeting from the current cycle. The
+//    projection rule is "anchor + N * intervalDays for N in [-10..+10]"
+//    intersected with the [now, now+30d] window.
+//
+// All degraded events are marked source='degraded', impact='high',
+// expected/previous/actual=null, comment notes the cadence-rule provenance.
+
+const CB_ANCHORS = {
+  FOMC: { title: 'FOMC Rate Decision',     currency: 'USD', country: 'US', anchor: '2026-04-29T18:00:00Z', intervalDays: 49 },
+  ECB:  { title: 'ECB Rate Decision',      currency: 'EUR', country: 'EU', anchor: '2026-04-16T12:45:00Z', intervalDays: 42 },
+  BOE:  { title: 'BOE MPC Rate Decision',  currency: 'GBP', country: 'GB', anchor: '2026-05-07T11:00:00Z', intervalDays: 49 },
+  BOJ:  { title: 'BOJ Rate Decision',      currency: 'JPY', country: 'JP', anchor: '2026-04-28T03:00:00Z', intervalDays: 49 }
+};
+
+function nthWeekdayOfMonth(year, monthIdx, nth, weekday) {
+  // weekday: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  const first = new Date(Date.UTC(year, monthIdx, 1));
+  const offset = ((weekday - first.getUTCDay() + 7) % 7) + (nth - 1) * 7;
+  return new Date(Date.UTC(year, monthIdx, 1 + offset));
+}
+
+function lastWeekdayOfMonth(year, monthIdx, weekday) {
+  const lastDay = new Date(Date.UTC(year, monthIdx + 1, 0));
+  const diff = (lastDay.getUTCDay() - weekday + 7) % 7;
+  return new Date(Date.UTC(year, monthIdx, lastDay.getUTCDate() - diff));
+}
+
+function generateDegradedEvents() {
+  const now = new Date();
+  const end = new Date(now.getTime() + 30 * 86400000);
+  const buf = [];
+
+  // Iterate over each calendar month touched by the [now, now+30d] window
+  const monthKeys = new Set();
+  for (let t = now.getTime(); t <= end.getTime(); t += 86400000) {
+    const d = new Date(t);
+    monthKeys.add(`${d.getUTCFullYear()}-${d.getUTCMonth()}`);
+  }
+  for (const key of monthKeys) {
+    const [year, monthIdx] = key.split('-').map(Number);
+
+    // NFP — first Friday, 12:30 UTC
+    const nfp = nthWeekdayOfMonth(year, monthIdx, 1, 5);
+    nfp.setUTCHours(12, 30, 0, 0);
+    buf.push({ title: 'US Non-Farm Payrolls',          currency: 'USD', country: 'US', t: nfp.getTime() });
+
+    // RBA — first Tuesday, except January, 03:30 UTC
+    if (monthIdx !== 0) {
+      const rba = nthWeekdayOfMonth(year, monthIdx, 1, 2);
+      rba.setUTCHours(3, 30, 0, 0);
+      buf.push({ title: 'RBA Cash Rate Decision',      currency: 'AUD', country: 'AU', t: rba.getTime() });
+    }
+
+    // US CPI — second Tuesday, 12:30 UTC
+    const uscpi = nthWeekdayOfMonth(year, monthIdx, 2, 2);
+    uscpi.setUTCHours(12, 30, 0, 0);
+    buf.push({ title: 'US Consumer Price Index',       currency: 'USD', country: 'US', t: uscpi.getTime() });
+
+    // EU HICP — 17th of month, 09:00 UTC (Eurostat publishes ~mid-month)
+    const eu = new Date(Date.UTC(year, monthIdx, 17, 9, 0, 0));
+    buf.push({ title: 'Euro Area HICP',                currency: 'EUR', country: 'EU', t: eu.getTime() });
+
+    // UK CPI — Wednesday on/after 17th, 06:00 UTC
+    const baseline = new Date(Date.UTC(year, monthIdx, 17));
+    const wedDelta = (3 - baseline.getUTCDay() + 7) % 7;
+    const uk = new Date(Date.UTC(year, monthIdx, 17 + wedDelta, 6, 0, 0));
+    buf.push({ title: 'UK Consumer Price Index',       currency: 'GBP', country: 'GB', t: uk.getTime() });
+
+    // JP CPI — last Friday, 23:30 UTC
+    const jp = lastWeekdayOfMonth(year, monthIdx, 5);
+    jp.setUTCHours(23, 30, 0, 0);
+    buf.push({ title: 'Japan Consumer Price Index',    currency: 'JPY', country: 'JP', t: jp.getTime() });
+  }
+
+  // Central banks — interval-from-anchor projection
+  for (const spec of Object.values(CB_ANCHORS)) {
+    const anchor = Date.parse(spec.anchor);
+    const intervalMs = spec.intervalDays * 86400000;
+    for (let i = -10; i <= 10; i++) {
+      const t = anchor + i * intervalMs;
+      if (t >= now.getTime() && t <= end.getTime()) {
+        buf.push({ title: spec.title, currency: spec.currency, country: spec.country, t });
+      }
+    }
+  }
+
+  // Window filter + normalize
+  const result = buf
+    .filter(e => e.t >= now.getTime() && e.t <= end.getTime())
+    .sort((a, b) => a.t - b.t)
+    .map((e, i) => normalizeEvent({
+      source: 'degraded',
+      id: `degraded-${e.currency}-${new Date(e.t).toISOString().slice(0, 10)}-${i}`,
+      title: e.title,
+      country: e.country,
+      currency: e.currency,
+      scheduled_time: e.t,
+      impact: 'high',
+      expected: null,
+      previous: null,
+      actual:   null,
+      ticker:   null,
+      comment:  'degraded mode — scheduled from cadence rules, not live data'
+    }));
+
+  // Update health surface
+  _sourceHealth.degraded.lastFetched = Date.now();
+  _sourceHealth.degraded.lastCount = result.length;
+  if (result.length > 0) {
+    _sourceHealth.degraded.status = 'active';
+    _sourceHealth.degraded.lastError = null;
+  } else {
+    _sourceHealth.degraded.status = 'failed';
+    _sourceHealth.degraded.lastError = 'cadence generator produced zero events for the active window';
+  }
+  return result;
+}
+
+async function refreshCalendar(opts) {
+  opts = opts || {};
+  /* [COREY-CALENDAR] A2b — 3600s serve-from-cache guard per spec 2.7. If the
+     cache is younger than CACHE_TTL_MS, skip all external fetches and reuse
+     the in-memory snapshot. Callers that need a forced re-fetch pass
+     { force:true } — auto-refresh tick does not force, so hourly cadence is
+     preserved and the external rate-limit surface is minimised. */
+  const now = Date.now();
+  if (!opts.force && _lastRefresh > 0 && (now - _lastRefresh) < CACHE_TTL_MS) {
+    const ageMin = ((now - _lastRefresh) / 60000).toFixed(1);
+    const ttlMin = (CACHE_TTL_MS / 60000).toFixed(0);
+    console.log(`[COREY-CALENDAR] cache hit age=${ageMin}min ttl=${ttlMin}min events=${_calendar.length} source_used=${_sourceUsed} mode=${_calendarMode}`);
+    return;
+  }
+
   console.log('[COREY-CALENDAR] Refreshing...');
   try {
-    /* [COREY-CALENDAR] A2a — FF dropped entirely. Primary = TV, middle tier =
-       TE (env-gated; returns [] and logs 'te:skipped' when key unset). The
-       degraded-mode fallback + source_used/calendar_mode logic lands in A2b —
-       until then the refresh merges whichever of TV / TE produced events,
-       and available is true iff either source is 'ok'. With the revised
-       health rule, TV health='nonproductive' (200 JSON but 0 events) does
-       NOT count as ok — so available will be false if TV returns 0 and TE
-       is skipped, which is the honest state until A2b's degraded-mode
-       generator lands. */
     const [tv, te] = await Promise.all([fetchTradingView(), fetchTradingEconomics()]);
-    _calendar = deduplicateEvents(tv, te);
+
+    /* [COREY-CALENDAR] A2b — TV → TE → degraded fall-through per spec.
+       A source counts as productive iff it returned events.length > 0 AND
+       its health status is 'ok'. tv='nonproductive' (200 with zero events)
+       triggers TE, which on zero triggers degraded. */
+    let events, source_used, calendar_mode;
+    if (tv.length > 0 && _sourceHealth.tv.status === 'ok') {
+      events = tv;
+      source_used = 'tradingview';
+      calendar_mode = 'LIVE';
+      _sourceHealth.degraded.status = 'standby';
+      _sourceHealth.degraded.lastError = null;
+    } else if (te.length > 0 && _sourceHealth.te.status === 'ok') {
+      events = te;
+      source_used = 'trading_economics';
+      calendar_mode = 'FALLBACK';
+      _sourceHealth.degraded.status = 'standby';
+      _sourceHealth.degraded.lastError = null;
+    } else {
+      events = generateDegradedEvents();
+      source_used = 'degraded';
+      calendar_mode = 'DEGRADED';
+      /* degraded.status is set by the generator to 'active' or 'failed' */
+      console.log(`[COREY-CALENDAR] all sources exhausted → mode=DEGRADED events=${events.length}`);
+    }
+
+    _calendar = events;
+    _sourceUsed = source_used;
+    _calendarMode = calendar_mode;
     _lastRefresh = Date.now();
-    const tvH = _sourceHealth.tv, teH = _sourceHealth.te;
-    console.log(`[COREY-CALENDAR] refresh summary tv=${tv.length}(${tvH.status}) te=${te.length}(${teH.status}) merged=${_calendar.length} available=${getCalendarHealth().available}`);
+
+    const tvH = _sourceHealth.tv, teH = _sourceHealth.te, dgH = _sourceHealth.degraded;
+    const available = getCalendarHealth().available;
+    console.log(`[COREY-CALENDAR] refresh summary tv=${tv.length}(${tvH.status}) te=${te.length}(${teH.status}) degraded=${dgH.lastCount || 0}(${dgH.status}) merged=${_calendar.length} source_used=${source_used} mode=${calendar_mode} available=${available}`);
   } catch (e) {
     console.error('[COREY-CALENDAR] Refresh error:', e.message);
   }
@@ -552,11 +726,18 @@ function getNextHighImpact() {
 function getCalendarHealth() {
   const tv = _sourceHealth.tv, te = _sourceHealth.te, degraded = _sourceHealth.degraded;
   const isProductive = s => s.status === 'ok' || s.status === 'active';
-  const available = isProductive(tv) || isProductive(te) || isProductive(degraded);
+  const available = _calendar.length > 0 && (
+    (_sourceUsed === 'tradingview'       && isProductive(tv)) ||
+    (_sourceUsed === 'trading_economics' && isProductive(te)) ||
+    (_sourceUsed === 'degraded'          && isProductive(degraded))
+  );
   return {
     available,
-    lastUpdated: _lastRefresh,
-    eventCount: _calendar.length,
+    source_used:   _sourceUsed,
+    calendar_mode: _calendarMode,
+    last_updated:  _lastRefresh ? new Date(_lastRefresh).toISOString() : null,
+    lastUpdated:   _lastRefresh,                  // back-compat for existing consumers
+    eventCount:    _calendar.length,
     source_health: {
       tv:       { ...tv },
       te:       { ...te },
