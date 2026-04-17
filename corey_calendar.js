@@ -57,10 +57,11 @@ function matchEventType(title) {
    caller can validate the response before attempting to parse. The previous
    shape ({ body }) silently fed HTML / 4xx text into JSON.parse and produced
    the "Unexpected token '<'" failure pattern observed in production logs. */
-function httpGet(urlStr, timeout = 12000) {
+function httpGet(urlStr, timeout = 12000, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(urlStr);
-    const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET', timeout, headers: { 'User-Agent': 'ATLAS-FX/4.0', 'Accept': 'application/json' } }, res => {
+    const headers = Object.assign({ 'User-Agent': 'ATLAS-FX/4.0', 'Accept': 'application/json' }, extraHeaders);
+    const req = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET', timeout, headers }, res => {
       let data = ''; res.on('data', c => data += c);
       res.on('end', () => resolve({
         status: res.statusCode,
@@ -108,10 +109,16 @@ async function fetchTradingView() {
   const now = new Date();
   const from = now.toISOString().slice(0, 10);
   const to = new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10);
-  const url = `https://economic-calendar.tradingview.com/events?from=${from}&to=${to}&countries=US,EU,GB,JP,AU,NZ,CA,CH`;
+  /* [COREY-CALENDAR] Phase 2 A1 — TradingView JSON endpoint is usable only
+     when the Origin header is set to a TradingView sub-domain. Without it the
+     endpoint serves the Cloudflare HTML block page, which was the root cause
+     of the prior "Unexpected token '<'" parse failure. CN added to the country
+     set per revised source order. TV remains UNOFFICIAL — observed behaviour,
+     not a public contract — so all the existing hard validation stays. */
+  const url = `https://economic-calendar.tradingview.com/events?from=${from}&to=${to}&countries=US,EU,GB,JP,AU,CA,CH,NZ,CN`;
   let status = null, contentType = null;
   try {
-    const resp = await httpGet(url);
+    const resp = await httpGet(url, 12000, { 'Origin': 'https://in.tradingview.com' });
     status = resp.status;
     contentType = resp.contentType;
     /* [COREY-CALENDAR] hard response-type validation per Phase 2.2 / 2.3.
