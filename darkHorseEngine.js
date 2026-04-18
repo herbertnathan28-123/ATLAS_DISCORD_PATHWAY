@@ -3,7 +3,7 @@
 // ATLAS FX — DARK HORSE ENGINE v2.0
 // Scan layer only. No trades. No execution. No Jane bypass.
 // Flow: DarkHorse → FX Bot → Corey → Spidey → Jane
-// Crypto permanently excluded per ATLAS FX doctrine.
+// Unsupported instruments permanently excluded per ATLAS FX doctrine.
 // Output: single strongest trending instrument per scan.
 // ============================================================
 
@@ -11,7 +11,7 @@ const https = require('https');
 
 // ── UNIVERSE ──────────────────────────────────────────────────
 // Full institutional universe — FX, indices, equities, commodities
-// Crypto excluded permanently — zero exceptions
+// Unsupported instrument classes excluded permanently — zero exceptions
 const DEFAULT_UNIVERSE = [
   // FX Majors
   'EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','USDCHF','NZDUSD',
@@ -32,16 +32,16 @@ const DEFAULT_UNIVERSE = [
 
 const DH_UNIVERSE = DEFAULT_UNIVERSE;
 
-// Crypto exclusion filter — applied before every scan
-const CRYPTO_BANNED = new Set([
+// Policy-rejected instrument filter — applied before every scan
+const POLICY_REJECTED_TERMS = new Set([
   'BTC','ETH','XRP','SOL','DOGE','ADA','BNB','DOT','MATIC','AVAX',
   'LINK','LTC','BCH','XLM','ALGO','ATOM','VET','ICP','USDT','USDC',
-  'SHIB','PEPE','BITCOIN','ETHEREUM','CRYPTO',
+  'SHIB','PEPE','BITCOIN','ETHEREUM',
 ]);
 
-function isCryptoBanned(symbol) {
+function isPolicyRejected(symbol) {
   const s = symbol.toUpperCase();
-  for (const kw of CRYPTO_BANNED) {
+  for (const kw of POLICY_REJECTED_TERMS) {
     if (s.includes(kw)) return true;
   }
   return false;
@@ -270,8 +270,8 @@ function scoreContinuation(htfCandles, ltfCandles) {
 // SCORE SINGLE INSTRUMENT
 // ============================================================
 async function scoreInstrument(symbol) {
-  if (isCryptoBanned(symbol)) {
-    dhLog('WARN', `${symbol} — CRYPTO BANNED, skipping`);
+  if (isPolicyRejected(symbol)) {
+    dhLog('WARN', `${symbol} — POLICY_REJECTED, skipping`);
     return null;
   }
 
@@ -431,9 +431,9 @@ async function runDarkHorseScan(universe) {
     return { watch: [], internal: [], ignored: [], scannedAt: new Date().toISOString(), skipped: true };
   }
 
-  // Apply crypto ban to universe
+  // Apply policy-rejected filter to universe
   const symbols = ((universe && universe.length) ? universe : DH_UNIVERSE)
-    .filter(s => !isCryptoBanned(s));
+    .filter(s => !isPolicyRejected(s));
 
   dhLog('INFO', `━━━ Scan START — ${symbols.length} instruments ━━━`);
 
