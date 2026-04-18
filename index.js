@@ -13,7 +13,7 @@ const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,Attach
 
 const { renderAllPanels } = require('./renderer');
 const sharp=require('sharp');
-const crypto=require('crypto');
+const {createHmac}=require('crypto');
 const fs=require('fs');
 const https=require('https');
 const http=require('http');
@@ -50,7 +50,44 @@ const ATLAS_SIGNATURE_ENABLED=process.env.ATLAS_SIGNATURE_ENABLED==='true';
 const AUTH_AVAILABLE=!!(ATLAS_INSTANCE_ID&&ATLAS_SIGNING_SECRET);
 if(AUTH_AVAILABLE){console.log(`[BOOT] AUTH: VERIFIED — instance:${ATLAS_INSTANCE_ID} sig:${ATLAS_SIGNATURE_ENABLED} watermark:${ATLAS_WATERMARK_ENABLED}`);}
 else{console.log('[BOOT] AUTH: UNVERIFIED — auth env vars absent. TRADE PERMITTED permanently blocked.');}
-function generateSignature(payload){if(!AUTH_AVAILABLE||!ATLAS_SIGNATURE_ENABLED)return null;return crypto.createHmac('sha256',ATLAS_SIGNING_SECRET).update(payload).digest('hex').slice(0,12).toUpperCase();}
+function generateSignature(payload){if(!AUTH_AVAILABLE||!ATLAS_SIGNATURE_ENABLED)return null;return createHmac('sha256',ATLAS_SIGNING_SECRET).update(payload).digest('hex').slice(0,12).toUpperCase();}
+
+const AUDIT_LOG_WEBHOOK_URL=process.env.AUDIT_LOG_WEBHOOK_URL||null;
+if(!AUDIT_LOG_WEBHOOK_URL)console.log('[AUDIT-LOG] webhook URL not set — audit logging disabled');
+function postAudit(payload){
+  if(!AUDIT_LOG_WEBHOOK_URL)return;
+  setImmediate(()=>{
+    try{
+      const colorMap={served:0x00FF5A,policy_rejected:0xFF9100,unavailable:0xFF0015};
+      const embed={
+        title:`ATLAS Symbol Audit — ${payload.outcome}`,
+        color:colorMap[payload.outcome]||0x888888,
+        timestamp:payload.timestamp,
+        fields:[
+          {name:'User',value:`${payload.discord_user_display_name||'unknown'} (${payload.discord_user_id})`,inline:true},
+          {name:'Channel',value:`${payload.channel_name||'null'} (${payload.channel_id})`,inline:true},
+          {name:'Raw Input',value:'`'+String(payload.raw_input).slice(0,200)+'`',inline:true},
+          {name:'Resolved Symbol',value:'`'+payload.resolved_symbol+'`',inline:true},
+          {name:'Outcome',value:payload.outcome,inline:true},
+          {name:'Reason',value:payload.reason===null?'—':String(payload.reason),inline:true}
+        ]
+      };
+      const body=JSON.stringify({embeds:[embed]});
+      const u=new URL(AUDIT_LOG_WEBHOOK_URL);
+      const opts={hostname:u.hostname,port:u.port||443,path:u.pathname+u.search,method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body),'User-Agent':'ATLAS-FX/4.0'},timeout:5000};
+      const req=https.request(opts,res=>{
+        res.on('data',()=>{});
+        res.on('end',()=>{if(res.statusCode>=400)console.error(`[AUDIT-LOG] webhook returned HTTP ${res.statusCode}`);});
+      });
+      req.on('error',e=>console.error(`[AUDIT-LOG] request error: ${e.message}`));
+      req.on('timeout',()=>{req.destroy();console.error('[AUDIT-LOG] request timeout');});
+      req.write(body);
+      req.end();
+    }catch(e){
+      console.error(`[AUDIT-LOG] exception: ${e.message}`);
+    }
+  });
+}
 function buildVerificationLine(symbol,timestamp){if(!AUTH_AVAILABLE)return`ATLAS UNVERIFIED • NO AUTH • ${timestamp}`;const sig=generateSignature(`${ATLAS_INSTANCE_ID}:${symbol}:${timestamp}`);return`ATLAS VERIFIED • ${ATLAS_INSTANCE_ID} • ${timestamp} • SIG ${sig||'DISABLED'}`;}
 const isTradePermitAllowed=()=>AUTH_AVAILABLE&&isFullyOperational();
 
@@ -484,6 +521,23 @@ client.on('messageCreate', async (msg) => {
        "silently return as before" behaviour for ping / stats / etc. and
        prevents the hard-fail reply below from triggering on them. */
     if (['ping','stats','errors','sysstate','darkhorse'].includes(userInput.toLowerCase())) return;
+    const normalizedInput = userInput.toUpperCase().trim();
+    const authorName = msg.author.globalName || msg.author.displayName || msg.author.username || null;
+    const channelName = msg.channel && msg.channel.name ? msg.channel.name : null;
+    const auditBase = () => ({
+      timestamp: new Date().toISOString(),
+      discord_user_id: msg.author.id,
+      discord_user_display_name: authorName,
+      channel_id: msg.channelId,
+      channel_name: channelName,
+      raw_input: userInput
+    });
+    if (POLICY_REJECTED_TERMS.has(normalizedInput)) {
+      console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=policy_rejected mapped=${normalizedInput}`);
+      await msg.channel.send({ content: 'Cryptocurrency is not supported on ATLAS. Please search a supported instrument.' });
+      postAudit({ ...auditBase(), resolved_symbol: 'unknown', outcome: 'policy_rejected', reason: 'policy_rejected' });
+      return;
+    }
     const raw = resolveSymbol(userInput);
     const validation = validateInput('!' + raw);
     /* [SYMBOL] Phase 7 partial — hard-fail on unresolvable symbols per spec
@@ -492,7 +546,7 @@ client.on('messageCreate', async (msg) => {
        unknown_instrument; (2) validation passes but isResolvableSymbol
        returns false (catches the inferAssetClass /^[A-Z]{1,5}$/ catch-all
        and the 6-char unknown_instrument loophole that previously let HGUSD
-       and XYZ123 through). Operational reasons (ops, extra_tokens, crypto,
+       and XYZ123 through). Operational reasons (ops, extra_tokens,
        direction_term, generic_name) silently return as before — they are
        not symbol-resolution attempts. Every code path emits one [SYMBOL]
        line so future regressions are visible in logs. */
@@ -500,6 +554,7 @@ client.on('messageCreate', async (msg) => {
       if (validation.reason === 'format' || validation.reason === 'unknown_instrument') {
         console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=${validation.reason}`);
         await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
+        postAudit({ ...auditBase(), resolved_symbol: 'unknown', outcome: 'unavailable', reason: validation.reason });
       }
       return;
     }
@@ -507,9 +562,11 @@ client.on('messageCreate', async (msg) => {
     if (!isResolvableSymbol(symbol)) {
       console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=not_in_allowlist mapped=${symbol}`);
       await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
+      postAudit({ ...auditBase(), resolved_symbol: 'unknown', outcome: 'unavailable', reason: 'not_in_allowlist' });
       return;
     }
     console.log(`[SYMBOL] raw=${userInput} resolved=${symbol} outcome=served`);
+    postAudit({ ...auditBase(), resolved_symbol: symbol, outcome: 'served', reason: null });
     const USER_BY_ID = {
       '690861328507731978':  'AT', // AT (atlas.4693)
       '1431173502161129555': 'NM', // NM (Nathan McKay)
@@ -652,12 +709,12 @@ function getTVSymbol(s){if(SYMBOL_OVERRIDES[s])return SYMBOL_OVERRIDES[s];if(/^[
 function getFeedName(s){const f=getTVSymbol(s).split(':')[0];return{OANDA:'OANDA',NASDAQ:'NASDAQ',NYSE:'NYSE',NYMEX:'NYMEX',TVC:'TVC'}[f]||f;}
 const log=(level,msg,...a)=>console.log(`[${new Date().toISOString()}] [${level}] ${msg}`,...a);
 
-const CRYPTO_KW=new Set(['BTC','ETH','XRP','SOL','DOGE','ADA','BNB','DOT','MATIC','AVAX','LINK','LTC','BCH','XLM','ALGO','ATOM','VET','ICP','BITCOIN','ETHEREUM','CRYPTO','USDT','USDC','SHIB','PEPE']);
+const POLICY_REJECTED_TERMS=new Set(['BTC','ETH','XRP','DOGE','ADA','SOL','DOT','AVAX','MATIC','LINK','LTC','BCH','XLM','ATOM','ALGO','BITCOIN','ETHEREUM']);
 const REJECTED_TERMS=new Set(['LH','HL','HH','LL','BUY','SELL','BULLISH','BEARISH','LONG','SHORT','MACRO','UP','DOWN','CALL','PUT','H','L']);
 const REJECTED_GENERIC=new Set([]);
 const SYMBOL_ALIASES={SILVER:'XAGUSD',XAG:'XAGUSD',GOLD:'XAUUSD',XAU:'XAUUSD',NASDAQ:'NAS100',NDX:'NAS100',NAS:'NAS100',SP500:'US500',SPX:'US500',DOW:'US30',DJI:'US30',DAX:'GER40',FTSE:'UK100',OIL:'USOIL',BRENT:'BCOUSD',WTI:'USOIL',GAS:'NATGAS',MICRON:'MU',ASML:'ASML',AMD:'AMD'};
 function resolveSymbol(s){if(!s)return s;const up=s.toUpperCase().trim();return SYMBOL_ALIASES[up]||up;}
-function validateInput(raw){const t=(raw||'').trim();if(!t.startsWith('!'))return{valid:false,reason:'no_prefix'};const content=t.slice(1).trim();const tokens=content.split(/\s+/);if(tokens[0]==='ping')return{valid:false,reason:'ops',op:'ping'};if(tokens[0]==='stats')return{valid:false,reason:'ops',op:'stats'};if(tokens[0]==='errors')return{valid:false,reason:'ops',op:'errors'};if(tokens[0]==='sysstate')return{valid:false,reason:'ops',op:'sysstate'};if(tokens[0]==='darkhorse')return{valid:false,reason:'ops',op:'darkhorse'};if(tokens.length>1)return{valid:false,reason:'extra_tokens'};const sym=tokens[0].toUpperCase();if(CRYPTO_KW.has(sym)||sym.endsWith('USDT')||sym.endsWith('USDC')||sym.startsWith('BTC'))return{valid:false,reason:'crypto'};if(REJECTED_TERMS.has(sym))return{valid:false,reason:'direction_term'};if(REJECTED_GENERIC.has(sym))return{valid:false,reason:'generic_name'};if(!/^[A-Z0-9]{2,10}$/.test(sym))return{valid:false,reason:'format'};const ac=inferAssetClass(sym);if(ac===ASSET_CLASS.UNKNOWN&&!isFxPair(sym)&&sym.length!==6)return{valid:false,reason:'unknown_instrument'};return{valid:true,symbol:sym};}
+function validateInput(raw){const t=(raw||'').trim();if(!t.startsWith('!'))return{valid:false,reason:'no_prefix'};const content=t.slice(1).trim();const tokens=content.split(/\s+/);if(tokens[0]==='ping')return{valid:false,reason:'ops',op:'ping'};if(tokens[0]==='stats')return{valid:false,reason:'ops',op:'stats'};if(tokens[0]==='errors')return{valid:false,reason:'ops',op:'errors'};if(tokens[0]==='sysstate')return{valid:false,reason:'ops',op:'sysstate'};if(tokens[0]==='darkhorse')return{valid:false,reason:'ops',op:'darkhorse'};if(tokens.length>1)return{valid:false,reason:'extra_tokens'};const sym=tokens[0].toUpperCase();if(REJECTED_TERMS.has(sym))return{valid:false,reason:'direction_term'};if(REJECTED_GENERIC.has(sym))return{valid:false,reason:'generic_name'};if(!/^[A-Z0-9]{2,10}$/.test(sym))return{valid:false,reason:'format'};const ac=inferAssetClass(sym);if(ac===ASSET_CLASS.UNKNOWN&&!isFxPair(sym)&&sym.length!==6)return{valid:false,reason:'unknown_instrument'};return{valid:true,symbol:sym};}
 function inputErrorMsg(){return'**ATLAS — INPUT ERROR**\n\nInvalid input format.\n\nOnly enter the instrument code.\n\nExample:\n`!XAGUSD`\n\nDo not include structure, direction, or opinion.';}
 
 const REQUEST_LOG=[];
