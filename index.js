@@ -477,11 +477,39 @@ client.on('messageCreate', async (msg) => {
     if (msg.author.bot) return;
     if (!msg.content.startsWith('!')) return;
     const userInput = msg.content.slice(1).trim();
+    /* [SYMBOL] Phase 7 partial — ops pre-check. validateInput's ops branch
+       compares against lowercase tokens, but resolveSymbol() uppercases its
+       input before validateInput sees it, so the ops detection silently
+       fails. Detecting ops here on the lowercased user input keeps the
+       "silently return as before" behaviour for ping / stats / etc. and
+       prevents the hard-fail reply below from triggering on them. */
+    if (['ping','stats','errors','sysstate','darkhorse'].includes(userInput.toLowerCase())) return;
     const raw = resolveSymbol(userInput);
-    console.log('SYMBOL:', userInput, '→', raw);
     const validation = validateInput('!' + raw);
-    if (!validation.valid) return;
+    /* [SYMBOL] Phase 7 partial — hard-fail on unresolvable symbols per spec
+       7.2. Two failure paths emit "Data unavailable for requested symbol:
+       <RAW_INPUT>": (1) validateInput rejects with reason format /
+       unknown_instrument; (2) validation passes but isResolvableSymbol
+       returns false (catches the inferAssetClass /^[A-Z]{1,5}$/ catch-all
+       and the 6-char unknown_instrument loophole that previously let HGUSD
+       and XYZ123 through). Operational reasons (ops, extra_tokens, crypto,
+       direction_term, generic_name) silently return as before — they are
+       not symbol-resolution attempts. Every code path emits one [SYMBOL]
+       line so future regressions are visible in logs. */
+    if (!validation.valid) {
+      if (validation.reason === 'format' || validation.reason === 'unknown_instrument') {
+        console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=${validation.reason}`);
+        await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
+      }
+      return;
+    }
     const symbol = validation.symbol;
+    if (!isResolvableSymbol(symbol)) {
+      console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=not_in_allowlist mapped=${symbol}`);
+      await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
+      return;
+    }
+    console.log(`[SYMBOL] raw=${userInput} resolved=${symbol} outcome=served`);
     const USER_BY_ID = {
       '690861328507731978':  'AT', // AT (atlas.4693)
       '1431173502161129555': 'NM', // NM (Nathan McKay)
@@ -599,6 +627,16 @@ const scoreToBias=(score,bull=THRESHOLDS.macroBullish,bear=THRESHOLDS.macroBeari
 const safeCountry=ccy=>CURRENCY_COUNTRY[ccy]?.country||ccy;
 const normalizeSymbol=s=>String(s||'').trim().toUpperCase().replace(/\s+/g,'');
 const isFxPair=s=>s.length===6&&FX_QUOTES.has(s.slice(0,3))&&FX_QUOTES.has(s.slice(3,6));
+/* [SYMBOL] Phase 7 partial — strict resolvability allowlist for the Discord
+   bot. A symbol is resolvable iff it is either a valid FX pair (FX_QUOTES on
+   both halves of a 6-char string) OR a member of one of the explicit symbol
+   sets above. The catch-all /^[A-Z]{1,5}$/ branch in inferAssetClass() and
+   the 6-char loophole in validateInput() must NOT be sufficient on their
+   own — those let HGUSD / XYZ123 / etc. through even though the dashboard
+   cannot render them, which surfaced as a silent EURUSD fallback in
+   production. Adding membership in the explicit sets here fixes the bot
+   side; dashboard-side strictness is a separate phase. */
+const isResolvableSymbol=s=>!!s&&(isFxPair(s)||EQUITY_SYMBOLS.has(s)||COMMODITY_SYMBOLS.has(s)||INDEX_SYMBOLS.has(s));
 function inferAssetClass(s){if(EQUITY_SYMBOLS.has(s))return ASSET_CLASS.EQUITY;if(COMMODITY_SYMBOLS.has(s))return ASSET_CLASS.COMMODITY;if(INDEX_SYMBOLS.has(s))return ASSET_CLASS.INDEX;if(isFxPair(s))return ASSET_CLASS.FX;if(/XAU|XAG|OIL|BRENT|WTI|NATGAS/.test(s))return ASSET_CLASS.COMMODITY;if(/NAS|US500|US30|GER40|UK100|SPX|NDX|DJI|HK50|JPN225/.test(s))return ASSET_CLASS.INDEX;if(/^[A-Z]{1,5}$/.test(s))return ASSET_CLASS.EQUITY;return ASSET_CLASS.UNKNOWN;}
 function parsePairCore(symbol){const s=normalizeSymbol(symbol);if(isFxPair(s))return{symbol:s,base:s.slice(0,3),quote:s.slice(3,6),assetClass:ASSET_CLASS.FX};if(['XAUUSD','XAGUSD','BCOUSD'].includes(s))return{symbol:s,base:s.slice(0,3),quote:s.slice(3,6),assetClass:inferAssetClass(s)};return{symbol:s,base:s,quote:'USD',assetClass:inferAssetClass(s)};}
 const makeStubCB=label=>({name:label||'Commodity',stance:STANCE.N_A,direction:STANCE.N_A,rateCycle:RATE_CYCLE.N_A,terminalBias:0,inflationSensitivity:0.5,growthSensitivity:0.5,score:0});
