@@ -1,164 +1,128 @@
-# ⚡ CLAUDE.md — ATLAS FX Repo Context File (13 April 2026)
+# CLAUDE.md
 
-**Drop this file in the root of `ATLAS_DISCORD_PATHWAY` repo. Claude Code reads it automatically at session start.**
-
----
-
-## Identity
-- Repo: `herbertnathan28-123/ATLAS_DISCORD_PATHWAY` (branch: `main`)
-- Runtime: Node.js, Render Standard plan, Singapore region
-- Bot: FX Bot#3867
-- Second repo: `herbertnathan28-123/ATLAS_ASTRA_RELAY` — Astra AI bot. **DO NOT TOUCH UNDER ANY CIRCUMSTANCE.**
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ---
+
+## Identity & Scope
+- Repo: `herbertnathan28-123/ATLAS_DISCORD_PATHWAY` (default branch: `main`)
+- Runtime: Node.js 20.x — single-process Discord bot
+- Deploy: Render (see `render.yaml`) — `npm install && npx puppeteer browsers install chrome` build, `node index.js` start, persistent disk mounted at `/opt/render/project/src/exports`
+- Sister repo: `herbertnathan28-123/ATLAS_ASTRA_RELAY` (Astra AI bot). **Never touch it from this repo. Never import from it.**
 
 ## Working Standard
-This is a production system. Not a hobby project. Every change must be executable and reliable. No guessing. No improvising structure. If unclear, stop and ask. Never infer intent.
+Production system. No guessing, no speculative refactors, no "improving" structure that wasn't asked for. If intent is unclear, stop and ask — do not infer.
 
 ---
 
-## What Is Working — Do Not Break
-- Corey live data layer — DXY via UUP ETF, VIX via VXX ETF, yield curve via FRED T10Y2Y
-- `globalMacro()` wired to live data — no longer hardcoded zeros
-- Central bank stances updated to April 2026
-- Dark Horse Engine v2.0 — scanning every 15 minutes
-- TrendSpider webhook — port 3001
-- Astra bot — live on `ATLAS_ASTRA_RELAY`
+## Commands
+
+```bash
+npm install            # install deps (discord.js, axios, express, sharp, @dsnp/parquetjs, dotenv)
+npm start              # runs `node index.js` — the bot entrypoint
+
+# Historical cache CLI (cacheUpdater.js — forward-append only)
+node cacheUpdater.js                  # update all symbols in UNIVERSE
+node cacheUpdater.js EURUSD           # update a single symbol
+node cacheUpdater.js --status         # print cache status table
+```
+
+There is no test suite, no linter, and no build step. `npm start` is the only script defined in `package.json`. Don't invent CI steps.
+
+---
+
+## Required Environment Variables
+
+Boot fails fast if the first three are missing:
+
+- `DISCORD_BOT_TOKEN` — required
+- `TWELVE_DATA_API_KEY` — required (note: `cacheUpdater.js` reads `TWELVEDATA_API_KEY` — this naming mismatch is real; preserve both unless consolidating intentionally)
+- `SYSTEM_STATE` — required, must be exactly `BUILD_MODE` or `FULLY_OPERATIONAL`
+
+Optional / feature-gated:
+
+- `FRED_KEY` — FRED yield-curve feed (corey_live_data.js)
+- `TRADING_ECONOMICS_KEY` — calendar fallback (corey_calendar.js)
+- `ATLAS_INSTANCE_ID`, `ATLAS_SIGNING_SECRET`, `ATLAS_SIGNATURE_ENABLED`, `ATLAS_WATERMARK_ENABLED` — auth/signing. Without both ID+SECRET, `isTradePermitAllowed()` is permanently false
+- `ROADMAP_URL`, `SHARED_MACROS_CHANNEL_ID`, `CHART_IMG_API_KEY`, `DARKHORSE_STOCK` (Dark Horse webhook URL)
+- `TV_COOKIES` — JSON array of TradingView cookies, sanitised at boot
+- `ENABLE_TRENDSPIDER` (default on), `TRENDSPIDER_PORT` (default 3001), `TRENDSPIDER_SIGNAL_TTL_MS`, `TRENDSPIDER_HISTORY_LIMIT`, `TRENDSPIDER_PERSIST_PATH`
+- `CACHE_ROOT` — parquet storage root, default `/data/historical`
+
+---
+
+## Architecture — Big Picture
+
+The bot is a single Node process (`index.js`) that boots five collaborating subsystems and a Discord client. There is no framework — flow is driven by module-level singletons and a 15-minute scan interval.
+
+### Module map
+- **`index.js`** — Discord client, macro engine, symbol taxonomy (FX / equity / commodity / index), central-bank stances, regime/vol/liquidity detectors, TrendSpider store, formatter (`formatMacro`), and a Puppeteer+TradingView-widget rendering path (`renderAllPanelsV3` / `buildGrid` / `overlayPriceBoxes`). This file is large (~85 KB) and intentionally monolithic.
+- **`renderer.js`** — **currently a stub.** Returns a 67-byte transparent PNG for both `htfGrid` and `ltfGrid`. The real rendering layer lives inside `index.js` (`renderAllPanelsV3`) but is not wired through `messageCreate`. When rebuilding the renderer, preserve the export signature `{ renderAllPanels(symbol) -> { htfGrid, ltfGrid, htfGridName, ltfGridName } }` so `index.js` keeps booting.
+- **`corey_live_data.js`** — live macro data layer. Fetches DXY (via UUP ETF proxy on TwelveData), VIX (via VXX ETF proxy), and yield curve (FRED T10Y2Y). Module-level cache refreshed every 15 min. `init()` is called at module load in `index.js`. Exports `getLiveContext()` / `getMarketContext()` — always returns last-known-good data, never null after boot.
+- **`corey_calendar.js`** — economic calendar engine (Corey Phase 2). TradingView primary feed → Trading Economics fallback → degraded-mode static skeleton. Built-in XML parsing, currency→symbol map, historical reaction database (CPI/NFP/Rate Decision/GDP/PMI). `init()` called explicitly from `index.js` because `coreyLive.init()` is async-not-awaited and the original chained call could be silently orphaned.
+- **`darkHorseEngine.js`** — trend-scan layer. `DH_UNIVERSE` covers FX majors/crosses, major indices, a curated equity list, and XAU/XAG. Crypto permanently banned (`CRYPTO_BANNED` set). Market-hours gated. Scores ≥8 post to Discord and trigger the macro pipeline; 5–7 stored internally only. No execution, no Jane bypass.
+- **Cache layer**: `historicalCache.js` (one-shot 15-year backfill from TwelveData) → `cacheManager.js` (parquet I/O, fx/stocks/commodities split under `/data/historical/`) → `cacheReader.js` (only interface engines should use to read candles) → `cacheUpdater.js` (scheduled forward-append updates). **Engines must never read parquet directly** — go through `cacheReader`.
+
+### Runtime flow
+1. Boot: validates env → loads TV cookies → registers `coreyLive.init()` and `coreyCalendar.init()` → creates Discord client.
+2. `clientReady`: calls `dhInit(safeOHLC)`, sets the DH pipeline trigger, starts a 15-min Dark Horse scan interval.
+3. `messageCreate`: current handler (index.js:475) validates `!SYMBOL`, resolves aliases, infers the user via `USER_BY_ID` → `USER_BY_CHANNEL` fallback, and replies with a dashboard URL of the form `https://atlas-fx-dashboard.onrender.com?symbol=…&user=…`. **It does not currently invoke `runMacroPipeline` or the chart renderer.** The full macro+chart delivery path exists in `index.js` but is dormant.
+4. Dark Horse scan: `runDarkHorseScan()` every 15 min (market hours only) → on trigger score, calls `runMacroPipeline(symbol)` → `buildMacro` → Corey live + internal macro composite.
+5. Optional TrendSpider webhook on `TRENDSPIDER_PORT` (default 3001), signal TTL default 4h.
+
+### Macro composite contract (do not break field names)
+`buildMacro(symbol)` returns `{ symbol, bias, confidence, structure, regime, risk, htf, ltf, timestamp }` sourced from:
+- `corey.combinedBias`
+- `corey.internalMacro.regime.regime`
+- `corey.internalMacro.global.riskEnv`
+- `corey.internalMacro.global.live.vix.level`
+
+These field paths are consumed by `formatMacro` and the downstream pipeline. Changing them silently breaks output.
+
+---
 
 ## Do Not Touch — Ever
-- `astra.js` in `ATLAS_ASTRA_RELAY`
+- `astra.js` in `ATLAS_ASTRA_RELAY` (different repo)
 - `coreyLive.init()` call at module load in `index.js`
-- `getMarketContext()` and `getLiveContext()` in `corey_live_data.js`
-- `detectRegime` function in `index.js`
-- `buildMacro` field mappings: `corey.combinedBias`, `corey.internalMacro.regime.regime`, `g.riskEnv`, `g.live.vix.level`
-
----
+- `coreyCalendar.init()` explicit registration in `index.js` (exists because `coreyLive.init()` is not awaited — removing it orphans the refresh loop)
+- `getMarketContext()` / `getLiveContext()` exports in `corey_live_data.js`
+- `detectRegime()` in `index.js`
+- `buildMacro` field mappings listed above
 
 ## Locked Colour Codes — Never Change
 
-| Element | Hex | Text |
+| Element | Hex | Text colour |
 |---|---|---|
-| Up candles | #00ff00 | — |
-| Down candles | #ff0015 | — |
-| Background | #131722 | — |
-| Price box HIGH | #FFD600 | Black |
-| Price box CURRENT | #00FF5A | Black |
-| Price box ENTRY | #FF9100 | Black |
-| Price box LOW | #00B0FF | White |
+| Up candles | `#00ff00` | — |
+| Down candles | `#ff0015` | — |
+| Background | `#131722` | — |
+| Price box HIGH | `#FFD600` | Black |
+| Price box CURRENT | `#00FF5A` | Black |
+| Price box ENTRY | `#FF9100` | Black |
+| Price box LOW | `#00B0FF | White |
 
 ---
 
-## CRITICAL 1 — Renderer Fix (renderer.js ONLY)
-Architecture is correct. Do not redesign. Apply these 6 fixes only.
-
-The renderer uses Puppeteer + TradingView lightweight-charts widget embeds in a vertical stack.
-- HTF strip: 1W / 1D / 4H / 1H stacked vertically
-- LTF strip: 30M / 15M / 5M / 1M stacked vertically
-- Problem: First pane in each strip renders blank. Canvas detection failing. All panes rendering identical data.
-
-### FIX 1 — Range-based candle detection (anti-aliasing fix)
-Replace exact RGB match with range-based detection:
-```javascript
-const isUp = d[1] > 180 && d[0] < 80 && d[2] < 80;
-const isDn = d[0] > 180 && d[1] < 80 && d[2] < 80;
-```
-
-### FIX 2 — Sequential widget loading
-Do NOT create all widgets simultaneously. Add 250ms delay between each widget creation.
-
-### FIX 3 — Wait for TradingView script
-After `page.setContent()`, add `waitForFunction` check that `typeof TradingView !== 'undefined'` before creating widgets. Timeout: 15000ms.
-
-### FIX 4 — Scope canvas detection
-Replace:
-```javascript
-document.querySelectorAll('canvas')
-```
-With:
-```javascript
-document.querySelectorAll('.tv-lightweight-charts canvas')
-```
-
-### FIX 5 — Candle visibility overrides
-Add to overrides object:
-```javascript
-barSpacing: 8,
-drawBorder: true,
-drawWick: true,
-scalesProperties: { fontSize: 14 }
-```
-
-### FIX 6 — Hide TradingView UI chrome
-Set in widget config:
-```javascript
-hide_side_toolbar: true,
-hide_top_toolbar: true,
-withdateranges: false,
-details: false,
-calendar: false,
-hotlist: false
-```
-
-### Render Time Target
-Current render time is ~7 minutes. This is unacceptable. After applying fixes, sequential capture with 250ms delays between widget creation should bring total render time under 60 seconds. If still above 2 minutes after fixes, investigate Puppeteer timeout values and reduce where safe.
+## Known Gotchas
+- **Renderer is stubbed.** Do not assume `renderer.js` produces real charts. The v3 rendering code inside `index.js` (Puppeteer + TradingView widget + `sharp` overlays, HTF `1W/1D/4H/1H`, LTF `30M/15M/5M/1M`, 1920×1080) is the intended target but is not reached from `messageCreate`.
+- **API key env-var drift.** `index.js` + `corey_live_data.js` + `historicalCache.js` use `TWELVE_DATA_API_KEY`; `cacheUpdater.js` uses `TWELVEDATA_API_KEY`. Match whichever the module reads.
+- **DJI symbol.** `DJI` is invalid on TwelveData. If re-wiring TD quote calls, map through a `TD_SYMBOL_MAP` to the correct index symbol. Pattern exists in `cacheUpdater.js` (`USOIL→CL`, `UKOIL→BZ`, `XAUUSD→XAU/USD`).
+- **BRENT needs TwelveData Pro.** Do not add `BRENT` to `DH_UNIVERSE` without the plan upgrade; use `BZ` through the cache layer instead.
+- **Crypto is permanently excluded** from `DH_UNIVERSE` via `CRYPTO_BANNED`. Do not add exceptions.
+- **`deliverResult` / `formatMacro` are governed by a locked institutional spec** (see below). Output changes belong in a dedicated session, not incidental edits.
 
 ---
 
-## CRITICAL 2 — Symbol Fixes (same session as renderer)
+## Macro Output — Locked Spec (reference before editing `formatMacro` / `deliverResult`)
 
-### DJI — index.js
-DJI is an invalid TwelveData symbol. Add correct mapping to `TD_SYMBOL_MAP` in `index.js`.
-TwelveData accepts `DJI` as `^DJI` or map to the correct index symbol per TwelveData docs.
+Institutional briefing standard. Hard-fail conditions: short summaries, missing sections, no directional arrows, single-direction bias only, retail-style formatting, thin content, removed explanations.
 
-### BRENT — darkHorseEngine.js
-BRENT requires TwelveData Pro plan. Remove `BRENT` from `DH_UNIVERSE` array in `darkHorseEngine.js`.
+**Output order:** Chart 2×2 → Trade Status → Price Table → Roadmap Link → Global/Event Intelligence Block → Market Overview → Events/Catalysts → Historical Context → Execution Logic → Validity.
 
----
+- Sentiment: dominant bias on 1–5 dot scale; mixed ⬆️⬇️ arrows MANDATORY under the dominant score (`mixedArrows` in index.js).
+- Event Intelligence Block: Sentiment header · Headline · Timestamp · Expanded summary · AI commentary · Mechanism chain · Trader note · Affected symbols.
+- Execution Logic: strict IF/THEN only, no storytelling.
+- Roadmap cadence: Monday = full depth (30–35 page equivalent), midweek = remove outdated sections only (keep explanations), Friday = execution-focused. Implemented in `dayMode()`.
+- Every paragraph in Market Overview and Historical Context must end with ⬆️ or ⬇️.
 
-## CRITICAL 3 — Macro Output Rebuild (SEPARATE SESSION)
-Do not touch `formatMacro()` or `deliverResult()` in this session. Macro rebuild is a standalone dedicated session against the locked spec below.
-
-### Locked Macro Spec Summary
-Output must be institutional briefing standard. Hard fail conditions:
-- Short summaries
-- Missing sections
-- No directional arrows
-- Single-direction bias only
-- Retail-style formatting
-- Thin content
-- Removed explanations
-
-**Locked output order:** Chart 2×2 → Trade Status → Price Table → Roadmap Link → Global/Event Intelligence Block → Market Overview → Events/Catalysts → Historical Context → Execution Logic → Validity.
-
-**Sentiment system:** Dominant bias on 1–5 dot scale. Mixed ⬆️⬇️ arrows MANDATORY under dominant score.
-
-**Event Intelligence Block must include:** Sentiment header, Headline, Timestamp, Expanded summary, AI commentary, Mechanism chain, Trader note, Affected symbols.
-
-**Execution Logic:** Strict IF/THEN format only. No storytelling.
-
-**Roadmap:** Monday = full depth (30–35 page equivalent). Midweek = remove outdated sections only, explanations intact. Friday = execution-focused.
-
-**Every paragraph in Market Overview and Historical Context must end with ⬆️ or ⬇️.**
-
-**Full locked spec:** See Notion → ATLAS FX — Macro + Roadmap Master Brief v2.0 (LOCKED) — 5 April 2026.
-
----
-
-## Current Commit Stack (main)
-```
-89cf2c7 — Recalibrate scoreDXY + scoreVIX for ETF proxy scales
-79522e9 — Fix blank panes: require candle-color pixels
-fa22090 — Restore index.js + detectRegime + buildMacro fix
-7e97df4 — Replace corey_live_data.js with cached-refresh module
-f1c327f — Symbol translation fix in renderer
-```
-
----
-
-## Session Priority Order
-1. Apply all 6 renderer fixes to `renderer.js` — all 8 panes rendering, distinct timeframes, render time under 2 minutes
-2. DJI symbol fix in `index.js`
-3. BRENT removal from `darkHorseEngine.js`
-4. Commit and push — confirm deploy on Render
-5. Macro rebuild — separate dedicated session
-6. Corey Phase 2 economic calendar engine — future session
+Full spec lives in Notion — *ATLAS FX — Macro + Roadmap Master Brief v2.0 (LOCKED) — 5 April 2026*.
