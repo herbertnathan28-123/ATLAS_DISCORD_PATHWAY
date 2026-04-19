@@ -665,6 +665,51 @@ function getCalendarBias(symbol) {
   return { bias, adjustment: Math.min(1, Math.max(-1, score * 0.15)), events: recent, available: true };
 }
 
+// Plain-English describer for each tracked event type.
+const EVENT_MEANING = {
+  CPI: {
+    whatIs: 'inflation data',
+    whyMatters: 'Inflation prints move central bank expectations. A hot print delays rate cuts and supports the currency; a soft print does the opposite.',
+    aboveMeaning: 'Inflation came in hotter than expected. This typically supports the currency by pushing rate-cut expectations out.',
+    belowMeaning: 'Inflation came in cooler than expected. This typically weakens the currency by pulling rate-cut expectations forward.'
+  },
+  NFP: {
+    whatIs: 'US labour-market data',
+    whyMatters: 'Payrolls set the Fed\'s read on labour strength. Strong payrolls support the dollar; weak payrolls weaken it.',
+    aboveMeaning: 'Jobs growth came in stronger than expected. This typically strengthens the dollar and pressures rate-cut hopes.',
+    belowMeaning: 'Jobs growth came in weaker than expected. This typically weakens the dollar and revives rate-cut hopes.'
+  },
+  'Rate Decision': {
+    whatIs: 'a central bank rate decision',
+    whyMatters: 'Rate decisions set the entire policy path. The actual number matters; the forward guidance matters more.',
+    aboveMeaning: 'A hawkish outcome (hike or tighter guidance) typically supports the currency.',
+    belowMeaning: 'A dovish outcome (cut or easier guidance) typically weakens the currency.'
+  },
+  GDP: {
+    whatIs: 'growth data',
+    whyMatters: 'GDP anchors the growth outlook. Strong prints support growth-sensitive assets; weak prints support safe havens.',
+    aboveMeaning: 'Growth came in stronger than expected. This typically supports the currency and growth-sensitive assets.',
+    belowMeaning: 'Growth came in weaker than expected. This typically weakens the currency and supports safe havens.'
+  },
+  PMI: {
+    whatIs: 'business-activity data',
+    whyMatters: 'PMI is a leading indicator for growth. Readings above 50 suggest expansion; below 50, contraction.',
+    aboveMeaning: 'Business activity came in stronger than expected. This typically supports the currency.',
+    belowMeaning: 'Business activity came in weaker than expected. This typically weakens the currency.'
+  },
+  'CB Speaker': {
+    whatIs: 'central bank commentary',
+    whyMatters: 'Unscripted comments can shift the policy path by a single sentence. Risk is high and short-lived.',
+    aboveMeaning: 'Hawkish commentary typically supports the currency on the margin.',
+    belowMeaning: 'Dovish commentary typically weakens the currency on the margin.'
+  }
+};
+
+function pipValueForCurrency(ccy) {
+  if (ccy === 'JPY') return 8.0;
+  return 10.0;
+}
+
 function getEventIntelligence(symbol) {
   /* [COREY-CALENDAR] Phase 2.7 — when both feeds are dead, return an explicit
      unavailable banner (truthy) rather than null. Returning null would let the
@@ -676,11 +721,22 @@ function getEventIntelligence(symbol) {
     return [
       '**📅 ECONOMIC CALENDAR — FEEDS UNAVAILABLE**',
       '',
+      '**WHAT IS HAPPENING**',
+      'The economic calendar feeds are not responding right now. ATLAS cannot list scheduled catalysts for this window.',
+      '',
+      '**WHY IT MATTERS**',
+      'Unknown catalysts are not the same as a calm session. An event you cannot see can still wipe out a trade that would otherwise work.',
+      '',
+      '**WHAT TO DO**',
+      'Reduce conviction. Prefer smaller exposure or stand aside until the feeds recover.',
+      '',
+      '**WHEN THE IDEA IS INVALID**',
+      'This warning clears once at least one feed returns healthy data. Re-read Event Intelligence before any new entry.',
+      '',
+      '**FEED HEALTH (diagnostics)**',
       `TradingView:       ${tv.status} (http:${tv.lastStatusCode || 'n/a'} content-type:${tv.lastContentType || 'n/a'}) — ${tv.lastError || 'unknown'}`,
       `Trading Economics: ${te.status} (http:${te.lastStatusCode || 'n/a'} content-type:${te.lastContentType || 'n/a'}) — ${te.lastError || 'unknown'}`,
-      `Degraded fallback: ${degraded.status} (events:${degraded.lastCount || 0}) — ${degraded.lastError || (degraded.status === 'unknown' ? 'not yet fired' : 'n/a')}`,
-      '',
-      'Event intelligence cannot be computed for this window. Treat the absence of catalysts as unknown, not as a calm period — reduce conviction accordingly.'
+      `Degraded fallback: ${degraded.status} (events:${degraded.lastCount || 0}) — ${degraded.lastError || (degraded.status === 'unknown' ? 'not yet fired' : 'n/a')}`
     ].join('\n');
   }
   const upcoming = getUpcomingEvents(symbol);
@@ -692,21 +748,54 @@ function getEventIntelligence(symbol) {
     const type = matchEventType(ev.title);
     const reaction = type ? REACTIONS[type] : null;
     const pips = type ? EXPECTED_PIPS[type] : null;
+    const meaning = type ? EVENT_MEANING[type] : null;
     const hoursUntil = ((ev.scheduled_time - now) / 3600000).toFixed(1);
-    const fcStr = ev.expected != null ? `Forecast: ${ev.expected}` : 'Forecast: N/A';
-    const prevStr = ev.previous != null ? `Previous: ${ev.previous}` : 'Previous: N/A';
-    lines.push(`**${ev.title}** (${ev.currency})`);
-    lines.push(`Time: ${new Date(ev.scheduled_time).toISOString().replace('T', ' ').slice(0, 16)} UTC — ${hoursUntil}h from now`);
-    lines.push(`${fcStr} | ${prevStr}`);
-    if (reaction && reaction.above && reaction.below) {
-      lines.push(`Historical: above forecast → ${ev.currency} ${reaction.above.dir} ${reaction.above.pct}% of the time | below → ${reaction.below.dir} ${reaction.below.pct}%`);
+    const fcStr = ev.expected != null ? `Forecast ${ev.expected}` : 'Forecast N/A';
+    const prevStr = ev.previous != null ? `previous ${ev.previous}` : 'previous N/A';
+
+    lines.push(`**EVENT — ${ev.title} (${ev.currency})**`);
+    lines.push(`Time: ${new Date(ev.scheduled_time).toISOString().replace('T', ' ').slice(0, 16)} UTC — ${hoursUntil}h from now.`);
+    lines.push(`${fcStr}, ${prevStr}.`);
+    lines.push('');
+
+    lines.push('**WHAT HAPPENED / WILL HAPPEN**');
+    lines.push(meaning ? `${ev.currency} ${meaning.whatIs} is released.` : `A high-impact ${ev.currency} event is released.`);
+    lines.push('');
+
+    lines.push('**WHY MARKETS CARE**');
+    lines.push(meaning ? meaning.whyMatters : 'High-impact events move cross-asset positioning and can override short-term structure in minutes.');
+    lines.push('');
+
+    if (reaction && reaction.above && reaction.below && meaning) {
+      lines.push('**WHAT THIS MEANS FOR THE PAIR**');
+      lines.push(`If the print beats expectations: ${meaning.aboveMeaning} Historically, ${ev.currency} moved in that direction ${reaction.above.pct}% of the time on a beat.`);
+      lines.push(`If the print misses: ${meaning.belowMeaning} Historically, ${ev.currency} moved in the opposite direction ${reaction.below.pct}% of the time on a miss.`);
+      lines.push('');
+    } else if (reaction && reaction.hawkish && reaction.dovish) {
+      lines.push('**WHAT THIS MEANS FOR THE PAIR**');
+      lines.push(`Hawkish outcome: ${ev.currency} typically ${reaction.hawkish.dir} (${reaction.hawkish.pct}% historical).`);
+      lines.push(`Dovish outcome: ${ev.currency} typically ${reaction.dovish.dir} (${reaction.dovish.pct}% historical).`);
+      lines.push('');
     }
+
     if (pips) {
-      const pipVal = ev.currency === 'JPY' ? 8.0 : 10.0;
-      lines.push(`Expected move: ${pips[0]}–${pips[1]} pips ($${(pips[0] * pipVal).toFixed(0)}–$${(pips[1] * pipVal).toFixed(0)} per standard lot)`);
+      const pipVal = pipValueForCurrency(ev.currency);
+      const lowDollars = Math.round(pips[0] * pipVal);
+      const highDollars = Math.round(pips[1] * pipVal);
+      lines.push('**EXPECTED MOVE (dollar-first, per standard lot)**');
+      lines.push(`Max impact: roughly $${lowDollars}–$${highDollars} per standard lot (distance context: ≈ ${pips[0]}–${pips[1]} pips).`);
+      lines.push('Bracketed values show approximate distance context for reference only.');
+      lines.push('');
     }
-    lines.push(`Behaviour: price compression 2–4h before release, expansion on print, whipsaw risk first 5 minutes.`);
-    lines.push(`Conclusion: ${ev.impact === 'high' ? 'Reduce size or stand aside until print clears. Do not enter new positions within 2 hours of release.' : 'Monitor but no action required.'}`);
+
+    lines.push('**TRADER ACTION — BEFORE / DURING / AFTER**');
+    lines.push('Before: do not open new positions inside the 2 hours ahead of the release. Trail or reduce on existing setups.');
+    lines.push('During: do not trade inside the first 5 minutes. Fills are poor, spreads widen, and the first move often reverses.');
+    lines.push('After: wait for lower-timeframe structure to reform. Enter only when a fresh structural break confirms the post-release direction.');
+    lines.push('');
+
+    lines.push('**WHEN THE IDEA IS INVALID**');
+    lines.push(`This read stops applying if the event is rescheduled, if the pair breaks structure before the print, or if any other Events & Catalysts threshold crosses first. Re-read Trade Status before the next entry.`);
     lines.push('');
   }
   return lines.join('\n');
