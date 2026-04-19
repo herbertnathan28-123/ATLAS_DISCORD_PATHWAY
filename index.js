@@ -13,7 +13,7 @@ const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,Attach
 
 const { renderAllPanels } = require('./renderer');
 const sharp=require('sharp');
-const crypto=require('crypto');
+const{createHmac}=require('crypto');
 const fs=require('fs');
 const https=require('https');
 const http=require('http');
@@ -50,7 +50,7 @@ const ATLAS_SIGNATURE_ENABLED=process.env.ATLAS_SIGNATURE_ENABLED==='true';
 const AUTH_AVAILABLE=!!(ATLAS_INSTANCE_ID&&ATLAS_SIGNING_SECRET);
 if(AUTH_AVAILABLE){console.log(`[BOOT] AUTH: VERIFIED — instance:${ATLAS_INSTANCE_ID} sig:${ATLAS_SIGNATURE_ENABLED} watermark:${ATLAS_WATERMARK_ENABLED}`);}
 else{console.log('[BOOT] AUTH: UNVERIFIED — auth env vars absent. TRADE PERMITTED permanently blocked.');}
-function generateSignature(payload){if(!AUTH_AVAILABLE||!ATLAS_SIGNATURE_ENABLED)return null;return crypto.createHmac('sha256',ATLAS_SIGNING_SECRET).update(payload).digest('hex').slice(0,12).toUpperCase();}
+function generateSignature(payload){if(!AUTH_AVAILABLE||!ATLAS_SIGNATURE_ENABLED)return null;return createHmac('sha256',ATLAS_SIGNING_SECRET).update(payload).digest('hex').slice(0,12).toUpperCase();}
 function buildVerificationLine(symbol,timestamp){if(!AUTH_AVAILABLE)return`ATLAS UNVERIFIED • NO AUTH • ${timestamp}`;const sig=generateSignature(`${ATLAS_INSTANCE_ID}:${symbol}:${timestamp}`);return`ATLAS VERIFIED • ${ATLAS_INSTANCE_ID} • ${timestamp} • SIG ${sig||'DISABLED'}`;}
 const isTradePermitAllowed=()=>AUTH_AVAILABLE&&isFullyOperational();
 
@@ -66,6 +66,65 @@ function sanitiseCookies(raw){return raw.map(c=>{const out={};for(const f of ALL
 let TV_COOKIES=null;
 try{if(process.env.TV_COOKIES){TV_COOKIES=sanitiseCookies(JSON.parse(process.env.TV_COOKIES));console.log(`[BOOT] TV_COOKIES: ${TV_COOKIES.length} cookies loaded`);}}catch(e){console.error('[BOOT] TV_COOKIES parse error:',e.message);}
 console.log(`[BOOT] ATLAS FX v4.0 starting... auth:${TV_COOKIES?'COOKIE':'GUEST'} trendspider:${TS_ENABLED?'ENABLED':'DISABLED'}`);
+
+// ==============================
+// AUDIT LOGGER — fire-and-forget Discord webhook on every symbol
+// resolution attempt that reaches the resolver. MUST NOT block the
+// user reply. Failures are logged with [AUDIT-LOG] tag and swallowed.
+// No user-facing surface mentions this logger anywhere.
+// ==============================
+const AUDIT_LOG_WEBHOOK_URL = process.env.AUDIT_LOG_WEBHOOK_URL || null;
+if (!AUDIT_LOG_WEBHOOK_URL) {
+  console.log('[AUDIT-LOG] webhook URL not set — audit logging disabled');
+}
+const AUDIT_OUTCOME_COLOR = { served: 0x00b050, unavailable: 0xe74c3c, policy_rejected: 0xff9100 };
+function emitAuditLog(event) {
+  if (!AUDIT_LOG_WEBHOOK_URL) return;
+  setImmediate(() => {
+    let parsed;
+    try { parsed = new URL(AUDIT_LOG_WEBHOOK_URL); }
+    catch (e) { console.error(`[AUDIT-LOG] invalid webhook URL: ${e.message}`); return; }
+    const embed = {
+      title: `ATLAS Symbol Audit — ${event.outcome}`,
+      color: AUDIT_OUTCOME_COLOR[event.outcome] ?? 0x808080,
+      timestamp: event.timestamp,
+      fields: [
+        { name: 'User',            value: `${event.discord_user_display_name} (\`${event.discord_user_id}\`)`, inline: false },
+        { name: 'Channel',         value: event.channel_name ? `#${event.channel_name} (\`${event.channel_id}\`)` : `\`${event.channel_id}\``, inline: false },
+        { name: 'Raw Input',       value: `\`${event.raw_input}\``, inline: true },
+        { name: 'Resolved Symbol', value: `\`${event.resolved_symbol}\``, inline: true },
+        { name: 'Outcome',         value: event.outcome, inline: true },
+        { name: 'Reason',          value: event.reason == null ? 'n/a' : event.reason, inline: true },
+      ],
+    };
+    const body = JSON.stringify({ embeds: [embed] });
+    const opts = {
+      method: 'POST',
+      hostname: parsed.hostname,
+      path: parsed.pathname + (parsed.search || ''),
+      port: parsed.port || (parsed.protocol === 'http:' ? 80 : 443),
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout: 5000,
+    };
+    const lib = parsed.protocol === 'http:' ? http : https;
+    try {
+      const req = lib.request(opts, (res) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          console.error(`[AUDIT-LOG] webhook responded HTTP ${res.statusCode}`);
+        }
+        res.on('data', () => {});
+        res.on('error', (e) => console.error(`[AUDIT-LOG] response error: ${e.message}`));
+      });
+      req.on('error',   (e) => console.error(`[AUDIT-LOG] request error: ${e.message}`));
+      req.on('timeout', ()  => { console.error('[AUDIT-LOG] request timeout'); req.destroy(); });
+      req.write(body);
+      req.end();
+    } catch (e) {
+      console.error(`[AUDIT-LOG] unexpected failure: ${e.message}`);
+    }
+  });
+}
+
 
 const client = new Client({
   intents: [
@@ -1031,11 +1090,94 @@ client.on('messageCreate', async (msg) => {
     if (msg.author.bot) return;
     if (!msg.content.startsWith('!')) return;
     const userInput = msg.content.slice(1).trim();
+
+    /* [SYMBOL] Phase 7 — ops pre-check runs FIRST so !ping / !stats / etc.
+       stay silent (they are not symbol-resolution attempts) and do not emit
+       audit log entries. Case-insensitive to match validateInput's ops branch. */
+    if (['ping','stats','errors','sysstate','darkhorse'].includes(userInput.toLowerCase())) return;
+
+    /* [SYMBOL] Phase 7 — audit base. Every path below that reaches the resolver
+       emits one audit log entry via emitAuditLog. Ops pre-check above is
+       exempt. */
+    const auditBase = {
+      discord_user_id: msg.author.id,
+      discord_user_display_name: msg.member?.displayName || msg.author.username || msg.author.tag || 'unknown',
+      channel_id: msg.channelId,
+      channel_name: msg.channel?.name ?? null,
+      raw_input: userInput,
+    };
+
+    /* [SYMBOL] Phase 7 — policy-rejection path. Runs AFTER ops pre-check and
+       BEFORE any resolveSymbol / validateInput work so doctrine-unsupported
+       terms get the fixed reply rather than falling through to the generic
+       unknown-symbol fallback. Match is case-insensitive after normalising
+       the user input to UPPERCASE + trimmed; list is neutrally named per
+       doctrine. */
+    const mappedUpper = userInput.toUpperCase();
+    if (POLICY_REJECTED_TERMS.has(mappedUpper)) {
+      console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=policy_rejected mapped=${mappedUpper}`);
+      emitAuditLog({
+        ...auditBase,
+        timestamp: new Date().toISOString(),
+        resolved_symbol: 'unknown',
+        outcome: 'policy_rejected',
+        reason: 'policy_rejected',
+      });
+      await msg.channel.send({ content: 'Cryptocurrency is not supported on ATLAS. Please search a supported instrument.' });
+      return;
+    }
+
     const raw = resolveSymbol(userInput);
     console.log('SYMBOL:', userInput, '→', raw);
     const validation = validateInput('!' + raw);
-    if (!validation.valid) return;
+
+    /* [SYMBOL] Phase 7 — hard-fail reply on format / unknown_instrument.
+       Restores BR HGUSD fix that was present in rebuild branch 2b978d2 but
+       absent in CC's macro-rewrite baseline. Other validation reasons
+       (ops, extra_tokens, direction_term, generic_name) stay silent — they
+       are not symbol-resolution attempts. */
+    if (!validation.valid) {
+      if (validation.reason === 'format' || validation.reason === 'unknown_instrument') {
+        console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=${validation.reason}`);
+        emitAuditLog({
+          ...auditBase,
+          timestamp: new Date().toISOString(),
+          resolved_symbol: 'unknown',
+          outcome: 'unavailable',
+          reason: validation.reason,
+        });
+        await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
+      }
+      return;
+    }
     const symbol = validation.symbol;
+
+    /* [SYMBOL] Phase 7 — allowlist gate. Catches format-valid-but-unsupported
+       tickers (HGUSD / XYZ123 / 6-char junk) that slip past validateInput.
+       Hard-fails with the same 'Data unavailable' reply used for format /
+       unknown_instrument. */
+    if (!isResolvableSymbol(symbol)) {
+      console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=not_in_allowlist mapped=${symbol}`);
+      emitAuditLog({
+        ...auditBase,
+        timestamp: new Date().toISOString(),
+        resolved_symbol: 'unknown',
+        outcome: 'unavailable',
+        reason: 'not_in_allowlist',
+      });
+      await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
+      return;
+    }
+
+    console.log(`[SYMBOL] raw=${userInput} resolved=${symbol} outcome=served`);
+    emitAuditLog({
+      ...auditBase,
+      timestamp: new Date().toISOString(),
+      resolved_symbol: symbol,
+      outcome: 'served',
+      reason: null,
+    });
+
     const USER_BY_ID = {
       '690861328507731978':  'AT', // AT (atlas.4693)
       '1431173502161129555': 'NM', // NM (Nathan McKay)
@@ -1168,12 +1310,24 @@ function getTVSymbol(s){if(SYMBOL_OVERRIDES[s])return SYMBOL_OVERRIDES[s];if(/^[
 function getFeedName(s){const f=getTVSymbol(s).split(':')[0];return{OANDA:'OANDA',NASDAQ:'NASDAQ',NYSE:'NYSE',NYMEX:'NYMEX',TVC:'TVC'}[f]||f;}
 const log=(level,msg,...a)=>console.log(`[${new Date().toISOString()}] [${level}] ${msg}`,...a);
 
-const CRYPTO_KW=new Set(['BTC','ETH','XRP','SOL','DOGE','ADA','BNB','DOT','MATIC','AVAX','LINK','LTC','BCH','XLM','ALGO','ATOM','VET','ICP','BITCOIN','ETHEREUM','CRYPTO','USDT','USDC','SHIB','PEPE']);
+// Policy-rejected instrument terms — neutrally named per doctrine. Matched
+// case-insensitively against normalised (uppercased, trimmed) user input in
+// the messageCreate handler BEFORE validateInput / resolveSymbol run. When a
+// user types a term from this set, the handler replies with the fixed
+// "Cryptocurrency is not supported on ATLAS" message and emits a [SYMBOL]
+// line with reason=policy_rejected.
+const POLICY_REJECTED_TERMS=new Set(['BTC','ETH','XRP','DOGE','ADA','SOL','DOT','AVAX','MATIC','LINK','LTC','BCH','XLM','ATOM','ALGO','BITCOIN','ETHEREUM']);
+// Allowlist gate — resolved canonical ticker must be a known tradable instrument.
+// Protects against format-valid-but-unsupported symbols like HGUSD / XYZ123 /
+// 6-char junk that slip past validateInput's format regex and unknown_instrument
+// check. Returns true only if the symbol is in one of the known universes
+// (FX pair OR equity OR commodity OR index symbol set).
+const isResolvableSymbol=s=>!!s&&(isFxPair(s)||EQUITY_SYMBOLS.has(s)||COMMODITY_SYMBOLS.has(s)||INDEX_SYMBOLS.has(s));
 const REJECTED_TERMS=new Set(['LH','HL','HH','LL','BUY','SELL','BULLISH','BEARISH','LONG','SHORT','MACRO','UP','DOWN','CALL','PUT','H','L']);
 const REJECTED_GENERIC=new Set([]);
 const SYMBOL_ALIASES={SILVER:'XAGUSD',XAG:'XAGUSD',GOLD:'XAUUSD',XAU:'XAUUSD',NASDAQ:'NAS100',NDX:'NAS100',NAS:'NAS100',SP500:'US500',SPX:'US500',DOW:'US30',DJI:'US30',DAX:'GER40',FTSE:'UK100',OIL:'USOIL',BRENT:'BCOUSD',WTI:'USOIL',GAS:'NATGAS',MICRON:'MU',ASML:'ASML',AMD:'AMD'};
 function resolveSymbol(s){if(!s)return s;const up=s.toUpperCase().trim();return SYMBOL_ALIASES[up]||up;}
-function validateInput(raw){const t=(raw||'').trim();if(!t.startsWith('!'))return{valid:false,reason:'no_prefix'};const content=t.slice(1).trim();const tokens=content.split(/\s+/);if(tokens[0]==='ping')return{valid:false,reason:'ops',op:'ping'};if(tokens[0]==='stats')return{valid:false,reason:'ops',op:'stats'};if(tokens[0]==='errors')return{valid:false,reason:'ops',op:'errors'};if(tokens[0]==='sysstate')return{valid:false,reason:'ops',op:'sysstate'};if(tokens[0]==='darkhorse')return{valid:false,reason:'ops',op:'darkhorse'};if(tokens.length>1)return{valid:false,reason:'extra_tokens'};const sym=tokens[0].toUpperCase();if(CRYPTO_KW.has(sym)||sym.endsWith('USDT')||sym.endsWith('USDC')||sym.startsWith('BTC'))return{valid:false,reason:'crypto'};if(REJECTED_TERMS.has(sym))return{valid:false,reason:'direction_term'};if(REJECTED_GENERIC.has(sym))return{valid:false,reason:'generic_name'};if(!/^[A-Z0-9]{2,10}$/.test(sym))return{valid:false,reason:'format'};const ac=inferAssetClass(sym);if(ac===ASSET_CLASS.UNKNOWN&&!isFxPair(sym)&&sym.length!==6)return{valid:false,reason:'unknown_instrument'};return{valid:true,symbol:sym};}
+function validateInput(raw){const t=(raw||'').trim();if(!t.startsWith('!'))return{valid:false,reason:'no_prefix'};const content=t.slice(1).trim();const tokens=content.split(/\s+/);if(tokens[0]==='ping')return{valid:false,reason:'ops',op:'ping'};if(tokens[0]==='stats')return{valid:false,reason:'ops',op:'stats'};if(tokens[0]==='errors')return{valid:false,reason:'ops',op:'errors'};if(tokens[0]==='sysstate')return{valid:false,reason:'ops',op:'sysstate'};if(tokens[0]==='darkhorse')return{valid:false,reason:'ops',op:'darkhorse'};if(tokens.length>1)return{valid:false,reason:'extra_tokens'};const sym=tokens[0].toUpperCase();if(REJECTED_TERMS.has(sym))return{valid:false,reason:'direction_term'};if(REJECTED_GENERIC.has(sym))return{valid:false,reason:'generic_name'};if(!/^[A-Z0-9]{2,10}$/.test(sym))return{valid:false,reason:'format'};const ac=inferAssetClass(sym);if(ac===ASSET_CLASS.UNKNOWN&&!isFxPair(sym)&&sym.length!==6)return{valid:false,reason:'unknown_instrument'};return{valid:true,symbol:sym};}
 function inputErrorMsg(){return'**ATLAS — INPUT ERROR**\n\nInvalid input format.\n\nOnly enter the instrument code.\n\nExample:\n`!XAGUSD`\n\nDo not include structure, direction, or opinion.';}
 
 const REQUEST_LOG=[];
