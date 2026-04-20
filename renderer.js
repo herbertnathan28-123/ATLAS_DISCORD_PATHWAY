@@ -338,15 +338,15 @@ try {
 browser = await puppeteer.launch({
 headless: ‘new’,
 args: [
-‘–no-sandbox’,
-‘–disable-setuid-sandbox’,
-‘–disable-dev-shm-usage’,
-‘–disable-gpu’,
-‘–no-first-run’,
-‘–no-zygote’,
-‘–single-process’,
-‘–disable-web-security’,                    // required for cross-origin iframe canvas access (FIX 4)
-‘–disable-features=IsolateOrigins,site-per-process’,
+‘-–no-sandbox’,
+‘–-disable-setuid-sandbox’,
+‘–-disable-dev-shm-usage’,
+‘–-disable-gpu’,
+‘–-no-first-run’,
+‘–-no-zygote’,
+‘–-single-process’,
+‘–-disable-web-security’,                    // required for cross-origin iframe canvas access (FIX 4)
+‘–-disable-features=IsolateOrigins,site-per-process’,
 ]
 });
 
