@@ -1085,123 +1085,18 @@ async function runMacroPipeline(symbol) {
 // ==============================
 // Rendering delegated to renderer.js (Puppeteer + TradingView widget + custom candle colors)
 // renderCharts imported at top of file
+const commandRouter = require('./commandRouter');
 client.on('messageCreate', async (msg) => {
   try {
-    if (msg.author.bot) return;
-    if (!msg.content.startsWith('!')) return;
-    const userInput = msg.content.slice(1).trim();
-
-    /* [SYMBOL] Phase 7 — ops pre-check runs FIRST so !ping / !stats / etc.
-       stay silent (they are not symbol-resolution attempts) and do not emit
-       audit log entries. Case-insensitive to match validateInput's ops branch. */
-    if (['ping','stats','errors','sysstate','darkhorse'].includes(userInput.toLowerCase())) return;
-
-    /* [SYMBOL] Phase 7 — audit base. Every path below that reaches the resolver
-       emits one audit log entry via emitAuditLog. Ops pre-check above is
-       exempt. */
-    const auditBase = {
-      discord_user_id: msg.author.id,
-      discord_user_display_name: msg.member?.displayName || msg.author.username || msg.author.tag || 'unknown',
-      channel_id: msg.channelId,
-      channel_name: msg.channel?.name ?? null,
-      raw_input: userInput,
-    };
-
-    /* [SYMBOL] Phase 7 — policy-rejection path. Runs AFTER ops pre-check and
-       BEFORE any resolveSymbol / validateInput work so doctrine-unsupported
-       terms get the fixed reply rather than falling through to the generic
-       unknown-symbol fallback. Match is case-insensitive after normalising
-       the user input to UPPERCASE + trimmed; list is neutrally named per
-       doctrine. */
-    const mappedUpper = userInput.toUpperCase();
-    if (POLICY_REJECTED_TERMS.has(mappedUpper)) {
-      console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=policy_rejected mapped=${mappedUpper}`);
-      emitAuditLog({
-        ...auditBase,
-        timestamp: new Date().toISOString(),
-        resolved_symbol: 'unknown',
-        outcome: 'policy_rejected',
-        reason: 'policy_rejected',
-      });
-      await msg.channel.send({ content: 'Cryptocurrency is not supported on ATLAS. Please search a supported instrument.' });
-      return;
-    }
-
-    const raw = resolveSymbol(userInput);
-    console.log('SYMBOL:', userInput, '→', raw);
-    const validation = validateInput('!' + raw);
-
-    /* [SYMBOL] Phase 7 — hard-fail reply on format / unknown_instrument.
-       Restores BR HGUSD fix that was present in rebuild branch 2b978d2 but
-       absent in CC's macro-rewrite baseline. Other validation reasons
-       (ops, extra_tokens, direction_term, generic_name) stay silent — they
-       are not symbol-resolution attempts. */
-    if (!validation.valid) {
-      if (validation.reason === 'format' || validation.reason === 'unknown_instrument') {
-        console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=${validation.reason}`);
-        emitAuditLog({
-          ...auditBase,
-          timestamp: new Date().toISOString(),
-          resolved_symbol: 'unknown',
-          outcome: 'unavailable',
-          reason: validation.reason,
-        });
-        await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
-      }
-      return;
-    }
-    const symbol = validation.symbol;
-
-    /* [SYMBOL] Phase 7 — allowlist gate. Catches format-valid-but-unsupported
-       tickers (HGUSD / XYZ123 / 6-char junk) that slip past validateInput.
-       Hard-fails with the same 'Data unavailable' reply used for format /
-       unknown_instrument. */
-    if (!isResolvableSymbol(symbol)) {
-      console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=not_in_allowlist mapped=${symbol}`);
-      emitAuditLog({
-        ...auditBase,
-        timestamp: new Date().toISOString(),
-        resolved_symbol: 'unknown',
-        outcome: 'unavailable',
-        reason: 'not_in_allowlist',
-      });
-      await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
-      return;
-    }
-
-    console.log(`[SYMBOL] raw=${userInput} resolved=${symbol} outcome=served`);
-    emitAuditLog({
-      ...auditBase,
-      timestamp: new Date().toISOString(),
-      resolved_symbol: symbol,
-      outcome: 'served',
-      reason: null,
+    await commandRouter.handle(msg, {
+      resolveSymbol,
+      validateInput,
+      isResolvableSymbol,
+      POLICY_REJECTED_TERMS,
+      emitAuditLog,
+      renderAllPanelsV3,
+      deliverResult,
     });
-
-    const USER_BY_ID = {
-      '690861328507731978':  'AT', // AT (atlas.4693)
-      '1431173502161129555': 'NM', // NM (Nathan McKay)
-      '763467091171999814':  'SK', // SK
-      '1244449071977074798': 'BR', // BR
-    };
-    const USER_BY_CHANNEL = {
-      '1432642672287547453': 'AT', // at-chart-macro-request
-      '1433750991953596428': 'AT', // at-training
-      '1489245537395019908': 'AT', // at-chat-with-astra
-      '1432643496375881748': 'SK', // sk-chart-macro-request
-      '1433751801634488372': 'SK', // sk-training
-      '1489246324552368178': 'SK', // sk-chat-with-astra
-      '1432644116868501595': 'NM', // nm-chart-macro-request
-      '1433755484057501796': 'NM', // nm-training
-      '1489248591854702744': 'NM', // nm-chat-with-astra
-      '1482450651765149816': 'BR', // br-chart-macro-request
-      '1482450900583710740': 'BR', // br-training
-      '1489247239359697067': 'BR', // br-chat-with-astra
-    };
-    const user = USER_BY_ID[msg.author.id] || USER_BY_CHANNEL[msg.channelId] || 'AT';
-    await msg.channel.send({ content: `📡 Analysing **${symbol}** — please wait` });
-    const { htfGrid, ltfGrid, htfGridName, ltfGridName } = await renderAllPanelsV3(symbol);
-    await deliverResult(msg, { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName });
   } catch (e) {
     console.error('handler error', e);
   }
