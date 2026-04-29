@@ -140,7 +140,7 @@ function buildWidgetHTML(tvSymbol, tvInterval) {
 }
 
 async function waitForCandles(page, timeoutMs) {
-  timeoutMs = timeoutMs || 25000;
+  timeoutMs = timeoutMs || 15000;
   var deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     var found = await page.evaluate(function() {
@@ -166,7 +166,7 @@ async function waitForCandles(page, timeoutMs) {
           var data = ctx.getImageData(0, 0, w, scanH).data;
           for (var i = 0; i < data.length; i += 4) {
             var r = data[i], g = data[i+1], b = data[i+2];
-            if ((g > 180 && r < 80 && b < 80) || (r > 180 && g < 80 && b < 80)) return true;
+            if ((g > 100 && r < 150 && b < 150) || (r > 100 && g < 150 && b < 150)) return true;
           }
         } catch(e) {}
       }
@@ -176,6 +176,29 @@ async function waitForCandles(page, timeoutMs) {
     await new Promise(function(r) { setTimeout(r, 400); });
   }
   return false;
+}
+
+async function validateCapture(buf) {
+  if (!buf || !buf.length) return { ok: false, reason: 'no_buffer' };
+  if (buf.length < 5 * 1024) return { ok: false, reason: 'buffer_too_small_' + buf.length + 'B' };
+  try {
+    var scanH = Math.max(1, Math.round(CHART_H * 0.4));
+    var pixels = await sharp(buf)
+      .extract({ left: 0, top: 0, width: CHART_W, height: scanH })
+      .raw()
+      .ensureAlpha()
+      .toBuffer({ resolveWithObject: true });
+    var data = pixels.data;
+    for (var i = 0; i < data.length; i += 4) {
+      var r = data[i], g = data[i+1], b = data[i+2];
+      if ((g > 100 && r < 150 && b < 150) || (r > 100 && g < 150 && b < 150)) {
+        return { ok: true };
+      }
+    }
+    return { ok: false, reason: 'no_candle_pixels' };
+  } catch (e) {
+    return { ok: false, reason: 'pixel_scan_error:' + e.message };
+  }
 }
 
 async function makePlaceholder(symbol, tfLabel) {
@@ -237,18 +260,26 @@ async function renderOneChart(browser, symbol, interval) {
     ).catch(function() {
       throw new Error('TradingView script timeout - ' + symbol + ' ' + interval);
     });
-    var candlesReady = await waitForCandles(page, 25000);
+    var candlesReady = await waitForCandles(page, 15000);
     if (!candlesReady) {
-      console.warn('[RENDERER] ' + symbol + ' ' + interval + ' - candles not detected; using placeholder');
-      return makePlaceholder(symbol, tfLabel);
+      console.log('[CHART] ' + symbol + ' ' + interval + ' — validation FAIL reason=candles_not_detected');
+      var ph = await makePlaceholder(symbol, tfLabel);
+      return { buffer: ph, valid: false, reason: 'candles_not_detected' };
     }
-    await new Promise(function(r) { setTimeout(r, 300); });
+    await new Promise(function(r) { setTimeout(r, 150); });
     var shot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: CHART_W, height: CHART_H } });
-    console.log('[RENDERER] ' + symbol + ' ' + interval + ' - captured');
-    return shot;
+    var v = await validateCapture(shot);
+    if (!v.ok) {
+      console.log('[CHART] ' + symbol + ' ' + interval + ' — validation FAIL reason=' + v.reason);
+      var ph2 = await makePlaceholder(symbol, tfLabel);
+      return { buffer: ph2, valid: false, reason: v.reason };
+    }
+    console.log('[CHART] ' + symbol + ' ' + interval + ' — validation PASS');
+    return { buffer: shot, valid: true };
   } catch (e) {
-    console.error('[RENDERER] ' + symbol + ' ' + interval + ' - error: ' + e.message);
-    return makePlaceholder(symbol, tfLabel);
+    console.log('[CHART] ' + symbol + ' ' + interval + ' — validation FAIL reason=exception:' + e.message);
+    var phE = await makePlaceholder(symbol, tfLabel);
+    return { buffer: phE, valid: false, reason: 'exception:' + e.message };
   } finally {
     try { await page.close(); } catch(e) {}
   }
@@ -286,16 +317,25 @@ async function renderAllPanels(symbol) {
     var htfPanels = allPanels.slice(0, 4);
     var ltfPanels = allPanels.slice(4, 8);
     var grids = await Promise.all([
-      buildGrid(htfPanels, HTF_INTERVALS),
-      buildGrid(ltfPanels, LTF_INTERVALS)
+      buildGrid(htfPanels.map(function(p) { return p.buffer; }), HTF_INTERVALS),
+      buildGrid(ltfPanels.map(function(p) { return p.buffer; }), LTF_INTERVALS)
     ]);
+    var validation = allPanels.map(function(p, idx) {
+      return {
+        interval: allIntervals[idx],
+        label: TF_LABELS[allIntervals[idx]] || allIntervals[idx],
+        ok: !!p.valid,
+        reason: p.valid ? null : (p.reason || 'unknown')
+      };
+    });
     var elapsed = Math.round((Date.now() - t0) / 1000);
     console.log('[RENDERER] ' + sym + ' - complete in ' + elapsed + 's');
     return {
       htfGrid:     grids[0],
       ltfGrid:     grids[1],
       htfGridName: sym + '_HTF.png',
-      ltfGridName: sym + '_LTF.png'
+      ltfGridName: sym + '_LTF.png',
+      validation:  validation
     };
   } catch (e) {
     console.error('[RENDERER] ' + sym + ' - fatal: ' + e.message);

@@ -1519,7 +1519,10 @@ async function buildGrid(panels,tfKeys){
 async function renderAllPanelsV3(symbol){
   log("INFO", "[CHART] " + symbol + " — rendering via Puppeteer/TradingView widget");
   const result = await renderAllPanels(symbol);
-  return { ...result, htfFail: 0, ltfFail: 0, partial: false };
+  const validation = Array.isArray(result.validation) ? result.validation : [];
+  const htfFail = validation.slice(0, 4).filter(v => !v.ok).length;
+  const ltfFail = validation.slice(4, 8).filter(v => !v.ok).length;
+  return { ...result, htfFail, ltfFail, partial: htfFail > 0 || ltfFail > 0 };
 }
 // ── END RENDERING LAYER v3 ────────────────────────────────────
 
@@ -1531,8 +1534,20 @@ async function renderAllPanelsV3(symbol){
 //   Events/Catalysts → Historical Context →
 //   Execution Logic → Validity
 // ==============================
+const SECTION_NAMES = [
+  'TRADE STATUS',
+  'PRICE TABLE',
+  'ROADMAP',
+  'EVENT INTELLIGENCE',
+  'MARKET OVERVIEW',
+  'EVENTS & CATALYSTS',
+  'HISTORICAL CONTEXT',
+  'EXECUTION LOGIC',
+  'VALIDITY'
+];
+
 async function deliverResult(msg, result) {
-  const { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName } = result;
+  const { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName, validation } = result;
   if (!htfGrid || !ltfGrid) {
     log('ERROR', `[DELIVER] ${symbol} missing chart grids`);
     await msg.channel.send({ content: `⚠️ Chart render failed for ${symbol} — macro aborted.` });
@@ -1551,6 +1566,17 @@ async function deliverResult(msg, result) {
     files: [new AttachmentBuilder(ltfGrid, { name: ltfGridName })]
   });
 
+  // 2b. Per-timeframe capture warnings (validation failures)
+  if (Array.isArray(validation)) {
+    for (const v of validation) {
+      if (!v.ok) {
+        await msg.channel.send({
+          content: `⚠️ Chart capture failed for ${symbol} ${v.label} — analysis withheld until valid render available.`
+        });
+      }
+    }
+  }
+
   // 3. Gather live data surface
   let corey, spideyHTF, spideyLTF, jane;
   try {
@@ -1568,9 +1594,13 @@ async function deliverResult(msg, result) {
 
   // 4. Build and deliver all text sections in locked order
   const sections = formatMacro(symbol, corey, spideyHTF, spideyLTF, jane);
-  for (const section of sections) {
-    for (const chunk of chunkMessage(section, DISCORD_MAX)) {
-      await msg.channel.send({ content: chunk });
+  for (let i = 0; i < sections.length; i++) {
+    const name = SECTION_NAMES[i] || `SECTION_${i + 1}`;
+    const chunks = chunkMessage(sections[i], DISCORD_MAX);
+    log('INFO', `[PRESENTER] section=${name} chunks=${chunks.length}`);
+    for (let j = 0; j < chunks.length; j++) {
+      await msg.channel.send({ content: chunks[j] });
+      log('INFO', `[DISCORD] sent section=${name} index=${j + 1}`);
     }
   }
 }
