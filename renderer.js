@@ -140,36 +140,43 @@ function buildWidgetHTML(tvSymbol, tvInterval) {
 }
 
 async function waitForCandles(page, timeoutMs) {
-  timeoutMs = timeoutMs || 25000;
+  timeoutMs = timeoutMs || 15000;
   var deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     var found = await page.evaluate(function() {
-      var canvases = Array.from(document.querySelectorAll('.tv-lightweight-charts canvas'));
-      if (canvases.length === 0) {
-        try {
-          for (var frame of document.querySelectorAll('iframe')) {
-            try {
-              var fd = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
-              if (fd) canvases = canvases.concat(Array.from(fd.querySelectorAll('.tv-lightweight-charts canvas')));
-            } catch(e) {}
-          }
-        } catch(e) {}
+      var tvCanvases = Array.from(document.querySelectorAll('.tv-lightweight-charts canvas'));
+      try {
+        for (var frame of document.querySelectorAll('iframe')) {
+          try {
+            var fd = frame.contentDocument || (frame.contentWindow && frame.contentWindow.document);
+            if (fd) tvCanvases = tvCanvases.concat(Array.from(fd.querySelectorAll('.tv-lightweight-charts canvas')));
+          } catch(e) {}
+        }
+      } catch(e) {}
+      function scan(canvasList, broad) {
+        for (var canvas of canvasList) {
+          try {
+            var w = canvas.width, h = canvas.height;
+            if (w < 100 || h < 100) continue;
+            var ctx = canvas.getContext('2d');
+            if (!ctx) continue;
+            var scanH = Math.min(h, Math.round(h * 0.4));
+            var data = ctx.getImageData(0, 0, w, scanH).data;
+            for (var i = 0; i < data.length; i += 4) {
+              var r = data[i], g = data[i+1], b = data[i+2];
+              if (broad) {
+                if ((g > 100 && r < 150 && b < 150) || (r > 100 && g < 150 && b < 150)) return true;
+              } else {
+                if ((g > 180 && r < 80 && b < 80) || (r > 180 && g < 80 && b < 80)) return true;
+              }
+            }
+          } catch(e) {}
+        }
+        return false;
       }
-      if (canvases.length === 0) canvases = Array.from(document.querySelectorAll('canvas'));
-      for (var canvas of canvases) {
-        try {
-          var w = canvas.width, h = canvas.height;
-          if (w < 100 || h < 100) continue;
-          var ctx = canvas.getContext('2d');
-          if (!ctx) continue;
-          var scanH = Math.min(h, Math.round(h * 0.4));
-          var data = ctx.getImageData(0, 0, w, scanH).data;
-          for (var i = 0; i < data.length; i += 4) {
-            var r = data[i], g = data[i+1], b = data[i+2];
-            if ((g > 180 && r < 80 && b < 80) || (r > 180 && g < 80 && b < 80)) return true;
-          }
-        } catch(e) {}
-      }
+      if (scan(tvCanvases, false)) return true;
+      var allCanvases = Array.from(document.querySelectorAll('canvas'));
+      if (scan(allCanvases, true)) return true;
       return false;
     });
     if (found) return true;
@@ -237,12 +244,12 @@ async function renderOneChart(browser, symbol, interval) {
     ).catch(function() {
       throw new Error('TradingView script timeout - ' + symbol + ' ' + interval);
     });
-    var candlesReady = await waitForCandles(page, 25000);
+    var candlesReady = await waitForCandles(page, 15000);
     if (!candlesReady) {
       console.warn('[RENDERER] ' + symbol + ' ' + interval + ' - candles not detected; using placeholder');
       return makePlaceholder(symbol, tfLabel);
     }
-    await new Promise(function(r) { setTimeout(r, 300); });
+    await new Promise(function(r) { setTimeout(r, 150); });
     var shot = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: CHART_W, height: CHART_H } });
     console.log('[RENDERER] ' + symbol + ' ' + interval + ' - captured');
     return shot;
