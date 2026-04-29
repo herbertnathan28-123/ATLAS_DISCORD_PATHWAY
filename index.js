@@ -1199,8 +1199,9 @@ client.on('messageCreate', async (msg) => {
       '1489247239359697067': 'BR', // br-chat-with-astra
     };
     const user = USER_BY_ID[msg.author.id] || USER_BY_CHANNEL[msg.channelId] || 'AT';
-    const atlasUrl = `https://atlas-fx-dashboard.onrender.com?symbol=${symbol}&user=${user}`;
-    await msg.channel.send({ content: `📊 **${symbol}** — ATLAS Dashboard\n${atlasUrl}` });
+    await msg.channel.send({ content: `📡 Analysing **${symbol}** — please wait` });
+    const { htfGrid, ltfGrid, htfGridName, ltfGridName } = await renderAllPanelsV3(symbol);
+    await deliverResult(msg, { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName });
   } catch (e) {
     console.error('handler error', e);
   }
