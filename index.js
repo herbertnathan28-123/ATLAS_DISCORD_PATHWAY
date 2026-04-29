@@ -12,7 +12,6 @@ process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
 const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,AttachmentBuilder}=require('discord.js');
 
 const { renderAllPanels } = require('./renderer');
-const sharp=require('sharp');
 const{createHmac}=require('crypto');
 const fs=require('fs');
 const https=require('https');
@@ -378,7 +377,16 @@ function distanceAsDollars(distance, symbol) {
   const { pipSize } = getPipSize(symbol);
   const pips = Math.round((distance / pipSize) * 10) / 10;
   const dollars = Math.round(pips * dollarPerPip(symbol));
-  return { dollars, pips, text: `$${dollars} (distance context: ≈ ${pips} pips)` };
+  const ac = inferAssetClass(normalizeSymbol(symbol));
+  // Equity / index / commodity outputs use dollar-only language; FX outputs
+  // append a points context (no "pips" wording, even for FX, per equity-aware
+  // language filter).
+  let text;
+  if (ac === ASSET_CLASS.EQUITY) text = `$${dollars} per share`;
+  else if (ac === ASSET_CLASS.INDEX) text = `$${dollars} per contract`;
+  else if (ac === ASSET_CLASS.COMMODITY) text = `$${dollars}`;
+  else text = `$${dollars} (≈ ${pips} pts)`;
+  return { dollars, pips, text };
 }
 
 // Minimum necessary structural buffer — doctrine-compliant
@@ -442,11 +450,17 @@ function structureTimeline(htf, ltf) {
   return { bos, zone, zoneTimeMs, age };
 }
 
-// Permit status — plain-English line under the verdict
-function permitPlain() {
-  if (!AUTH_AVAILABLE) return 'Trade permit is blocked because ATLAS is running without authentication. Charts and analysis remain available; execution is disabled.';
-  if (!isTradePermitAllowed()) return 'Trade permit is disabled because ATLAS is in build mode. Analysis is fully live; execution is disabled until the system is promoted to operational.';
-  return 'Trade permit is available. Execution is unlocked as soon as structure confirms and the plan below is met.';
+// Permit status — must reconcile with Trade Status. Never returns
+// "permit available" when readiness is low or the system has flagged a block.
+function permitPlain(jane, readiness) {
+  if (!AUTH_AVAILABLE) return 'Trade permit is BLOCKED — ATLAS is running without authentication. Charts and analysis remain available; execution is disabled.';
+  if (!isTradePermitAllowed()) return 'Trade permit is BLOCKED — ATLAS is in build mode. Analysis is fully live; execution is disabled until the system is promoted to operational.';
+  if (jane && jane.doNotTrade) return `Trade permit is BLOCKED — ${jane.doNotTradeReason || 'do-not-trade conditions are active.'}`;
+  const r = Number.isFinite(readiness) ? readiness : (jane ? readinessScore(jane) : 0);
+  if (r <= 3) return `Trade permit is BLOCKED — Market Readiness ${r}/10 is below the minimum bar (4/10) for capital. The setup is not mature enough to risk capital.`;
+  if (jane && jane.convictionLabel === 'Abstain') return 'Trade permit is BLOCKED — no authorised trade conviction. The system does not have enough clean evidence to risk capital. This does not mean price will not move.';
+  if (jane && jane.convictionLabel === 'Low') return 'Trade permit is CONDITIONAL — only experienced traders, only with reduced exposure, and only on confirmed lower-timeframe structure inside the entry zone.';
+  return 'Trade permit is AVAILABLE — execution unlocks the moment lower-timeframe structure confirms inside the entry zone, sized to the dollar risk in the Execution tab.';
 }
 
 function buildTradeStatus(sym, jane, corey, htf, ltf) {
@@ -458,40 +472,70 @@ function buildTradeStatus(sym, jane, corey, htf, ltf) {
   const readiness = readinessScore(jane);
   const align = macroAlignment(corey);
   const paths = pathProbabilities(htf, jane);
-  const newAction = jane.doNotTrade
-    ? 'Stand aside.'
-    : jane.convictionLabel === 'High'
-      ? 'Prepare the entry. Act only on confirmation, with planned size.'
-      : jane.convictionLabel === 'Medium'
-        ? 'Stand aside until confirmation. Experienced traders may act with reduced exposure.'
-        : 'Stand aside.';
-  const expAction = jane.doNotTrade
-    ? 'Experienced trader: do not override. Wait for structure and macro to re-align.'
-    : 'Experienced trader: act only after lower-timeframe confirmation, with reduced exposure if macro alignment is not strong.';
+
+  // Plain-English explanations for required vague-term coverage.
+  const biasExplain = bias === BIAS.NEUTRAL
+    ? 'NEUTRAL means ATLAS cannot choose buy or sell with enough confidence yet. Direction is not forbidden — it is unproven.'
+    : `${bias.toUpperCase()} means ATLAS sees the higher-timeframe and macro layer leaning ${bias.toLowerCase()}, but the trade still requires lower-timeframe confirmation before it is acted on.`;
+  const convictionLine = jane.convictionLabel === 'Abstain'
+    ? `Conviction: NO AUTHORISED TRADE CONVICTION. This does not mean price will not move. It means the system does not have enough clean evidence to risk capital.`
+    : `Conviction: ${jane.convictionLabel} (${pctLabel(conv)}). ${convictionMeaning(jane.convictionLabel)}`;
+  const readinessLine = `${readinessMeaning(readiness)} A ${readiness}/10 score means ${readiness} of the 10 ATLAS readiness conditions are currently satisfied. ${readiness <= 3 ? 'The setup is NOT mature enough for capital. Trade Permit MUST be BLOCKED.' : readiness <= 5 ? 'The setup is partially mature — execution remains conditional on lower-timeframe confirmation.' : 'The setup is mature; standard execution rules apply.'}`;
+
+  // Most-likely-behaviour explanations + close-call guard.
+  const sortedPaths = [
+    { name: 'Continuation', value: paths.cont, def: 'price attempts to keep following the current dominant direction.' },
+    { name: 'Range', value: paths.range, def: 'price moves sideways between nearby liquidity, taking out short-term highs and lows without resolving.' },
+    { name: 'Reversal', value: paths.rev, def: 'price rejects the current direction and moves the other way through structure.' }
+  ].sort((a, b) => b.value - a.value);
+  const closeCall = (sortedPaths[0].value - sortedPaths[1].value) <= 5;
+
+  // Permit reconciliation: if Trade Status says blocked, permit MUST say blocked.
+  const permit = permitPlain(jane, readiness);
+  const blocked = jane.doNotTrade || readiness <= 3 || jane.convictionLabel === 'Abstain' || /BLOCKED/.test(permit);
+
+  // Plain-English verdict paragraph.
+  const verdictPlain = blocked
+    ? `${verdict.word}. ${verdict.reason} The system is NOT authorising new capital here. This is a decision, not a stop sign — direction may still develop; ATLAS is telling you the read does not yet meet the bar to risk capital.`
+    : `${verdict.word}. ${verdict.reason} The plan below is live; act only when the lower-timeframe trigger inside the entry zone confirms.`;
+
+  // "Why" — the actual conflict, in plain language.
+  const whyParts = [];
+  if (htf.dominantBias !== BIAS.NEUTRAL && ltf.dominantBias !== BIAS.NEUTRAL && htf.dominantBias !== ltf.dominantBias) {
+    whyParts.push(`Higher timeframe is ${htf.dominantBias.toLowerCase()} but lower timeframe is ${ltf.dominantBias.toLowerCase()} — the two layers disagree.`);
+  }
+  if (corey.combinedBias === BIAS.NEUTRAL) whyParts.push('Corey’s macro composite is neutral — no policy or cross-asset edge to lean on.');
+  if (regime === REGIME.TRANSITION) whyParts.push('Regime is in transition — failed breaks and one-session reversals are common until structure resolves.');
+  if (closeCall) whyParts.push(`Top two scenarios (${sortedPaths[0].name} ${sortedPaths[0].value}% vs ${sortedPaths[1].name} ${sortedPaths[1].value}%) are within 5 percentage points — the leading path is not strong enough to create an edge.`);
+  if (jane.doNotTrade) whyParts.push(`Specific block: ${jane.doNotTradeReason || 'do-not-trade conditions are active.'}`);
+  if (whyParts.length === 0) whyParts.push('No major conflict — structure, macro and regime are aligned.');
 
   return [
     `📊 **TRADE STATUS — ${sym}**`,
     ``,
     `**ATLAS VERDICT**`,
-    `${verdict.word} — ${verdict.reason}`,
+    `${verdict.word.toUpperCase()}`,
+    ``,
+    `**PLAIN ENGLISH**`,
+    verdictPlain,
+    ``,
+    `**WHY**`,
+    whyParts.map(p => `• ${p}`).join('\n'),
     ``,
     `**MARKET READINESS — ${readiness} / 10**`,
-    `${readinessMeaning(readiness)}`,
-    ``,
-    `**WHAT TO DO**`,
-    `New trader: ${newAction}`,
-    `${expAction}`,
+    readinessLine,
     ``,
     `**DOMINANT BIAS**`,
     `${bias}  ${dotScale(conv)}`,
     `${mixedArrows(bias, conv)}`,
-    `Conviction: ${jane.convictionLabel} (${pctLabel(conv)}). ${convictionMeaning(jane.convictionLabel)}`,
+    biasExplain,
+    convictionLine,
     ``,
     `**MOST LIKELY BEHAVIOUR**`,
-    `Continuation — ${paths.cont}%`,
-    `Range — ${paths.range}%`,
-    `Reversal — ${paths.rev}%`,
-    `${probabilityMeaning(paths)}`,
+    `Continuation — ${paths.cont}% (${sortedPaths.find(p => p.name === 'Continuation').def})`,
+    `Range — ${paths.range}% (${sortedPaths.find(p => p.name === 'Range').def})`,
+    `Reversal — ${paths.rev}% (${sortedPaths.find(p => p.name === 'Reversal').def})`,
+    closeCall ? '⚠️ The leading path is not strong enough to create an edge. Treat the read as conditional until the spread widens.' : `${probabilityMeaning(paths)}`,
     ``,
     `**MACRO ALIGNMENT — ${align.label} (${align.count}/${align.total})**`,
     `${align.meaning}`,
@@ -502,23 +546,224 @@ function buildTradeStatus(sym, jane, corey, htf, ltf) {
     `Macro (Corey): ${corey.combinedBias} ${biasArrow(corey.combinedBias)} at composite score ${fmtNum(corey.combinedScore, 2)}.`,
     `Regime: ${regime}. Risk environment: ${risk}.`,
     ``,
+    `**WHAT TO DO**`,
+    blocked
+      ? 'New trader: stand aside. Do not pre-position.\nExperienced trader: do not override. Wait for structure and macro to re-align before any new entry.'
+      : (jane.convictionLabel === 'High'
+          ? 'New trader: prepare the entry. Act only on confirmation, with planned size.\nExperienced trader: act on lower-timeframe confirmation inside the entry zone, sized to the dollar risk in the Execution tab.'
+          : 'New trader: stand aside until confirmation prints.\nExperienced trader: act only after lower-timeframe confirmation, with reduced exposure if macro alignment is not strong.'),
+    ``,
     `**WHEN TO ACT**`,
-    jane.doNotTrade
-      ? 'Only once the listed invalidation reason clears and structure rebuilds on the lower timeframe.'
-      : 'Only once lower-timeframe structure confirms the direction shown above (BOS or CHoCH), and price is inside the planned entry zone.',
+    blocked
+      ? 'Only once the listed conflict clears AND lower-timeframe structure rebuilds AND a fresh entry zone forms.'
+      : 'Only once lower-timeframe structure confirms the direction shown above (BOS or CHoCH on at least the 1H), AND price is inside the planned entry zone.',
     ``,
     `**WHEN TO STAND ASIDE**`,
     'If confirmation does not appear inside the current session, if macro alignment weakens further, or if any catalyst in the Events & Catalysts tab crosses its threshold. No trade is always a valid decision.',
     ``,
     `**TRADE PERMIT**`,
-    `${permitPlain()}`,
-    jane.doNotTrade
-      ? `\n**TRADE BLOCKED — REASON**\n${jane.doNotTradeReason} Until this reason clears, treat every entry as unauthorised.`
-      : ''
-  ].filter(Boolean).join('\n');
+    permit
+  ].join('\n');
+}
+
+// FORWARD EXPECTATION — daily-movement context driven from the same OHLC the
+// engines already consume; no new data sources.
+function buildForwardExpectation(sym, jane, corey, htf, ltf, candlesByTf) {
+  const ac = inferAssetClass(normalizeSymbol(sym));
+  const isEquity = ac === ASSET_CLASS.EQUITY;
+  const isIndex = ac === ASSET_CLASS.INDEX;
+  const isCommodity = ac === ASSET_CLASS.COMMODITY;
+  const regime = corey.internalMacro?.regime?.regime || REGIME.NEUTRAL;
+  const vol = corey.internalMacro?.global?.live?.vix?.level || 'Normal';
+  const bias = jane.finalBias;
+
+  // Expected behaviour
+  let expectedBehaviour;
+  if (jane.doNotTrade || regime === REGIME.TRANSITION) expectedBehaviour = 'CHOP — failed breaks and one-session reversals are likely until structure or macro confirms.';
+  else if (vol === 'High' && !jane.ltfAligned) expectedBehaviour = 'ABSORB / WAIT FOR CATALYST — elevated volatility plus disagreement between higher and lower timeframes typically absorbs the remaining session range without committing direction.';
+  else if (bias === BIAS.NEUTRAL) expectedBehaviour = 'RANGE — no directional edge. Expect price to rotate between nearby liquidity until structure resolves.';
+  else if (jane.convictionLabel === 'High' && jane.ltfAligned) expectedBehaviour = `CONTINUATION (${bias.toLowerCase()}) — structure and macro agree. Pullback into the entry zone is the most likely setup.`;
+  else if (jane.ltfConflict) expectedBehaviour = 'WAIT FOR STRUCTURE — lower timeframe disagrees with higher. The next clean structural break decides direction.';
+  else expectedBehaviour = `WAIT FOR CONFIRMATION — directional lean is ${bias.toLowerCase()} but conviction is below the action threshold; a confirmed lower-timeframe break is required.`;
+
+  // Expected timing
+  let timingLine;
+  if (regime === REGIME.TRANSITION || jane.doNotTrade) timingLine = 'No reliable time estimate is available. Structure confirmation is required before timing becomes useful.';
+  else if (vol === 'High') timingLine = 'Until the next catalyst — elevated volatility tends to compress decision-making into event windows rather than steady drift.';
+  else if (jane.convictionLabel === 'High') timingLine = 'Next 1–2 hours — the active edge is short-dated; act on the next confirmation or stand aside until the next regime check.';
+  else timingLine = 'Until next regime check (4 hours) — no clean time signature without lower-timeframe structure.';
+
+  // Daily movement context
+  const daily = candlesByTf && candlesByTf['1D'];
+  let movementBlock;
+  if (Array.isArray(daily) && daily.length >= 21) {
+    const last20 = daily.slice(-21, -1);
+    const ranges = last20.map(c => c.high - c.low).filter(Number.isFinite);
+    const typicalRange = ranges.length ? ranges.reduce((a, b) => a + b, 0) / ranges.length : 0;
+    const today = daily[daily.length - 1];
+    const seenSoFar = today ? Math.abs(today.high - today.low) : 0;
+    const remaining = Math.max(0, typicalRange - seenSoFar);
+    const fmt = v => isCommodity ? `$${v.toFixed(2)}` : isIndex ? `${v.toFixed(0)} pts` : `$${v.toFixed(2)}`;
+    const unit = isEquity ? ' per share' : isIndex ? ' per contract' : '';
+    const messy = vol === 'High' || regime === REGIME.TRANSITION || closeCallish(jane);
+    movementBlock = [
+      `Typical daily movement (last 20 sessions): approx. ${fmt(typicalRange)}${unit}.`,
+      `Movement already seen today: approx. ${fmt(seenSoFar)}${unit}.`,
+      `Estimated movement remaining: approx. ${fmt(remaining)}${unit}.`,
+      ``,
+      messy
+        ? 'Remaining movement is NOT automatically tradable. In mixed conditions, unused range is often absorbed through chop, false breaks, or late-session drift.'
+        : 'Remaining movement is more likely than usual to be clean given current alignment, but still requires lower-timeframe structure before acting.'
+    ].join('\n');
+  } else {
+    movementBlock = 'Daily movement data unavailable for this session — typical range and remaining-range estimates suppressed.';
+  }
+
+  // Remaining-movement absorption
+  let absorption;
+  if (jane.doNotTrade || jane.finalBias === BIAS.NEUTRAL) absorption = 'No reliable directional assignment for the remaining range. Expect sideways absorption inside the current intraday range.';
+  else if (bias === BIAS.BULLISH && jane.ltfAligned) absorption = 'Likely UPWARD into nearby resistance / liquidity above current price. Confirm with lower-timeframe break before acting.';
+  else if (bias === BIAS.BEARISH && jane.ltfAligned) absorption = 'Likely DOWNWARD into nearby support / demand below current price. Confirm with lower-timeframe break before acting.';
+  else absorption = 'Held back until the next catalyst or until lower-timeframe structure agrees with the higher timeframe.';
+
+  // What the trader is waiting for — exact, not generic.
+  const waitingFor = (() => {
+    if (jane.doNotTrade) return `The named conflict above to clear AND a fresh structural break (BOS or CHoCH) on at least the 1H AND a fresh ${bias === BIAS.BULLISH ? 'demand zone or bullish imbalance' : bias === BIAS.BEARISH ? 'supply zone or bearish imbalance' : 'directional zone'} below/above current price.`;
+    if (bias === BIAS.NEUTRAL) return 'A confirmed bullish OR bearish break (BOS / CHoCH) on the 1H or higher with a candle close beyond the break level.';
+    return `A ${bias.toLowerCase()} BOS or CHoCH on at least the 1H (candle close beyond the break level), followed by a pullback into the resulting ${bias === BIAS.BULLISH ? 'demand zone or imbalance' : 'supply zone or imbalance'}.`;
+  })();
+
+  return [
+    `🧭 **FORWARD EXPECTATION — NEXT SESSION WINDOW — ${sym}**`,
+    ``,
+    `**EXPECTED BEHAVIOUR**`,
+    expectedBehaviour,
+    ``,
+    `**EXPECTED TIMING**`,
+    timingLine,
+    ``,
+    `**DAILY MOVEMENT CONTEXT**`,
+    movementBlock,
+    ``,
+    `**REMAINING MOVEMENT ABSORPTION**`,
+    absorption,
+    ``,
+    `**WHAT THE TRADER IS WAITING FOR**`,
+    waitingFor
+  ].join('\n');
+}
+
+function closeCallish(jane) {
+  return jane.convictionLabel === 'Low' || jane.convictionLabel === 'Abstain' || jane.conflictState === 'PartialConflict' || jane.conflictState === 'HardConflict';
+}
+
+// TRIGGER MAP — exact levels and timeframes; no generic "lower timeframe" alone.
+function buildTriggerMap(sym, jane, htf, ltf) {
+  const cp = htf.currentPrice || ltf.currentPrice || 0;
+  const tf1H = htf.timeframes?.['60'] || {};
+  const tf4H = htf.timeframes?.['240'] || {};
+  const tf30 = ltf.timeframes?.['30'] || {};
+  const tf15 = ltf.timeframes?.['15'] || {};
+
+  const bullDemand = tf1H.activeDemand || tf4H.activeDemand || tf30.activeDemand;
+  const bullBOS = (tf1H.swingHighs && tf1H.swingHighs.length) ? tf1H.swingHighs[tf1H.swingHighs.length - 1].level : null;
+  const bearSupply = tf1H.activeSupply || tf4H.activeSupply || tf30.activeSupply;
+  const bearBOS = (tf1H.swingLows && tf1H.swingLows.length) ? tf1H.swingLows[tf1H.swingLows.length - 1].level : null;
+
+  const aboveBOS = Number.isFinite(bullBOS) ? fmtPrice(bullBOS, sym) : 'pending';
+  const belowBOS = Number.isFinite(bearBOS) ? fmtPrice(bearBOS, sym) : 'pending';
+  const noTradeLow = Number.isFinite(bearBOS) ? fmtPrice(bearBOS, sym) : 'pending';
+  const noTradeHigh = Number.isFinite(bullBOS) ? fmtPrice(bullBOS, sym) : 'pending';
+
+  return [
+    `🎯 **TRIGGER MAP — ${sym}**`,
+    ``,
+    `**BULLISH SHIFT**`,
+    `• Timeframe: 1H (aggressive: 30M for intraday confirmation; broader: 4H for structural confirmation).`,
+    `• Level: confirmed close above ${aboveBOS} (1H structure-break reference).`,
+    `• Candle close: full 1H candle close beyond the level — wicks alone do NOT qualify.`,
+    `• Zone requirement: a fresh DEMAND zone (or bullish imbalance) created by the displacement off the break — pullback into that zone is the entry trigger, not the break itself.`,
+    `• Catalyst condition: no scheduled catalyst inside the next 2 hours. If a catalyst is inside the window, NO new entry — manage existing positions only.`,
+    `• Invalidation: 1H close back below ${aboveBOS}, OR break of the demand zone low ${bullDemand && Number.isFinite(bullDemand.low) ? `at ${fmtPrice(bullDemand.low, sym)}` : '(zone pending)'}.`,
+    ``,
+    `**BEARISH SHIFT**`,
+    `• Timeframe: 1H (aggressive: 30M for intraday confirmation; broader: 4H for structural confirmation).`,
+    `• Level: confirmed close below ${belowBOS} (1H structure-break reference).`,
+    `• Candle close: full 1H candle close beyond the level — wicks alone do NOT qualify.`,
+    `• Zone requirement: a fresh SUPPLY zone (or bearish imbalance) created by the displacement off the break — pullback into that zone is the entry trigger, not the break itself.`,
+    `• Catalyst condition: no scheduled catalyst inside the next 2 hours. If a catalyst is inside the window, NO new entry — manage existing positions only.`,
+    `• Invalidation: 1H close back above ${belowBOS}, OR break of the supply zone high ${bearSupply && Number.isFinite(bearSupply.high) ? `at ${fmtPrice(bearSupply.high, sym)}` : '(zone pending)'}.`,
+    ``,
+    `**NO-TRADE CONDITION**`,
+    `Price between ${noTradeLow} and ${noTradeHigh} with no confirmed 1H break in either direction = NO TRADE. The asset remains untradable inside this band until a confirmed 1H structure break with candle-close confirmation forms.`,
+    ``,
+    `**ATLAS SEQUENCE (mandatory order)**`,
+    `Liquidity → structure break (BOS / CHoCH) → candle close → identify fresh supply/demand zone or imbalance → pullback into zone → confirmation/entry plan → invalidation → target. A break above or below a level is NEVER an entry by itself.`
+  ].join('\n');
+}
+
+// EQUITY LANGUAGE FILTER — strips banned FX/pair language from non-FX outputs.
+function equityLanguageFilter(text, sym) {
+  if (typeof text !== 'string' || !text) return text;
+  const ac = inferAssetClass(normalizeSymbol(sym));
+  if (ac === ASSET_CLASS.FX) return text; // FX language permitted on FX outputs only.
+  const isEquity = ac === ASSET_CLASS.EQUITY;
+  let out = text;
+  // Hard substitutions for banned terms in equity / index / commodity outputs.
+  out = out.replace(/\bstandard lot\b/gi, isEquity ? '100-share lot' : 'standard contract');
+  out = out.replace(/\bnon-USD trade\b/gi, 'non-USD asset');
+  out = out.replace(/\bbase currency\b/gi, 'underlying');
+  out = out.replace(/\bquote currency\b/gi, 'pricing currency');
+  out = out.replace(/\bfor the pair\b/gi, isEquity ? `for ${sym}` : 'for the asset');
+  out = out.replace(/\bof the pair\b/gi, isEquity ? `of ${sym}` : 'of the asset');
+  out = out.replace(/\bon the pair\b/gi, isEquity ? `on ${sym}` : 'on the asset');
+  out = out.replace(/\bthis pair\b/gi, isEquity ? sym : 'this asset');
+  out = out.replace(/\bthe pair\b/gi, isEquity ? sym : 'the asset');
+  // "pip" / "pips" — keep numeric "≈ N pts" when used as points context, otherwise drop.
+  out = out.replace(/(\d+(?:\.\d+)?)\s*pips?\b/gi, '$1 pts');
+  out = out.replace(/\bpips?\b/gi, 'points');
+  return out;
+}
+
+// PRESENTER-QA — the 15-rule contradiction check. Returns { ok, reason }.
+function presenterQA(sections, ctx) {
+  const allText = sections.join('\n');
+  const sym = ctx.symbol;
+  const ac = inferAssetClass(normalizeSymbol(sym));
+  const isEquityish = ac === ASSET_CLASS.EQUITY || ac === ASSET_CLASS.INDEX || ac === ASSET_CLASS.COMMODITY;
+  const blocked = ctx.blocked === true;
+  const readiness = Number.isFinite(ctx.readiness) ? ctx.readiness : 0;
+  const vol = ctx.vol;
+  const ez = ctx.ez;
+  const inv = ctx.inv;
+  const macroBias = ctx.macroBias;
+  const catalystInside2h = ctx.catalystInside2h === true;
+  const setupExpired = ctx.setupExpired === true;
+  const placeholderSent = ctx.placeholderSent === true;
+  const blankChartSent = ctx.blankChartSent === true;
+  const r = (reason) => ({ ok: false, reason });
+
+  if (/Trade permit is AVAILABLE/i.test(allText) && /BLOCKED/i.test(allText)) return r('permit_available_and_blocked');
+  if (readiness <= 3 && /execution unlocked|TRADE PERMIT AVAILABLE|Trade permit is AVAILABLE/i.test(allText)) return r('readiness_low_but_execution_unlocked');
+  if (/Macro Alignment Strong/i.test(allText) && /Corey.{0,30}neutral/i.test(allText) && !/although/i.test(allText)) return r('macro_strong_corey_neutral_no_explanation');
+  if (vol === 'High' && /execution conditions are normal/i.test(allText)) return r('vix_elevated_execution_normal');
+  if ((!ez || !Number.isFinite(inv)) && /Reward-to-risk on T1 — 1:/i.test(allText)) return r('pending_entry_with_rr_calculated');
+  if (!ez && /STOP LOSS\s*[:=]/i.test(allText) && !/Not authorised|pending/i.test(allText)) return r('no_entry_with_active_stop');
+  if (isEquityish && /\bpip\b|\bpips\b|\bstandard lot\b|\bbase currency\b|\bquote currency\b/i.test(allText)) return r('equity_output_contains_fx_language');
+  if (macroBias === BIAS.NEUTRAL && /matches the macro direction/i.test(allText)) return r('neutral_macro_with_matches_macro');
+  if (catalystInside2h && /Trade permit is AVAILABLE/i.test(allText)) return r('catalyst_inside_2h_with_permit_available');
+  if (setupExpired && /\*\*ENTRY\*\*[^\n]*[0-9]/.test(allText)) return r('expired_setup_with_active_entry');
+  if (placeholderSent) return r('placeholder_chart_sent');
+  if (blankChartSent) return r('blank_chart_sent');
+  if (!/Level: \w+/i.test(allText) && /TRIGGER MAP/i.test(allText) && /pending/i.test(allText) === false) return r('trigger_map_missing_levels');
+  if (/lower timeframe/i.test(allText) && !/30M|15M|5M|1M|1H|4H/.test(allText)) return r('confirmation_timeframe_not_specified');
+  if (/\bconfirmation\b/i.test(allText) && !/(BOS|CHoCH|candle close|structure break)/i.test(allText)) return r('confirmation_used_without_definition');
+  return { ok: true };
 }
 
 function buildPriceTable(sym, jane, htf, ltf) {
+  const ac = inferAssetClass(normalizeSymbol(sym));
+  const isEquity = ac === ASSET_CLASS.EQUITY;
   const cp = htf.currentPrice || 0;
   const ez = jane.entryZone;
   const inv = jane.invalidationLevel;
@@ -528,32 +773,36 @@ function buildPriceTable(sym, jane, htf, ltf) {
   const sl = htf1.swingLows || [];
   const hi = sh.length ? sh[sh.length - 1].level : null;
   const lo = sl.length ? sl[sl.length - 1].level : null;
+  const planLive = !!(ez && Number.isFinite(inv));
 
-  // Dollar-first risk / reward — distance context shown in brackets
-  let riskLine = 'Max loss: pending structure';
-  let targetLine = 'Target: pending structure';
-  let bufferLine = `Buffer applied: ${bufferDollarDescription(sym)}. This is the minimum necessary offset beyond invalidation for execution reality — not a random pad.`;
-  if (ez && Number.isFinite(inv)) {
+  // RISK / REWARD — only show when an authorised plan exists.
+  let rrBlock;
+  if (planLive) {
     const mid = (ez.high + ez.low) / 2;
-    const riskDist = Math.abs(mid - inv);
-    const rDollars = distanceAsDollars(riskDist, sym);
-    if (rDollars) riskLine = `Max loss: ${rDollars.text}`;
-  }
-  if (ez && targets[0] && Number.isFinite(targets[0].level)) {
-    const mid = (ez.high + ez.low) / 2;
-    const rewardDist = Math.abs(targets[0].level - mid);
-    const tDollars = distanceAsDollars(rewardDist, sym);
-    if (tDollars) targetLine = `Target (T1): ${tDollars.text}`;
+    const rDollars = distanceAsDollars(Math.abs(mid - inv), sym);
+    const t1 = targets[0] && Number.isFinite(targets[0].level)
+      ? distanceAsDollars(Math.abs(targets[0].level - mid), sym)
+      : null;
+    rrBlock = [
+      rDollars ? `Max loss: ${rDollars.text}` : 'Max loss: pending',
+      t1 ? `Target (T1): ${t1.text}` : 'Target (T1): pending structure',
+      jane.rrRatio ? `Reward-to-risk on T1 — 1:${jane.rrRatio}` : 'Reward-to-risk — pending structure'
+    ];
+  } else {
+    rrBlock = [
+      'Risk plan unavailable because no authorised entry or invalidation exists.',
+      'Reward-to-risk is NOT calculated until both an entry zone and an invalidation level are defined.'
+    ];
   }
 
-  const targetsBlock = targets.length
-    ? targets.map((t, i) => {
-        const mid = ez ? (ez.high + ez.low) / 2 : cp;
+  const targetsBlock = (planLive && targets.length)
+    ? targets.map((t) => {
+        const mid = (ez.high + ez.low) / 2;
         const dist = Math.abs(t.level - mid);
         const dd = distanceAsDollars(dist, sym);
         return `• ${t.label} at ${fmtPrice(t.level, sym)}${dd ? ` — ${dd.text}` : ''}`;
       }).join('\n')
-    : '• Pending. No valid targets exist until structure confirms.';
+    : '• Not authorised — no targets exist until entry structure forms.';
 
   const st = structureTimeline(htf, ltf);
   const bosLine = st.bos
@@ -571,30 +820,37 @@ function buildPriceTable(sym, jane, htf, ltf) {
     : 'Current position: price has no active zone to react from.';
   const ageLine = `Setup age: ${st.age}.`;
 
+  // Stop-loss line is only shown when an entry exists. Until then, "Not authorised".
+  const stopLossLine = planLive
+    ? `STOP LOSS  ${fmtPrice(inv, sym)}`
+    : `STOP LOSS  Not authorised`;
+  const targetLineForBox = (planLive && targets[0] && Number.isFinite(targets[0].level))
+    ? `TARGET     ${fmtPrice(targets[0].level, sym)}`
+    : 'TARGET     Not authorised';
+
   return [
-    `💠 **PRICE TABLE — ${sym}**`,
+    `💠 **PRICE TABLE / EXECUTION MAP — ${sym}**`,
     ``,
     '```',
     `🟡 HIGH      ${fmtPrice(hi, sym)}`,
     `🟢 CURRENT   ${fmtPrice(cp, sym)}`,
-    ez ? `🟠 ENTRY     ${fmtPrice(ez.low, sym)} – ${fmtPrice(ez.high, sym)}` : `🟠 ENTRY     pending confirmation`,
+    planLive ? `🟠 ENTRY     ${fmtPrice(ez.low, sym)} – ${fmtPrice(ez.high, sym)}` : `🟠 ENTRY     Pending`,
+    `🔴 ${stopLossLine}`,
+    `🎯 ${targetLineForBox}`,
     `🔵 LOW       ${fmtPrice(lo, sym)}`,
     '```',
     ``,
     `**INVALIDATION**`,
-    inv
+    planLive
       ? `Price: ${fmtPrice(inv, sym)}. If price closes beyond this level the trade idea is wrong and must be abandoned.`
-      : 'Pending structure. No invalidation is defined because no entry is defined.',
+      : 'Not defined until entry structure forms. No invalidation exists because no entry exists.',
     ``,
     `**TARGETS**`,
     targetsBlock,
     ``,
-    `**RISK / REWARD (dollar-first)**`,
-    riskLine,
-    targetLine,
-    jane.rrRatio ? `Reward-to-risk on T1 — 1:${jane.rrRatio}` : 'Reward-to-risk — pending structure',
-    bufferLine,
-    `Bracketed values show approximate distance context for reference only. Dollars drive sizing; pips are informational.`,
+    `**RISK / REWARD (${isEquity ? 'dollars per share' : 'dollar-first'})**`,
+    ...rrBlock,
+    `Buffer applied: ${bufferDollarDescription(sym)}. This is the minimum necessary offset beyond invalidation for execution reality — not a random pad.`,
     ``,
     `**STRUCTURE TIMELINE**`,
     bosLine,
@@ -603,8 +859,8 @@ function buildPriceTable(sym, jane, htf, ltf) {
     ageLine,
     ``,
     `**WHAT THIS MEANS**`,
-    ez && inv
-      ? 'The levels above are the full plan. Entry is the defined structural level with a micro offset for fill certainty. Stop is beyond true invalidation with the minimum buffer needed for execution reality. Position size adjusts to hold the defined dollar risk — precision means correct, not fragile.'
+    planLive
+      ? `The levels above are the full plan. Entry is the defined structural level with a micro offset for fill certainty. Stop is beyond true invalidation with the minimum buffer needed for execution reality. Position size adjusts to hold the defined dollar risk — sized in ${isEquity ? 'dollars per share' : 'dollars'}, not lot conventions.`
       : 'Without a valid entry zone and invalidation, there is no plan to size. Wait for structure to define both before considering the trade.'
   ].join('\n');
 }
@@ -696,6 +952,8 @@ function buildEventIntel(sym, corey) {
 }
 
 function buildMarketOverview(sym, corey) {
+  const ac = inferAssetClass(normalizeSymbol(sym));
+  const isEquity = ac === ASSET_CLASS.EQUITY || ac === ASSET_CLASS.INDEX;
   const g = corey.internalMacro?.global || {};
   const live = g.live || {};
   const ctx = g.context || {};
@@ -712,14 +970,23 @@ function buildMarketOverview(sym, corey) {
   const cbArrow = (base.score || 0) >= (quote.score || 0) ? '⬆️' : '⬇️';
 
   const volLevel = live.vix?.level || 'Normal';
+  // Elevated VIX MUST NOT be paired with "execution conditions are normal".
+  const volMeaning =
+    volLevel === 'High' ? 'volatility is ELEVATED. Expect wider swings, more fakeouts, lower reliability of early breaks, and reduced confidence unless structure is exceptionally clean.'
+    : volLevel === 'Low' ? 'moves are tighter and mean-reverting. Breakouts that have not yet expanded through recent structure are unreliable.'
+    : 'volatility is in a moderate band. Standard sizing applies but watch for regime change at every cross.';
   const volAction =
-    volLevel === 'High' ? 'Expect gappy execution. Reduce size, widen invalidation to beyond the next structure, and skip break-and-retest entries that rely on tight fills.'
-    : volLevel === 'Low' ? 'Expect tight ranges. Favour continuation over counter-trend and avoid chasing breakouts that have not yet expanded through recent structure.'
-    : 'Normal execution regime. Standard sizing applies.';
+    volLevel === 'High' ? 'Expect gappy execution. Reduce size, widen invalidation, and skip break-and-retest entries that rely on tight fills. Confidence is reduced unless structure is clean.'
+    : volLevel === 'Low' ? 'Favour continuation over counter-trend. Avoid chasing breakouts that have not yet expanded through recent structure.'
+    : 'Standard sizing. Re-read this paragraph if VIX proxy crosses 20.';
 
   const curveAction = (live.yield?.spread || 0) < 0
-    ? 'A negative spread historically precedes slowdowns. Trust recession-sensitive assets (gold, JPY, bonds) more than growth-sensitive ones on conflicting signals.'
-    : 'A positive spread historically supports growth-sensitive assets. Growth-sensitive FX crosses and equity indices get the benefit of the doubt on mixed signals.';
+    ? (isEquity
+        ? 'A negative spread historically precedes slowdowns. For growth equities and semiconductors specifically, valuation pressure rises and risk-asset leadership weakens; trust defensive rotation more than growth continuation.'
+        : 'A negative spread historically precedes slowdowns. Trust recession-sensitive assets (gold, JPY, bonds) more than growth-sensitive ones on conflicting signals.')
+    : (isEquity
+        ? 'A positive spread historically supports growth equities and risk assets, including semiconductors. Growth-asset continuations get the benefit of the doubt on mixed signals.'
+        : 'A positive spread historically supports growth-sensitive assets. Growth-sensitive crosses and equity indices get the benefit of the doubt on mixed signals.');
 
   const regimeAction = g.riskEnv === RISK_ENV.RISK_ON
     ? 'Risk-on regimes reward trend trades in growth assets. Full size on macro-aligned setups; fade only with clear structure.'
@@ -727,90 +994,138 @@ function buildMarketOverview(sym, corey) {
       ? 'Risk-off regimes reward defensive rotations. Scale down macro-against-trend setups; prefer safe-haven longs and growth-asset shorts.'
       : 'Neutral regimes punish conviction. Scale down or stand aside until the regime picks a side.';
 
-  const cbAction = (base.score || 0) > (quote.score || 0)
-    ? 'The base currency central bank is more hawkish than the quote. This is a structural tailwind for the base side of the pair before any event shock.'
-    : (base.score || 0) < (quote.score || 0)
-      ? 'The quote currency central bank is more hawkish than the base. This is a structural headwind for the base side of the pair before any event shock.'
-      : 'The two central banks are roughly balanced. Event shocks will determine direction; no structural lean from policy alone.';
+  // Asset-class-aware central bank framing — no base/quote language for equities.
+  let cbAction;
+  if (isEquity) {
+    const fed = quote.name && /Fed|FOMC/i.test(quote.name) ? quote : (base.name && /Fed|FOMC/i.test(base.name) ? base : null);
+    if (fed) {
+      cbAction = fed.direction === STANCE.HAWKISH
+        ? 'Fed policy backdrop is hawkish — rate-cut expectations are pushed out and valuation pressure on growth equities (incl. semiconductors) increases. Liquidity tailwinds for risk assets are reduced.'
+        : fed.direction === STANCE.DOVISH
+          ? 'Fed policy backdrop is dovish — rate-cut expectations support valuation for growth equities and semiconductors. Liquidity tailwinds for risk assets improve.'
+          : 'Fed policy backdrop is neutral — no structural valuation lean from policy alone. Watch yields and rate-cut pricing instead.';
+    } else {
+      cbAction = 'Fed policy backdrop unavailable for this symbol — read yields and rate-cut pricing as the primary policy channel.';
+    }
+  } else {
+    cbAction = (base.score || 0) > (quote.score || 0)
+      ? 'The base-side central bank is more hawkish than the quote. This is a structural tailwind for the base side before any event shock.'
+      : (base.score || 0) < (quote.score || 0)
+        ? 'The quote-side central bank is more hawkish than the base. This is a structural headwind for the base side before any event shock.'
+        : 'The two central banks are roughly balanced. Event shocks will determine direction; no structural lean from policy alone.';
+  }
 
+  // Asset-class-aware breadth wording — no "index-linked pairs" for equities.
   const breadthAction = (ctx.equityBreadth || 0) > 0.15
-    ? 'Broad participation in equities supports risk assets and pressures safe havens. Use this to size up setups that align with the broad tape.'
+    ? (isEquity
+        ? `Broad equity participation supports risk assets. ${sym} is more likely to follow broad-tape strength than to lead it; size up only if ${sym}-specific structure agrees.`
+        : 'Broad participation in equities supports risk assets and pressures safe havens. Use this to size up setups that align with the broad tape.')
     : (ctx.equityBreadth || 0) < -0.15
-      ? 'Breadth is weak. Index level moves are being driven by a narrow cohort and can reverse quickly. Prefer mean-reversion setups on index-linked pairs.'
+      ? (isEquity
+          ? `Breadth is weak — index moves are being driven by a narrow cohort. ${sym} is exposed to fast reversals when leadership rotates. Prefer mean-reversion until breadth re-broadens.`
+          : 'Breadth is weak. Index-level moves are being driven by a narrow cohort and can reverse quickly. Prefer mean-reversion setups when breadth disagrees with structure.')
       : 'Breadth is neutral. No edge from sector rotation alone — rely on direct structure and macro for direction.';
 
+  // DXY framing — secondary input for equities, primary for non-USD pairs.
+  const dxyEquityAction = g.dxyBias === BIAS.BULLISH
+    ? `Bullish dollar pressures growth-asset valuations marginally. For ${sym} specifically, this is a SECONDARY input — direct rate/yield expectations and chip-sector flows matter more.`
+    : g.dxyBias === BIAS.BEARISH
+      ? `Bearish dollar supports risk assets and growth-asset valuations marginally. For ${sym} specifically, this is a SECONDARY input — chip-sector flows and rate-cut pricing dominate.`
+      : `Dollar bias is neutral. For ${sym} specifically this channel is inactive; direct rate/yield expectations and sector flows drive price.`;
+  const dxyFxAction = g.dxyBias === BIAS.BULLISH
+    ? 'Favour short non-USD setups; discount long non-USD continuations that have not broken structure.'
+    : g.dxyBias === BIAS.BEARISH
+      ? 'Favour long non-USD setups; discount short non-USD continuations that have not broken structure.'
+      : 'Neutral — do not take dollar-dependent trades on USD direction alone.';
+  const dxyAction = isEquity ? dxyEquityAction : dxyFxAction;
+  const dxyMeaning = isEquity
+    ? `For ${sym}, the dollar is a SECONDARY macro input. The single largest input is the rate/yield channel and chip-sector risk appetite.`
+    : 'The dollar is the single largest input to any non-USD trade in this session. Any cross-asset move that disagrees with the dollar is noise until the dollar re-rates.';
+
   const paragraphs = [
-    `**DOLLAR (DXY)**\nReading: proxy ${live.dxy ? fmtNum(live.dxy.price, 2) : 'N/A'}. Bias: ${g.dxyBias || 'Neutral'}. Macro score on this channel: ${fmtNum(g.dxyScore, 2)}.\nWhat this means: the dollar is the single largest input to any non-USD trade in this session. Any cross-asset move that disagrees with the dollar is noise until the dollar re-rates.\nTrader action: ${g.dxyBias === BIAS.BULLISH ? 'favour short non-USD setups; discount long non-USD continuations that have not broken structure.' : g.dxyBias === BIAS.BEARISH ? 'favour long non-USD setups; discount short non-USD continuations that have not broken structure.' : 'neutral — do not take dollar-dependent trades on USD direction alone.'} ${dxyArrow}`,
-    `**VOLATILITY (VIX proxy)**\nReading: ${live.vix ? fmtNum(live.vix.price, 2) : 'N/A'}. Level: ${volLevel}. Volatility score: ${fmtNum(vol.volatilityScore, 2)}.\nWhat this means: ${volLevel === 'High' ? 'moves are wider and less predictable; stops need more room.' : volLevel === 'Low' ? 'moves are tighter and mean-reverting; breakouts need confirmation to trust.' : 'execution conditions are normal.'}\nTrader action: ${volAction} ${volArrow}`,
-    `**YIELD CURVE (10Y-2Y)**\nReading: spread ${live.yield ? fmtNum(live.yield.spread, 2) : 'N/A'}. Real-yield channel: ${fmtNum(ctx.realYieldPressure, 2)}.\nWhat this means: the curve is the second-order confirmation of the ${regime} regime. When the curve and the regime disagree, the regime label is provisional and can be reclassified within two days.\nTrader action: ${curveAction} ${yldArrow}`,
+    `**DOLLAR (DXY) — ${isEquity ? 'secondary input' : 'primary input'}**\nReading: proxy ${live.dxy ? fmtNum(live.dxy.price, 2) : 'N/A'}. Bias: ${g.dxyBias || 'Neutral'}. Macro score on this channel: ${fmtNum(g.dxyScore, 2)}.\nWhat this means: ${dxyMeaning}\nTrader action: ${dxyAction} ${dxyArrow}`,
+    `**VOLATILITY (VIX proxy)**\nReading: ${live.vix ? fmtNum(live.vix.price, 2) : 'N/A'}. Level: ${volLevel}. Volatility score: ${fmtNum(vol.volatilityScore, 2)}.\nWhat this means: ${volMeaning}\nTrader action: ${volAction} ${volArrow}`,
+    `**YIELD CURVE / RATES (10Y-2Y)**\nReading: spread ${live.yield ? fmtNum(live.yield.spread, 2) : 'N/A'}. Real-yield channel: ${fmtNum(ctx.realYieldPressure, 2)}.\nWhat this means: ${isEquity ? `For ${sym}, this is the most direct macro channel. Lower / falling real yields support valuation; higher / rising real yields compress it. The curve is the second-order confirmation of the ${regime} regime.` : `The curve is the second-order confirmation of the ${regime} regime. When the curve and the regime disagree, the regime label is provisional and can be reclassified within two days.`}\nTrader action: ${curveAction} ${yldArrow}`,
     `**REGIME AND RISK ENVIRONMENT**\nRegime: ${regime} at ${pctLabel(corey.internalMacro?.regime?.confidence || 0)} confidence. Risk environment: ${g.riskEnv}. Liquidity: ${liq.state}.\nWhat this means: the regime decides whether macro-aligned trades are full size or scaled down. This is not overrideable inside the session.\nTrader action: ${regimeAction} ${riskArrow}`,
-    `**CENTRAL BANK BACKDROP**\nBase: ${base.name || 'N/A'} — direction ${base.direction || 'N/A'}, cycle ${base.rateCycle || 'N/A'}.\nQuote: ${quote.name || 'N/A'} — direction ${quote.direction || 'N/A'}, cycle ${quote.rateCycle || 'N/A'}.\nWhat this means: the policy differential is the structural tailwind or headwind before any news hits. Event shocks operate on top of this layer, not in place of it.\nTrader action: ${cbAction} ${cbArrow}`,
-    `**CROSS-ASSET BREADTH**\nEquity breadth ${fmtNum(ctx.equityBreadth, 2)}, growth impulse ${fmtNum(ctx.growthImpulse, 2)}, commodity demand ${fmtNum(ctx.commodityDemand, 2)}.\nWhat this means: these are secondary channels. They adjust sizing but do not override the dominant driver.\nTrader action: ${breadthAction} ${breadthArrow}`
+    `**CENTRAL BANK / POLICY BACKDROP**\n${isEquity ? `Fed lean: ${quote.direction || base.direction || 'N/A'} · cycle ${quote.rateCycle || base.rateCycle || 'N/A'}.` : `Base: ${base.name || 'N/A'} — direction ${base.direction || 'N/A'}, cycle ${base.rateCycle || 'N/A'}. Quote: ${quote.name || 'N/A'} — direction ${quote.direction || 'N/A'}, cycle ${quote.rateCycle || 'N/A'}.`}\nWhat this means: ${isEquity ? 'Fed policy + rate-cut pricing set the valuation backdrop. Event shocks operate on top of this layer, not in place of it.' : 'The policy differential is the structural tailwind or headwind before any news hits. Event shocks operate on top of this layer, not in place of it.'}\nTrader action: ${cbAction} ${cbArrow}`,
+    `**CROSS-ASSET BREADTH**\nEquity breadth ${fmtNum(ctx.equityBreadth, 2)}, growth impulse ${fmtNum(ctx.growthImpulse, 2)}, commodity demand ${fmtNum(ctx.commodityDemand, 2)}.\nWhat this means: ${isEquity ? `breadth tells you whether the broad tape supports ${sym} specifically or only the wider risk environment. Narrow breadth is fragile — leadership rotates fast.` : 'these are secondary channels. They adjust sizing but do not override the dominant driver.'}\nTrader action: ${breadthAction} ${breadthArrow}`
   ];
   return [`🌐 **MARKET OVERVIEW — ${sym}**`, ``, ...paragraphs].join('\n\n');
 }
 
 function buildEventsCatalysts(sym, corey) {
+  const ac = inferAssetClass(normalizeSymbol(sym));
+  const isEquity = ac === ASSET_CLASS.EQUITY || ac === ASSET_CLASS.INDEX;
   const base = corey.internalMacro?.base?.cb || {};
   const quote = corey.internalMacro?.quote?.cb || {};
   const dir2Bias = d => d === STANCE.HAWKISH ? BIAS.BULLISH : d === STANCE.DOVISH ? BIAS.BEARISH : BIAS.NEUTRAL;
   const cbLines = [];
-  const describeCb = (cb, role) => {
-    if (!cb || !cb.name) return;
-    const leanWord = cb.direction === STANCE.HAWKISH ? 'hawkish (tighter policy)' : cb.direction === STANCE.DOVISH ? 'dovish (easier policy)' : 'neutral';
-    const currencyEffect = cb.direction === STANCE.HAWKISH ? `stronger ${role} currency bias` : cb.direction === STANCE.DOVISH ? `weaker ${role} currency bias` : `no lean from policy alone`;
-    cbLines.push(
-      `• **${cb.name}** (${role} currency) — ${leanWord}, cycle ${cb.rateCycle}. ${biasArrow(dir2Bias(cb.direction))}`,
-      `  What it means: expect ${currencyEffect} before any data shock. This is the structural baseline, not a trade signal.`
-    );
-  };
-  describeCb(base, 'base');
-  if (quote.name && quote.name !== base.name) describeCb(quote, 'quote');
+  if (isEquity) {
+    const fed = quote.name && /Fed|FOMC/i.test(quote.name) ? quote : (base.name && /Fed|FOMC/i.test(base.name) ? base : null);
+    if (fed && fed.name) {
+      const leanWord = fed.direction === STANCE.HAWKISH ? 'hawkish (tighter policy)' : fed.direction === STANCE.DOVISH ? 'dovish (easier policy)' : 'neutral';
+      cbLines.push(
+        `• **${fed.name}** — ${leanWord}, cycle ${fed.rateCycle}. ${biasArrow(dir2Bias(fed.direction))}`,
+        `  What it means for ${sym}: ${fed.direction === STANCE.HAWKISH ? 'rate-cut expectations are pushed out, real yields rise, valuation pressure on growth equities and semiconductors increases. Risk-asset leadership weakens.' : fed.direction === STANCE.DOVISH ? 'rate-cut expectations advance, real yields fall, valuation support for growth equities and semiconductors strengthens. Risk-asset leadership improves.' : 'no structural lean from policy alone. Rates and rate-cut pricing become the dominant channel.'}`
+      );
+    } else {
+      cbLines.push(`• No live central bank stance registered for ${sym}. Read yields and rate-cut pricing as the primary policy channel.`);
+    }
+  } else {
+    const describeCb = (cb, role) => {
+      if (!cb || !cb.name) return;
+      const leanWord = cb.direction === STANCE.HAWKISH ? 'hawkish (tighter policy)' : cb.direction === STANCE.DOVISH ? 'dovish (easier policy)' : 'neutral';
+      const currencyEffect = cb.direction === STANCE.HAWKISH ? `stronger ${role}-side currency bias` : cb.direction === STANCE.DOVISH ? `weaker ${role}-side currency bias` : `no lean from policy alone`;
+      cbLines.push(
+        `• **${cb.name}** (${role} side) — ${leanWord}, cycle ${cb.rateCycle}. ${biasArrow(dir2Bias(cb.direction))}`,
+        `  What it means: expect ${currencyEffect} before any data shock. Structural baseline, not a trade signal.`
+      );
+    };
+    describeCb(base, 'base');
+    if (quote.name && quote.name !== base.name) describeCb(quote, 'quote');
+    if (!cbLines.length) cbLines.push(`• No active central bank stance registered for ${sym}.`);
+  }
 
   const lines = [
     `📆 **EVENTS & CATALYSTS — ${sym}**`,
     ``,
-    `**CENTRAL BANK BACKDROP**`
-  ];
-  if (cbLines.length) lines.push(...cbLines);
-  else lines.push('• No active central bank stance registered for this pair.');
-
-  lines.push(
+    `**CENTRAL BANK / POLICY BACKDROP**`,
+    ...cbLines,
     ``,
     `**LIVE CATALYST THRESHOLDS (monitored on the 1H strip)**`,
     `• **DXY proxy crosses 100**`,
     `  What happens: dollar regime flips sides.`,
-    `  Why markets care: the dollar is the single biggest input to non-USD pricing.`,
-    `  Trader action: invalidate every open non-USD thesis and re-read the Market Overview before the next entry. ⬆️⬇️`,
+    `  Why it matters for ${sym}: ${isEquity ? `secondary input — affects valuation marginally via rates and global liquidity. Larger effect via the rate channel than directly.` : `the dollar is the single biggest input to non-USD pricing.`}`,
+    `  Trader action: ${isEquity ? `do not let DXY alone trigger entries; re-read Market Overview first.` : `invalidate every open non-USD thesis and re-read the Market Overview before the next entry.`} ⬆️⬇️`,
     ``,
     `• **VIX proxy crosses 20**`,
     `  What happens: volatility regime flips between calm and stressed.`,
-    `  Why markets care: stop sizes, position sizes and break-and-retest reliability all change on this line.`,
+    `  Why it matters: stop sizes, position sizes and break-and-retest reliability all change on this line. Elevated VIX = more fakeouts, lower reliability of early breaks.`,
     `  Trader action: re-size every active plan using the new volatility level before acting. ⬆️⬇️`,
     ``,
     `• **10Y-2Y spread crosses zero**`,
     `  What happens: recession-risk channel flips sides.`,
-    `  Why markets care: this line separates curve-normal from curve-inverted, which historically shifts leadership between growth assets and safe havens.`,
-    `  Trader action: down-weight growth-asset continuations and up-weight safe-haven longs on an inversion cross; reverse on a re-steepening cross. ⬆️⬇️`,
+    `  Why it matters for ${sym}: ${isEquity ? `for growth equities and semiconductors specifically, an inversion historically precedes valuation compression and weaker risk-asset leadership.` : `this line separates curve-normal from curve-inverted, which historically shifts leadership between growth assets and safe havens.`}`,
+    `  Trader action: down-weight growth continuations and up-weight defensive rotation on an inversion cross; reverse on a re-steepening. ⬆️⬇️`,
     ``,
     `• **Credit stress crosses +0.25**`,
     `  What happens: risk-off lean is confirmed.`,
-    `  Why markets care: credit widening is a reliable leading indicator for equity drawdowns and safe-haven bids.`,
+    `  Why it matters: credit widening is a reliable leading indicator for equity drawdowns and safe-haven bids.`,
     `  Trader action: block new risk-on setups until the cross reverses. ⬇️`,
     ``,
     `• **Growth impulse crosses +0.20**`,
     `  What happens: risk-on lean is confirmed.`,
-    `  Why markets care: growth repricing is where cyclical leadership starts.`,
+    `  Why it matters: growth repricing is where cyclical leadership starts. ${isEquity ? `Direct positive for ${sym} if it sits in a growth bucket.` : ''}`,
     `  Trader action: allow full size on macro-aligned long setups in growth assets. ⬆️`,
     ``,
     `**WHAT TO DO BEFORE, DURING AND AFTER A CATALYST**`,
-    `Before: do not enter in the two hours ahead of a known release. Reduce exposure on open positions or trail to protect.`,
-    `During: do not trade the first five minutes after the print. Spreads widen, fills are poor, and the first move is often a fake.`,
-    `After: wait for lower-timeframe structure to reform. Only act once structure confirms the post-release direction.`,
+    `Before: NO new entries in the two hours ahead of a known release. Reduce exposure on open positions or trail to protect. If a major catalyst sits inside the 2-hour window, Trade Permit MUST read BLOCKED — only existing-position management is permitted.`,
+    `During: do NOT trade the first five minutes after the print. Spreads widen, fills are poor, and the first move is often a fake.`,
+    `After: wait for fresh 15M / 30M structure to reform. Only act once structure confirms the post-release direction.`,
     ``,
     `**WHEN THE IDEA IS INVALID**`,
-    'Any cross on the list above invalidates every open thesis on this pair, regardless of structure. Re-read Market Overview and Trade Status before the next entry.'
-  );
+    `Any cross on the list above invalidates every open thesis on ${sym}, regardless of structure. Re-read Market Overview and Trade Status before the next entry.`
+  ];
   return lines.join('\n');
 }
 
@@ -888,7 +1203,9 @@ function buildExecutionLogic(sym, jane, corey) {
       `The current ${jane.conflictState === 'HardConflict' ? 'hard conflict' : 'mixed read'} must clear. That means structure and macro must start agreeing on a single direction on the higher timeframe.`,
       ``,
       `**ENTRY REQUIREMENT**`,
-      `Wait for a fresh structural break that matches the macro direction (${corey.combinedBias}). Prior levels are not re-usable — rebuild the plan from the new structure.`,
+      corey.combinedBias === BIAS.NEUTRAL
+        ? `Because macro direction is neutral, no directional execution path is authorised yet. A new plan only starts once price prints a confirmed bullish or bearish structure break (BOS or CHoCH) on at least the 1H, AND the macro layer no longer conflicts. Prior levels are not re-usable — rebuild from the new structure.`
+        : `Wait for a fresh structural break in the ${corey.combinedBias.toLowerCase()} direction. Required: BOS or CHoCH on at least the 1H, candle-close confirmation, fresh ${corey.combinedBias === BIAS.BULLISH ? 'demand' : 'supply'} zone or imbalance left by the displacement. Prior levels are not re-usable — rebuild the plan from the new structure.`,
       ``,
       `**ALTERNATIVE SCENARIO — ONLY IF CONFIRMED**`,
       `This block only has one valid path until structure confirms. Any directional idea becomes valid only if the higher timeframe prints a confirmed break in that direction and holds it on close.`,
@@ -928,7 +1245,6 @@ function buildExecutionLogic(sym, jane, corey) {
     `**TRADE DEFINITION (dollar-first)**`,
     `Max loss: ${riskDollars ? riskDollars.text : 'pending structure'}`,
     `Target (T1): ${rewardDollars ? rewardDollars.text : 'pending structure'}`,
-    `Bracketed values show approximate distance context for reference only.`,
     ``,
     `**PRIMARY SCENARIO**`,
     primaryDir ? `${primaryDir.charAt(0).toUpperCase() + primaryDir.slice(1)} (${dir.toLowerCase()} on return to the zone).` : 'None defined yet.',
@@ -981,17 +1297,16 @@ function buildExecutionLogic(sym, jane, corey) {
 
 function buildValidity(sym, corey, jane) {
   const now = new Date();
-  const iso = now.toISOString();
-  const verLine = buildVerificationLine(sym, iso);
   const regime = corey.internalMacro?.regime?.regime || REGIME.NEUTRAL;
   const risk = corey.internalMacro?.global?.riskEnv || RISK_ENV.NEUTRAL;
   const next = new Date(now.getTime() + 4 * 60 * 60 * 1000);
   const verdict = jane ? atlasVerdict(jane) : { word: 'Wait', reason: 'Conditions are not yet resolved.' };
   const align = macroAlignment(corey);
+  const readiness = jane ? readinessScore(jane) : 0;
 
   const traderAction = jane
     ? (jane.doNotTrade
-        ? 'Stand aside. The current read does not support any entry.'
+        ? 'Stand aside. The current read does not support any entry. Do not pre-position.'
         : jane.convictionLabel === 'High'
           ? 'Prepare the entry. Act on confirmation, size to the $ risk in the Execution tab.'
           : jane.convictionLabel === 'Medium'
@@ -999,17 +1314,41 @@ function buildValidity(sym, corey, jane) {
             : 'Stand aside unless clean confirmation appears, and then only with reduced exposure.')
     : 'Stand aside until the read resolves.';
 
-  const changesView = [
-    `• Lower-timeframe structure confirms the direction shown in Trade Status.`,
-    `• Macro alignment strengthens to at least 3/4 key drivers (currently ${align.count}/${align.total}).`,
-    `• A valid entry zone and invalidation exist together in the Price Table.`,
-    `• Every relevant Events & Catalysts threshold holds — none is crossed during the valid window.`
+  // Reconcile "what changes view" against the live alignment count so we never
+  // tell the trader the view changes when alignment "strengthens to 3/4" while
+  // the count is already 3/4. The threshold is ALWAYS one step above current.
+  const alignTarget = Math.min(align.total, Math.max(3, (align.count || 0) + 1));
+  const alignClause = align.count >= alignTarget && corey.combinedBias !== BIAS.NEUTRAL
+    ? `Macro alignment is already ${align.count}/${align.total} and Corey’s composite confirms ${corey.combinedBias.toLowerCase()} direction. The view holds while this remains true; it changes if alignment falls below ${alignTarget}/${align.total} OR Corey’s composite turns neutral or opposite.`
+    : `Macro alignment strengthens to at least ${alignTarget}/${align.total} drivers (currently ${align.count}/${align.total}) AND Corey’s composite confirms a directional bias.`;
+
+  const changesBullish = [
+    `• Higher timeframe (1H or above) prints a confirmed BULLISH BOS or CHoCH AND closes beyond the break level.`,
+    `• A fresh demand zone or imbalance forms below current price after the displacement.`,
+    `• ${alignClause}`,
+    `• No Events & Catalysts threshold is set to cross inside the valid window.`
   ].join('\n');
+  const changesBearish = [
+    `• Higher timeframe (1H or above) prints a confirmed BEARISH BOS or CHoCH AND closes beyond the break level.`,
+    `• A fresh supply zone or imbalance forms above current price after the displacement.`,
+    `• ${alignClause}`,
+    `• No Events & Catalysts threshold is set to cross inside the valid window.`
+  ].join('\n');
+  const keepsBlocked = [
+    `• Conflict between structure and macro persists (current state: ${jane ? jane.conflictState : 'unresolved'}).`,
+    `• Market Readiness remains at or below 3/10 (current: ${readiness}/10).`,
+    `• Volatility remains elevated without a clean structural break.`,
+    `• Any catalyst threshold is set to cross inside the valid window.`
+  ].join('\n');
+
+  // Catalyst window — explicit. If a major event sits inside the next 2 hours,
+  // the verdict is fenced as "execution-disabled" regardless of structure.
+  const catalystWindow = `No new entries in the 2 hours ahead of a known release. No trading in the first 5 minutes after a print. After a print, wait for fresh 15M / 30M structure before acting.`;
 
   return [
     `✅ **FINAL VERDICT — ${sym}**`,
     ``,
-    `**FINAL VERDICT**`,
+    `**FINAL DECISION**`,
     `${verdict.word}.`,
     ``,
     `**WHY**`,
@@ -1018,32 +1357,53 @@ function buildValidity(sym, corey, jane) {
     `**TRADER ACTION**`,
     traderAction,
     ``,
-    `**WHAT CHANGES THIS VIEW**`,
-    changesView,
+    `**WHAT CHANGES THE VIEW BULLISH**`,
+    changesBullish,
+    ``,
+    `**WHAT CHANGES THE VIEW BEARISH**`,
+    changesBearish,
+    ``,
+    `**WHAT KEEPS IT BLOCKED**`,
+    keepsBlocked,
+    ``,
+    `**CATALYST WINDOW**`,
+    catalystWindow,
     ``,
     `**VALIDITY WINDOW**`,
     `Generated: ${fmtUtcShort(now.getTime())}`,
     `Regime: ${regime} · Risk environment: ${risk}`,
     `Valid until the next regime check: ${fmtUtcShort(next.getTime())}.`,
-    `This verdict terminates immediately if any threshold in the Events & Catalysts tab crosses — regardless of the time remaining in the window.`,
-    ``,
-    `**VERIFICATION**`,
-    `${verLine}`
+    `This verdict terminates immediately if any Events & Catalysts threshold crosses — regardless of the time remaining in the window.`
   ].join('\n');
 }
 
-function formatMacro(sym, corey, spideyHTF, spideyLTF, jane) {
+function buildVerification(sym) {
+  const iso = new Date().toISOString();
+  const verLine = buildVerificationLine(sym, iso);
   return [
-    buildTradeStatus(sym, jane, corey, spideyHTF, spideyLTF),
-    buildPriceTable(sym, jane, spideyHTF, spideyLTF),
-    buildRoadmap(),
-    buildEventIntel(sym, corey),
-    buildMarketOverview(sym, corey),
-    buildEventsCatalysts(sym, corey),
-    buildHistoricalContext(sym, corey),
-    buildExecutionLogic(sym, jane, corey),
-    buildValidity(sym, corey, jane)
+    `🔐 **VERIFICATION**`,
+    ``,
+    verLine
+  ].join('\n');
+}
+
+function formatMacro(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf) {
+  const sections = [
+    { name: 'TRADE STATUS',      text: buildTradeStatus(sym, jane, corey, spideyHTF, spideyLTF) },
+    { name: 'FORWARD EXPECTATION', text: buildForwardExpectation(sym, jane, corey, spideyHTF, spideyLTF, candlesByTf || {}) },
+    { name: 'TRIGGER MAP',       text: buildTriggerMap(sym, jane, spideyHTF, spideyLTF) },
+    { name: 'PRICE TABLE',       text: buildPriceTable(sym, jane, spideyHTF, spideyLTF) },
+    { name: 'ROADMAP',           text: buildRoadmap() },
+    { name: 'EVENT INTELLIGENCE', text: buildEventIntel(sym, corey) },
+    { name: 'MARKET OVERVIEW',   text: buildMarketOverview(sym, corey) },
+    { name: 'EVENTS & CATALYSTS', text: buildEventsCatalysts(sym, corey) },
+    { name: 'HISTORICAL CONTEXT', text: buildHistoricalContext(sym, corey) },
+    { name: 'EXECUTION LOGIC',   text: buildExecutionLogic(sym, jane, corey) },
+    { name: 'FINAL VERDICT',     text: buildValidity(sym, corey, jane) },
+    { name: 'VERIFICATION',      text: buildVerification(sym) }
   ];
+  // Equity-aware language filter — strips banned FX/pair language from non-FX outputs.
+  return sections.map(s => ({ name: s.name, text: equityLanguageFilter(s.text, sym) }));
 }
 
 function chunkMessage(text, max) {
@@ -1085,20 +1445,46 @@ async function runMacroPipeline(symbol) {
 // ==============================
 // Rendering delegated to renderer.js (Puppeteer + TradingView widget + custom candle colors)
 // renderCharts imported at top of file
+// ==============================
+// COMMAND ROUTING — dashboard-link default, render gated by explicit mode
+// ==============================
+const ATLAS_DASHBOARD_BASE = process.env.ATLAS_DASHBOARD_BASE || 'https://atlas-fx-dashboard.onrender.com/';
+const RENDER_MODES = new Set(['analyse','analyze','charts','macro']);
+const OPS_COMMANDS = new Set(['ping','stats','errors','sysstate','darkhorse']);
+const USER_BY_ID = {
+  '690861328507731978':  'AT',
+  '1431173502161129555': 'NM',
+  '763467091171999814':  'SK',
+  '1244449071977074798': 'BR',
+};
+const USER_BY_CHANNEL = {
+  '1432642672287547453': 'AT', '1433750991953596428': 'AT', '1489245537395019908': 'AT',
+  '1432643496375881748': 'SK', '1433751801634488372': 'SK', '1489246324552368178': 'SK',
+  '1432644116868501595': 'NM', '1433755484057501796': 'NM', '1489248591854702744': 'NM',
+  '1482450651765149816': 'BR', '1482450900583710740': 'BR', '1489247239359697067': 'BR',
+};
+function resolveUserCode(msg) {
+  return USER_BY_ID[msg.author.id] || USER_BY_CHANNEL[msg.channelId] || 'AT';
+}
+function dashboardUrl(symbol, user) {
+  return `${ATLAS_DASHBOARD_BASE}?symbol=${encodeURIComponent(symbol)}&user=${encodeURIComponent(user)}`;
+}
+
 client.on('messageCreate', async (msg) => {
   try {
     if (msg.author.bot) return;
-    if (!msg.content.startsWith('!')) return;
+    if (!msg.content || !msg.content.startsWith('!')) return;
     const userInput = msg.content.slice(1).trim();
+    console.log(`[COMMAND] raw=!${userInput}`);
 
-    /* [SYMBOL] Phase 7 — ops pre-check runs FIRST so !ping / !stats / etc.
-       stay silent (they are not symbol-resolution attempts) and do not emit
-       audit log entries. Case-insensitive to match validateInput's ops branch. */
-    if (['ping','stats','errors','sysstate','darkhorse'].includes(userInput.toLowerCase())) return;
+    if (OPS_COMMANDS.has(userInput.toLowerCase())) return;
 
-    /* [SYMBOL] Phase 7 — audit base. Every path below that reaches the resolver
-       emits one audit log entry via emitAuditLog. Ops pre-check above is
-       exempt. */
+    const tokens = userInput.split(/\s+/).filter(Boolean);
+    const symRaw = tokens[0] || '';
+    const modeRaw = (tokens[1] || '').toLowerCase();
+    const isRenderMode = RENDER_MODES.has(modeRaw);
+    if (tokens.length > 1 && !isRenderMode) return;
+
     const auditBase = {
       discord_user_id: msg.author.id,
       discord_user_display_name: msg.member?.displayName || msg.author.username || msg.author.tag || 'unknown',
@@ -1107,101 +1493,69 @@ client.on('messageCreate', async (msg) => {
       raw_input: userInput,
     };
 
-    /* [SYMBOL] Phase 7 — policy-rejection path. Runs AFTER ops pre-check and
-       BEFORE any resolveSymbol / validateInput work so doctrine-unsupported
-       terms get the fixed reply rather than falling through to the generic
-       unknown-symbol fallback. Match is case-insensitive after normalising
-       the user input to UPPERCASE + trimmed; list is neutrally named per
-       doctrine. */
-    const mappedUpper = userInput.toUpperCase();
+    const mappedUpper = symRaw.toUpperCase();
     if (POLICY_REJECTED_TERMS.has(mappedUpper)) {
-      console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=policy_rejected mapped=${mappedUpper}`);
-      emitAuditLog({
-        ...auditBase,
-        timestamp: new Date().toISOString(),
-        resolved_symbol: 'unknown',
-        outcome: 'policy_rejected',
-        reason: 'policy_rejected',
-      });
+      console.log(`[SYMBOL] raw=${symRaw} resolved=unknown outcome=unavailable reason=policy_rejected mapped=${mappedUpper}`);
+      emitAuditLog({ ...auditBase, timestamp: new Date().toISOString(), resolved_symbol: 'unknown', outcome: 'policy_rejected', reason: 'policy_rejected' });
       await msg.channel.send({ content: 'Cryptocurrency is not supported on ATLAS. Please search a supported instrument.' });
       return;
     }
 
-    const raw = resolveSymbol(userInput);
-    console.log('SYMBOL:', userInput, '→', raw);
-    const validation = validateInput('!' + raw);
-
-    /* [SYMBOL] Phase 7 — hard-fail reply on format / unknown_instrument.
-       Restores BR HGUSD fix that was present in rebuild branch 2b978d2 but
-       absent in CC's macro-rewrite baseline. Other validation reasons
-       (ops, extra_tokens, direction_term, generic_name) stay silent — they
-       are not symbol-resolution attempts. */
+    const resolved = resolveSymbol(symRaw);
+    console.log(`[SYMBOL] raw=${symRaw} resolved=${resolved}`);
+    const validation = validateInput('!' + resolved);
     if (!validation.valid) {
       if (validation.reason === 'format' || validation.reason === 'unknown_instrument') {
-        console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=${validation.reason}`);
-        emitAuditLog({
-          ...auditBase,
-          timestamp: new Date().toISOString(),
-          resolved_symbol: 'unknown',
-          outcome: 'unavailable',
-          reason: validation.reason,
-        });
-        await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
+        console.log(`[SYMBOL] raw=${symRaw} resolved=unknown outcome=unavailable reason=${validation.reason}`);
+        emitAuditLog({ ...auditBase, timestamp: new Date().toISOString(), resolved_symbol: 'unknown', outcome: 'unavailable', reason: validation.reason });
+        await msg.channel.send({ content: `Data unavailable for requested symbol: ${symRaw}` });
       }
       return;
     }
     const symbol = validation.symbol;
-
-    /* [SYMBOL] Phase 7 — allowlist gate. Catches format-valid-but-unsupported
-       tickers (HGUSD / XYZ123 / 6-char junk) that slip past validateInput.
-       Hard-fails with the same 'Data unavailable' reply used for format /
-       unknown_instrument. */
     if (!isResolvableSymbol(symbol)) {
-      console.log(`[SYMBOL] raw=${userInput} resolved=unknown outcome=unavailable reason=not_in_allowlist mapped=${symbol}`);
-      emitAuditLog({
-        ...auditBase,
-        timestamp: new Date().toISOString(),
-        resolved_symbol: 'unknown',
-        outcome: 'unavailable',
-        reason: 'not_in_allowlist',
-      });
-      await msg.channel.send({ content: `Data unavailable for requested symbol: ${userInput}` });
+      console.log(`[SYMBOL] raw=${symRaw} resolved=unknown outcome=unavailable reason=not_in_allowlist mapped=${symbol}`);
+      emitAuditLog({ ...auditBase, timestamp: new Date().toISOString(), resolved_symbol: 'unknown', outcome: 'unavailable', reason: 'not_in_allowlist' });
+      await msg.channel.send({ content: `Data unavailable for requested symbol: ${symRaw}` });
+      return;
+    }
+    console.log(`[SYMBOL] raw=${symRaw} resolved=${symbol} outcome=served`);
+    emitAuditLog({ ...auditBase, timestamp: new Date().toISOString(), resolved_symbol: symbol, outcome: 'served', reason: null });
+
+    const user = resolveUserCode(msg);
+
+    if (!isRenderMode) {
+      console.log(`[ROUTE] dashboard_link symbol=${symbol} user=${user}`);
+      await msg.channel.send({ content: `📊 **${symbol} — ATLAS Dashboard**\n${dashboardUrl(symbol, user)}` });
+      console.log(`[DISCORD] dashboard link sent symbol=${symbol} user=${user}`);
       return;
     }
 
-    console.log(`[SYMBOL] raw=${userInput} resolved=${symbol} outcome=served`);
-    emitAuditLog({
-      ...auditBase,
-      timestamp: new Date().toISOString(),
-      resolved_symbol: symbol,
-      outcome: 'served',
-      reason: null,
-    });
-
-    const USER_BY_ID = {
-      '690861328507731978':  'AT', // AT (atlas.4693)
-      '1431173502161129555': 'NM', // NM (Nathan McKay)
-      '763467091171999814':  'SK', // SK
-      '1244449071977074798': 'BR', // BR
-    };
-    const USER_BY_CHANNEL = {
-      '1432642672287547453': 'AT', // at-chart-macro-request
-      '1433750991953596428': 'AT', // at-training
-      '1489245537395019908': 'AT', // at-chat-with-astra
-      '1432643496375881748': 'SK', // sk-chart-macro-request
-      '1433751801634488372': 'SK', // sk-training
-      '1489246324552368178': 'SK', // sk-chat-with-astra
-      '1432644116868501595': 'NM', // nm-chart-macro-request
-      '1433755484057501796': 'NM', // nm-training
-      '1489248591854702744': 'NM', // nm-chat-with-astra
-      '1482450651765149816': 'BR', // br-chart-macro-request
-      '1482450900583710740': 'BR', // br-training
-      '1489247239359697067': 'BR', // br-chat-with-astra
-    };
-    const user = USER_BY_ID[msg.author.id] || USER_BY_CHANNEL[msg.channelId] || 'AT';
+    console.log(`[ROUTE] live_analysis symbol=${symbol} mode=${modeRaw}`);
     await msg.channel.send({ content: `📡 Analysing **${symbol}** — please wait` });
-    const { htfGrid, ltfGrid, htfGridName, ltfGridName } = await renderAllPanelsV3(symbol);
-    await deliverResult(msg, { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName });
+
+    let renderResult;
+    try {
+      renderResult = await renderAllPanelsV3(symbol);
+    } catch (e) {
+      console.log(`[DISCORD] live render blocked reason=render_threw:${e.message}`);
+      await msg.channel.send({ content: `⚠️ Chart capture failed for ${symbol} — analysis withheld until valid chart render is available.` });
+      return;
+    }
+    const v = Array.isArray(renderResult.validation) ? renderResult.validation : null;
+    if (!v) {
+      console.log(`[DISCORD] live render blocked reason=invalid_chart_capture`);
+      await msg.channel.send({ content: `⚠️ Chart capture failed for ${symbol} — analysis withheld until valid chart render is available.` });
+      return;
+    }
+    if (v.some(x => !x.ok)) {
+      console.log(`[DISCORD] live render blocked reason=invalid_chart_capture`);
+      const failed = v.filter(x => !x.ok).map(x => x.label || x.interval).join(', ');
+      await msg.channel.send({ content: `⚠️ Chart capture failed for ${symbol} (${failed}) — analysis withheld until valid chart render is available.` });
+      return;
+    }
+
+    await deliverResult(msg, { symbol, mode: modeRaw, ...renderResult });
   } catch (e) {
     console.error('handler error', e);
   }
@@ -1240,10 +1594,6 @@ const MESSAGE_DEDUPE_TTL_MS = 30000;
 const SHARED_MACROS_CHANNEL =
   process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
 const CACHE_TTL_MS = 15 * 60 * 1000;
-// ── RENDERING LAYER v3 — RESOLUTION ──────────────────────────
-const CHART_W=1920;
-const CHART_H=1080;
-// ─────────────────────────────────────────────────────────────
 
 const MIN_CANVAS_AREA=150000;
 const ABORT_THRESHOLD=0.25;
@@ -1401,125 +1751,15 @@ function buildLevels(spideyHTF,spideyLTF,bias){const htfD=Object.entries(spideyH
 function runJane(symbol,spideyHTF,spideyLTF,corey){log('INFO',`[JANE] Synthesising ${symbol}`);const htfB=spideyHTF.dominantBias,htfC=spideyHTF.dominantConviction,ltfB=spideyLTF.dominantBias,ltfC=spideyLTF.dominantConviction,cB=corey.combinedBias,cC=corey.confidence,tsB=corey.trendSpider.signalBias,tsG=corey.trendSpider.grade,tsF=corey.trendSpider.fresh,tsA=corey.trendSpider.available;const bS={Bullish:1,Neutral:0,Bearish:-1},spS=(bS[htfB]*htfC*0.60)+(bS[ltfB]*ltfC*0.40),cS=bS[cB]*cC;let tsAdj=0,tsEff='Unavailable';if(tsA&&tsF&&(tsG==='FreshHigh'||tsG==='FreshMedium')){const ts2=bS[tsB]*corey.trendSpider.confidence,agree=tsB===htfB&&tsB===cB,conf2=tsB!=='Neutral'&&(tsB!==htfB||tsB!==cB);if(agree){tsAdj=ts2>0?0.08:-0.08;tsEff='Boosted';}else if(conf2){tsAdj=ts2>0?-0.06:0.06;tsEff='Reduced';}else{tsAdj=0;tsEff='Neutral';}}else{tsEff=tsA?'Ignored':'Unavailable';}const comp=(spS*0.40)+(cS*0.30)+tsAdj;let fb,conv,cl,dnt=false,dntR=null,cs;const spN=htfB==='Neutral',cN=cB==='Neutral',tsN=tsB==='Neutral'||!tsA||!tsF,ltfConf=ltfB!=='Neutral'&&ltfB!==htfB,sAc=!spN&&!cN&&htfB===cB,sCo=!spN&&!cN&&htfB!==cB,tsCS=!tsN&&tsB!==htfB;if(htfB==='Bullish'&&cB==='Bullish'&&(!tsA||!tsF||tsB==='Bullish')){fb='Bullish';conv=Math.min(comp+0.1,1);cs='Aligned';}else if(htfB==='Bearish'&&cB==='Bearish'&&(!tsA||!tsF||tsB==='Bearish')){fb='Bearish';conv=Math.min(Math.abs(comp)+0.1,1);cs='Aligned';}else if(sAc&&tsN){fb=htfB;conv=Math.abs(comp);cs='Aligned';}else if(sAc&&tsCS&&tsG==='FreshLow'){fb=htfB;conv=Math.abs(comp)*0.85;cs='PartialConflict';}else if(sAc&&tsCS&&tsG==='FreshHigh'){if(htfC>0.65&&cC>0.55){fb=htfB;conv=Math.abs(comp)*0.70;cs='PartialConflict';}else{fb='Neutral';conv=0.2;cs='HardConflict';dnt=true;dntR=`${htfB} structure+macro, strong TS ${tsB} conflict.`;}}else if(sCo&&!tsN&&tsB===htfB){fb=htfB;conv=Math.abs(comp)*0.60;cs='PartialConflict';if(htfC<0.55){dnt=true;dntR=`Structure (${htfB}) vs macro (${cB}) conflict.`;}}else if(sCo&&!tsN&&tsB===cB){fb='Neutral';conv=0.2;cs='HardConflict';dnt=true;dntR=`Structure (${htfB}) and macro+TS (${cB}) in direct conflict.`;}else if(spN&&!cN&&!tsN&&cB===tsB){fb=cB;conv=Math.abs(comp)*0.55;cs='PartialConflict';if(conv<0.35){dnt=true;dntR='Structure neutral. Macro+TS aligned but insufficient confirmation.';}}else if(!spN&&cN&&!tsN&&tsB===htfB){fb=htfB;conv=Math.abs(comp)*0.65;cs='PartialConflict';}else{fb='Neutral';conv=0;cs='HardConflict';dnt=true;dntR='Evidence fragmented. No clean bias.';}if(ltfConf&&!dnt){conv*=0.80;cs=cs==='Aligned'?'PartialConflict':cs;}if(conv<0.25&&!dnt){dnt=true;dntR=`Conviction ${(conv*100).toFixed(0)}% — below minimum threshold.`;}conv=Math.round(Math.min(conv,1)*100)/100;cl=conv>=0.65?'High':conv>=0.40?'Medium':conv>=0.20?'Low':'Abstain';if(dnt)cl=conv<0.10?'Abstain':cl;const levels=buildLevels(spideyHTF,spideyLTF,fb);log('INFO',`[JANE] ${symbol} → ${fb} | ${cl} | conflict:${cs} | TS:${tsEff} | DNT:${dnt}`);return{finalBias:fb,conviction:conv,convictionLabel:cl,compositeScore:Math.round(comp*100)/100,doNotTrade:dnt,doNotTradeReason:dntR,trendSpiderEffect:tsEff,conflictState:cs,ltfAligned:!ltfConf,ltfConflict:ltfConf,entryZone:levels.entryZone,invalidationLevel:levels.invalidationLevel,targets:levels.targets,rrRatio:levels.rrRatio};}
 
 // ============================================================
-// RENDERING LAYER v3 — ATLAS STYLE
-// chart-img.com | POST JSON | 2048x1920 | pure black theme
-// custom price box overlays | crisp PNG grid merge
+// RENDERING LAYER v3 — chart-img.com renderer lives in renderer.js
 // ============================================================
-const CHART_IMG_API_KEY=process.env.CHART_IMG_API_KEY||null;
-const BOX_HIGH='#FFD600';
-const BOX_CURRENT='#00FF5A';
-const BOX_ENTRY='#FF9100';
-const BOX_LOW='#00B0FF';
-
-function getCISymbol(symbol){const overrides={XAUUSD:'OANDA:XAUUSD',XAGUSD:'OANDA:XAGUSD',BCOUSD:'OANDA:BCOUSD',USOIL:'OANDA:BCOUSD',NAS100:'OANDA:NAS100USD',US500:'OANDA:SPX500USD',US30:'OANDA:US30USD',EURUSD:'OANDA:EURUSD',GBPUSD:'OANDA:GBPUSD',USDJPY:'OANDA:USDJPY',AUDUSD:'OANDA:AUDUSD',AUDJPY:'OANDA:AUDJPY',GBPJPY:'OANDA:GBPJPY',USDCAD:'OANDA:USDCAD',USDCHF:'OANDA:USDCHF',NZDUSD:'OANDA:NZDUSD',MICRON:'NASDAQ:MU',AMD:'NASDAQ:AMD',NVDA:'NASDAQ:NVDA',ASML:'NASDAQ:ASML'};if(overrides[symbol])return overrides[symbol];if(/^[A-Z]{6}$/.test(symbol))return`OANDA:${symbol}`;return`NASDAQ:${symbol}`;}
-
-const CI_INTERVAL_MAP={'1W':'1W','1D':'1D','240':'4h','60':'1h','30':'30m','15':'15m','5':'5m','1':'1m'};
-
-async function fetchChartImage(symbol,iv){
-  if(!CHART_IMG_API_KEY)throw new Error('CHART_IMG_API_KEY not set');
-  const ciSym=getCISymbol(symbol);
-  const ciInt=CI_INTERVAL_MAP[iv]||'1D';
-  const payload=JSON.stringify({
-    symbol:ciSym,
-    interval:ciInt,
-    theme:'dark',
-    style:'candle',
-    width:CHART_W,
-    height:CHART_H,
-    timezone:'Australia/Perth',
-    backgroundColor:'#000000',
-    hideControls:true,
-    zoom:2.2,
-    padding:0,
-    overrides:{
-      'paneProperties.background':'#000000',
-      'paneProperties.backgroundType':'solid',
-      'paneProperties.vertGridProperties.color':'rgba(255,255,255,0.02)',
-      'paneProperties.horzGridProperties.color':'rgba(255,255,255,0.02)',
-      'paneProperties.crossHairProperties.color':'#1A1A1A',
-      'paneProperties.vertGridProperties.style':2,
-      'paneProperties.horzGridProperties.style':2,
-      'paneProperties.legendProperties.showStudyArguments':false,
-      'paneProperties.legendProperties.showStudyTitles':false,
-      'paneProperties.legendProperties.showStudyValues':false,
-      'paneProperties.legendProperties.showSeriesTitle':true,
-      'paneProperties.legendProperties.showSeriesOHLC':true,
-      'paneProperties.legendProperties.showLegend':true,
-      'scalesProperties.backgroundColor':'#000000',
-      'scalesProperties.textColor':'#9aa4ad',
-      'scalesProperties.lineColor':'rgba(255,255,255,0.15)',
-      'scalesProperties.fontSize':12,
-      'symbolWatermarkProperties.transparency':100,
-      'mainSeriesProperties.candleStyle.upColor':'#26A69A',
-      'mainSeriesProperties.candleStyle.downColor':'#EF5350',
-      'mainSeriesProperties.candleStyle.borderUpColor':'#26A69A',
-      'mainSeriesProperties.candleStyle.borderDownColor':'#EF5350',
-      'mainSeriesProperties.candleStyle.wickUpColor':'#26A69A',
-      'mainSeriesProperties.candleStyle.wickDownColor':'#EF5350',
-      'mainSeriesProperties.candleStyle.drawWick':true,
-      'mainSeriesProperties.candleStyle.drawBorder':true,
-      'mainSeriesProperties.candleStyle.barColorsOnPrevClose':false,
-      'mainSeriesProperties.showPriceLine':false,
-    },
-    studies:[],
-  });
-  return new Promise((resolve,reject)=>{
-    const opts={hostname:'api.chart-img.com',path:'/v2/tradingview/advanced-chart',method:'POST',headers:{'x-api-key':CHART_IMG_API_KEY,'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload),'User-Agent':'ATLAS-FX/4.3.0'},timeout:60000};
-    const req=https.request(opts,res=>{const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>{if(res.statusCode!==200){const body=Buffer.concat(chunks).toString();reject(new Error(`chart-img ${res.statusCode}: ${body.slice(0,200)}`));return;}resolve(Buffer.concat(chunks));});});
-    req.on('error',reject);req.on('timeout',()=>reject(new Error('chart-img timeout')));req.write(payload);req.end();
-  });
-}
-
-function priceBoxSVG(label,value,color,y){
-  const bw=120,bh=36,x=CHART_W-bw-4;
-  return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="${color}" rx="0"/>`
-    +`<text x="${x+6}" y="${y+13}" font-family="monospace" font-size="9" font-weight="bold" fill="#000000">${label}</text>`
-    +`<text x="${x+6}" y="${y+29}" font-family="monospace" font-size="12" font-weight="bold" fill="#000000">${value}</text>`;
-}
-
-async function overlayPriceBoxes(imgBuf,candles){
-  if(!candles||candles.length<2)return imgBuf;
-  const recent=candles.slice(-50);
-  const high=Math.max(...recent.map(c=>c.high));
-  const low=Math.min(...recent.map(c=>c.low));
-  const current=candles[candles.length-1].close;
-  const last=candles[candles.length-1];
-  const entry=last.close>last.open?(last.low+last.close)/2:(last.high+last.close)/2;
-  const fmt=v=>v>100?v.toFixed(2):v>1?v.toFixed(4):v.toFixed(5);
-  const boxes=priceBoxSVG('HIGH',fmt(high),BOX_HIGH,50)
-    +priceBoxSVG('CURRENT',fmt(current),BOX_CURRENT,96)
-    +priceBoxSVG('ENTRY',fmt(entry),BOX_ENTRY,CHART_H-86)
-    +priceBoxSVG('LOW',fmt(low),BOX_LOW,CHART_H-44);
-  const overlaySvg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg">${boxes}</svg>`;
-  return sharp(imgBuf).composite([{input:Buffer.from(overlaySvg),top:0,left:0}]).png().toBuffer();
-}
-
-async function makePlaceholder(sym,tfKey,reason){
-  const r2=(reason||'NO DATA').slice(0,60);
-  const svg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect width="${CHART_W}" height="${CHART_H}" fill="#000000"/><text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#222222" text-anchor="middle">${sym} ${tfKey}</text><text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#181818" text-anchor="middle">${r2}</text></svg>`;
-  return sharp(Buffer.from(svg)).resize(CHART_W,CHART_H).png().toBuffer();
-}
-
-async function buildGrid(panels,tfKeys){
-  const resized=await Promise.all(panels.map(async(img,i)=>{
-    const base=await sharp(img).resize(CHART_W,CHART_H,{fit:'fill'}).png().toBuffer();
-    const label=tfKeys&&tfKeys[i]?tfKeys[i]:'';
-    if(!label)return base;
-    const lw=label.length*12+20;
-    const labelSvg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="8" width="${lw}" height="26" fill="#000000"/><text x="18" y="27" font-family="monospace" font-size="15" font-weight="bold" fill="#888888">${label}</text></svg>`;
-    return sharp(base).composite([{input:Buffer.from(labelSvg),top:0,left:0}]).png().toBuffer();
-  }));
-  const gw=CHART_W*2,gh=CHART_H*2;
-  const divSvg=`<svg width="${gw}" height="${gh}" xmlns="http://www.w3.org/2000/svg"><line x1="${CHART_W}" y1="0" x2="${CHART_W}" y2="${gh}" stroke="#1A1A1A" stroke-width="2"/><line x1="0" y1="${CHART_H}" x2="${gw}" y2="${CHART_H}" stroke="#1A1A1A" stroke-width="2"/></svg>`;
-  return sharp({create:{width:gw,height:gh,channels:4,background:{r:0,g:0,b:0,alpha:1}}})
-    .composite([{input:resized[0],left:0,top:0},{input:resized[1],left:CHART_W,top:0},{input:resized[2],left:0,top:CHART_H},{input:resized[3],left:CHART_W,top:CHART_H},{input:Buffer.from(divSvg),left:0,top:0}])
-    .png({compressionLevel:6}).toBuffer();
-}
-
 async function renderAllPanelsV3(symbol){
-  log("INFO", "[CHART] " + symbol + " — rendering via Puppeteer/TradingView widget");
+  log("INFO", `[CHART] ${symbol} — rendering via chart-img.com`);
   const result = await renderAllPanels(symbol);
-  return { ...result, htfFail: 0, ltfFail: 0, partial: false };
+  const validation = Array.isArray(result.validation) ? result.validation : [];
+  const htfFail = validation.slice(0, 4).filter(v => !v.ok).length;
+  const ltfFail = validation.slice(4, 8).filter(v => !v.ok).length;
+  return { ...result, htfFail, ltfFail, partial: htfFail > 0 || ltfFail > 0 };
 }
 // ── END RENDERING LAYER v3 ────────────────────────────────────
 
@@ -1532,32 +1772,53 @@ async function renderAllPanelsV3(symbol){
 //   Execution Logic → Validity
 // ==============================
 async function deliverResult(msg, result) {
-  const { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName } = result;
+  const { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName, mode, validation } = result;
+  console.log(`[PRESENTER] active_formatter=index.js#formatMacro mode=${mode || 'analyse'}`);
+
   if (!htfGrid || !ltfGrid) {
     log('ERROR', `[DELIVER] ${symbol} missing chart grids`);
-    await msg.channel.send({ content: `⚠️ Chart render failed for ${symbol} — macro aborted.` });
+    console.log(`[DISCORD] live render blocked reason=missing_chart_grids`);
+    await msg.channel.send({ content: `⚠️ Chart capture failed for ${symbol} — analysis withheld until valid chart render is available.` });
+    return;
+  }
+  // Validation gate — placeholders MUST NOT reach Discord. Routing handler
+  // already enforces this for the standard mode; this is the second wall.
+  if (Array.isArray(validation) && validation.some(v => !v.ok)) {
+    console.log(`[DISCORD] live render blocked reason=invalid_chart_capture`);
+    const failed = validation.filter(v => !v.ok).map(v => v.label || v.interval).join(', ');
+    await msg.channel.send({ content: `⚠️ Chart capture failed for ${symbol} (${failed}) — analysis withheld until valid chart render is available.` });
     return;
   }
 
-  // 1. Chart 2×2 (HTF: Weekly · Daily · 4H · 1H)
+  // Charts mode — deliver charts only, no macro text.
+  if (mode === 'charts') {
+    await msg.channel.send({ content: `📡 **${symbol} — HTF** · Weekly · Daily · 4H · 1H`,  files: [new AttachmentBuilder(htfGrid, { name: htfGridName })] });
+    await msg.channel.send({ content: `🔬 **${symbol} — LTF** · 30M · 15M · 5M · 1M`,        files: [new AttachmentBuilder(ltfGrid, { name: ltfGridName })] });
+    console.log(`[PRESENTER] sections generated=0 (charts mode)`);
+    console.log(`[PRESENTER-QA] pass`);
+    return;
+  }
+
+  // 1. HTF chart block
   await msg.channel.send({
     content: `📡 **${symbol} — HTF** · Weekly · Daily · 4H · 1H`,
     files: [new AttachmentBuilder(htfGrid, { name: htfGridName })]
   });
 
-  // 2. Chart 2×2 (LTF: 30M · 15M · 5M · 1M)
+  // 2. LTF chart block
   await msg.channel.send({
     content: `🔬 **${symbol} — LTF** · 30M · 15M · 5M · 1M`,
     files: [new AttachmentBuilder(ltfGrid, { name: ltfGridName })]
   });
 
-  // 3. Gather live data surface
-  let corey, spideyHTF, spideyLTF, jane;
+  // 3. Gather live data surface (+ daily candles for Forward Expectation)
+  let corey, spideyHTF, spideyLTF, jane, dailyCandles;
   try {
-    [corey, spideyHTF, spideyLTF] = await Promise.all([
+    [corey, spideyHTF, spideyLTF, dailyCandles] = await Promise.all([
       runCorey(symbol),
       runSpideyHTF(symbol, HTF_INTERVALS),
-      runSpideyLTF(symbol, LTF_INTERVALS)
+      runSpideyLTF(symbol, LTF_INTERVALS),
+      safeOHLC(symbol, '1D', 25)
     ]);
     jane = runJane(symbol, spideyHTF, spideyLTF, corey);
   } catch (e) {
@@ -1566,12 +1827,52 @@ async function deliverResult(msg, result) {
     return;
   }
 
-  // 4. Build and deliver all text sections in locked order
-  const sections = formatMacro(symbol, corey, spideyHTF, spideyLTF, jane);
+  const candlesByTf = { '1D': dailyCandles };
+  const sections = formatMacro(symbol, corey, spideyHTF, spideyLTF, jane, candlesByTf);
+  console.log(`[PRESENTER] sections generated=${sections.length}`);
+
+  // Macro mode skips the chart blocks above by sending charts-then-text. To
+  // honour mode=macro semantics we suppress only the visual chart resends if
+  // a macro-only invocation is requested in future. Today, mode=macro and
+  // mode=analyse share the same downstream content order (charts already sent).
+
+  // PRESENTER-QA — run before sending text.
+  const readiness = readinessScore(jane);
+  const blocked = jane.doNotTrade || readiness <= 3 || jane.convictionLabel === 'Abstain';
+  const qa = presenterQA(sections.map(s => s.text), {
+    symbol,
+    blocked,
+    readiness,
+    vol: corey.internalMacro?.global?.live?.vix?.level || 'Normal',
+    ez: jane.entryZone,
+    inv: jane.invalidationLevel,
+    macroBias: corey.combinedBias,
+    catalystInside2h: false,
+    setupExpired: false,
+    placeholderSent: false,
+    blankChartSent: false
+  });
+  if (qa.ok) {
+    console.log(`[PRESENTER-QA] pass`);
+  } else {
+    console.log(`[PRESENTER-QA] fail reason=${qa.reason}`);
+    // Hard fail: we still ship the sections rather than stay silent, but we
+    // surface the QA failure as a system warning so the contradiction is
+    // visible to the trader and the operator.
+    await msg.channel.send({ content: `⚠️ Presenter QA flagged a contradiction (\`${qa.reason}\`). Investigate before acting on this read.` });
+  }
+
+  // 4. Send sections in locked order, chunked, with logging.
+  let totalChunks = 0;
   for (const section of sections) {
-    for (const chunk of chunkMessage(section, DISCORD_MAX)) {
-      await msg.channel.send({ content: chunk });
+    const chunks = chunkMessage(section.text, DISCORD_MAX);
+    console.log(`[PRESENTER] chunk count section=${section.name} chunks=${chunks.length}`);
+    totalChunks += chunks.length;
+    for (let i = 0; i < chunks.length; i++) {
+      await msg.channel.send({ content: chunks[i] });
+      console.log(`[DISCORD] section sent ${section.name} ${i + 1}`);
     }
   }
+  console.log(`[PRESENTER] complete sections=${sections.length} chunks=${totalChunks}`);
 }
 client.login(TOKEN);
