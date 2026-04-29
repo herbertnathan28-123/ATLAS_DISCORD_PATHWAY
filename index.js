@@ -12,7 +12,6 @@ process.on('uncaughtException',(e)=>{console.error('[CRASH]',e);});
 const{Client,GatewayIntentBits,ActionRowBuilder,ButtonBuilder,ButtonStyle,AttachmentBuilder}=require('discord.js');
 
 const { renderAllPanels } = require('./renderer');
-const sharp=require('sharp');
 const{createHmac}=require('crypto');
 const fs=require('fs');
 const https=require('https');
@@ -1240,11 +1239,6 @@ const MESSAGE_DEDUPE_TTL_MS = 30000;
 const SHARED_MACROS_CHANNEL =
   process.env.SHARED_MACROS_CHANNEL_ID || '1434253776360968293';
 const CACHE_TTL_MS = 15 * 60 * 1000;
-// ── RENDERING LAYER v3 — RESOLUTION ──────────────────────────
-const CHART_W=1920;
-const CHART_H=1080;
-// ─────────────────────────────────────────────────────────────
-
 const MIN_CANVAS_AREA=150000;
 const ABORT_THRESHOLD=0.25;
 const HTF_INTERVALS=['1W','1D','240','60'];
@@ -1402,124 +1396,15 @@ function runJane(symbol,spideyHTF,spideyLTF,corey){log('INFO',`[JANE] Synthesisi
 
 // ============================================================
 // RENDERING LAYER v3 — ATLAS STYLE
-// chart-img.com | POST JSON | 2048x1920 | pure black theme
-// custom price box overlays | crisp PNG grid merge
+// chart-img.com renderer lives in renderer.js
 // ============================================================
-const CHART_IMG_API_KEY=process.env.CHART_IMG_API_KEY||null;
-const BOX_HIGH='#FFD600';
-const BOX_CURRENT='#00FF5A';
-const BOX_ENTRY='#FF9100';
-const BOX_LOW='#00B0FF';
-
-function getCISymbol(symbol){const overrides={XAUUSD:'OANDA:XAUUSD',XAGUSD:'OANDA:XAGUSD',BCOUSD:'OANDA:BCOUSD',USOIL:'OANDA:BCOUSD',NAS100:'OANDA:NAS100USD',US500:'OANDA:SPX500USD',US30:'OANDA:US30USD',EURUSD:'OANDA:EURUSD',GBPUSD:'OANDA:GBPUSD',USDJPY:'OANDA:USDJPY',AUDUSD:'OANDA:AUDUSD',AUDJPY:'OANDA:AUDJPY',GBPJPY:'OANDA:GBPJPY',USDCAD:'OANDA:USDCAD',USDCHF:'OANDA:USDCHF',NZDUSD:'OANDA:NZDUSD',MICRON:'NASDAQ:MU',AMD:'NASDAQ:AMD',NVDA:'NASDAQ:NVDA',ASML:'NASDAQ:ASML'};if(overrides[symbol])return overrides[symbol];if(/^[A-Z]{6}$/.test(symbol))return`OANDA:${symbol}`;return`NASDAQ:${symbol}`;}
-
-const CI_INTERVAL_MAP={'1W':'1W','1D':'1D','240':'4h','60':'1h','30':'30m','15':'15m','5':'5m','1':'1m'};
-
-async function fetchChartImage(symbol,iv){
-  if(!CHART_IMG_API_KEY)throw new Error('CHART_IMG_API_KEY not set');
-  const ciSym=getCISymbol(symbol);
-  const ciInt=CI_INTERVAL_MAP[iv]||'1D';
-  const payload=JSON.stringify({
-    symbol:ciSym,
-    interval:ciInt,
-    theme:'dark',
-    style:'candle',
-    width:CHART_W,
-    height:CHART_H,
-    timezone:'Australia/Perth',
-    backgroundColor:'#000000',
-    hideControls:true,
-    zoom:2.2,
-    padding:0,
-    overrides:{
-      'paneProperties.background':'#000000',
-      'paneProperties.backgroundType':'solid',
-      'paneProperties.vertGridProperties.color':'rgba(255,255,255,0.02)',
-      'paneProperties.horzGridProperties.color':'rgba(255,255,255,0.02)',
-      'paneProperties.crossHairProperties.color':'#1A1A1A',
-      'paneProperties.vertGridProperties.style':2,
-      'paneProperties.horzGridProperties.style':2,
-      'paneProperties.legendProperties.showStudyArguments':false,
-      'paneProperties.legendProperties.showStudyTitles':false,
-      'paneProperties.legendProperties.showStudyValues':false,
-      'paneProperties.legendProperties.showSeriesTitle':true,
-      'paneProperties.legendProperties.showSeriesOHLC':true,
-      'paneProperties.legendProperties.showLegend':true,
-      'scalesProperties.backgroundColor':'#000000',
-      'scalesProperties.textColor':'#9aa4ad',
-      'scalesProperties.lineColor':'rgba(255,255,255,0.15)',
-      'scalesProperties.fontSize':12,
-      'symbolWatermarkProperties.transparency':100,
-      'mainSeriesProperties.candleStyle.upColor':'#26A69A',
-      'mainSeriesProperties.candleStyle.downColor':'#EF5350',
-      'mainSeriesProperties.candleStyle.borderUpColor':'#26A69A',
-      'mainSeriesProperties.candleStyle.borderDownColor':'#EF5350',
-      'mainSeriesProperties.candleStyle.wickUpColor':'#26A69A',
-      'mainSeriesProperties.candleStyle.wickDownColor':'#EF5350',
-      'mainSeriesProperties.candleStyle.drawWick':true,
-      'mainSeriesProperties.candleStyle.drawBorder':true,
-      'mainSeriesProperties.candleStyle.barColorsOnPrevClose':false,
-      'mainSeriesProperties.showPriceLine':false,
-    },
-    studies:[],
-  });
-  return new Promise((resolve,reject)=>{
-    const opts={hostname:'api.chart-img.com',path:'/v2/tradingview/advanced-chart',method:'POST',headers:{'x-api-key':CHART_IMG_API_KEY,'Content-Type':'application/json','Content-Length':Buffer.byteLength(payload),'User-Agent':'ATLAS-FX/4.3.0'},timeout:60000};
-    const req=https.request(opts,res=>{const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>{if(res.statusCode!==200){const body=Buffer.concat(chunks).toString();reject(new Error(`chart-img ${res.statusCode}: ${body.slice(0,200)}`));return;}resolve(Buffer.concat(chunks));});});
-    req.on('error',reject);req.on('timeout',()=>reject(new Error('chart-img timeout')));req.write(payload);req.end();
-  });
-}
-
-function priceBoxSVG(label,value,color,y){
-  const bw=120,bh=36,x=CHART_W-bw-4;
-  return `<rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="${color}" rx="0"/>`
-    +`<text x="${x+6}" y="${y+13}" font-family="monospace" font-size="9" font-weight="bold" fill="#000000">${label}</text>`
-    +`<text x="${x+6}" y="${y+29}" font-family="monospace" font-size="12" font-weight="bold" fill="#000000">${value}</text>`;
-}
-
-async function overlayPriceBoxes(imgBuf,candles){
-  if(!candles||candles.length<2)return imgBuf;
-  const recent=candles.slice(-50);
-  const high=Math.max(...recent.map(c=>c.high));
-  const low=Math.min(...recent.map(c=>c.low));
-  const current=candles[candles.length-1].close;
-  const last=candles[candles.length-1];
-  const entry=last.close>last.open?(last.low+last.close)/2:(last.high+last.close)/2;
-  const fmt=v=>v>100?v.toFixed(2):v>1?v.toFixed(4):v.toFixed(5);
-  const boxes=priceBoxSVG('HIGH',fmt(high),BOX_HIGH,50)
-    +priceBoxSVG('CURRENT',fmt(current),BOX_CURRENT,96)
-    +priceBoxSVG('ENTRY',fmt(entry),BOX_ENTRY,CHART_H-86)
-    +priceBoxSVG('LOW',fmt(low),BOX_LOW,CHART_H-44);
-  const overlaySvg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg">${boxes}</svg>`;
-  return sharp(imgBuf).composite([{input:Buffer.from(overlaySvg),top:0,left:0}]).png().toBuffer();
-}
-
-async function makePlaceholder(sym,tfKey,reason){
-  const r2=(reason||'NO DATA').slice(0,60);
-  const svg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect width="${CHART_W}" height="${CHART_H}" fill="#000000"/><text x="${CHART_W/2}" y="${CHART_H/2-30}" font-family="monospace" font-size="48" fill="#222222" text-anchor="middle">${sym} ${tfKey}</text><text x="${CHART_W/2}" y="${CHART_H/2+30}" font-family="monospace" font-size="28" fill="#181818" text-anchor="middle">${r2}</text></svg>`;
-  return sharp(Buffer.from(svg)).resize(CHART_W,CHART_H).png().toBuffer();
-}
-
-async function buildGrid(panels,tfKeys){
-  const resized=await Promise.all(panels.map(async(img,i)=>{
-    const base=await sharp(img).resize(CHART_W,CHART_H,{fit:'fill'}).png().toBuffer();
-    const label=tfKeys&&tfKeys[i]?tfKeys[i]:'';
-    if(!label)return base;
-    const lw=label.length*12+20;
-    const labelSvg=`<svg width="${CHART_W}" height="${CHART_H}" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="8" width="${lw}" height="26" fill="#000000"/><text x="18" y="27" font-family="monospace" font-size="15" font-weight="bold" fill="#888888">${label}</text></svg>`;
-    return sharp(base).composite([{input:Buffer.from(labelSvg),top:0,left:0}]).png().toBuffer();
-  }));
-  const gw=CHART_W*2,gh=CHART_H*2;
-  const divSvg=`<svg width="${gw}" height="${gh}" xmlns="http://www.w3.org/2000/svg"><line x1="${CHART_W}" y1="0" x2="${CHART_W}" y2="${gh}" stroke="#1A1A1A" stroke-width="2"/><line x1="0" y1="${CHART_H}" x2="${gw}" y2="${CHART_H}" stroke="#1A1A1A" stroke-width="2"/></svg>`;
-  return sharp({create:{width:gw,height:gh,channels:4,background:{r:0,g:0,b:0,alpha:1}}})
-    .composite([{input:resized[0],left:0,top:0},{input:resized[1],left:CHART_W,top:0},{input:resized[2],left:0,top:CHART_H},{input:resized[3],left:CHART_W,top:CHART_H},{input:Buffer.from(divSvg),left:0,top:0}])
-    .png({compressionLevel:6}).toBuffer();
-}
-
 async function renderAllPanelsV3(symbol){
-  log("INFO", "[CHART] " + symbol + " — rendering via Puppeteer/TradingView widget");
+  log("INFO", `[CHART] ${symbol} — rendering via chart-img.com`);
   const result = await renderAllPanels(symbol);
-  return { ...result, htfFail: 0, ltfFail: 0, partial: false };
+  const validation = Array.isArray(result.validation) ? result.validation : [];
+  const htfFail = validation.slice(0, 4).filter(v => !v.ok).length;
+  const ltfFail = validation.slice(4, 8).filter(v => !v.ok).length;
+  return { ...result, htfFail, ltfFail, partial: htfFail > 0 || ltfFail > 0 };
 }
 // ── END RENDERING LAYER v3 ────────────────────────────────────
 
@@ -1532,7 +1417,7 @@ async function renderAllPanelsV3(symbol){
 //   Execution Logic → Validity
 // ==============================
 async function deliverResult(msg, result) {
-  const { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName } = result;
+  const { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName, validation } = result;
   if (!htfGrid || !ltfGrid) {
     log('ERROR', `[DELIVER] ${symbol} missing chart grids`);
     await msg.channel.send({ content: `⚠️ Chart render failed for ${symbol} — macro aborted.` });
@@ -1550,6 +1435,17 @@ async function deliverResult(msg, result) {
     content: `🔬 **${symbol} — LTF** · 30M · 15M · 5M · 1M`,
     files: [new AttachmentBuilder(ltfGrid, { name: ltfGridName })]
   });
+
+  // 2b. Per-timeframe capture warnings
+  if (Array.isArray(validation)) {
+    for (const v of validation) {
+      if (!v.ok) {
+        await msg.channel.send({
+          content: `⚠️ Chart capture failed for ${symbol} ${v.label} — analysis withheld.`
+        });
+      }
+    }
+  }
 
   // 3. Gather live data surface
   let corey, spideyHTF, spideyLTF, jane;
