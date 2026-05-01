@@ -85,7 +85,7 @@ function httpGet(urlStr, timeout = 12000, extraHeaders = {}) {
                          zero events is NOT healthy for source_used purposes)
      'failed'          — fetch rejected by validation (non-2xx / non-JSON /
                          parse error / shape error / network error)
-     'skipped'         — source gated off (te without TRADING_ECONOMICS_KEY)
+     'skipped'         — source gated off (te without FMP_API_KEY)
      'active'          — degraded-mode generator produced events */
 const _sourceHealth = {
   tv:       { status: 'unknown', lastFetched: 0, lastCount: 0, rawCount: 0, lastError: null, lastStatusCode: null, lastContentType: null, lastUrl: null },
@@ -179,7 +179,8 @@ async function fetchTradingView() {
        final normalised count. If the normalised count is zero, mark the source
        nonproductive — a 200 with zero events is NOT healthy. */
     const rawCount = list.length;
-    const filteredByImportance = list.filter(e => (e.importance || 0) >= 2);
+    if (list.length > 0) console.log(`[COREY-CALENDAR] tv sample importance=${list[0].importance} title="${list[0].title || list[0].indicator || 'n/a'}"`);
+    const filteredByImportance = list.filter(e => Number.isFinite(e.importance) && e.importance >= 0);
     const postFilterCount = filteredByImportance.length;
     const events = filteredByImportance.map(e => normalizeEvent({
       source: 'tv',
@@ -188,7 +189,7 @@ async function fetchTradingView() {
       country: (e.country || '').toUpperCase(),
       currency: mapTVCountry(e.country),
       scheduled_time: new Date(e.date || e.time).getTime(),
-      impact: e.importance >= 3 ? 'high' : 'medium',
+      impact: e.importance >= 1 ? 'high' : e.importance === 0 ? 'medium' : 'low',
       expected: e.forecast != null ? String(e.forecast) : null,
       previous: e.previous != null ? String(e.previous) : null,
       actual:   e.actual   != null ? String(e.actual)   : null,
@@ -215,50 +216,44 @@ function mapTVCountry(c) {
   return m[(c || '').toUpperCase()] || 'USD';
 }
 
-// ── FEED 2: TRADING ECONOMICS (env-gated, optional fallback) ─
+// ── FEED 2: FMP ECONOMIC CALENDAR (env-gated middle tier) ────
 // Middle tier between TradingView (primary) and the degraded-mode
 // internal cadence fallback. Activated only when process.env
-// .TRADING_ECONOMICS_KEY is set. Free tier is email-only signup; no
-// card required. When the key is unset, this path logs te:skipped
-// and returns an empty array. Future env add activates the path
-// with zero code change.
+// .FMP_API_KEY is set. Premium subscription required. When the key is
+// unset, this path logs te:skipped and returns an empty array.
 //
-// Endpoint shape (per TE docs):
-//   https://api.tradingeconomics.com/calendar?c=<KEY>
-//     &country=united states,euro area,united kingdom,japan,...
-//     &importance=2,3&format=json
-// Response: top-level array of { Date, Country, Currency, Event,
-//   Reference, Source, Actual, Previous, Forecast, Importance, ... }
+// Endpoint shape:
+//   https://financialmodelingprep.com/api/v3/economic_calendar
+//     ?from=YYYY-MM-DD&to=YYYY-MM-DD&apikey=<KEY>
+// Response: top-level array of { date, country, currency, event,
+//   estimate, previous, actual, impact, ... }
+//
+// Internal slot is still keyed 'te' for back-compat with the existing
+// health surface and source_used logging path.
 
-const TE_COUNTRY_MAP = {
-  US: 'united states', EU: 'euro area',     GB: 'united kingdom',
-  JP: 'japan',         AU: 'australia',     CA: 'canada',
-  CH: 'switzerland',   NZ: 'new zealand',   CN: 'china'
+const FMP_COUNTRY_MAP = {
+  US: 'US', EU: 'EU', GB: 'GB', JP: 'JP',
+  AU: 'AU', CA: 'CA', CH: 'CH', NZ: 'NZ', CN: 'CN'
 };
-const TE_CCY_MAP = {
-  'united states':   'USD', 'euro area':      'EUR',
-  'united kingdom':  'GBP', 'japan':          'JPY',
-  'australia':       'AUD', 'canada':         'CAD',
-  'switzerland':     'CHF', 'new zealand':    'NZD',
-  'china':           'CNY'
+const FMP_CCY_MAP = {
+  US: 'USD', EU: 'EUR', GB: 'GBP', JP: 'JPY',
+  AU: 'AUD', CA: 'CAD', CH: 'CHF', NZ: 'NZD', CN: 'CNY'
 };
 
-async function fetchTradingEconomics() {
-  const key = process.env.TRADING_ECONOMICS_KEY;
+async function fetchFMP() {
+  const key = process.env.FMP_API_KEY;
   if (!key) {
-    /* [COREY-CALENDAR] te skipped — no TRADING_ECONOMICS_KEY env var.
-       The path is wired and validated; set the env var on Render to
-       activate without any code change. */
     _sourceHealth.te.status = 'skipped';
     _sourceHealth.te.lastFetched = Date.now();
     _sourceHealth.te.lastCount = 0;
-    _sourceHealth.te.lastError = 'TRADING_ECONOMICS_KEY not set';
-    console.log('[COREY-CALENDAR] source=te status=skipped events=0 reason=TRADING_ECONOMICS_KEY not set');
+    _sourceHealth.te.lastError = 'FMP_API_KEY not set';
+    console.log('[COREY-CALENDAR] source=fmp status=skipped events=0 reason=FMP_API_KEY not set');
     return [];
   }
-
-  const countries = Object.values(TE_COUNTRY_MAP).join(',');
-  const url = `https://api.tradingeconomics.com/calendar?c=${encodeURIComponent(key)}&country=${encodeURIComponent(countries)}&importance=2,3&format=json`;
+  const now = new Date();
+  const from = now.toISOString().slice(0, 10);
+  const to = new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  const url = `https://financialmodelingprep.com/api/v3/economic_calendar?from=${from}&to=${to}&apikey=${encodeURIComponent(key)}`;
   let status = null, contentType = null;
   try {
     const resp = await httpGet(url);
@@ -284,27 +279,31 @@ async function fetchTradingEconomics() {
       return [];
     }
     const events = raw
+      .filter(e => FMP_COUNTRY_MAP[e.country])
       .map(e => {
-        const t = e.Date ? Date.parse(e.Date) : NaN;
-        const importance = Number(e.Importance || 0);
-        const country = (e.Country || '').toLowerCase();
-        const currency = e.Currency || TE_CCY_MAP[country] || 'USD';
+        const t = e.date ? Date.parse(e.date.includes('Z') ? e.date : e.date.replace(' ', 'T') + 'Z') : NaN;
+        const impactRaw = String(e.impact || '').toLowerCase();
+        const impact = impactRaw === 'high' ? 'high' : impactRaw === 'medium' ? 'medium' : 'low';
         return normalizeEvent({
-          source: 'te',
-          id: e.CalendarId != null ? `te-${e.CalendarId}` : null,
-          title: e.Event || '',
-          country,
-          currency,
+          source: 'fmp',
+          id: e.event ? `fmp-${e.country}-${e.event}-${t}` : null,
+          title: e.event || '',
+          country: e.country,
+          currency: e.currency || FMP_CCY_MAP[e.country] || 'USD',
           scheduled_time: isFinite(t) ? t : null,
-          impact: importance >= 3 ? 'high' : importance >= 2 ? 'medium' : 'low',
-          expected: e.Forecast != null && e.Forecast !== '' ? String(e.Forecast) : null,
-          previous: e.Previous != null && e.Previous !== '' ? String(e.Previous) : null,
-          actual:   e.Actual   != null && e.Actual   !== '' ? String(e.Actual)   : null,
-          ticker:   e.Ticker || null,
-          comment:  e.Reference || null
+          impact,
+          expected: e.estimate != null && e.estimate !== '' ? String(e.estimate) : null,
+          previous: e.previous != null && e.previous !== '' ? String(e.previous) : null,
+          actual:   e.actual   != null && e.actual   !== '' ? String(e.actual)   : null,
+          ticker:   null,
+          comment:  null
         });
       })
       .filter(e => e.scheduled_time != null && e.impact !== 'low');
+    if (events.length === 0) {
+      markSourceNonProductive('te', `raw=${raw.length} postFilter=0 — endpoint reachable but zero events in active window/countries`, status, contentType, raw.length);
+      return [];
+    }
     markSourceOk('te', events.length, status, contentType);
     return events;
   } catch (e) {
@@ -557,7 +556,7 @@ async function refreshCalendar(opts) {
 
   console.log('[COREY-CALENDAR] Refreshing...');
   try {
-    const [tv, te] = await Promise.all([fetchTradingView(), fetchTradingEconomics()]);
+    const [tv, te] = await Promise.all([fetchTradingView(), fetchFMP()]);
 
     /* [COREY-CALENDAR] A2b — TV → TE → degraded fall-through per spec.
        A source counts as productive iff it returned events.length > 0 AND
