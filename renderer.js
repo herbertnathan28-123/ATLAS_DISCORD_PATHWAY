@@ -46,6 +46,7 @@ function getCISymbol(symbol) {
 async function fetchChartImage(symbol, iv) {
   if (!CHART_IMG_API_KEY) throw new Error('CHART_IMG_API_KEY not set');
   const ciSym = getCISymbol(symbol);
+  console.log(`[SYMBOL-TRACE] providerSymbol input=${symbol} interval=${iv} mapped=${ciSym}`);
   const ciInt = CI_INTERVAL_MAP[iv] || '1D';
   const payload = JSON.stringify({
     symbol: ciSym, interval: ciInt, theme: 'dark', style: 'candle',
@@ -210,6 +211,7 @@ async function renderAllPanels(symbol) {
   }));
   const elapsed = Math.round((Date.now() - t0) / 1000);
   console.log(`[RENDERER] ${sym} - complete in ${elapsed}s`);
+  console.log(`[SYMBOL-TRACE] renderReturnSymbol=${sym} htfGridName=${sym}_HTF.png ltfGridName=${sym}_LTF.png`);
   return {
     htfGrid:     grids[0],
     ltfGrid:     grids[1],

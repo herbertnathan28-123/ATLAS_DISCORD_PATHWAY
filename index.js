@@ -1476,12 +1476,14 @@ client.on('messageCreate', async (msg) => {
     if (!msg.content || !msg.content.startsWith('!')) return;
     const userInput = msg.content.slice(1).trim();
     console.log(`[COMMAND] raw=!${userInput}`);
+    console.log(`[SYMBOL-TRACE] rawCommand=!${userInput}`);
 
     if (OPS_COMMANDS.has(userInput.toLowerCase())) return;
 
     const tokens = userInput.split(/\s+/).filter(Boolean);
     const symRaw = tokens[0] || '';
     const modeRaw = (tokens[1] || '').toLowerCase();
+    console.log(`[SYMBOL-TRACE] parsedSymbol=${symRaw} modeRaw=${modeRaw}`);
     const isRenderMode = RENDER_MODES.has(modeRaw);
     if (tokens.length > 1 && !isRenderMode) return;
 
@@ -1503,6 +1505,7 @@ client.on('messageCreate', async (msg) => {
 
     const resolved = resolveSymbol(symRaw);
     console.log(`[SYMBOL] raw=${symRaw} resolved=${resolved}`);
+    console.log(`[SYMBOL-TRACE] resolvedSymbol=${resolved}`);
     const validation = validateInput('!' + resolved);
     if (!validation.valid) {
       if (validation.reason === 'format' || validation.reason === 'unknown_instrument') {
@@ -1520,18 +1523,22 @@ client.on('messageCreate', async (msg) => {
       return;
     }
     console.log(`[SYMBOL] raw=${symRaw} resolved=${symbol} outcome=served`);
+    console.log(`[SYMBOL-TRACE] validatedSymbol=${symbol}`);
     emitAuditLog({ ...auditBase, timestamp: new Date().toISOString(), resolved_symbol: symbol, outcome: 'served', reason: null });
 
     const user = resolveUserCode(msg);
 
     if (!isRenderMode) {
+      const dUrl = dashboardUrl(symbol, user);
       console.log(`[ROUTE] dashboard_link symbol=${symbol} user=${user}`);
-      await msg.channel.send({ content: `📊 **${symbol} — ATLAS Dashboard**\n${dashboardUrl(symbol, user)}` });
+      console.log(`[SYMBOL-TRACE] dashboardUrl=${dUrl}`);
+      await msg.channel.send({ content: `📊 **${symbol} — ATLAS Dashboard**\n${dUrl}` });
       console.log(`[DISCORD] dashboard link sent symbol=${symbol} user=${user}`);
       return;
     }
 
     console.log(`[ROUTE] live_analysis symbol=${symbol} mode=${modeRaw}`);
+    console.log(`[SYMBOL-TRACE] renderSymbol=${symbol}`);
     await msg.channel.send({ content: `📡 Analysing **${symbol}** — please wait` });
 
     let renderResult;
@@ -1555,6 +1562,7 @@ client.on('messageCreate', async (msg) => {
       return;
     }
 
+    console.log(`[SYMBOL-TRACE] deliverSymbol=${symbol} renderResultKeys=${Object.keys(renderResult || {}).join(',')} renderResultSymbol=${renderResult && renderResult.symbol !== undefined ? renderResult.symbol : 'undefined'}`);
     await deliverResult(msg, { symbol, mode: modeRaw, ...renderResult });
   } catch (e) {
     console.error('handler error', e);
@@ -1774,6 +1782,7 @@ async function renderAllPanelsV3(symbol){
 async function deliverResult(msg, result) {
   const { symbol, htfGrid, ltfGrid, htfGridName, ltfGridName, mode, validation } = result;
   console.log(`[PRESENTER] active_formatter=index.js#formatMacro mode=${mode || 'analyse'}`);
+  console.log(`[SYMBOL-TRACE] presenterSymbol=${symbol} attachmentNameHTF=${htfGridName} attachmentNameLTF=${ltfGridName}`);
 
   if (!htfGrid || !ltfGrid) {
     log('ERROR', `[DELIVER] ${symbol} missing chart grids`);
@@ -1800,12 +1809,14 @@ async function deliverResult(msg, result) {
   }
 
   // 1. HTF chart block
+  console.log(`[SYMBOL-TRACE] chartTitleSymbol=${symbol} block=HTF`);
   await msg.channel.send({
     content: `📡 **${symbol} — HTF** · Weekly · Daily · 4H · 1H`,
     files: [new AttachmentBuilder(htfGrid, { name: htfGridName })]
   });
 
   // 2. LTF chart block
+  console.log(`[SYMBOL-TRACE] chartTitleSymbol=${symbol} block=LTF`);
   await msg.channel.send({
     content: `🔬 **${symbol} — LTF** · 30M · 15M · 5M · 1M`,
     files: [new AttachmentBuilder(ltfGrid, { name: ltfGridName })]
@@ -1828,6 +1839,7 @@ async function deliverResult(msg, result) {
   }
 
   const candlesByTf = { '1D': dailyCandles };
+  console.log(`[SYMBOL-TRACE] macroSymbol=${symbol} coreyParsedSymbol=${corey?.internalMacro?.parsed?.symbol || 'n/a'} coreyAssetClass=${corey?.internalMacro?.assetClass || 'n/a'} janeSymbol=${jane?.symbol || 'n/a'}`);
   const sections = formatMacro(symbol, corey, spideyHTF, spideyLTF, jane, candlesByTf);
   console.log(`[PRESENTER] sections generated=${sections.length}`);
 
