@@ -223,7 +223,7 @@ function mapTVCountry(c) {
 // unset, this path logs te:skipped and returns an empty array.
 //
 // Endpoint shape:
-//   https://financialmodelingprep.com/api/v3/economic_calendar
+//   https://financialmodelingprep.com/stable/economic-calendar
 //     ?from=YYYY-MM-DD&to=YYYY-MM-DD&apikey=<KEY>
 // Response: top-level array of { date, country, currency, event,
 //   estimate, previous, actual, impact, ... }
@@ -253,7 +253,7 @@ async function fetchFMP() {
   const now = new Date();
   const from = now.toISOString().slice(0, 10);
   const to = new Date(now.getTime() + 7 * 86400000).toISOString().slice(0, 10);
-  const url = `https://financialmodelingprep.com/api/v3/economic_calendar?from=${from}&to=${to}&apikey=${encodeURIComponent(key)}`;
+  const url = `https://financialmodelingprep.com/stable/economic-calendar?from=${from}&to=${to}&apikey=${encodeURIComponent(key)}`;
   let status = null, contentType = null;
   try {
     const resp = await httpGet(url);
