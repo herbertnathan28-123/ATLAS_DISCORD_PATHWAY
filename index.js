@@ -33,8 +33,10 @@ coreyCalendar.init();
 
 const TOKEN=process.env.DISCORD_BOT_TOKEN;
 const TWELVE_DATA_KEY=process.env.TWELVE_DATA_API_KEY||'';
+const FMP_API_KEY=process.env.FMP_API_KEY||'';
 if(!TOKEN){console.error('[FATAL] Missing DISCORD_BOT_TOKEN');process.exit(1);}
 if(!TWELVE_DATA_KEY){console.error('[FATAL] Missing TWELVE_DATA_API_KEY');process.exit(1);}
+if(!FMP_API_KEY){console.warn('[BOOT] FMP_API_KEY not set — OHLC will use TwelveData only (no FMP primary).');}
 
 function getSystemState(){const raw=process.env.SYSTEM_STATE;if(!raw){console.error('[FATAL] Missing SYSTEM_STATE.');process.exit(1);}if(raw!=='BUILD_MODE'&&raw!=='FULLY_OPERATIONAL'){console.error(`[FATAL] Invalid SYSTEM_STATE="${raw}".`);process.exit(1);}return raw;}
 const SYSTEM_STATE=getSystemState();
@@ -1665,6 +1667,34 @@ function fmtPrice(n,symbol){if(n==null||!Number.isFinite(n))return'N/A';if(symbo
 const SYMBOL_OVERRIDES={XAUUSD:'OANDA:XAUUSD',XAGUSD:'OANDA:XAGUSD',BCOUSD:'OANDA:BCOUSD',USOIL:'OANDA:BCOUSD',NAS100:'OANDA:NAS100USD',US500:'OANDA:SPX500USD',US30:'OANDA:US30USD',GER40:'OANDA:DE30EUR',UK100:'OANDA:UK100GBP',NATGAS:'NYMEX:NG1!',MICRON:'NASDAQ:MU',AMD:'NASDAQ:AMD',ASML:'NASDAQ:ASML'};
 const TD_SYMBOL_MAP={XAUUSD:'XAU/USD',XAGUSD:'XAG/USD',BCOUSD:'BCO/USD',USOIL:'WTI/USD',NAS100:'NDX',US500:'SPX',US30:'DIA',DJI:'DIA',GER40:'DAX',UK100:'UKX',NATGAS:'NG/USD',EURUSD:'EUR/USD',GBPUSD:'GBP/USD',USDJPY:'USD/JPY',AUDUSD:'AUD/USD',NZDUSD:'NZD/USD',USDCAD:'USD/CAD',USDCHF:'USD/CHF',EURGBP:'EUR/GBP',EURJPY:'EUR/JPY',GBPJPY:'GBP/JPY',AUDJPY:'AUD/JPY',CADJPY:'CAD/JPY',NZDJPY:'NZD/JPY',CHFJPY:'CHF/JPY',EURCHF:'EUR/CHF',EURAUD:'EUR/AUD',EURCAD:'EUR/CAD',GBPAUD:'GBP/AUD',GBPCAD:'GBP/CAD',GBPCHF:'GBP/CHF',AUDCAD:'AUD/CAD',AUDCHF:'AUD/CHF',AUDNZD:'AUD/NZD',CADCHF:'CAD/CHF',NZDCAD:'NZD/CAD',NZDCHF:'NZD/CHF',MICRON:'MU',AMD:'AMD',ASML:'ASML',NVDA:'NVDA'};
 const TD_INTERVAL_MAP={'1W':'1week','1D':'1day','240':'4h','60':'1h','30':'30min','15':'15min','5':'5min','1':'1min'};
+
+// ── FMP OHLC mapping ────────────────────────────────────────────────
+// FMP /stable historical-chart endpoint covers intraday 1min..4hour.
+// FMP /stable historical-price-eod/full covers daily. Weekly is not a
+// native FMP interval; we leave '1W' unmapped so weekly calls fall
+// through to TwelveData (which has native /1week support).
+//
+// FX: FMP uses concatenated pair tickers (EURUSD, GBPUSD, ...)
+// Equities: same ticker as internal (MU, AMD, NVDA, ASML)
+// Metals: FMP supports XAUUSD, XAGUSD natively
+// Indexes: FMP uses ^GSPC / ^DJI / ^NDX / ^GDAXI / ^FTSE
+// Energy/NatGas: aliased to FMP commodity tickers
+// Anything not in FMP_SYMBOL_MAP falls through to FMP using the input
+// symbol directly; if that fails the caller falls back to TwelveData.
+const FMP_SYMBOL_MAP={
+  XAUUSD:'XAUUSD',XAGUSD:'XAGUSD',
+  BCOUSD:'BZUSD',USOIL:'CLUSD',NATGAS:'NGUSD',
+  NAS100:'^NDX',US500:'^GSPC',US30:'^DJI',DJI:'^DJI',GER40:'^GDAXI',UK100:'^FTSE',
+  EURUSD:'EURUSD',GBPUSD:'GBPUSD',USDJPY:'USDJPY',AUDUSD:'AUDUSD',NZDUSD:'NZDUSD',
+  USDCAD:'USDCAD',USDCHF:'USDCHF',EURGBP:'EURGBP',EURJPY:'EURJPY',GBPJPY:'GBPJPY',
+  AUDJPY:'AUDJPY',CADJPY:'CADJPY',NZDJPY:'NZDJPY',CHFJPY:'CHFJPY',EURCHF:'EURCHF',
+  EURAUD:'EURAUD',EURCAD:'EURCAD',GBPAUD:'GBPAUD',GBPCAD:'GBPCAD',GBPCHF:'GBPCHF',
+  AUDCAD:'AUDCAD',AUDCHF:'AUDCHF',AUDNZD:'AUDNZD',CADCHF:'CADCHF',NZDCAD:'NZDCAD',NZDCHF:'NZDCHF',
+  MICRON:'MU',MU:'MU',AMD:'AMD',ASML:'ASML',NVDA:'NVDA'
+};
+// Resolution → FMP interval. 'EOD' is a sentinel meaning "use the daily
+// historical-price-eod endpoint". '1W' is intentionally absent.
+const FMP_INTERVAL_MAP={'1D':'EOD','240':'4hour','60':'1hour','30':'30min','15':'15min','5':'5min','1':'1min'};
 function getTVSymbol(s){if(SYMBOL_OVERRIDES[s])return SYMBOL_OVERRIDES[s];if(/^[A-Z]{6}$/.test(s))return`OANDA:${s}`;return`NASDAQ:${s}`;}
 function getFeedName(s){const f=getTVSymbol(s).split(':')[0];return{OANDA:'OANDA',NASDAQ:'NASDAQ',NYSE:'NYSE',NYMEX:'NYMEX',TVC:'TVC'}[f]||f;}
 const log=(level,msg,...a)=>console.log(`[${new Date().toISOString()}] [${level}] ${msg}`,...a);
@@ -1708,7 +1738,82 @@ setInterval(()=>{const now=Date.now();let rm=0;for(const[sym,e]of TS_STORE){if(e
 
 function startTSServer(){if(!TS_ENABLED){log('INFO','[TS SERVER] Disabled');return;}const srv=http.createServer((req,res)=>{if(req.method==='GET'&&req.url==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,service:'ATLAS FX v4.0',signals:TS_STORE.size}));return;}if(req.method==='POST'&&req.url==='/trendspider'){let body='';req.on('data',c=>{body+=c;});req.on('end',()=>{const rt=Date.now();try{const raw=JSON.parse(body);const rawSym=raw.symbol||raw.ticker||raw.pair||'';if(!rawSym){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Missing symbol'}));return;}const sig=tsNorm(raw,rt);if(!sig.symbol){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Could not resolve symbol'}));return;}const grade=tsGrade(sig,rt);if(grade!=='Unusable')tsStore(sig);res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,symbol:sig.symbol,stored:grade!=='Unusable',status:grade}));}catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Invalid JSON'}));}});req.on('error',()=>{res.writeHead(500);res.end();});return;}res.writeHead(404);res.end();});srv.on('error',e=>log('ERROR',`[TS SERVER] ${e.message}`));srv.listen(TS_PORT,()=>log('INFO',`[TS SERVER] Listening on port ${TS_PORT}`));}
 
-function fetchOHLC(symbol,resolution,count=200){return new Promise((resolve,reject)=>{const tdSym=encodeURIComponent(TD_SYMBOL_MAP[symbol]||symbol),tdInt=TD_INTERVAL_MAP[resolution]||'1day';const opts={hostname:'api.twelvedata.com',path:`/time_series?symbol=${tdSym}&interval=${tdInt}&outputsize=${count}&apikey=${TWELVE_DATA_KEY}&format=JSON`,method:'GET',headers:{'User-Agent':'ATLAS-FX/4.0'},timeout:15000};const req=https.request(opts,r=>{let data='';r.on('data',c=>{data+=c;});r.on('end',()=>{try{const p=JSON.parse(data);if(p.status==='error'||!p.values||!Array.isArray(p.values)){reject(new Error(`TwelveData: ${p.message||'unknown'}`));return;}resolve(p.values.slice().reverse().map(v=>({time:Math.floor(new Date(v.datetime).getTime()/1000),open:parseFloat(v.open),high:parseFloat(v.high),low:parseFloat(v.low),close:parseFloat(v.close),volume:v.volume?parseFloat(v.volume):0})));}catch(e){reject(new Error(`TwelveData parse: ${e.message}`));}});});req.on('error',reject);req.on('timeout',()=>reject(new Error('TwelveData timeout')));req.end();});}
+function fetchOHLCTD(symbol,resolution,count=200){return new Promise((resolve,reject)=>{const tdSym=encodeURIComponent(TD_SYMBOL_MAP[symbol]||symbol),tdInt=TD_INTERVAL_MAP[resolution]||'1day';const opts={hostname:'api.twelvedata.com',path:`/time_series?symbol=${tdSym}&interval=${tdInt}&outputsize=${count}&apikey=${TWELVE_DATA_KEY}&format=JSON`,method:'GET',headers:{'User-Agent':'ATLAS-FX/4.0'},timeout:15000};const req=https.request(opts,r=>{let data='';r.on('data',c=>{data+=c;});r.on('end',()=>{try{const p=JSON.parse(data);if(p.status==='error'||!p.values||!Array.isArray(p.values)){reject(new Error(`TwelveData: ${p.message||'unknown'}`));return;}resolve(p.values.slice().reverse().map(v=>({time:Math.floor(new Date(v.datetime).getTime()/1000),open:parseFloat(v.open),high:parseFloat(v.high),low:parseFloat(v.low),close:parseFloat(v.close),volume:v.volume?parseFloat(v.volume):0})));}catch(e){reject(new Error(`TwelveData parse: ${e.message}`));}});});req.on('error',reject);req.on('timeout',()=>reject(new Error('TwelveData timeout')));req.end();});}
+
+// ── FMP OHLC fetcher ─────────────────────────────────────────────────
+// Endpoints:
+//   intraday: GET /stable/historical-chart/{interval}?symbol=X&apikey=K
+//             returns [{date:'YYYY-MM-DD HH:MM:SS', open, high, low, close, volume}, ...] (descending)
+//   daily:    GET /stable/historical-price-eod/full?symbol=X&apikey=K
+//             returns either {symbol, historical:[{date:'YYYY-MM-DD', open, high, low, close, volume}, ...]}
+//             or a bare array of the same shape (FMP varies); we handle both.
+function fetchOHLCFMP(symbol,resolution,count=200){
+  return new Promise((resolve,reject)=>{
+    if(!FMP_API_KEY){reject(new Error('FMP_API_KEY not set'));return;}
+    const fmpInt=FMP_INTERVAL_MAP[resolution];
+    if(!fmpInt){reject(new Error(`FMP unsupported resolution: ${resolution}`));return;}
+    const fmpSym=encodeURIComponent(FMP_SYMBOL_MAP[symbol]||symbol);
+    const path=fmpInt==='EOD'
+      ?`/stable/historical-price-eod/full?symbol=${fmpSym}&apikey=${encodeURIComponent(FMP_API_KEY)}`
+      :`/stable/historical-chart/${fmpInt}?symbol=${fmpSym}&apikey=${encodeURIComponent(FMP_API_KEY)}`;
+    const opts={hostname:'financialmodelingprep.com',path,method:'GET',headers:{'User-Agent':'ATLAS-FX/4.0','Accept':'application/json'},timeout:15000};
+    const req=https.request(opts,r=>{
+      let data='';r.on('data',c=>{data+=c;});
+      r.on('end',()=>{
+        if(r.statusCode<200||r.statusCode>=300){reject(new Error(`FMP ${r.statusCode}: ${(data||'').slice(0,120)}`));return;}
+        let parsed;
+        try{parsed=JSON.parse(data);}
+        catch(e){reject(new Error(`FMP parse: ${e.message}`));return;}
+        // Unwrap response variants
+        let rows;
+        if(Array.isArray(parsed))rows=parsed;
+        else if(parsed&&Array.isArray(parsed.historical))rows=parsed.historical;
+        else if(parsed&&parsed['Error Message'])return reject(new Error(`FMP: ${parsed['Error Message']}`));
+        else return reject(new Error('FMP: unexpected response shape'));
+        if(!rows.length)return reject(new Error('FMP: empty result'));
+        // FMP returns descending (newest first). We need ascending (oldest first) per existing consumers.
+        const sliced=rows.slice(0,count).reverse();
+        const out=sliced.map(v=>{
+          const ds=v.date||v.datetime||'';
+          // intraday "YYYY-MM-DD HH:MM:SS" — treat as UTC; daily "YYYY-MM-DD" — treat as midnight UTC.
+          const iso=ds.length===10?`${ds}T00:00:00Z`:ds.replace(' ','T')+'Z';
+          return{
+            time:Math.floor(new Date(iso).getTime()/1000),
+            open:parseFloat(v.open),
+            high:parseFloat(v.high),
+            low:parseFloat(v.low),
+            close:parseFloat(v.close),
+            volume:v.volume!=null?parseFloat(v.volume):0
+          };
+        }).filter(c=>Number.isFinite(c.time)&&Number.isFinite(c.close));
+        if(!out.length)return reject(new Error('FMP: no parseable candles'));
+        resolve(out);
+      });
+    });
+    req.on('error',reject);
+    req.on('timeout',()=>{req.destroy();reject(new Error('FMP timeout'));});
+    req.end();
+  });
+}
+
+// FMP-primary, TwelveData-fallback dispatcher. Keeps the public fetchOHLC
+// signature unchanged so all upstream callers (runSpideyHTF/LTF, safeOHLC,
+// candlesByTf builders) continue to work. If FMP is unconfigured or the
+// resolution isn't supported by FMP (e.g. '1W'), we go straight to TD.
+async function fetchOHLC(symbol,resolution,count=200){
+  if(FMP_API_KEY&&FMP_INTERVAL_MAP[resolution]){
+    try{
+      const data=await fetchOHLCFMP(symbol,resolution,count);
+      log('INFO',`[OHLC] FMP ${symbol} ${resolution} candles=${data.length}`);
+      return data;
+    }catch(e){
+      log('WARN',`[OHLC] FMP ${symbol} ${resolution} failed: ${e.message} — falling back to TwelveData`);
+    }
+  }
+  const tdData=await fetchOHLCTD(symbol,resolution,count);
+  log('INFO',`[OHLC] TD ${symbol} ${resolution} candles=${tdData.length}`);
+  return tdData;
+}
 async function safeOHLC(sym,res,count=200){try{return await fetchOHLC(sym,res,count);}catch(e){log('WARN',`[OHLC] ${sym} ${res}: ${e.message}`);return null;}}
 
 function detectSwings(candles,lb=3){const sh=[],sl=[];for(let i=lb;i<candles.length-lb;i++){const c=candles[i];let isH=true,isL=true;for(let j=i-lb;j<=i+lb;j++){if(j===i)continue;if(candles[j].high>=c.high)isH=false;if(candles[j].low<=c.low)isL=false;}if(isH)sh.push({index:i,level:c.high,time:c.time});if(isL)sl.push({index:i,level:c.low,time:c.time});}return{swingHighs:sh,swingLows:sl};}
