@@ -30,6 +30,12 @@ coreyLive.init();
    corey_live_data.js when coreyLive.init() does succeed. */
 coreyCalendar.init();
 
+// Macro v3 + FMP enrichment — env-gated; ATLAS_MACRO_V3=off disables v3 (legacy formatter runs).
+const fmpAdapter = require('./macro/fmpAdapter');
+fmpAdapter.logBootStatus();
+const MACRO_V3_ENABLED = process.env.ATLAS_MACRO_V3 !== 'off';
+console.log(`[BOOT] MACRO_V3: ${MACRO_V3_ENABLED ? 'ENABLED' : 'DISABLED (legacy formatter)'}`);
+
 
 const TOKEN=process.env.DISCORD_BOT_TOKEN;
 const TWELVE_DATA_KEY=process.env.TWELVE_DATA_API_KEY||'';
@@ -1389,7 +1395,61 @@ function buildVerification(sym) {
   ].join('\n');
 }
 
-function formatMacro(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf) {
+// Macro v3 wrapper — adapts existing pipeline shape into macro/index.js buildMacroV3 input.
+// Returns the same {name, text}[] shape consumed by deliverResult / chunkMessage / presenterQA.
+async function formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, _candlesByTf) {
+  const { buildMacroV3 } = require('./macro');
+  const cacheReader = require('./cacheReader');
+  let history = null;
+  try {
+    if (await cacheReader.isCached(sym)) {
+      history = { recent20: await cacheReader.getRecentCandles(sym, 20) };
+    }
+  } catch (_e) { history = null; }
+  const fmp = await fmpAdapter.enrich(sym);
+  const biasWord = (corey?.combinedBias || 'neutral').toString().toLowerCase();
+  const sign = biasWord.startsWith('bull') ? 1 : biasWord.startsWith('bear') ? -1 : 0;
+  const conviction = Number.isFinite(corey?.confidence) ? corey.confidence : (Number.isFinite(jane?.confidence) ? jane.confidence : 0);
+  const structure = {
+    score: Math.max(-1, Math.min(1, sign * conviction)),
+    bias: biasWord,
+    conviction,
+    trigger:        jane?.entryTrigger || jane?.triggerCondition || null,
+    entry:          (jane?.entryZone && (jane.entryZone.mid ?? jane.entryZone.lower)) ?? jane?.entry ?? null,
+    entryExtended:  jane?.entryZone?.upper ?? null,
+    stopLoss:       jane?.invalidationLevel ?? jane?.stopLoss ?? null,
+    targets:        Array.isArray(jane?.targets) ? jane.targets
+                    : [jane?.target1, jane?.target2, jane?.target3].filter(x => x != null),
+    flow:           jane?.flow || null,
+    validityWindow: jane?.validityWindow || null,
+    cancellation:   Array.isArray(jane?.cancellation) ? jane.cancellation : [],
+    recentHigh:     spideyHTF?.recentHigh ?? jane?.recentHigh ?? null,
+    recentLow:      spideyHTF?.recentLow  ?? jane?.recentLow  ?? null,
+    currentPrice:   spideyHTF?.currentPrice ?? corey?.lastPrice ?? null
+  };
+  const text = await buildMacroV3({
+    symbol: sym,
+    ctx: coreyLive.getLiveContext(),
+    structure,
+    calendar: { snapshot: coreyCalendar.getCalendarSnapshot(), intel: coreyCalendar.getEventIntelligence(sym) },
+    charts:   { htfGridName: sym + '_HTF.png', ltfGridName: sym + '_LTF.png' },
+    fmp,
+    history,
+    darkHorse: getDHCandidate(sym)
+  });
+  return [{ name: 'ATLAS_MACRO_V3', text: equityLanguageFilter(text, sym) }];
+}
+
+async function formatMacro(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf) {
+  if (MACRO_V3_ENABLED) {
+    try {
+      const v3 = await formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf);
+      console.log(`[MACRO] v3 ACTIVE — sections=${v3.length} symbol=${sym}`);
+      return v3;
+    } catch (err) {
+      console.error(`[MACRO] v3 FAILED for ${sym} — falling back to legacy formatter: ${err && err.message}`);
+    }
+  }
   const sections = [
     { name: 'TRADE STATUS',      text: buildTradeStatus(sym, jane, corey, spideyHTF, spideyLTF) },
     { name: 'FORWARD EXPECTATION', text: buildForwardExpectation(sym, jane, corey, spideyHTF, spideyLTF, candlesByTf || {}) },
@@ -1404,7 +1464,6 @@ function formatMacro(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf) {
     { name: 'FINAL VERDICT',     text: buildValidity(sym, corey, jane) },
     { name: 'VERIFICATION',      text: buildVerification(sym) }
   ];
-  // Equity-aware language filter — strips banned FX/pair language from non-FX outputs.
   return sections.map(s => ({ name: s.name, text: equityLanguageFilter(s.text, sym) }));
 }
 
@@ -1945,7 +2004,7 @@ async function deliverResult(msg, result) {
 
   const candlesByTf = { '1D': dailyCandles };
   console.log(`[SYMBOL-TRACE] macroSymbol=${symbol} coreyParsedSymbol=${corey?.internalMacro?.parsed?.symbol || 'n/a'} coreyAssetClass=${corey?.internalMacro?.assetClass || 'n/a'} janeSymbol=${jane?.symbol || 'n/a'}`);
-  const sections = formatMacro(symbol, corey, spideyHTF, spideyLTF, jane, candlesByTf);
+  const sections = await formatMacro(symbol, corey, spideyHTF, spideyLTF, jane, candlesByTf);
   console.log(`[PRESENTER] sections generated=${sections.length}`);
 
   // Macro mode skips the chart blocks above by sending charts-then-text. To
