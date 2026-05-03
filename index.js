@@ -1585,13 +1585,39 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
 
     // Jane-status semantics — REAL engine state, never 'final' if the
     // underlying source chain is too thin to issue a real decision.
-    const janeHasFields = !!(jane && (jane.actionState || jane.combinedBias || jane.permitLabel));
-    const sourceChainOk = coreyStatus === 'ok' && spideyStatus !== 'unavailable';
-    const janeStatus = !jane ? 'unavailable'
-                     : !janeHasFields ? 'unavailable: empty packet'
-                     : sourceChainOk ? 'final'
-                     : 'final-no-trade';   // Jane has data but the source chain
-                                           // is incomplete — surface honestly.
+    // Spec-required fine-grained values:
+    //   unavailable:no_packet         — no jane object at all
+    //   withheld:source_incomplete    — corey/spidey unavailable
+    //   withheld:empty_decision_packet — jane object exists but no decision fields
+    //   final:no_trade / final:armed / final:entry_authorised / final:trade_confirmed
+    const janeIsObject = !!(jane && typeof jane === 'object');
+    const janeKeys     = janeIsObject ? Object.keys(jane) : [];
+    // Be PERMISSIVE about decision-field detection — any of these counts.
+    const DECISION_FIELDS = ['actionState','combinedBias','permitLabel','confidence','bias','entry','entryZone','entryTrigger','triggerCondition','invalidationLevel','stopLoss','targets','target1','convictionLabel','janeBias','permit','recommendation','verdict'];
+    const presentDecisionFields = DECISION_FIELDS.filter(k => jane && jane[k] != null && jane[k] !== '');
+    const missingDecisionFields = ['actionState','triggerMap','conditionGrid','forwardExpectation','candidates'].filter(k =>
+      k === 'actionState'        ? !(jane?.actionState || jane?.combinedBias || jane?.permitLabel)
+    : k === 'triggerMap'         ? !(jane?.triggers || jane?.triggerMap)
+    : k === 'conditionGrid'      ? !(jane?.grid || jane?.conditionGrid)
+    : k === 'forwardExpectation' ? !(jane?.forwardExpectation || jane?.forward)
+    : k === 'candidates'         ? !(jane?.bullishCandidate || jane?.bearishCandidate)
+    : false
+    );
+
+    let janeStatus;
+    if (!janeIsObject || janeKeys.length === 0) {
+      janeStatus = 'unavailable:no_packet';
+    } else if (presentDecisionFields.length === 0) {
+      janeStatus = 'withheld:empty_decision_packet';
+    } else if (coreyStatus !== 'ok' || spideyStatus === 'unavailable') {
+      janeStatus = 'withheld:source_incomplete';
+    } else {
+      const action = String(jane.actionState || jane.combinedBias || jane.permitLabel || jane.verdict || '').toUpperCase();
+      janeStatus = action.includes('TRADE CONFIRMED')   ? 'final:trade_confirmed'
+                 : action.includes('ENTRY AUTHORISED')  ? 'final:entry_authorised'
+                 : action.includes('ARMED')             ? 'final:armed'
+                 : 'final:no_trade';
+    }
 
     const sources = {
       marketData: 'pending',         // dashboard fills this from /twelvedata results
@@ -1610,7 +1636,8 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     };
 
     console.log(`[JANE-BUILD] symbol=${symbol} corey=${coreyStatus} spidey=${spideyStatus} historical=${historicalStatus} jane=${janeStatus}`);
-    console.log(`[JANE-BUILD] janeKeys=${jane ? Object.keys(jane).slice(0, 12).join(',') : 'null'}`);
+    console.log(`[JANE-BUILD] janeKeys=${janeKeys.length} present=${janeKeys.slice(0, 12).join(',')}`);
+    console.log(`[JANE-BUILD] decisionFieldsPresent=${presentDecisionFields.length}/${DECISION_FIELDS.length} missing=${missingDecisionFields.join(',') || 'none'}`);
 
     const assetClass = corey?.internalMacro?.assetClass
                     || (/^[A-Z]{6}$/.test(symbol) ? 'fx'
@@ -1676,6 +1703,7 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       // Source-incomplete annotations — let the dashboard surface what is
       // missing in the Forward Expectation / Trigger Map blocks per spec.
       sourceMissing: sourceMissing,
+      missingDecisionFields: missingDecisionFields,   // array — surfaced by dashboard withhold banner
       withholdNotes: {
         forwardExpectation: sourceMissing.missingSpidey ? 'Forward expectation withheld because the structure / trigger source (Spidey) is unavailable. Reassess after Spidey structure packet is restored.'
                           : sourceMissing.missingCorey  ? 'Macro timing and catalyst context unavailable. No timing window beyond candle-close schedule can be trusted.'
@@ -1699,6 +1727,7 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       packet.forward = Object.assign({}, packet.forward, { withholdNote: packet.withholdNotes.forwardExpectation });
     }
     console.log(`[JANE-BUILD] forwardExpectation fields=${Object.keys(packet.forward||{}).length} triggerMap bullish=${packet.triggers && packet.triggers.bullish ? 'present' : 'withheld'} bearish=${packet.triggers && packet.triggers.bearish ? 'present' : 'withheld'}`);
+    console.log(`[JANE-BUILD] packetKeys=${Object.keys(packet).length} actionState="${packet.actionState||''}" biasDirection="${packet.biasDirection||''}" tradePermission="${packet.tradePermission||''}"`);
 
     const body = JSON.stringify(packet);
     const u = new URL(url);
