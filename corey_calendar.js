@@ -709,7 +709,29 @@ function pipValueForCurrency(ccy) {
   return 10.0;
 }
 
-function getEventIntelligence(symbol) {
+/* [COREY-CALENDAR] 2026-05-03 — asset-class-aware section header. The
+   strict macro-v3 ban list rejects "WHAT THIS MEANS FOR THE PAIR" for
+   non-FX symbols (per Macro v3 spec). For equity / index / commodity
+   asset classes we emit the class-correct header so v3 no longer
+   throws MACRO_BAN_VIOLATION and falls back to the legacy formatter.
+   FX symbols keep the original phrasing. */
+function _whatThisMeansHeader(symbol, assetClass) {
+  const ac = String(assetClass || '').toLowerCase();
+  if (ac === 'fx' || ac === 'forex' || ac === 'currency') return '**WHAT THIS MEANS FOR THE PAIR**';
+  if (ac === 'equity' || ac === 'stock') {
+    const sym = (symbol || '').toString().toUpperCase().replace(/[^A-Z]/g, '');
+    if (sym && sym.length <= 5) return `**WHAT THIS MEANS FOR ${sym}**`;
+    return '**WHAT THIS MEANS FOR THE STOCK**';
+  }
+  if (ac === 'index') return '**WHAT THIS MEANS FOR THE INDEX**';
+  if (ac === 'commodity' || ac === 'metal' || ac === 'energy') return '**WHAT THIS MEANS FOR THE INSTRUMENT**';
+  // unknown / fallback — use the most generic safe phrasing.
+  return '**WHAT THIS MEANS FOR THE INSTRUMENT**';
+}
+
+function getEventIntelligence(symbol, opts) {
+  const assetClass = (opts && opts.assetClass) || 'fx';
+  const whatThisMeansHeader = _whatThisMeansHeader(symbol, assetClass);
   /* [COREY-CALENDAR] Phase 2.7 — when both feeds are dead, return an explicit
      unavailable banner (truthy) rather than null. Returning null would let the
      index.js consumer fall through to the synthesised macro intel block,
@@ -766,12 +788,12 @@ function getEventIntelligence(symbol) {
     lines.push('');
 
     if (reaction && reaction.above && reaction.below && meaning) {
-      lines.push('**WHAT THIS MEANS FOR THE PAIR**');
+      lines.push(whatThisMeansHeader);
       lines.push(`If the print beats expectations: ${meaning.aboveMeaning} Historically, ${ev.currency} moved in that direction ${reaction.above.pct}% of the time on a beat.`);
       lines.push(`If the print misses: ${meaning.belowMeaning} Historically, ${ev.currency} moved in the opposite direction ${reaction.below.pct}% of the time on a miss.`);
       lines.push('');
     } else if (reaction && reaction.hawkish && reaction.dovish) {
-      lines.push('**WHAT THIS MEANS FOR THE PAIR**');
+      lines.push(whatThisMeansHeader);
       lines.push(`Hawkish outcome: ${ev.currency} typically ${reaction.hawkish.dir} (${reaction.hawkish.pct}% historical).`);
       lines.push(`Dovish outcome: ${ev.currency} typically ${reaction.dovish.dir} (${reaction.dovish.pct}% historical).`);
       lines.push('');
