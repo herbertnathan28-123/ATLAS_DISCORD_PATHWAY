@@ -1555,19 +1555,46 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
 
     // Source statuses — real engine state, no fakery.
     const liveCtx = (typeof coreyLive !== 'undefined' && coreyLive.getLiveContext) ? coreyLive.getLiveContext() : null;
-    const coreyStatus     = liveCtx?.status === 'ok' ? 'ok' : liveCtx?.status === 'partial' ? 'partial' : liveCtx?.status === 'degraded' ? 'degraded' : 'unavailable';
-    const spideyStatus    = (spideyHTF && spideyLTF) ? 'ok' : (spideyHTF || spideyLTF) ? 'partial' : 'unavailable';
-    const janeStatus      = jane ? 'final' : 'unavailable';
-    let historicalStatus  = 'unavailable';
+    const coreyRaw = liveCtx?.status || 'unknown';
+    // 'uninitialised' is a transient pre-init state; map to 'pending' not 'unavailable'.
+    const coreyStatus =
+      coreyRaw === 'ok'           ? 'ok'
+    : coreyRaw === 'partial'      ? 'partial'
+    : coreyRaw === 'degraded'     ? 'degraded'
+    : coreyRaw === 'uninitialised'? 'pending'
+    : coreyRaw === 'error'        ? 'unavailable: error'
+    :                                ('unavailable: ' + coreyRaw);
+
+    const spideyHTFok = !!(spideyHTF && (spideyHTF.bias || spideyHTF.score != null || spideyHTF.currentPrice != null));
+    const spideyLTFok = !!(spideyLTF && (spideyLTF.bias || spideyLTF.score != null || spideyLTF.currentPrice != null));
+    const spideyStatus = (spideyHTFok && spideyLTFok) ? 'ok' : (spideyHTFok || spideyLTFok) ? 'partial' : 'unavailable';
+
+    let historicalStatus = 'unavailable';
+    let historicalSampleCount = null;
     try {
       const cacheReader = require('./cacheReader');
-      // Cache is 15Y daily — honest label, not 30Y.
-      historicalStatus = (cacheReader && typeof cacheReader.SYMBOL_GROUP_MAP === 'object' && cacheReader.SYMBOL_GROUP_MAP[String(symbol).toUpperCase()]) ? 'partial: 15Y-cache' : 'no-match';
+      const symU = String(symbol).toUpperCase();
+      if (cacheReader && typeof cacheReader.SYMBOL_GROUP_MAP === 'object' && cacheReader.SYMBOL_GROUP_MAP[symU]) {
+        // Cache is 15Y daily — honest label, not 30Y.
+        historicalStatus = 'partial: 15Y-cache';
+      } else {
+        historicalStatus = 'no-match';
+      }
     } catch (_) { historicalStatus = 'unavailable'; }
     const coreyCloneStatus = 'unavailable: not implemented';
 
+    // Jane-status semantics — REAL engine state, never 'final' if the
+    // underlying source chain is too thin to issue a real decision.
+    const janeHasFields = !!(jane && (jane.actionState || jane.combinedBias || jane.permitLabel));
+    const sourceChainOk = coreyStatus === 'ok' && spideyStatus !== 'unavailable';
+    const janeStatus = !jane ? 'unavailable'
+                     : !janeHasFields ? 'unavailable: empty packet'
+                     : sourceChainOk ? 'final'
+                     : 'final-no-trade';   // Jane has data but the source chain
+                                           // is incomplete — surface honestly.
+
     const sources = {
-      marketData: 'pending',         // dashboard side fills this from /twelvedata results
+      marketData: 'pending',         // dashboard fills this from /twelvedata results
       corey:      coreyStatus,
       coreyClone: coreyCloneStatus,
       spidey:     spideyStatus,
@@ -1575,12 +1602,30 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       historical: historicalStatus
     };
 
+    const sourceMissing = {
+      missingCorey:      !(coreyStatus === 'ok' || coreyStatus === 'partial'),
+      missingSpidey:     spideyStatus === 'unavailable',
+      missingHistorical: historicalStatus === 'unavailable' || historicalStatus === 'no-match',
+      missingCoreyClone: true   // always true until a clone exists
+    };
+
+    console.log(`[JANE-BUILD] symbol=${symbol} corey=${coreyStatus} spidey=${spideyStatus} historical=${historicalStatus} jane=${janeStatus}`);
+    console.log(`[JANE-BUILD] janeKeys=${jane ? Object.keys(jane).slice(0, 12).join(',') : 'null'}`);
+
     const assetClass = corey?.internalMacro?.assetClass
                     || (/^[A-Z]{6}$/.test(symbol) ? 'fx'
                         : /^(NAS100|US500|US30|DJI|GER40|UK100|SPX|NDX|HK50|JPN225)$/.test(symbol) ? 'index'
                         : /XAU|XAG|OIL|BRENT|WTI|NATGAS/.test(symbol) ? 'commodity'
                         : 'equity');
-    const last = spideyHTF?.currentPrice ?? corey?.lastPrice ?? null;
+    // last-price extraction — try every plausible field on corey/spidey/jane.
+    const last = jane?.lastPrice
+              ?? jane?.currentPrice
+              ?? spideyHTF?.currentPrice
+              ?? spideyHTF?.lastPrice
+              ?? spideyLTF?.currentPrice
+              ?? corey?.lastPrice
+              ?? corey?.internalMacro?.lastPrice
+              ?? null;
 
     const packet = {
       symbol,
@@ -1626,8 +1671,34 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       scenario:        jane?.scenario        || { continuation:0, range:0, reversal:0 },
       scenarioDetail:  jane?.scenarioDetail  || null,
       events:          jane?.events          || [],
-      matrix:          jane?.matrix          || []
+      matrix:          jane?.matrix          || [],
+
+      // Source-incomplete annotations — let the dashboard surface what is
+      // missing in the Forward Expectation / Trigger Map blocks per spec.
+      sourceMissing: sourceMissing,
+      withholdNotes: {
+        forwardExpectation: sourceMissing.missingSpidey ? 'Forward expectation withheld because the structure / trigger source (Spidey) is unavailable. Reassess after Spidey structure packet is restored.'
+                          : sourceMissing.missingCorey  ? 'Macro timing and catalyst context unavailable. No timing window beyond candle-close schedule can be trusted.'
+                          : null,
+        triggerMap:         sourceMissing.missingSpidey ? 'Trigger Map withheld — Spidey structure / trigger packet unavailable. No bullish/bearish trigger can be printed safely.'
+                          : null,
+        historical:         sourceMissing.missingHistorical ? 'Historical unavailable / no cache match — no historical edge used.'
+                          : null
+      }
     };
+
+    // If Spidey is unavailable, the trigger map cannot be trusted — strip
+    // any frontend-invented triggers and let the dashboard render the
+    // explicit withheld message from the withholdNotes above.
+    if (sourceMissing.missingSpidey) {
+      packet.triggers = { bullish: null, bearish: null, noTrade: 'Withheld — Spidey structure/trigger packet unavailable.', timeframeNote: 'Withheld' };
+      packet.bullishCandidate = null;
+      packet.bearishCandidate = null;
+    }
+    if (sourceMissing.missingSpidey || sourceMissing.missingCorey) {
+      packet.forward = Object.assign({}, packet.forward, { withholdNote: packet.withholdNotes.forwardExpectation });
+    }
+    console.log(`[JANE-BUILD] forwardExpectation fields=${Object.keys(packet.forward||{}).length} triggerMap bullish=${packet.triggers && packet.triggers.bullish ? 'present' : 'withheld'} bearish=${packet.triggers && packet.triggers.bearish ? 'present' : 'withheld'}`);
 
     const body = JSON.stringify(packet);
     const u = new URL(url);
