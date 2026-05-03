@@ -1646,6 +1646,15 @@ function buildTriggerBlock(jane, sourceMissing) {
 // errors are logged but never block the Discord delivery path.
 function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
   try {
+    // Co-located [DATA-SOURCE] summary emission. The route-entry call at the
+    // top of the messageCreate handler also emits this line, but it fires
+    // ~1-2s before the analysis pipeline produces its log batch and may not
+    // be captured in the same Render log window the user inspects after a
+    // live run. Emitting it again here guarantees the summary line is
+    // adjacent to the [JANE-BUILD] / [JANE-POST] block and visible in any
+    // post-analysis log dump.
+    try { logDataSource(symbol); } catch (_e) { /* logDataSource is bulletproof; defensive only */ }
+
     const baseUrl = (ATLAS_DASHBOARD_BASE || '').replace(/\/$/, '');
     if (!baseUrl) { console.warn('[JANE-POST] ATLAS_DASHBOARD_BASE not set — skip'); return; }
     const url = baseUrl + '/load';
