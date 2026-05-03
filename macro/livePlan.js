@@ -22,20 +22,47 @@ function build(input) {
   if (tagsUsed) tagsUsed.push('execution_authority', 'trigger', 'stop_loss', 'event_risk', 'validity_window', 'flow');
 
   const lines = [];
-  lines.push('## Trade Status / Live Plan');
+  lines.push('## Trade Status / Live Plan — ' + symbol);
   lines.push('');
-  lines.push(`**Symbol:** ${symbol}`);
-  lines.push(`**Direction (plain):** ${directionPlain(corey, spidey)}`);
-  lines.push(`**Action State:** **${action.state}**`);
-  lines.push(`**Execution Authority / Setup Quality:** ${qualityLabel(jane.composite)}`);
-  lines.push(`**Entry:** ${structure?.entry != null ? formatLevel(structure.entry, structure.entryExtended) : describeArmedTrigger(structure)}`);
-  if (structure?.stopLoss != null) lines.push(`**Stop Loss:** ${formatLevel(structure.stopLoss, structure.stopLossExtended)}`);
-  if (structure?.targets?.length)  lines.push(`**Targets:** ${structure.targets.join(' → ')}`);
-  lines.push(`**Flow:** ${structure?.flow || 'no clear directional pressure yet'}`);
-  lines.push(`**Validity Window:** ${structure?.validityWindow || 'until structure or event resets the read'}`);
-  if (structure?.cancellation?.length) lines.push(`**Cancellation Triggers:** ${structure.cancellation.join('; ')}`);
-  lines.push(`**Event Risk:** ${evOverride.label || 'no high-impact event in active window'}`);
-  lines.push(`**What Needs to Happen Next:** ${nextStep(action, evOverride)}`);
+  lines.push('**ATLAS VERDICT:** **' + action.state + '**');
+  lines.push('');
+  lines.push('**Plain English:** ' + plainEnglish(action, corey, spidey, evOverride));
+  lines.push('');
+  lines.push('**Why:** ' + whyParagraph(corey, spidey, evOverride));
+  lines.push('');
+  const readiness = readinessScoreFromComposite(jane.composite);
+  lines.push('**Market Readiness:** ' + readiness + '/10 — ' + readinessExplain(readiness));
+  lines.push('');
+  lines.push('**Dominant Bias:** ' + dominantBiasLabel(corey, spidey) + ' — ' + dominantBiasExplain(corey, spidey));
+  lines.push('');
+  lines.push('**Conviction:** ' + convictionLabel(action, jane));
+  lines.push('');
+  const probs = probabilityModel(corey, spidey, evOverride);
+  lines.push('**Most Likely Behaviour:**');
+  lines.push('- Continuation — ' + probs.continuation + '% — price attempts to keep following the current dominant direction.');
+  lines.push('- Range — ' + probs.range + '% — price moves sideways between nearby liquidity.');
+  lines.push('- Reversal — ' + probs.reversal + '% — price rejects current direction and moves the other way.');
+  if (probs.note) { lines.push(''); lines.push('*' + probs.note + '*'); }
+  lines.push('');
+  lines.push('**Trade Permit:** ' + tradePermit(action, readiness, evOverride));
+  lines.push('');
+  lines.push('### Live Plan');
+  lines.push('**Direction (plain):** ' + directionPlain(corey, spidey));
+  lines.push('**Execution Authority / Setup Quality:** ' + qualityLabel(jane.composite));
+  lines.push('**Entry:** ' + (structure?.entry != null ? formatLevel(structure.entry, structure.entryExtended) : describeArmedTrigger(structure)));
+  if (structure?.entry == null) {
+    lines.push('**Stop Loss:** Not authorised');
+    lines.push('**Target:** Not authorised');
+    lines.push('**Invalidation:** Not defined until entry structure forms');
+  } else {
+    lines.push('**Stop Loss:** ' + (structure?.stopLoss != null ? formatLevel(structure.stopLoss, structure.stopLossExtended) : 'Not authorised'));
+    if (structure?.targets?.length) lines.push('**Targets:** ' + structure.targets.join(' → '));
+  }
+  lines.push('**Flow:** ' + (structure?.flow || 'no clear directional pressure yet'));
+  lines.push('**Validity Window:** ' + (structure?.validityWindow || 'until structure or event resets the read'));
+  if (structure?.cancellation?.length) lines.push('**Cancellation Triggers:** ' + structure.cancellation.join('; '));
+  lines.push('**Event Risk:** ' + (evOverride.label || 'no high-impact event in active window'));
+  lines.push('**What Needs to Happen Next:** ' + nextStep(action, evOverride));
   if (darkHorse) {
     lines.push('');
     lines.push(`*Dark Horse flag:* ${darkHorse.score}/10 ${darkHorse.direction || 'Neutral'} — ${darkHorse.summary || 'composite threshold met'}`);
@@ -132,8 +159,87 @@ function nextStep(action, evOverride) {
   if (action.state.startsWith('CONDITIONS BUILDING')) return 'wait for one more confirmation candle on the trigger timeframe.';
   return 'stand aside until the listed missing conditions resolve.';
 }
-function formatLevel(p, ext) { return ext != null ? `${p} (extended ${ext})` : String(p); }
+function formatLevel(p, ext) { return ext != null ? p + ' (extended ' + ext + ')' : String(p); }
 function pct(v) { const n = (v || 0); return (n >= 0 ? '+' : '') + Math.round(n * 100) + '%'; }
 function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
+// Spec Part 4 helpers — Trade Status as a decision guide.
+function plainEnglish(action, corey, spidey, evOverride) {
+  if (action.state.indexOf('TRADE INVALID') >= 0)        return 'The trade idea is invalid right now. Stand aside.';
+  if (action.state.indexOf('DO NOT TRADE') >= 0)         return 'Do not trade. Conditions actively contradict any directional plan.';
+  if (action.state.indexOf('ENTRY NOT AUTHORISED') >= 0) return 'Entry is not authorised. Either an event blocks new entries, or the structure prerequisites are not in place.';
+  if (action.state.indexOf('WAIT — NO TRADE') >= 0)      return 'Wait. No authorised trade right now — conditions are not built.';
+  if (action.state.indexOf('HOLD') >= 0)                 return 'Hold. The setup has not matured. Conditions are still building.';
+  if (action.state.indexOf('CONDITIONS BUILDING') >= 0)  return 'Conditions are forming but not complete. Keep eyes on the trigger timeframe.';
+  if (action.state.indexOf('TRIGGER APPROACHING') >= 0)  return 'A trigger is close. Prepare order; verify spread and event risk.';
+  if (action.state.indexOf('ARMED') >= 0)                return 'Armed and waiting for the defined trigger. Do not pre-empt.';
+  if (action.state.indexOf('ENTRY AUTHORISED') >= 0)     return 'Entry is authorised on the defined trigger. Manage the stop loss; do not chase if missed.';
+  if (action.state.indexOf('TRADE CONFIRMED') >= 0)      return 'Trade is confirmed. Execute on the defined trigger.';
+  return 'No directional path is currently authorised.';
+}
+function whyParagraph(corey, spidey, evOverride) {
+  const parts = [];
+  if (Math.abs(corey.score) < 0.10)  parts.push('Macro tilt is too neutral to authorise direction');
+  else if (corey.score > 0)          parts.push('Macro favours upside (' + pct(corey.score) + ')');
+  else                               parts.push('Macro favours downside (' + pct(corey.score) + ')');
+  if (Math.abs(spidey.score) < 0.10) parts.push('structure has not established a directional sequence');
+  else if (spidey.score > 0)         parts.push('structure is constructive');
+  else                               parts.push('structure is heavy');
+  if (corey.score && spidey.score && Math.sign(corey.score) !== Math.sign(spidey.score))
+    parts.push('macro and structure disagree');
+  if (evOverride.permission === 'BLOCK') parts.push(evOverride.label);
+  return parts.join('; ') + '.';
+}
+function readinessScoreFromComposite(c) { return Math.max(0, Math.min(10, Math.round(Math.abs(c) * 10))); }
+function readinessExplain(r) {
+  if (r >= 8) return 'institutional-grade — most ATLAS conditions satisfied.';
+  if (r >= 6) return 'actionable with discipline — majority of ATLAS conditions satisfied.';
+  if (r >= 4) return 'developing — half the ATLAS conditions satisfied.';
+  if (r >= 1) return 'only ' + r + ' major ATLAS condition' + (r === 1 ? '' : 's') + ' satisfied. The setup is not mature enough for capital.';
+  return 'no ATLAS conditions satisfied. Setup is not investable.';
+}
+function dominantBiasLabel(corey, spidey) {
+  const c = corey.score, s = spidey.score;
+  if (c > 0.15 && s > 0.15)   return 'Bullish';
+  if (c < -0.15 && s < -0.15) return 'Bearish';
+  if (Math.abs(c) < 0.10 && Math.abs(s) < 0.10) return 'Neutral';
+  return 'Mixed';
+}
+function dominantBiasExplain(corey, spidey) {
+  const lbl = dominantBiasLabel(corey, spidey);
+  if (lbl === 'Bullish') return 'macro and structure both lean upside.';
+  if (lbl === 'Bearish') return 'macro and structure both lean downside.';
+  if (lbl === 'Mixed')   return 'macro and structure disagree — neither side has full control.';
+  return 'ATLAS cannot choose buy or sell with enough confidence.';
+}
+function convictionLabel(action, jane) {
+  if (/DO NOT TRADE|TRADE INVALID|ENTRY NOT AUTHORISED|WAIT — NO TRADE|HOLD/i.test(action.state))
+    return 'No authorised trade conviction. This does not mean price will not move. It means the system does not have enough clean evidence to risk capital.';
+  const a = Math.abs(jane.composite);
+  if (a >= 0.55) return 'A — institutional-grade conviction.';
+  if (a >= 0.35) return 'B — actionable with discipline.';
+  if (a >= 0.20) return 'C — developing; do not size up.';
+  return 'No authorised trade conviction.';
+}
+function probabilityModel(corey, spidey, evOverride) {
+  // Composite-driven probabilities; deliberately conservative so that close
+  // splits (<5pp) trigger the "no edge" note per spec Part 4.
+  const cont = Math.round(40 + Math.abs(corey.score + spidey.score) * 25);
+  const rev  = Math.round(20 + Math.abs(corey.score - spidey.score) * 30);
+  const range = Math.max(0, 100 - cont - rev);
+  const arr = [['continuation', cont], ['range', range], ['reversal', rev]].sort((a, b) => b[1] - a[1]);
+  const note = (arr[0][1] - arr[1][1]) < 5
+    ? 'The leading path is not strong enough to create an edge.'
+    : null;
+  return { continuation: cont, range: range, reversal: rev, note: note };
+}
+function tradePermit(action, readiness, evOverride) {
+  if (/DO NOT TRADE|TRADE INVALID|ENTRY NOT AUTHORISED|WAIT — NO TRADE|HOLD/i.test(action.state)) return 'BLOCKED — see missing conditions below.';
+  if (readiness <= 3) return 'BLOCKED — Market Readiness ' + readiness + '/10.';
+  if (evOverride.permission === 'BLOCK') return 'BLOCKED — ' + evOverride.label;
+  if (/ENTRY AUTHORISED|TRADE CONFIRMED/i.test(action.state)) return 'AVAILABLE on the defined trigger.';
+  return 'PENDING — armed/approach state; not yet AVAILABLE.';
+}
+
 module.exports = { build };
+
