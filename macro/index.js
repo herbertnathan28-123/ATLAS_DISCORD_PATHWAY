@@ -36,6 +36,22 @@ async function buildMacroV3(input) {
     execution:          executionLogic.build(ctx2),
     validity:           validity.build(ctx2)
   };
+
+  // Expose section build stats on the input object so the caller can log
+  // an honest sectionsBuilt count. The single-wrapper return is intentional
+  // (the macro v3 string IS the assembled output, all 11 LOCKED_ORDER
+  // sections concatenated). The previous `[MACRO] v3 ACTIVE — sections=1`
+  // log was misleading — it counted wrappers, not built sections.
+  if (input && typeof input === 'object') {
+    const builtKeys = Object.keys(sections).filter(k => sections[k] != null && sections[k] !== '');
+    input._stats = Object.assign(input._stats || {}, {
+      sectionsBuilt: builtKeys.length,
+      sectionsTotal: LOCKED_ORDER.length,
+      sectionsBuiltKeys: builtKeys,
+      tagsUsed: tagsUsed.slice()
+    });
+  }
+
   let text = assemble(LOCKED_ORDER, sections);
   const tail = glossary.footer(tagsUsed);
   if (tail) text += '\n\n' + tail;

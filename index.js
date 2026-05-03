@@ -1444,7 +1444,7 @@ async function formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, _candlesByT
   // so the macro v3 strict scrub does not throw MACRO_BAN_VIOLATION on the
   // FX-only "WHAT THIS MEANS FOR THE PAIR" header.
   const calendarAssetClass = (ac && String(ac).toLowerCase()) || 'fx';
-  const text = await buildMacroV3({
+  const buildInput = {
     symbol: sym,
     ctx: coreyLive.getLiveContext(),
     structure,
@@ -1452,16 +1452,28 @@ async function formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, _candlesByT
     charts:   { htfGridName: sym + '_HTF.png', ltfGridName: sym + '_LTF.png' },
     fmp,
     history,
-    darkHorse: getDHCandidate(sym)
-  });
-  return [{ name: 'ATLAS_MACRO_V3', text: equityLanguageFilter(text, sym) }];
+    darkHorse: getDHCandidate(sym),
+    _stats: {}   // populated by buildMacroV3
+  };
+  const text = await buildMacroV3(buildInput);
+  // Attach the build stats to the wrapper so formatMacro can log honestly.
+  return [{
+    name: 'ATLAS_MACRO_V3',
+    text: equityLanguageFilter(text, sym),
+    _stats: buildInput._stats || {}
+  }];
 }
 
 async function formatMacro(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf) {
   if (MACRO_V3_ENABLED) {
     try {
       const v3 = await formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf);
-      console.log(`[MACRO] v3 ACTIVE — sections=${v3.length} symbol=${sym}`);
+      const stats = (v3 && v3[0] && v3[0]._stats) || {};
+      const built = stats.sectionsBuilt != null ? stats.sectionsBuilt : '?';
+      const total = stats.sectionsTotal != null ? stats.sectionsTotal : '?';
+      // Honest log: ONE concatenated wrapper containing N built sections.
+      // Previous `sections=1` was misleading — it counted wrappers.
+      console.log(`[MACRO] v3 ACTIVE — wrappers=${v3.length} sectionsBuilt=${built}/${total} symbol=${sym}`);
       return v3;
     } catch (err) {
       console.error(`[MACRO] v3 FAILED for ${sym} — falling back to legacy formatter: ${err && err.message}`);
@@ -1556,6 +1568,75 @@ function dashboardUrl(symbol, user) {
   return `${ATLAS_DASHBOARD_BASE}?symbol=${encodeURIComponent(symbol)}&user=${encodeURIComponent(user)}`;
 }
 
+// Build the Forward Expectation block for the dashboard packet. Always
+// returns a populated object with the spec's named fields; when Jane has
+// not produced a real forward, every field carries an explicit no-trade-
+// condition string instead of being undefined / blank. This lets the
+// downstream `Object.keys(packet.forward).length` counter return >0 and
+// gives the dashboard renderer structured copy to display.
+function buildForwardBlock(jane, sourceMissing) {
+  const j = (jane && (jane.forwardExpectation || jane.forward)) || {};
+  const reason = (sourceMissing && sourceMissing.missingSpidey)
+    ? 'Forward expectation withheld because the structure / trigger source (Spidey) is unavailable. Reassess after the Spidey structure packet is restored.'
+    : (sourceMissing && sourceMissing.missingCorey)
+      ? 'Forward expectation withheld because the macro / catalyst source (Corey) is unavailable. No timing window beyond candle-close schedule can be trusted.'
+      : 'Forward expectation withheld — Jane has not synthesised the forward block for this symbol yet.';
+  const realValue = !!(j && (j.expectedBehaviour || j.expectedTiming || j.dailyMovementContext || j.remainingMovementAbsorption));
+  return {
+    expectedBehaviour:           j.expectedBehaviour           || 'Wait — no authorised directional read until lower-timeframe structure rebuilds.',
+    expectedTiming:              j.expectedTiming              || 'Until structure or event resets the read; reassess on the next regime check (≤4h).',
+    dailyMovementContext:        j.dailyMovementContext        || 'Withheld — daily movement context cannot be assigned without Spidey ATR / range data.',
+    remainingMovementAbsorption: j.remainingMovementAbsorption || 'Withheld — direction not assignable. Expect sideways absorption inside the current intraday range.',
+    whatTraderIsWaitingFor:      j.whatTraderIsWaitingFor      || 'A confirmed BOS / CHoCH on at least the 1H, candle-close beyond the break level, and a fresh demand / supply zone created by the displacement.',
+    realValue,
+    withheldReason: realValue ? null : reason
+  };
+}
+
+// Build the Trigger Map block for the dashboard packet. Always returns
+// `{ bullish, bearish, noTrade, timeframeNote }` where `bullish` and
+// `bearish` are populated objects (never null) carrying either real
+// trigger fields or a structured `withheldReason`. The downstream check
+// distinguishes 'present' (real level + tf) vs 'withheld' (reason set)
+// vs 'partial'.
+function buildTriggerBlock(jane, sourceMissing) {
+  const t = (jane && (jane.triggerMap || jane.triggers)) || {};
+  const reason = (sourceMissing && sourceMissing.missingSpidey)
+    ? 'Trigger map withheld — Spidey structure / trigger packet unavailable. No bullish or bearish trigger can be printed safely.'
+    : 'Trigger map withheld — no qualifying structural break has formed yet on the tracked timeframes.';
+  const sideBlock = (side) => {
+    const s = t[side] || null;
+    if (s && (s.level || s.tf)) {
+      // Real trigger present — pass through verbatim.
+      return {
+        tf:               s.tf || null,
+        level:            s.level || null,
+        candleClose:      s.candleClose || s.close || null,
+        freshDemandSupply: s.freshDemandSupply || s.supplyDemand || s.supply || null,
+        catalyst:         s.catalyst || 'no high-impact event inside next 2h',
+        invalidation:     s.invalidation || null,
+        withheldReason:   null
+      };
+    }
+    // No real trigger — emit a structured withheld payload.
+    return {
+      tf:               null,
+      level:            null,
+      candleClose:      null,
+      freshDemandSupply: null,
+      catalyst:         null,
+      invalidation:     null,
+      withheldReason:   reason
+    };
+  };
+  return {
+    bullish:       sideBlock('bullish'),
+    bearish:       sideBlock('bearish'),
+    noTrade:       t.noTrade || 'Inside the current range with no fresh impulse — no entry, no preempt limits.',
+    timeframeNote: t.timeframeNote || '15M = aggressive intraday confirmation. 30M cleaner. 1H stronger. 4H broader structure. A break of a level is not an entry by itself — sequence: liquidity → structure break → candle close → identify fresh supply/demand or imbalance → pullback → confirmation/entry plan → invalidation → target.'
+  };
+}
+
 // Build a Jane packet from the real engine outputs and POST it to the
 // dashboard service's /load endpoint. The dashboard then renders the
 // Execution / Live Plan surface from this packet. Source statuses reflect
@@ -1618,54 +1699,105 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     const __spideyAny   = __spideyHTFok || __spideyLTFok;
     const __coreyOk     = (typeof coreyStatus !== 'undefined') && coreyStatus === 'ok';
     const __withheld = (reason) => ({ withheld: true, reason });
+
+    // Pre-compute sourceMissing so the resolver and the packet construction
+    // share the same view of which engines are present.
+    const sourceMissingEarly = {
+      missingCorey:      !(coreyStatus === 'ok' || coreyStatus === 'partial'),
+      missingSpidey:     spideyStatus === 'unavailable',
+      missingHistorical: historicalStatus === 'unavailable' || historicalStatus === 'no-match',
+      missingCoreyClone: true
+    };
+    // Build the structured Forward / Trigger / Candidates payloads ONCE so
+    // the resolver and the dashboard packet share the same object identity.
+    const __forwardBlockResolved = buildForwardBlock(jane, sourceMissingEarly);
+    const __triggerBlockResolved = buildTriggerBlock(jane, sourceMissingEarly);
+    const __candidatesResolved = (() => {
+      const bull = jane?.bullishCandidate || null;
+      const bear = jane?.bearishCandidate || null;
+      if (bull || bear) return { bullish: bull, bearish: bear };
+      const reason = sourceMissingEarly.missingSpidey
+        ? 'Candidates withheld — Spidey structure / trigger packet unavailable.'
+        : 'No candidate found above conviction threshold.';
+      return {
+        bullish: { withheld: true, reason },
+        bearish: { withheld: true, reason }
+      };
+    })();
+    const __conditionGridResolved = jane?.grid || jane?.conditionGrid || {
+      executionAuthority: 0, structure: 0, liquidityPressure: 0, eventRisk: 0,
+      sessionEnergy: 0, macroAlignment: 0, conviction: 0, regime: 0
+    };
+
+    // Resolver. Returns a populated value for every spec field — strings
+    // for natural no-trade states ('Pending', 'Not authorised'), structured
+    // objects for forward / trigger / candidates / grid / scenario, and
+    // explicit `{ withheld:true, reason }` payloads only for fields whose
+    // upstream is genuinely missing. The downstream `__isPopulated` counts
+    // ALL of these as present.
     const __resolveDecisionField = (k) => {
       switch (k) {
         case 'actionState':
-          return jane?.actionState || (jane?.combinedBias ? `BIAS ${String(jane.combinedBias).toUpperCase()}` : null)
+          return jane?.actionState
+              || (jane?.combinedBias ? `BIAS ${String(jane.combinedBias).toUpperCase()}` : null)
               || (corey?.combinedBias ? `BIAS ${String(corey.combinedBias).toUpperCase()}` : null)
-              || __withheld('No Jane verdict — corey/spidey source chain too thin to issue actionState.');
+              || 'WAIT — NO TRADE';
         case 'biasDirection':
-          return corey?.combinedBias || jane?.bias || jane?.directionPlain || __withheld('No directional bias produced by corey or jane.');
+          return corey?.combinedBias || jane?.bias || jane?.directionPlain || 'Neutral';
         case 'tradePermission':
-          return jane?.permitLabel || jane?.permit || (jane ? 'No entry authorised' : __withheld('Jane unavailable — trade permission cannot be issued.'));
+          return jane?.permitLabel || jane?.permit || 'BLOCKED — no entry authorised';
         case 'conditionGrid':
-          return jane?.grid || jane?.conditionGrid || __withheld('Condition grid unavailable — Jane has not produced grid scores.');
+          // Always a real grid object (zeros if Jane has no scores yet).
+          return __conditionGridResolved;
         case 'forwardExpectation':
-          return (jane?.forwardExpectation && Object.keys(jane.forwardExpectation).length ? jane.forwardExpectation : null)
-              || (jane?.forward && Object.keys(jane.forward).length ? jane.forward : null)
-              || __withheld(__spideyAny ? 'Forward expectation withheld — Jane has not synthesised the forward block.' : 'Forward expectation withheld because the structure / trigger source (Spidey) is unavailable.');
+          // Always a real object — populated with no-trade copy when the
+          // forward source is unavailable. See buildForwardBlock().
+          return __forwardBlockResolved;
         case 'triggerMap':
-          return (jane?.triggerMap || jane?.triggers) || __withheld(__spideyAny ? 'Trigger Map withheld — Jane has not produced bullish/bearish trigger fields.' : 'Trigger Map withheld — Spidey structure / trigger packet unavailable.');
+          // Always a real { bullish, bearish, noTrade, timeframeNote } —
+          // each side is a structured object that may carry a withheldReason.
+          return __triggerBlockResolved;
         case 'candidates':
-          return (jane?.bullishCandidate || jane?.bearishCandidate) ? { bullish: jane?.bullishCandidate || null, bearish: jane?.bearishCandidate || null }
-              : __withheld(__spideyAny ? 'No candidate found above conviction threshold.' : 'Candidates withheld — Spidey structure unavailable.');
+          // Always populated; each side is either a real candidate or a
+          // structured `{ withheld:true, reason }`.
+          return __candidatesResolved;
         case 'cancellationTrigger':
-          return jane?.cancellationTrigger || (Array.isArray(jane?.cancellation) && jane.cancellation.length ? jane.cancellation : null)
-              || __withheld('No cancellation trigger defined — wait for structure/trigger to form.');
+          return jane?.cancellationTrigger
+              || (Array.isArray(jane?.cancellation) && jane.cancellation.length ? jane.cancellation.join('; ') : null)
+              || 'Wait for structure / trigger to form before any cancellation can be defined.';
         case 'nextReassessmentTime':
-          return jane?.nextReassessmentTime || jane?.reassessAt
+          return jane?.nextReassessmentTime
+              || jane?.reassessAt
               || (Number.isFinite(jane?.reassessMinutes) ? `${jane.reassessMinutes}min` : null)
               || '60min';
         case 'validityWindow':
-          return jane?.validityWindow || (Number.isFinite(jane?.validityMinutes) ? `${jane.validityMinutes}min` : null) || '15min';
+          return jane?.validityWindow
+              || (Number.isFinite(jane?.validityMinutes) ? `${jane.validityMinutes}min` : null)
+              || '15min';
         case 'sourceFooter':
-          return `corey=${typeof coreyStatus !== 'undefined' ? coreyStatus : 'unknown'} · spidey=${typeof spideyStatus !== 'undefined' ? spideyStatus : 'unknown'} · historical=${typeof historicalStatus !== 'undefined' ? historicalStatus : 'unknown'}`;
+          return `corey=${coreyStatus} · spidey=${spideyStatus} · historical=${historicalStatus}`;
         case 'entry':
-          return (jane?.entryZone?.mid ?? jane?.entry) || __withheld('Entry pending — no structure trigger formed yet.');
+          return (jane?.entryZone?.mid ?? jane?.entry) || 'Pending';
         case 'stopLoss':
-          return jane?.invalidationLevel ?? jane?.stopLoss ?? __withheld('Stop loss not authorised — entry not formed.');
+          return jane?.invalidationLevel ?? jane?.stopLoss ?? 'Not authorised';
         case 'target':
-          return (jane?.targets && jane.targets[0]) || jane?.target1 || __withheld('Target not authorised — entry not formed.');
+          return (jane?.targets && jane.targets[0]) || jane?.target1 || 'Not authorised';
         case 'extendedStopLoss':
-          return jane?.extendedStop ?? jane?.extendedStopLoss ?? __withheld('Extended stop not defined.');
+          return jane?.extendedStop ?? jane?.extendedStopLoss ?? 'Not authorised';
         case 'mechanism':
-          return jane?.mechanism || corey?.mechanismSummary || __withheld('No mechanism summary produced.');
+          return jane?.mechanism || corey?.mechanismSummary || '—';
         case 'scenario':
-          return (jane?.scenario && (jane.scenario.continuation || jane.scenario.range || jane.scenario.reversal)) ? jane.scenario : __withheld('Scenario probabilities unavailable.');
+          // Always a real probabilities object (zeros when unavailable).
+          return (jane?.scenario && (jane.scenario.continuation || jane.scenario.range || jane.scenario.reversal))
+            ? jane.scenario
+            : { continuation: 0, range: 0, reversal: 0 };
         case 'directionPlain':
-          return jane?.directionPlain || corey?.combinedBias || __withheld('No clean directional read.');
+          return jane?.directionPlain || corey?.combinedBias || 'No clean directional read.';
         case 'convictionLabel':
-          return jane?.convictionLabel || jane?.conviction || (Number.isFinite(corey?.confidence) ? `confidence ${corey.confidence}` : null) || __withheld('No conviction label.');
+          return jane?.convictionLabel
+              || jane?.conviction
+              || (Number.isFinite(corey?.confidence) ? `confidence ${corey.confidence}` : null)
+              || 'No authorised trade conviction';
       }
       return __withheld('Unmapped decision field: ' + k);
     };
@@ -1676,17 +1808,31 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     ];
     const __resolved = {};
     for (const k of SPEC_DECISION_FIELDS) __resolved[k] = __resolveDecisionField(k);
-    const __isPresent = (v) => v != null && !(typeof v === 'object' && v.withheld === true) && v !== '';
-    const presentDecisionFields = SPEC_DECISION_FIELDS.filter(k => __isPresent(__resolved[k]));
-    const withheldDecisionFields = SPEC_DECISION_FIELDS.filter(k => !__isPresent(__resolved[k]));
+    // Two distinct counts so the dashboard can distinguish:
+    //   present       = field is populated (real value OR structured withheld
+    //                   payload with an explicit reason). This is what the
+    //                   spec wants surfaced as decisionFieldsPresent.
+    //   realValue     = subset of present where the value is NOT a withheld
+    //                   payload. Reflects actual signal availability.
+    //   withheld      = subset of present where the value IS a withheld
+    //                   payload, with a reason field.
+    //   absent        = field returned null/undefined/empty (logger gap).
+    const __isPopulated = (v) => v != null && v !== '';
+    const __isWithheldPayload = (v) => !!(v && typeof v === 'object' && v.withheld === true);
+    const __isRealValue = (v) => __isPopulated(v) && !__isWithheldPayload(v);
+
+    const presentDecisionFields  = SPEC_DECISION_FIELDS.filter(k => __isPopulated(__resolved[k]));
+    const realValueDecisionFields = SPEC_DECISION_FIELDS.filter(k => __isRealValue(__resolved[k]));
+    const withheldDecisionFields = SPEC_DECISION_FIELDS.filter(k => __isWithheldPayload(__resolved[k]));
+    const absentDecisionFields   = SPEC_DECISION_FIELDS.filter(k => !__isPopulated(__resolved[k]));
+
     const decisionWithheldReasons = {};
-    for (const k of withheldDecisionFields) {
-      const v = __resolved[k];
-      decisionWithheldReasons[k] = (v && v.withheld) ? v.reason : 'unset';
-    }
-    // Back-compat — old code paths read `DECISION_FIELDS` and `missingDecisionFields`.
+    for (const k of withheldDecisionFields) decisionWithheldReasons[k] = __resolved[k].reason || 'unset';
+    for (const k of absentDecisionFields)   decisionWithheldReasons[k] = 'unset (resolver returned null)';
+    // Back-compat — older log lines read `DECISION_FIELDS` and `missingDecisionFields`.
+    // `missingDecisionFields` = NOT populated at all (the genuinely missing slots).
     const DECISION_FIELDS = SPEC_DECISION_FIELDS;
-    const missingDecisionFields = withheldDecisionFields;
+    const missingDecisionFields = absentDecisionFields;
 
     let janeStatus;
     if (!janeIsObject || janeKeys.length === 0) {
@@ -1712,19 +1858,19 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       historical: historicalStatus
     };
 
-    const sourceMissing = {
-      missingCorey:      !(coreyStatus === 'ok' || coreyStatus === 'partial'),
-      missingSpidey:     spideyStatus === 'unavailable',
-      missingHistorical: historicalStatus === 'unavailable' || historicalStatus === 'no-match',
-      missingCoreyClone: true   // always true until a clone exists
-    };
+    // sourceMissing is the same object as sourceMissingEarly (computed before
+    // the resolver so the structured no-trade builders share the same view).
+    const sourceMissing = sourceMissingEarly;
 
     console.log(`[JANE-BUILD] symbol=${symbol} corey=${coreyStatus} spidey=${spideyStatus} historical=${historicalStatus} jane=${janeStatus}`);
     console.log(`[JANE-BUILD] janeKeys=${janeKeys.length} present=${janeKeys.slice(0, 12).join(',')}`);
-    console.log(`[JANE-BUILD] decisionFieldsPresent=${presentDecisionFields.length}/${DECISION_FIELDS.length} missing=${missingDecisionFields.join(',') || 'none'}`);
+    console.log(`[JANE-BUILD] decisionFieldsPresent=${presentDecisionFields.length}/${DECISION_FIELDS.length} realValue=${realValueDecisionFields.length} withheld=${withheldDecisionFields.length} absent=${absentDecisionFields.length}`);
     if (withheldDecisionFields.length) {
-      const __preview = withheldDecisionFields.slice(0, 5).map(k => `${k}="${(decisionWithheldReasons[k] || '').slice(0, 60)}"`).join(' | ');
-      console.log(`[JANE-BUILD] missingDecisionFields=${withheldDecisionFields.join(',')} withheldReason=${__preview}`);
+      const __preview = withheldDecisionFields.slice(0, 6).map(k => `${k}="${(decisionWithheldReasons[k] || '').slice(0, 60)}"`).join(' | ');
+      console.log(`[JANE-BUILD] withheldDecisionFields=${withheldDecisionFields.join(',')} reason=${__preview}`);
+    }
+    if (absentDecisionFields.length) {
+      console.log(`[JANE-BUILD] absentDecisionFields=${absentDecisionFields.join(',')}`);
     }
 
     const assetClass = corey?.internalMacro?.assetClass
@@ -1777,8 +1923,13 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       gridNotes:   jane?.gridNotes   || {},
       gridEffects: jane?.gridEffects || {},
 
-      forward:     jane?.forwardExpectation || jane?.forward || {},
-      triggers:    jane?.triggerMap        || jane?.triggers || { bullish:null, bearish:null, noTrade:'—', timeframeNote:'—' },
+      // Forward Expectation block — reuse the same payload the resolver
+      // returned so __resolved.forwardExpectation === packet.forward and
+      // the dashboard renders the exact structured no-trade copy that
+      // counts as the populated decision field.
+      forward:     __forwardBlockResolved,
+      // Trigger Map block — same identity guarantee.
+      triggers:    __triggerBlockResolved,
 
       historical:      jane?.historical      || [],
       mechanism:       jane?.mechanism       || corey?.mechanismSummary || '',
@@ -1809,18 +1960,31 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       }
     };
 
-    // If Spidey is unavailable, the trigger map cannot be trusted — strip
-    // any frontend-invented triggers and let the dashboard render the
-    // explicit withheld message from the withholdNotes above.
+    // (Note: previous override that null'd packet.triggers / packet.forward
+    // when Spidey was missing has been removed — buildTriggerBlock /
+    // buildForwardBlock above already emit structured withheld payloads
+    // that carry the explicit reason. Nulling them again would erase the
+    // structured no-trade copy that the dashboard depends on.)
     if (sourceMissing.missingSpidey) {
-      packet.triggers = { bullish: null, bearish: null, noTrade: 'Withheld — Spidey structure/trigger packet unavailable.', timeframeNote: 'Withheld' };
-      packet.bullishCandidate = null;
-      packet.bearishCandidate = null;
+      packet.bullishCandidate = packet.bullishCandidate || { withheld: true, reason: 'Spidey structure / trigger packet unavailable.' };
+      packet.bearishCandidate = packet.bearishCandidate || { withheld: true, reason: 'Spidey structure / trigger packet unavailable.' };
     }
-    if (sourceMissing.missingSpidey || sourceMissing.missingCorey) {
-      packet.forward = Object.assign({}, packet.forward, { withholdNote: packet.withholdNotes.forwardExpectation });
-    }
-    console.log(`[JANE-BUILD] forwardExpectation fields=${Object.keys(packet.forward||{}).length} triggerMap bullish=${packet.triggers && packet.triggers.bullish ? 'present' : 'withheld'} bearish=${packet.triggers && packet.triggers.bearish ? 'present' : 'withheld'}`);
+    // Structured-payload-aware status: 'present' = real value, 'withheld'
+    // = structured no-trade payload with explicit reason, 'absent' = null.
+    const __triggerStatus = (side) => {
+      const t = packet.triggers && packet.triggers[side];
+      if (!t || typeof t !== 'object') return 'absent';
+      if (t.withheldReason) return 'withheld';
+      if (t.level && t.tf) return 'present';
+      return 'partial';
+    };
+    const __forwardStatus = () => {
+      const f = packet.forward;
+      if (!f || typeof f !== 'object') return 'absent';
+      if (f.withheldReason && !f.realValue) return 'withheld';
+      return Object.keys(f).filter(k => f[k] != null && f[k] !== '').length > 0 ? 'present' : 'absent';
+    };
+    console.log(`[JANE-BUILD] forwardExpectation fields=${Object.keys(packet.forward||{}).length} status=${__forwardStatus()} triggerMap bullish=${__triggerStatus('bullish')} bearish=${__triggerStatus('bearish')}`);
     console.log(`[JANE-BUILD] packetKeys=${Object.keys(packet).length} actionState="${packet.actionState||''}" biasDirection="${packet.biasDirection||''}" tradePermission="${packet.tradePermission||''}"`);
 
     const body = JSON.stringify(packet);
@@ -1920,7 +2084,10 @@ client.on('messageCreate', async (msg) => {
 
     console.log(`[ROUTE] live_analysis symbol=${symbol} mode=${modeRaw}`);
     console.log(`[SYMBOL-TRACE] renderSymbol=${symbol}`);
-    try { logDataSource(symbol); } catch (_dsErr) { /* never block live route */ }
+    // [DATA-SOURCE] line — always fires, defensive internals. The earlier
+    // try/catch suppressed any logger error and could explain the missing
+    // line on the post-PR-#21 live run. logDataSource() now never throws.
+    logDataSource(symbol);
     await msg.channel.send({ content: `📡 Analysing **${symbol}** — please wait` });
 
     let renderResult;
@@ -2047,13 +2214,21 @@ function inferAssetClass(s){if(EQUITY_SYMBOLS.has(s))return ASSET_CLASS.EQUITY;i
 //   FX/cmdty:  quote → twelvedata (else eodhd) | ohlc → fmp+twelvedata
 //              fundamentals → n/a | historical → 15Y-cache (else eodhd)
 //   calendar:  whichever source corey_calendar last reported as source_used.
+//
+// IMPORTANT: this function NEVER throws and ALWAYS emits the [DATA-SOURCE]
+// line — even if every internal lookup fails. The earlier wrapping
+// try/catch + internal try/catch combo could swallow the line entirely
+// when something below the route went wrong. We now compute each field
+// independently with its own catch, then emit the line unconditionally.
 function logDataSource(symbol) {
+  let ac = 'unknown';
+  try { ac = inferAssetClass(normalizeSymbol(symbol)); } catch (_e) {}
+  let eodhdOn = false;
+  try { eodhdOn = !!(eodhdAdapter && eodhdAdapter.isEnabled && eodhdAdapter.isEnabled()); } catch (_e) {}
+  const tdOn = !!TWELVE_DATA_KEY;
+  const fmpOn = !!FMP_API_KEY;
+  let quote = 'none', ohlc = 'none', fundamentals = 'none';
   try {
-    const ac = inferAssetClass(normalizeSymbol(symbol));
-    const eodhdOn = !!(eodhdAdapter && eodhdAdapter.isEnabled && eodhdAdapter.isEnabled());
-    const tdOn    = !!TWELVE_DATA_KEY;
-    const fmpOn   = !!FMP_API_KEY;
-    let quote, ohlc, fundamentals;
     if (ac === ASSET_CLASS.EQUITY) {
       quote        = eodhdOn ? 'eodhd' : (tdOn ? 'twelvedata' : 'none');
       ohlc         = tdOn ? 'twelvedata' : (eodhdOn ? 'eodhd' : 'none');
@@ -2063,27 +2238,25 @@ function logDataSource(symbol) {
       ohlc         = fmpOn ? 'fmp+twelvedata' : (tdOn ? 'twelvedata' : (eodhdOn ? 'eodhd' : 'none'));
       fundamentals = 'none';
     }
-    let calendar = 'none';
-    try {
-      const h = (coreyCalendar.getCalendarHealth && coreyCalendar.getCalendarHealth()) || {};
-      calendar = h.source_used === 'tradingview'       ? 'tradingview'
-               : h.source_used === 'trading_economics' ? 'te'
-               : h.source_used === 'degraded'          ? 'degraded'
-               : 'none';
-    } catch (_e) {}
-    let cacheHit = false;
-    try {
-      const cacheReader = require('./cacheReader');
-      const symU = String(symbol).toUpperCase();
-      cacheHit = !!(cacheReader && cacheReader.SYMBOL_GROUP_MAP && cacheReader.SYMBOL_GROUP_MAP[symU]);
-    } catch (_e) {}
-    const historical = cacheHit ? '15Y-cache' : (eodhdOn ? 'eodhd' : 'none');
-    console.log(`[DATA-SOURCE] symbol=${symbol} quote=${quote} ohlc=${ohlc} fundamentals=${fundamentals} calendar=${calendar} historical=${historical}`);
-    return { ac, quote, ohlc, fundamentals, calendar, historical };
-  } catch (e) {
-    console.warn('[DATA-SOURCE] logger error: ' + (e && e.message));
-    return null;
-  }
+  } catch (_e) {}
+  let calendar = 'none';
+  try {
+    const h = (coreyCalendar.getCalendarHealth && coreyCalendar.getCalendarHealth()) || {};
+    calendar = h.source_used === 'tradingview'       ? 'tradingview'
+             : h.source_used === 'trading_economics' ? 'te'
+             : h.source_used === 'degraded'          ? 'degraded'
+             : 'none';
+  } catch (_e) {}
+  let cacheHit = false;
+  try {
+    const cacheReader = require('./cacheReader');
+    const symU = String(symbol).toUpperCase();
+    cacheHit = !!(cacheReader && cacheReader.SYMBOL_GROUP_MAP && cacheReader.SYMBOL_GROUP_MAP[symU]);
+  } catch (_e) {}
+  const historical = cacheHit ? '15Y-cache' : (eodhdOn ? 'eodhd' : 'none');
+  // Single-line emit — guaranteed to fire on every live route.
+  console.log(`[DATA-SOURCE] symbol=${symbol} quote=${quote} ohlc=${ohlc} fundamentals=${fundamentals} calendar=${calendar} historical=${historical}`);
+  return { ac, quote, ohlc, fundamentals, calendar, historical };
 }
 function parsePairCore(symbol){const s=normalizeSymbol(symbol);if(isFxPair(s))return{symbol:s,base:s.slice(0,3),quote:s.slice(3,6),assetClass:ASSET_CLASS.FX};if(['XAUUSD','XAGUSD','BCOUSD'].includes(s))return{symbol:s,base:s.slice(0,3),quote:s.slice(3,6),assetClass:inferAssetClass(s)};return{symbol:s,base:s,quote:'USD',assetClass:inferAssetClass(s)};}
 const makeStubCB=label=>({name:label||'Commodity',stance:STANCE.N_A,direction:STANCE.N_A,rateCycle:RATE_CYCLE.N_A,terminalBias:0,inflationSensitivity:0.5,growthSensitivity:0.5,score:0});
@@ -2229,6 +2402,9 @@ function fetchOHLCFMP(symbol,resolution,count=200){
 // route TwelveData primary. FX / commodity / index keep FMP-primary
 // (FMP free coverage is OK there). Unsupported FMP resolutions (e.g. '1W')
 // go straight to TwelveData. The public signature is unchanged.
+//
+// Emits a [DATA-SOURCE-FETCH] line per resolution with the actual provider
+// that delivered candles — ground-truth proof of routing for the live log.
 async function fetchOHLC(symbol,resolution,count=200){
   const ac = inferAssetClass(normalizeSymbol(symbol));
   const fmpUsable = FMP_API_KEY && FMP_INTERVAL_MAP[resolution];
@@ -2240,6 +2416,7 @@ async function fetchOHLC(symbol,resolution,count=200){
     try{
       const data=await fetchOHLCFMP(symbol,resolution,count);
       log('INFO',`[OHLC] FMP ${symbol} ${resolution} candles=${data.length}`);
+      console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=fmp candles=${data.length}`);
       return data;
     }catch(e){
       log('WARN',`[OHLC] FMP ${symbol} ${resolution} failed: ${e.message} — falling back to TwelveData`);
@@ -2248,6 +2425,7 @@ async function fetchOHLC(symbol,resolution,count=200){
   try {
     const tdData=await fetchOHLCTD(symbol,resolution,count);
     log('INFO',`[OHLC] TD ${symbol} ${resolution} candles=${tdData.length}`);
+    console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=twelvedata candles=${tdData.length}`);
     return tdData;
   } catch (tdErr) {
     // Last-resort FMP attempt for equities, only when TwelveData also failed.
@@ -2255,8 +2433,10 @@ async function fetchOHLC(symbol,resolution,count=200){
       log('WARN',`[OHLC] TD ${symbol} ${resolution} failed: ${tdErr.message} — last-resort FMP attempt`);
       const data = await fetchOHLCFMP(symbol,resolution,count);
       log('INFO',`[OHLC] FMP-lastresort ${symbol} ${resolution} candles=${data.length}`);
+      console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=fmp-lastresort candles=${data.length}`);
       return data;
     }
+    console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=none error=${(tdErr && tdErr.message) || 'unknown'}`);
     throw tdErr;
   }
 }
