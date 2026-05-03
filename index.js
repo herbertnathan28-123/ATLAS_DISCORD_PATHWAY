@@ -1410,7 +1410,9 @@ async function formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, _candlesByT
   const biasWord = (corey?.combinedBias || 'neutral').toString().toLowerCase();
   const sign = biasWord.startsWith('bull') ? 1 : biasWord.startsWith('bear') ? -1 : 0;
   const conviction = Number.isFinite(corey?.confidence) ? corey.confidence : (Number.isFinite(jane?.confidence) ? jane.confidence : 0);
+  const ac = (typeof inferAssetClass === 'function') ? inferAssetClass(sym) : 'unknown';
   const structure = {
+    assetClass:     ac,
     score: Math.max(-1, Math.min(1, sign * conviction)),
     bias: biasWord,
     conviction,
@@ -1425,7 +1427,8 @@ async function formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, _candlesByT
     cancellation:   Array.isArray(jane?.cancellation) ? jane.cancellation : [],
     recentHigh:     spideyHTF?.recentHigh ?? jane?.recentHigh ?? null,
     recentLow:      spideyHTF?.recentLow  ?? jane?.recentLow  ?? null,
-    currentPrice:   spideyHTF?.currentPrice ?? corey?.lastPrice ?? null
+    currentPrice:   spideyHTF?.currentPrice ?? corey?.lastPrice ?? null,
+    triggers:       jane?.triggers || null
   };
   const text = await buildMacroV3({
     symbol: sym,
@@ -1450,6 +1453,7 @@ async function formatMacro(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf) 
       console.error(`[MACRO] v3 FAILED for ${sym} — falling back to legacy formatter: ${err && err.message}`);
     }
   }
+  const macroLanguage = require('./macro/language');
   const sections = [
     { name: 'TRADE STATUS',      text: buildTradeStatus(sym, jane, corey, spideyHTF, spideyLTF) },
     { name: 'FORWARD EXPECTATION', text: buildForwardExpectation(sym, jane, corey, spideyHTF, spideyLTF, candlesByTf || {}) },
@@ -1464,7 +1468,12 @@ async function formatMacro(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf) 
     { name: 'FINAL VERDICT',     text: buildValidity(sym, corey, jane) },
     { name: 'VERIFICATION',      text: buildVerification(sym) }
   ];
-  return sections.map(s => ({ name: s.name, text: equityLanguageFilter(s.text, sym) }));
+  // Legacy fallback hardening — scrubSoft so banned strings never reach Discord
+  // even when v3 has thrown and the legacy path is running.
+  return sections.map(s => ({
+    name: s.name,
+    text: macroLanguage.scrubSoft(equityLanguageFilter(s.text, sym))
+  }));
 }
 
 function chunkMessage(text, max) {
