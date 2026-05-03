@@ -1540,6 +1540,123 @@ function dashboardUrl(symbol, user) {
   return `${ATLAS_DASHBOARD_BASE}?symbol=${encodeURIComponent(symbol)}&user=${encodeURIComponent(user)}`;
 }
 
+// Build a Jane packet from the real engine outputs and POST it to the
+// dashboard service's /load endpoint. The dashboard then renders the
+// Execution / Live Plan surface from this packet. Source statuses reflect
+// the REAL state of each engine — no fabricated values.
+//
+// Called from deliverResult() AFTER the macro pipeline runs. Fire-and-forget;
+// errors are logged but never block the Discord delivery path.
+function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
+  try {
+    const baseUrl = (ATLAS_DASHBOARD_BASE || '').replace(/\/$/, '');
+    if (!baseUrl) { console.warn('[JANE-POST] ATLAS_DASHBOARD_BASE not set — skip'); return; }
+    const url = baseUrl + '/load';
+
+    // Source statuses — real engine state, no fakery.
+    const liveCtx = (typeof coreyLive !== 'undefined' && coreyLive.getLiveContext) ? coreyLive.getLiveContext() : null;
+    const coreyStatus     = liveCtx?.status === 'ok' ? 'ok' : liveCtx?.status === 'partial' ? 'partial' : liveCtx?.status === 'degraded' ? 'degraded' : 'unavailable';
+    const spideyStatus    = (spideyHTF && spideyLTF) ? 'ok' : (spideyHTF || spideyLTF) ? 'partial' : 'unavailable';
+    const janeStatus      = jane ? 'final' : 'unavailable';
+    let historicalStatus  = 'unavailable';
+    try {
+      const cacheReader = require('./cacheReader');
+      // Cache is 15Y daily — honest label, not 30Y.
+      historicalStatus = (cacheReader && typeof cacheReader.SYMBOL_GROUP_MAP === 'object' && cacheReader.SYMBOL_GROUP_MAP[String(symbol).toUpperCase()]) ? 'partial: 15Y-cache' : 'no-match';
+    } catch (_) { historicalStatus = 'unavailable'; }
+    const coreyCloneStatus = 'unavailable: not implemented';
+
+    const sources = {
+      marketData: 'pending',         // dashboard side fills this from /twelvedata results
+      corey:      coreyStatus,
+      coreyClone: coreyCloneStatus,
+      spidey:     spideyStatus,
+      jane:       janeStatus,
+      historical: historicalStatus
+    };
+
+    const assetClass = corey?.internalMacro?.assetClass
+                    || (/^[A-Z]{6}$/.test(symbol) ? 'fx'
+                        : /^(NAS100|US500|US30|DJI|GER40|UK100|SPX|NDX|HK50|JPN225)$/.test(symbol) ? 'index'
+                        : /XAU|XAG|OIL|BRENT|WTI|NATGAS/.test(symbol) ? 'commodity'
+                        : 'equity');
+    const last = spideyHTF?.currentPrice ?? corey?.lastPrice ?? null;
+
+    const packet = {
+      symbol,
+      assetClass,
+      lastPrice: last,
+      lastChangePct: 0,
+      sources,
+
+      // Decision layer — sourced from Jane / structure objects when available.
+      actionState:     jane?.actionState     || (jane?.combinedBias ? `BIAS ${jane.combinedBias.toUpperCase()}` : 'WAIT — NO TRADE'),
+      actionTone:      jane?.actionTone      || (/AUTHORISED|CONFIRMED/i.test(jane?.actionState||'') ? 'green' : /ARMED/i.test(jane?.actionState||'') ? 'gold' : 'red'),
+      biasDirection:   corey?.combinedBias   || jane?.bias || 'Neutral',
+      tradePermission: jane?.permitLabel     || (jane ? 'No entry authorised' : 'Withheld — Jane unavailable'),
+      validityMinutes: 15,
+      reassessMinutes: 60,
+      direction:       jane?.directionPlain  || corey?.combinedBias || '',
+
+      entry:            jane?.entryZone?.mid   ?? jane?.entry            ?? 'Pending',
+      entrySub:         jane?.entryNote        || '',
+      stopLoss:         jane?.invalidationLevel ?? jane?.stopLoss        ?? 'Not authorised',
+      extendedStopLoss: jane?.extendedStop     ?? 'Not authorised',
+      target:           (jane?.targets && jane.targets[0])              ?? 'Not authorised',
+      riskDollars:      jane?.riskDollars      || 'Not active',
+      riskSub:          jane?.riskSub          || 'no entry / no invalidation',
+      targetDollars:    jane?.targetDollars    || 'Not active',
+      costDollars:      jane?.costDollars      || '',
+      cancellation:     jane?.cancellationTrigger || '—',
+
+      bullishCandidate: jane?.bullishCandidate || null,
+      bearishCandidate: jane?.bearishCandidate || null,
+
+      // Condition grid — fall through to legacy gridScores if present.
+      grid:        jane?.grid       || jane?.conditionGrid       || { executionAuthority:0, structure:0, liquidityPressure:0, eventRisk:0, sessionEnergy:0, macroAlignment:0, conviction:0, regime:0 },
+      gridNotes:   jane?.gridNotes   || {},
+      gridEffects: jane?.gridEffects || {},
+
+      forward:     jane?.forwardExpectation || jane?.forward || {},
+      triggers:    jane?.triggerMap        || jane?.triggers || { bullish:null, bearish:null, noTrade:'—', timeframeNote:'—' },
+
+      historical:      jane?.historical      || [],
+      mechanism:       jane?.mechanism       || corey?.mechanismSummary || '',
+      mechanismDetail: jane?.mechanismDetail || null,
+      scenario:        jane?.scenario        || { continuation:0, range:0, reversal:0 },
+      scenarioDetail:  jane?.scenarioDetail  || null,
+      events:          jane?.events          || [],
+      matrix:          jane?.matrix          || []
+    };
+
+    const body = JSON.stringify(packet);
+    const u = new URL(url);
+    const lib = u.protocol === 'http:' ? require('http') : require('https');
+    const req = lib.request({
+      hostname: u.hostname,
+      port:     u.port || (u.protocol === 'http:' ? 80 : 443),
+      path:     u.pathname + u.search,
+      method:   'POST',
+      headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+      timeout:  6000
+    }, (res) => {
+      let buf = '';
+      res.on('data', (c) => { buf += c; });
+      res.on('end',  ()  => {
+        if (res.statusCode >= 200 && res.statusCode < 300) console.log(`[JANE-POST] ${symbol} → dashboard ok http=${res.statusCode}`);
+        else console.warn(`[JANE-POST] ${symbol} → dashboard non-ok http=${res.statusCode} body=${buf.slice(0, 120)}`);
+      });
+      res.on('error', (e) => console.warn(`[JANE-POST] response error: ${e.message}`));
+    });
+    req.on('error',   (e) => console.warn(`[JANE-POST] request error: ${e.message}`));
+    req.on('timeout', ()  => { req.destroy(); console.warn(`[JANE-POST] timeout`); });
+    req.write(body);
+    req.end();
+  } catch (e) {
+    console.warn(`[JANE-POST] unexpected: ${e.message}`);
+  }
+}
+
 client.on('messageCreate', async (msg) => {
   try {
     if (msg.author.bot) return;
@@ -2015,6 +2132,12 @@ async function deliverResult(msg, result) {
   console.log(`[SYMBOL-TRACE] macroSymbol=${symbol} coreyParsedSymbol=${corey?.internalMacro?.parsed?.symbol || 'n/a'} coreyAssetClass=${corey?.internalMacro?.assetClass || 'n/a'} janeSymbol=${jane?.symbol || 'n/a'}`);
   const sections = await formatMacro(symbol, corey, spideyHTF, spideyLTF, jane, candlesByTf);
   console.log(`[PRESENTER] sections generated=${sections.length}`);
+
+  // Post the Jane packet to the dashboard service — populates the Execution
+  // / Live Plan surface for ?symbol=<sym>. Source statuses reflect REAL
+  // engine results (no fake values). Fire-and-forget — never blocks Discord
+  // delivery.
+  postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane);
 
   // Macro mode skips the chart blocks above by sending charts-then-text. To
   // honour mode=macro semantics we suppress only the visual chart resends if
