@@ -39,7 +39,13 @@ async function buildMacroV3(input) {
   let text = assemble(LOCKED_ORDER, sections);
   const tail = glossary.footer(tagsUsed);
   if (tail) text += '\n\n' + tail;
-  text = language.scrub(text);
+
+  // Asset-class-aware scrub. The FX path is allowed to keep the
+  // "WHAT THIS MEANS FOR THE PAIR" header; non-FX paths must use the
+  // asset-class-correct phrasing produced by corey_calendar.
+  const struct0 = input.structure || {};
+  const assetClass = struct0.assetClass || inferClass(input.symbol);
+  text = language.scrub(text, { assetClass });
 
   // Spec Part 15 — contradiction checker on the assembled string.
   const struct = input.structure || {};
