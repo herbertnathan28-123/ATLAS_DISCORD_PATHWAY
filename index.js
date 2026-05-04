@@ -2350,6 +2350,72 @@ function startTSServer(){if(!TS_ENABLED){log('INFO','[TS SERVER] Disabled');retu
 
 function fetchOHLCTD(symbol,resolution,count=200){return new Promise((resolve,reject)=>{const tdSym=encodeURIComponent(TD_SYMBOL_MAP[symbol]||symbol),tdInt=TD_INTERVAL_MAP[resolution]||'1day';const opts={hostname:'api.twelvedata.com',path:`/time_series?symbol=${tdSym}&interval=${tdInt}&outputsize=${count}&apikey=${TWELVE_DATA_KEY}&format=JSON`,method:'GET',headers:{'User-Agent':'ATLAS-FX/4.0'},timeout:15000};const req=https.request(opts,r=>{let data='';r.on('data',c=>{data+=c;});r.on('end',()=>{try{const p=JSON.parse(data);if(p.status==='error'||!p.values||!Array.isArray(p.values)){reject(new Error(`TwelveData: ${p.message||'unknown'}`));return;}resolve(p.values.slice().reverse().map(v=>({time:Math.floor(new Date(v.datetime).getTime()/1000),open:parseFloat(v.open),high:parseFloat(v.high),low:parseFloat(v.low),close:parseFloat(v.close),volume:v.volume?parseFloat(v.volume):0})));}catch(e){reject(new Error(`TwelveData parse: ${e.message}`));}});});req.on('error',reject);req.on('timeout',()=>reject(new Error('TwelveData timeout')));req.end();});}
 
+// TwelveData index probe list — primary symbol from TD_SYMBOL_MAP plus
+// alternatives that work on the free tier. Free-tier TD often resolves
+// indices via ETF tickers (SPY/QQQ/DIA) rather than cash-index tickers
+// (SPX/NDX/DJI). When the primary returns "Data not found", we walk the
+// probe list and the first symbol that returns candles wins. The chosen
+// mapping is logged via [SYMBOL-MAP].
+const TD_INDEX_PROBES = {
+  US500:  ['SPX', 'GSPC', '^GSPC', 'SPY'],
+  NAS100: ['NDX', 'IXIC', '^IXIC', 'QQQ'],
+  US30:   ['DIA', 'DJI', '^DJI'],
+  DJI:    ['DIA', 'DJI', '^DJI'],
+  GER40:  ['DAX', '^GDAXI'],
+  UK100:  ['UKX', '^FTSE'],
+  HK50:   ['HSI', '^HSI'],
+  JPN225: ['NKX', 'N225', '^N225']
+};
+async function fetchOHLCTDWithProbes(symbol, resolution, count = 200) {
+  // Primary mapped symbol comes from TD_SYMBOL_MAP; fall back through the
+  // index probe list if "Data not found".
+  const primary = TD_SYMBOL_MAP[symbol] || symbol;
+  const probes  = TD_INDEX_PROBES[symbol] ? [primary, ...TD_INDEX_PROBES[symbol].filter(p => p !== primary)] : [primary];
+  let lastErr = null;
+  for (const probe of probes) {
+    try {
+      // Inline a single-shot TD fetch using the probe symbol verbatim.
+      const candles = await new Promise((resolve, reject) => {
+        const opts = { hostname: 'api.twelvedata.com', path: `/time_series?symbol=${encodeURIComponent(probe)}&interval=${TD_INTERVAL_MAP[resolution]||'1day'}&outputsize=${count}&apikey=${TWELVE_DATA_KEY}&format=JSON`, method: 'GET', headers: { 'User-Agent': 'ATLAS-FX/4.0' }, timeout: 15000 };
+        const req = https.request(opts, r => {
+          let data = ''; r.on('data', c => { data += c; });
+          r.on('end', () => {
+            try {
+              const p = JSON.parse(data);
+              if (p.status === 'error' || !p.values || !Array.isArray(p.values)) { reject(new Error(`TwelveData: ${p.message || 'unknown'}`)); return; }
+              resolve(p.values.slice().reverse().map(v => ({ time: Math.floor(new Date(v.datetime).getTime()/1000), open: parseFloat(v.open), high: parseFloat(v.high), low: parseFloat(v.low), close: parseFloat(v.close), volume: v.volume ? parseFloat(v.volume) : 0 })));
+            } catch (e) { reject(new Error(`TwelveData parse: ${e.message}`)); }
+          });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => reject(new Error('TwelveData timeout')));
+        req.end();
+      });
+      console.log(`[SYMBOL-MAP] raw=${symbol} asset=${(inferAssetClass(symbol)||'').toLowerCase()} provider=twelvedata mapped=${probe} probesTried=${probes.indexOf(probe)+1}/${probes.length} status=ok`);
+      return candles;
+    } catch (e) {
+      lastErr = e;
+      // Only walk the probe list on "Data not found"-class errors. Hard failures
+      // (timeout, parse, network) bail immediately.
+      if (!/Data not found|symbol not found|invalid symbol/i.test(e.message || '')) break;
+    }
+  }
+  console.log(`[SYMBOL-MAP] raw=${symbol} asset=${(inferAssetClass(symbol)||'').toLowerCase()} provider=twelvedata probesTried=${probes.length}/${probes.length} status=fail reason=${(lastErr && lastErr.message) || 'unknown'}`);
+  throw lastErr || new Error('TwelveData: all probes failed');
+}
+
+// FMP rate-limit memory. When FMP returns 429, we cache that for FMP_QUOTA_TTL
+// so subsequent OHLC calls in the same run skip FMP entirely instead of
+// hammering it (the live log was full of 429 spam). State self-heals after
+// the TTL window expires.
+const FMP_QUOTA_TTL_MS = 60 * 1000;
+let _fmpQuotaUntil = 0;
+function fmpQuotaActive() { return Date.now() < _fmpQuotaUntil; }
+function markFmpQuotaHit() {
+  _fmpQuotaUntil = Date.now() + FMP_QUOTA_TTL_MS;
+  log('WARN', `[FMP-QUOTA] 429 hit — disabling FMP for ${FMP_QUOTA_TTL_MS/1000}s; OHLC will route TwelveData-only until cooldown expires`);
+}
+
 // ── FMP OHLC fetcher ─────────────────────────────────────────────────
 // Endpoints:
 //   intraday: GET /stable/historical-chart/{interval}?symbol=X&apikey=K
@@ -2416,36 +2482,47 @@ function fetchOHLCFMP(symbol,resolution,count=200){
 // that delivered candles — ground-truth proof of routing for the live log.
 async function fetchOHLC(symbol,resolution,count=200){
   const ac = inferAssetClass(normalizeSymbol(symbol));
-  const fmpUsable = FMP_API_KEY && FMP_INTERVAL_MAP[resolution];
-  const fmpDemoted = ac === ASSET_CLASS.EQUITY;
-  if (fmpDemoted && FMP_API_KEY) {
-    log('INFO',`[OHLC] asset=equity ${symbol} ${resolution} — FMP=legacy_optional disabled_for_ohlc, routing TwelveData primary`);
-  }
-  if (fmpUsable && !fmpDemoted){
-    try{
-      const data=await fetchOHLCFMP(symbol,resolution,count);
-      log('INFO',`[OHLC] FMP ${symbol} ${resolution} candles=${data.length}`);
-      console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=fmp candles=${data.length}`);
-      return data;
-    }catch(e){
-      log('WARN',`[OHLC] FMP ${symbol} ${resolution} failed: ${e.message} — falling back to TwelveData`);
-    }
-  }
+  const fmpUsable = FMP_API_KEY && FMP_INTERVAL_MAP[resolution] && !fmpQuotaActive();
+  // FMP free tier returns 402 on equity historical AND repeatedly 429s the rest.
+  // ATLAS doctrine: TwelveData is intended primary for OHLC. FMP becomes a
+  // last-resort fallback only when TD lacks data AND FMP is not in cooldown.
+  const tdIsIndex = (ac === ASSET_CLASS.INDEX);
+
+  // Try TwelveData FIRST (with index probe list) for everything except
+  // resolutions TD doesn't support natively (handled inside fetchOHLCTDWithProbes).
   try {
-    const tdData=await fetchOHLCTD(symbol,resolution,count);
+    const tdData = (tdIsIndex || TD_INDEX_PROBES[symbol])
+      ? await fetchOHLCTDWithProbes(symbol, resolution, count)
+      : await fetchOHLCTD(symbol, resolution, count);
     log('INFO',`[OHLC] TD ${symbol} ${resolution} candles=${tdData.length}`);
     console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=twelvedata candles=${tdData.length}`);
     return tdData;
   } catch (tdErr) {
-    // Last-resort FMP attempt for equities, only when TwelveData also failed.
-    if (fmpDemoted && fmpUsable) {
-      log('WARN',`[OHLC] TD ${symbol} ${resolution} failed: ${tdErr.message} — last-resort FMP attempt`);
-      const data = await fetchOHLCFMP(symbol,resolution,count);
-      log('INFO',`[OHLC] FMP-lastresort ${symbol} ${resolution} candles=${data.length}`);
-      console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=fmp-lastresort candles=${data.length}`);
-      return data;
+    const tdReason = (tdErr && tdErr.message) || 'unknown';
+    const tdNotFound = /Data not found|symbol not found|invalid symbol/i.test(tdReason);
+    log('WARN',`[OHLC] TD ${symbol} ${resolution} failed: ${tdReason}${tdNotFound ? ' (symbol-not-found)' : ''}`);
+
+    // FMP fallback — only when TD failed AND FMP isn't quota-blocked.
+    if (fmpUsable) {
+      try {
+        const data = await fetchOHLCFMP(symbol, resolution, count);
+        log('INFO',`[OHLC] FMP-fallback ${symbol} ${resolution} candles=${data.length}`);
+        console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=fmp-fallback candles=${data.length}`);
+        return data;
+      } catch (fmpErr) {
+        const fmpReason = (fmpErr && fmpErr.message) || 'unknown';
+        if (/\b429\b|Limit Reach|Rate limit/i.test(fmpReason)) {
+          markFmpQuotaHit();
+          console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=none td_error=${tdReason} fmp_error=quota_429`);
+        } else {
+          console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=none td_error=${tdReason} fmp_error=${fmpReason}`);
+        }
+        throw new Error(`OHLC unavailable: TD=${tdReason} | FMP=${fmpReason}`);
+      }
     }
-    console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=none error=${(tdErr && tdErr.message) || 'unknown'}`);
+    // FMP unavailable (no key, unsupported res, or in cooldown).
+    const fmpStatus = !FMP_API_KEY ? 'no-key' : !FMP_INTERVAL_MAP[resolution] ? 'unsupported-resolution' : 'in-cooldown';
+    console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=none td_error=${tdReason} fmp_status=${fmpStatus}`);
     throw tdErr;
   }
 }
