@@ -380,7 +380,7 @@ function buildDHPayload(candidate) {
     `**${candidate.symbol}** ${arrow}\n` +
     `${candidate.summary}\n` +
     `Confidence: ${candidate.score}/10\n\n` +
-    `Scan flag only — pipeline: Corey → Spidey → Jane.`;
+    `Scan flag only — full ATLAS confirmation path remains: Corey → Spidey → Jane.`;
 
   return { content };
 }

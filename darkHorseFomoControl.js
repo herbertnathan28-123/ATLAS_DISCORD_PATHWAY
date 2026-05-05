@@ -58,7 +58,7 @@ const FOMO_CAUTION =
 
 // ── ADVISORY TRAILER (used on WATCH payloads) ───────────────
 const WATCH_ADVISORY_TRAILER =
-  'Advisory only — wait for structure confirmation. Movement is not entry. Jane retains final authority.';
+  'Advisory only — wait for structure confirmation. Movement is not entry. Full ATLAS confirmation path remains: Corey → Spidey → Jane.';
 
 // ── VOLATILITY THRESHOLDS (derived from scan + optional VIX) ─
 const VOL_INTERNAL_ELEVATED = 3;   // ≥3 INTERNAL candidates → elevated
@@ -164,7 +164,7 @@ function buildMovementDigestPayload(volatility, internalResults) {
     `CONDITIONS MOVING, BUT ENTRY QUALITY NOT CONFIRMED.\n` +
     `LATE ENTRY RISK HIGH. DO NOT CHASE THE MOVE. WAIT FOR STRUCTURE CONFIRMATION.\n\n` +
     `${FOMO_CAUTION}\n\n` +
-    `Pipeline retains final authority: Corey → Spidey → Jane.`;
+    `Full ATLAS confirmation path remains: Corey → Spidey → Jane.`;
 
   return { content, kind: 'movement_digest' };
 }
