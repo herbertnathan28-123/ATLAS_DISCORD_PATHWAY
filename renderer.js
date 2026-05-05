@@ -23,6 +23,18 @@ const CI_INTERVAL_MAP = {
 };
 
 const CHART_IMG_API_KEY = process.env.CHART_IMG_API_KEY || null;
+// Controlled-concurrency for the 8 chart-img REST calls per analyse run.
+// Live baseline (serial) is ~33s. With concurrency=4 we expect 2 batches of
+// 4 calls (~8-12s total). Going higher than 4 risks tripping chart-img
+// rate limits — failed panels would then fall back to placeholders, which
+// looks like a regression even though it's a configuration issue. The env
+// var is provided so an operator can tune downstream of the deploy
+// without code changes.
+const CHART_IMG_CONCURRENCY = (function(){
+  const raw = parseInt(process.env.CHART_IMG_CONCURRENCY || '4', 10);
+  if (!Number.isFinite(raw) || raw < 1) return 4;
+  return Math.min(raw, 8);
+})();
 
 function getCISymbol(symbol) {
   const overrides = {
@@ -188,29 +200,76 @@ async function renderOneChart(symbol, interval) {
   }
 }
 
+// Run `fn(item, idx)` over `items` with at most `concurrency` jobs in flight
+// at any time. Order of `results` matches input order (not completion order).
+// Each worker pulls the next index off a shared counter — simple & robust.
+//
+// We use this instead of a flat `Promise.all(items.map(fn))` so we can cap
+// the number of concurrent chart-img REST requests. Going fully parallel
+// risks tripping chart-img rate limits, which would degrade panels to
+// placeholders and look like a regression. Default cap is 4 (see
+// CHART_IMG_CONCURRENCY); operator-tunable via env without code changes.
+async function withConcurrency(items, fn, concurrency) {
+  const n = items.length;
+  const results = new Array(n);
+  const workers = Math.max(1, Math.min(Number(concurrency) || 1, n));
+  let next = 0;
+  async function pull() {
+    while (true) {
+      const idx = next++;
+      if (idx >= n) return;
+      results[idx] = await fn(items[idx], idx);
+    }
+  }
+  const tasks = [];
+  for (let i = 0; i < workers; i++) tasks.push(pull());
+  await Promise.all(tasks);
+  return results;
+}
+
 async function renderAllPanels(symbol) {
   const sym = String(symbol || 'UNKNOWN').toUpperCase();
-  console.log(`[RENDERER] ${sym} - render start (chart-img)`);
-  const t0 = Date.now();
   const allIntervals = HTF_INTERVALS.concat(LTF_INTERVALS);
-  const allPanels = [];
-  for (let i = 0; i < allIntervals.length; i++) {
-    allPanels.push(await renderOneChart(sym, allIntervals[i]));
-  }
+  const t0 = Date.now();
+  console.log(`[RENDERER] ${sym} render_start path=chart-img concurrency=${CHART_IMG_CONCURRENCY} panels=${allIntervals.length}`);
+
+  // Parallelised per-timeframe fetch — controlled concurrency. Each worker
+  // logs timeframe_start / timeframe_complete with ms timing so the live
+  // log gives ground-truth per-pane evidence (not just total elapsed).
+  const allPanels = await withConcurrency(allIntervals, async function(iv, idx) {
+    const tfT0 = Date.now();
+    console.log(`[RENDERER] ${sym} timeframe_start tf=${iv} idx=${idx + 1}/${allIntervals.length}`);
+    const result = await renderOneChart(sym, iv);
+    const tfElapsed = Date.now() - tfT0;
+    console.log(`[RENDERER] ${sym} timeframe_complete tf=${iv} idx=${idx + 1}/${allIntervals.length} elapsed_ms=${tfElapsed} valid=${result.valid}${result.valid ? '' : ' reason=' + (result.reason || 'unknown')}`);
+    return result;
+  }, CHART_IMG_CONCURRENCY);
+
   const htfPanels = allPanels.slice(0, 4);
   const ltfPanels = allPanels.slice(4, 8);
+
+  const tCompose = Date.now();
+  console.log(`[RENDERER] ${sym} grid_compose_start`);
   const grids = await Promise.all([
     buildGrid(htfPanels.map(p => p.buffer), HTF_INTERVALS),
     buildGrid(ltfPanels.map(p => p.buffer), LTF_INTERVALS)
   ]);
+  console.log(`[RENDERER] ${sym} grid_compose_complete elapsed_ms=${Date.now() - tCompose}`);
+
   const validation = allPanels.map((p, idx) => ({
     interval: allIntervals[idx],
     label: TF_LABELS[allIntervals[idx]] || allIntervals[idx],
     ok: !!p.valid,
     reason: p.valid ? null : (p.reason || 'unknown')
   }));
-  const elapsed = Math.round((Date.now() - t0) / 1000);
-  console.log(`[RENDERER] ${sym} - complete in ${elapsed}s`);
+  const okCount = validation.filter(v => v.ok).length;
+  const failedTfs = validation.filter(v => !v.ok).map(v => `${v.interval}(${v.reason})`);
+
+  const elapsedMs = Date.now() - t0;
+  const elapsedS  = Math.round(elapsedMs / 1000);
+  // Truthful partial reporting — explicit valid/total + per-tf failure list.
+  console.log(`[RENDERER] ${sym} render_complete_total elapsed_s=${elapsedS} elapsed_ms=${elapsedMs} valid=${okCount}/${allIntervals.length}${failedTfs.length ? ' failed=' + failedTfs.join(',') : ''} concurrency=${CHART_IMG_CONCURRENCY}`);
+  console.log(`[RENDERER] ${sym} - complete in ${elapsedS}s`); // legacy line preserved for downstream parsers
   console.log(`[SYMBOL-TRACE] renderReturnSymbol=${sym} htfGridName=${sym}_HTF.png ltfGridName=${sym}_LTF.png`);
   return {
     htfGrid:     grids[0],
