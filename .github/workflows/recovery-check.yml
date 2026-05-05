@@ -1,0 +1,128 @@
+name: recovery-check
+
+# Runs the ATLAS recovery acceptance suite on every pull request and on
+# pushes to main. Does NOT require any Render / Discord / TwelveData /
+# FMP / EODHD secrets — the test script (scripts/test_recovery.js) is
+# 100% env-free and exercises only the new helper modules in macro/.
+#
+# If env-dependent tests are added in the future, this job is structured
+# so missing secrets cause an explicit "skipped — no <secret>" log line,
+# never a silent pass and never a hard failure.
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  # Allow manual re-runs from the Actions tab without code changes.
+  workflow_dispatch: {}
+
+# No global secrets — every step that needs one declares it explicitly so
+# fork PRs never receive sensitive env. Read-only token is enough.
+permissions:
+  contents: read
+
+jobs:
+  recovery-check:
+    name: ATLAS recovery acceptance suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # No npm cache — repo has no package-lock.json, and setup-node's
+          # cache: 'npm' requires a lockfile. The recovery test only depends
+          # on stdlib + local macro/ modules, so install is fast anyway.
+
+      # The acceptance test (scripts/test_recovery.js) only requires the
+      # local macro/ modules — it does NOT load the renderer or any
+      # discord/puppeteer/sharp dependency. We install the test-time
+      # dependencies but skip puppeteer's heavy Chromium download.
+      - name: Install test dependencies
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: |
+          # The recovery suite uses zero npm dependencies (pure stdlib),
+          # so we do NOT install the bot's runtime deps here. Skipping the
+          # full install keeps the CI fast and avoids native-build
+          # surprises (puppeteer, sharp, parquetjs).
+          echo "::notice::skipping full npm install — recovery suite uses stdlib only"
+          # Sanity probe — confirm Node 20 + the changed files are present.
+          node --version
+          test -f scripts/test_recovery.js
+          test -f macro/dataCoverage.js
+          test -f macro/incorego.js
+          test -f macro/advisoryWording.js
+          test -f macro/advisoryHeader.js
+          test -f macro/spideyStructure.js
+          echo "✓ environment ready"
+
+      - name: Syntax check (parse-only)
+        run: |
+          node -c index.js
+          for f in macro/dataCoverage.js macro/incorego.js macro/advisoryWording.js macro/advisoryHeader.js macro/spideyStructure.js scripts/test_recovery.js; do
+            node -c "$f"
+          done
+          echo "✓ all changed files parse cleanly"
+
+      - name: Run recovery acceptance suite
+        # The test prints "N/M acceptance checks passed" and exits non-zero
+        # on any failure. We capture the output, surface the last line, and
+        # assert at least the expected check count.
+        run: |
+          set -o pipefail
+          node scripts/test_recovery.js | tee /tmp/recovery.log
+          # Final line reports total pass count; assert 84/84.
+          summary=$(grep -E '^[0-9]+/[0-9]+ acceptance checks passed' /tmp/recovery.log | tail -n1)
+          echo "Summary: $summary"
+          expected_min=84
+          got_pass=$(echo "$summary" | awk -F'/' '{print $1}')
+          got_total=$(echo "$summary" | awk -F'[/ ]' '{print $2}')
+          if [ -z "$got_pass" ] || [ -z "$got_total" ]; then
+            echo "::error::Could not parse acceptance summary line"
+            exit 1
+          fi
+          if [ "$got_pass" != "$got_total" ]; then
+            echo "::error::Recovery suite failures — $got_pass/$got_total"
+            exit 1
+          fi
+          if [ "$got_total" -lt "$expected_min" ]; then
+            echo "::error::Recovery suite too small — expected at least $expected_min checks, got $got_total"
+            exit 1
+          fi
+          echo "✓ recovery suite passed: $got_pass/$got_total (>= $expected_min)"
+
+      # Optional env-dependent stages — explicitly opt-in. Currently no
+      # env-dependent tests exist, so this step prints a clear skip notice.
+      # Future env-required tests should be added inside this guarded block.
+      - name: Env-dependent tests (skipped if secrets absent)
+        env:
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          FMP_API_KEY:         ${{ secrets.FMP_API_KEY }}
+          EODHD_API_KEY:       ${{ secrets.EODHD_API_KEY }}
+        run: |
+          missing=""
+          [ -z "${TWELVE_DATA_API_KEY:-}" ] && missing="$missing TWELVE_DATA_API_KEY"
+          [ -z "${FMP_API_KEY:-}" ]         && missing="$missing FMP_API_KEY"
+          [ -z "${EODHD_API_KEY:-}" ]       && missing="$missing EODHD_API_KEY"
+          if [ -n "$missing" ]; then
+            echo "::notice::env-dependent tests skipped — missing:$missing"
+            echo "(this is expected on PRs from forks and on PRs that don't need live-network checks)"
+            exit 0
+          fi
+          echo "::notice::all live-network secrets present — env-dependent tests would run here"
+          # No env-dependent tests defined yet. When they are added, invoke
+          # them here. Examples for future use:
+          #   node scripts/test_live_td_probes.js
+          #   node scripts/test_live_fmp_cooldown.js
+          # Each new live-network test must:
+          #   - exit 0 with a clear "skipped — <reason>" log when its secret is absent
+          #   - exit non-zero only on a real assertion failure (not on rate-limits)

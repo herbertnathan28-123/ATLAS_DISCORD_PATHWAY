@@ -764,7 +764,7 @@ function presenterQA(sections, ctx) {
   if (/Macro Alignment Strong/i.test(allText) && /Corey.{0,30}neutral/i.test(allText) && !/although/i.test(allText)) return r('macro_strong_corey_neutral_no_explanation');
   if (vol === 'High' && /execution conditions are normal/i.test(allText)) return r('vix_elevated_execution_normal');
   if ((!ez || !Number.isFinite(inv)) && /Reward-to-risk on T1 — 1:/i.test(allText)) return r('pending_entry_with_rr_calculated');
-  if (!ez && /STOP LOSS\s*[:=]/i.test(allText) && !/Not authorised|pending/i.test(allText)) return r('no_entry_with_active_stop');
+  if (!ez && /STOP LOSS\s*[:=]/i.test(allText) && !/Pending|not yet defined/i.test(allText)) return r('no_entry_with_active_stop');
   if (isEquityish && /\bpip\b|\bpips\b|\bstandard lot\b|\bbase currency\b|\bquote currency\b/i.test(allText)) return r('equity_output_contains_fx_language');
   if (macroBias === BIAS.NEUTRAL && /matches the macro direction/i.test(allText)) return r('neutral_macro_with_matches_macro');
   if (catalystInside2h && /Trade permit is AVAILABLE/i.test(allText)) return r('catalyst_inside_2h_with_permit_available');
@@ -818,7 +818,7 @@ function buildPriceTable(sym, jane, htf, ltf) {
         const dd = distanceAsDollars(dist, sym);
         return `• ${t.label} at ${fmtPrice(t.level, sym)}${dd ? ` — ${dd.text}` : ''}`;
       }).join('\n')
-    : '• Not authorised — no targets exist until entry structure forms.';
+    : '• Pending — no targets defined until entry structure forms.';
 
   const st = structureTimeline(htf, ltf);
   const bosLine = st.bos
@@ -836,13 +836,13 @@ function buildPriceTable(sym, jane, htf, ltf) {
     : 'Current position: price has no active zone to react from.';
   const ageLine = `Setup age: ${st.age}.`;
 
-  // Stop-loss line is only shown when an entry exists. Until then, "Not authorised".
+  // Stop-loss line is only shown when an entry exists. Until then, "Pending".
   const stopLossLine = planLive
     ? `STOP LOSS  ${fmtPrice(inv, sym)}`
-    : `STOP LOSS  Not authorised`;
+    : `STOP LOSS  Pending`;
   const targetLineForBox = (planLive && targets[0] && Number.isFinite(targets[0].level))
     ? `TARGET     ${fmtPrice(targets[0].level, sym)}`
-    : 'TARGET     Not authorised';
+    : 'TARGET     Pending';
 
   return [
     `💠 **PRICE TABLE / EXECUTION MAP — ${sym}**`,
@@ -1747,14 +1747,18 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     const __resolveDecisionField = (k) => {
       switch (k) {
         case 'actionState':
-          return jane?.actionState
+          return advisoryWording.advisoryActionState(
+            jane?.actionState
               || (jane?.combinedBias ? `BIAS ${String(jane.combinedBias).toUpperCase()}` : null)
               || (corey?.combinedBias ? `BIAS ${String(corey.combinedBias).toUpperCase()}` : null)
-              || 'WAIT — NO TRADE';
+              || 'HOLD — BIAS STILL FORMING'
+          );
         case 'biasDirection':
           return corey?.combinedBias || jane?.bias || jane?.directionPlain || 'Neutral';
         case 'tradePermission':
-          return jane?.permitLabel || jane?.permit || 'BLOCKED — no entry authorised';
+          // Legacy field name — value is now an advisory trade-status string,
+          // never a permission word.
+          return advisoryWording.advisoryTradeStatus(jane?.tradeStatus || jane?.permitLabel || jane?.permit || 'No active trade signal yet');
         case 'conditionGrid':
           // Always a real grid object (zeros if Jane has no scores yet).
           return __conditionGridResolved;
@@ -1788,11 +1792,11 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
         case 'entry':
           return (jane?.entryZone?.mid ?? jane?.entry) || 'Pending';
         case 'stopLoss':
-          return jane?.invalidationLevel ?? jane?.stopLoss ?? 'Not authorised';
+          return jane?.invalidationLevel ?? jane?.stopLoss ?? 'Not yet defined';
         case 'target':
-          return (jane?.targets && jane.targets[0]) || jane?.target1 || 'Not authorised';
+          return (jane?.targets && jane.targets[0]) || jane?.target1 || 'Not yet defined';
         case 'extendedStopLoss':
-          return jane?.extendedStop ?? jane?.extendedStopLoss ?? 'Not authorised';
+          return jane?.extendedStop ?? jane?.extendedStopLoss ?? 'Not yet defined';
         case 'mechanism':
           return jane?.mechanism || corey?.mechanismSummary || '—';
         case 'scenario':
@@ -1806,7 +1810,7 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
           return jane?.convictionLabel
               || jane?.conviction
               || (Number.isFinite(corey?.confidence) ? `confidence ${corey.confidence}` : null)
-              || 'No authorised trade conviction';
+              || 'No decisive trade conviction yet';
       }
       return __withheld('Unmapped decision field: ' + k);
     };
@@ -1853,7 +1857,7 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     } else {
       const action = String(jane.actionState || jane.combinedBias || jane.permitLabel || jane.verdict || '').toUpperCase();
       janeStatus = action.includes('TRADE CONFIRMED')   ? 'final:trade_confirmed'
-                 : action.includes('ENTRY AUTHORISED')  ? 'final:entry_authorised'
+                 : action.includes('ENTRY AUTHORISED')  ? 'final:entry_authorised'  // legacy code path; advisory wording now sets ENTRY TRIGGERED
                  : action.includes('ARMED')             ? 'final:armed'
                  : 'final:no_trade';
     }
@@ -1897,6 +1901,21 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
               ?? corey?.internalMacro?.lastPrice
               ?? null;
 
+    // Apply central advisory-wording remap to the action state and trade
+    // status so the packet can never carry banned wording downstream.
+    const rawActionState = jane?.actionState || (jane?.combinedBias ? `BIAS ${jane.combinedBias.toUpperCase()}` : 'HOLD — BIAS STILL FORMING');
+    const advActionState = advisoryWording.advisoryActionState(rawActionState);
+    const advActionTone  = advisoryWording.classifyAdvisoryTone(advActionState);
+    const advTradeStatus = advisoryWording.advisoryTradeStatus(jane?.tradeStatus || jane?.permitLabel || (jane ? 'No active trade signal yet' : 'Withheld — Jane unavailable'));
+    const advTradeProb   = (jane && Number.isFinite(jane.tradeProbability)) ? jane.tradeProbability : advisoryWording.tradeProbability1to5(jane || {});
+    const advMarketConfidence = advisoryWording.marketConfidenceLabel(jane?.marketConfidence ?? jane?.conviction ?? corey?.confidence ?? 0);
+    // Bias momentum heuristic — reuse the helper from advisoryHeader if jane
+    // didn't provide it.
+    const advBiasMomentum = jane?.biasMomentum
+      || ((spideyHTF?.dominantBias === spideyLTF?.dominantBias && spideyHTF?.dominantBias !== 'Neutral')
+            ? (spideyHTF?.dominantConviction >= 0.65 ? 'Building' : 'Steady')
+            : (spideyHTF?.dominantBias && spideyLTF?.dominantBias && spideyHTF.dominantBias !== spideyLTF.dominantBias ? 'Reversing' : 'Forming'));
+
     const packet = {
       symbol,
       assetClass,
@@ -1905,22 +1924,41 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       sources,
 
       // Decision layer — sourced from Jane / structure objects when available.
-      actionState:     jane?.actionState     || (jane?.combinedBias ? `BIAS ${jane.combinedBias.toUpperCase()}` : 'WAIT — NO TRADE'),
-      actionTone:      jane?.actionTone      || (/AUTHORISED|CONFIRMED/i.test(jane?.actionState||'') ? 'green' : /ARMED/i.test(jane?.actionState||'') ? 'gold' : 'red'),
+      actionState:     advActionState,
+      actionTone:      advActionTone,
       biasDirection:   corey?.combinedBias   || jane?.bias || 'Neutral',
-      tradePermission: jane?.permitLabel     || (jane ? 'No entry authorised' : 'Withheld — Jane unavailable'),
+      biasMomentum:    advBiasMomentum,
+      tradeProbability: advTradeProb,
+      marketConfidence: advMarketConfidence,
+      tradeReadiness:  jane?.tradeReadiness   || (advActionState === 'DECISION WITHHELD — SOURCE INCOMPLETE'
+        ? 'Source incomplete / structure unavailable / probability weak'
+        : `${advBiasMomentum.toLowerCase()} bias · ${advTradeProb}/5 probability · ${advMarketConfidence.toLowerCase()} confidence`),
+      tradeStatus:     advTradeStatus,
+      tradePermission: advTradeStatus,        // legacy alias — same advisory string, no banned wording
       validityMinutes: 15,
       reassessMinutes: 60,
       direction:       jane?.directionPlain  || corey?.combinedBias || '',
 
+      // INCOREGO contribution from Corey, attached to every dashboard packet.
+      coreyContribution: jane?.coreyContribution || null,
+      incorego:          jane?.incorego          || null,
+      coreyStatus:       jane?.coreyStatus       || 'UNAVAILABLE',
+      activeCatalystWindow: jane?.activeCatalystWindow || null,
+      nextEvent:         jane?.nextEvent || null,
+      coreyEffectOnJaneProbability: jane?.coreyEffectOnJaneProbability || 'neutral',
+      // Spidey state classification (OK / PARTIAL / UNAVAILABLE) +
+      // structured detail with HTF/LTF coverage gaps.
+      spideyStateClass:  jane?.spideyState?.state || 'UNAVAILABLE',
+      spideyStateDetail: jane?.spideyState || null,
+
       entry:            jane?.entryZone?.mid   ?? jane?.entry            ?? 'Pending',
       entrySub:         jane?.entryNote        || '',
-      stopLoss:         jane?.invalidationLevel ?? jane?.stopLoss        ?? 'Not authorised',
-      extendedStopLoss: jane?.extendedStop     ?? 'Not authorised',
-      target:           (jane?.targets && jane.targets[0])              ?? 'Not authorised',
-      riskDollars:      jane?.riskDollars      || 'Not active',
+      stopLoss:         jane?.invalidationLevel ?? jane?.stopLoss        ?? 'Not yet defined',
+      extendedStopLoss: jane?.extendedStop     ?? 'Not yet defined',
+      target:           (jane?.targets && jane.targets[0])              ?? 'Not yet defined',
+      riskDollars:      jane?.riskDollars      || 'No active trade',
       riskSub:          jane?.riskSub          || 'no entry / no invalidation',
-      targetDollars:    jane?.targetDollars    || 'Not active',
+      targetDollars:    jane?.targetDollars    || 'No active trade',
       costDollars:      jane?.costDollars      || '',
       cancellation:     jane?.cancellationTrigger || '—',
 
@@ -1994,9 +2032,31 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       return Object.keys(f).filter(k => f[k] != null && f[k] !== '').length > 0 ? 'present' : 'absent';
     };
     console.log(`[JANE-BUILD] forwardExpectation fields=${Object.keys(packet.forward||{}).length} status=${__forwardStatus()} triggerMap bullish=${__triggerStatus('bullish')} bearish=${__triggerStatus('bearish')}`);
-    console.log(`[JANE-BUILD] packetKeys=${Object.keys(packet).length} actionState="${packet.actionState||''}" biasDirection="${packet.biasDirection||''}" tradePermission="${packet.tradePermission||''}"`);
+    console.log(`[JANE-BUILD] packetKeys=${Object.keys(packet).length} actionState="${packet.actionState||''}" biasDirection="${packet.biasDirection||''}" biasMomentum="${packet.biasMomentum||''}" tradeProbability=${packet.tradeProbability} marketConfidence="${packet.marketConfidence||''}" tradeStatus="${packet.tradeStatus||''}" coreyStatus=${packet.coreyStatus||'?'} spideyState=${packet.spideyStateClass||'?'}`);
+    // Recursive advisory-wording remap across every string field on the
+    // outbound packet — guarantees no banned token reaches the dashboard.
+    // The recursive walker also touches nested objects (forward, triggers,
+    // decisionFields, withholdNotes, etc.).
+    function _remapDeep(node) {
+      if (typeof node === 'string') return advisoryWording.remapAdvisoryWording(node);
+      if (Array.isArray(node))      return node.map(_remapDeep);
+      if (node && typeof node === 'object') {
+        const out = {};
+        for (const k of Object.keys(node)) out[k] = _remapDeep(node[k]);
+        return out;
+      }
+      return node;
+    }
+    const remappedPacket = _remapDeep(packet);
+    // Belt-and-braces banned-wording sweep on the post-remap packet text.
+    // If anything slipped through, log a warning so regressions are visible.
+    try {
+      const sweepHits = advisoryWording.filterBannedFromText(JSON.stringify(remappedPacket));
+      if (!sweepHits.ok) console.warn(`[ADVISORY-WORDING] outbound packet contains banned tokens after remap: ${sweepHits.hits.join(', ')}`);
+      else console.log('[ADVISORY-WORDING] outbound packet sweep ok — no banned tokens');
+    } catch (_e) {}
 
-    const body = JSON.stringify(packet);
+    const body = JSON.stringify(remappedPacket);
     const u = new URL(url);
     const lib = u.protocol === 'http:' ? require('http') : require('https');
     const req = lib.request({
@@ -2229,43 +2289,99 @@ function inferAssetClass(s){if(EQUITY_SYMBOLS.has(s))return ASSET_CLASS.EQUITY;i
 // try/catch + internal try/catch combo could swallow the line entirely
 // when something below the route went wrong. We now compute each field
 // independently with its own catch, then emit the line unconditionally.
-function logDataSource(symbol) {
+// ── DATA-SOURCE ROUTER LOG (truthful, per-resolution) ────────────────
+// Replaces the previous broad "ohlc=fmp+twelvedata" line with a coverage-
+// aware version. The actual provider per resolution is recorded by
+// fetchOHLC into the ambient `_currentCoverage` object during the analyse
+// run, then summarised here. When no coverage object is present (e.g. a
+// non-analyse code path called logDataSource) we fall back to a plain
+// signal of which providers are wired ('twelvedata', 'fmp-eligible'),
+// which is still honest about what was used.
+const { createCoverage, formatDataSourceLine, formatOhlcCoverage } = require('./macro/dataCoverage');
+const { buildIncorego, renderIncoregoForDiscord } = require('./macro/incorego');
+const { buildAdvisoryHeader } = require('./macro/advisoryHeader');
+const { buildSpideyStructure } = require('./macro/spideyStructure');
+const advisoryWording = require('./macro/advisoryWording');
+
+let _currentCoverage = null;
+function setCurrentCoverage(cov) { _currentCoverage = cov || null; return cov; }
+function getCurrentCoverage() { return _currentCoverage; }
+
+function logDataSource(symbol, opts = {}) {
   let ac = 'unknown';
   try { ac = inferAssetClass(normalizeSymbol(symbol)); } catch (_e) {}
   let eodhdOn = false;
   try { eodhdOn = !!(eodhdAdapter && eodhdAdapter.isEnabled && eodhdAdapter.isEnabled()); } catch (_e) {}
   const tdOn = !!TWELVE_DATA_KEY;
   const fmpOn = !!FMP_API_KEY;
-  let quote = 'none', ohlc = 'none', fundamentals = 'none';
+
+  // quote source — preserve existing equity/EODHD-first preference
+  let quote = 'unavailable';
   try {
-    if (ac === ASSET_CLASS.EQUITY) {
-      quote        = eodhdOn ? 'eodhd' : (tdOn ? 'twelvedata' : 'none');
-      ohlc         = tdOn ? 'twelvedata' : (eodhdOn ? 'eodhd' : 'none');
-      fundamentals = eodhdOn ? 'eodhd' : 'none';
-    } else {
-      quote        = tdOn ? 'twelvedata' : (eodhdOn ? 'eodhd' : 'none');
-      ohlc         = fmpOn ? 'fmp+twelvedata' : (tdOn ? 'twelvedata' : (eodhdOn ? 'eodhd' : 'none'));
-      fundamentals = 'none';
-    }
+    if (ac === ASSET_CLASS.EQUITY) quote = eodhdOn ? 'eodhd' : (tdOn ? 'twelvedata' : 'unavailable');
+    else                            quote = tdOn ? 'twelvedata' : (eodhdOn ? 'eodhd' : 'unavailable');
   } catch (_e) {}
-  let calendar = 'none';
+  // fundamentals
+  let fundamentals = 'unavailable';
+  try {
+    if (ac === ASSET_CLASS.EQUITY && eodhdOn) fundamentals = 'eodhd';
+    else if (fmpOn) fundamentals = 'fmp-eligible';
+  } catch (_e) {}
+  // calendar
+  let calendar = 'unavailable';
   try {
     const h = (coreyCalendar.getCalendarHealth && coreyCalendar.getCalendarHealth()) || {};
     calendar = h.source_used === 'tradingview'       ? 'tradingview'
              : h.source_used === 'trading_economics' ? 'te'
              : h.source_used === 'degraded'          ? 'degraded'
-             : 'none';
+             : 'unavailable';
   } catch (_e) {}
+  // historical
   let cacheHit = false;
   try {
     const cacheReader = require('./cacheReader');
     const symU = String(symbol).toUpperCase();
     cacheHit = !!(cacheReader && cacheReader.SYMBOL_GROUP_MAP && cacheReader.SYMBOL_GROUP_MAP[symU]);
   } catch (_e) {}
-  const historical = cacheHit ? '15Y-cache' : (eodhdOn ? 'eodhd' : 'none');
+  const historical = cacheHit ? '15Y-cache' : (eodhdOn ? 'eodhd' : 'unavailable');
+
+  // OHLC coverage — if we have an ambient coverage object from this analyse
+  // run, render the truthful per-resolution line. Otherwise emit a fallback
+  // "ohlc=eligible:..." line that names which providers WOULD have been tried.
+  const cov = opts.coverage || _currentCoverage;
+  let ohlcLine;
+  let spideyTag = opts.spidey;
+  if (cov && cov.summarise) {
+    ohlcLine = formatOhlcCoverage(cov);
+    if (!spideyTag) {
+      const spideyState = cov.spideyState();
+      spideyTag = spideyState.state.toLowerCase() + (spideyState.reason ? ':' + spideyState.reason : '');
+    }
+  } else {
+    const eligible = [tdOn ? 'twelvedata' : null, fmpOn ? 'fmp-fallback' : null].filter(Boolean).join('+') || 'unavailable';
+    ohlcLine = `ohlc=eligible:${eligible}`;
+  }
+
+  // Corey / clone tags
+  const coreyTag      = opts.corey      || 'eligible';
+  const coreyCloneTag = opts.coreyClone || 'unavailable: not implemented';
+  const janeTag       = opts.jane       || 'pending';
+  spideyTag           = spideyTag       || 'pending';
+
   // Single-line emit — guaranteed to fire on every live route.
-  console.log(`[DATA-SOURCE] symbol=${symbol} quote=${quote} ohlc=${ohlc} fundamentals=${fundamentals} calendar=${calendar} historical=${historical}`);
-  return { ac, quote, ohlc, fundamentals, calendar, historical };
+  const line =
+    `[DATA-SOURCE] symbol=${symbol} ` +
+    `quote=${quote} ` +
+    `${ohlcLine} ` +
+    `fundamentals=${fundamentals} ` +
+    `calendar=${calendar} ` +
+    `historical=${historical} ` +
+    `corey=${coreyTag} ` +
+    `coreyClone=${coreyCloneTag} ` +
+    `spidey=${spideyTag} ` +
+    `jane=${janeTag}`;
+  console.log(line);
+  return { ac, quote, ohlcLine, fundamentals, calendar, historical, corey: coreyTag, coreyClone: coreyCloneTag, spidey: spideyTag, jane: janeTag };
 }
 function parsePairCore(symbol){const s=normalizeSymbol(symbol);if(isFxPair(s))return{symbol:s,base:s.slice(0,3),quote:s.slice(3,6),assetClass:ASSET_CLASS.FX};if(['XAUUSD','XAGUSD','BCOUSD'].includes(s))return{symbol:s,base:s.slice(0,3),quote:s.slice(3,6),assetClass:inferAssetClass(s)};return{symbol:s,base:s,quote:'USD',assetClass:inferAssetClass(s)};}
 const makeStubCB=label=>({name:label||'Commodity',stance:STANCE.N_A,direction:STANCE.N_A,rateCycle:RATE_CYCLE.N_A,terminalBias:0,inflationSensitivity:0.5,growthSensitivity:0.5,score:0});
@@ -2348,72 +2464,165 @@ setInterval(()=>{const now=Date.now();let rm=0;for(const[sym,e]of TS_STORE){if(e
 
 function startTSServer(){if(!TS_ENABLED){log('INFO','[TS SERVER] Disabled');return;}const srv=http.createServer((req,res)=>{if(req.method==='GET'&&req.url==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,service:'ATLAS FX v4.0',signals:TS_STORE.size}));return;}if(req.method==='POST'&&req.url==='/trendspider'){let body='';req.on('data',c=>{body+=c;});req.on('end',()=>{const rt=Date.now();try{const raw=JSON.parse(body);const rawSym=raw.symbol||raw.ticker||raw.pair||'';if(!rawSym){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Missing symbol'}));return;}const sig=tsNorm(raw,rt);if(!sig.symbol){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Could not resolve symbol'}));return;}const grade=tsGrade(sig,rt);if(grade!=='Unusable')tsStore(sig);res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,symbol:sig.symbol,stored:grade!=='Unusable',status:grade}));}catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Invalid JSON'}));}});req.on('error',()=>{res.writeHead(500);res.end();});return;}res.writeHead(404);res.end();});srv.on('error',e=>log('ERROR',`[TS SERVER] ${e.message}`));srv.listen(TS_PORT,()=>log('INFO',`[TS SERVER] Listening on port ${TS_PORT}`));}
 
-function fetchOHLCTD(symbol,resolution,count=200){return new Promise((resolve,reject)=>{const tdSym=encodeURIComponent(TD_SYMBOL_MAP[symbol]||symbol),tdInt=TD_INTERVAL_MAP[resolution]||'1day';const opts={hostname:'api.twelvedata.com',path:`/time_series?symbol=${tdSym}&interval=${tdInt}&outputsize=${count}&apikey=${TWELVE_DATA_KEY}&format=JSON`,method:'GET',headers:{'User-Agent':'ATLAS-FX/4.0'},timeout:15000};const req=https.request(opts,r=>{let data='';r.on('data',c=>{data+=c;});r.on('end',()=>{try{const p=JSON.parse(data);if(p.status==='error'||!p.values||!Array.isArray(p.values)){reject(new Error(`TwelveData: ${p.message||'unknown'}`));return;}resolve(p.values.slice().reverse().map(v=>({time:Math.floor(new Date(v.datetime).getTime()/1000),open:parseFloat(v.open),high:parseFloat(v.high),low:parseFloat(v.low),close:parseFloat(v.close),volume:v.volume?parseFloat(v.volume):0})));}catch(e){reject(new Error(`TwelveData parse: ${e.message}`));}});});req.on('error',reject);req.on('timeout',()=>reject(new Error('TwelveData timeout')));req.end();});}
+// Single-shot TD fetch using a verbatim probe symbol (no remap). Used by
+// fetchOHLCTDWithProbes so we can walk a candidate list per resolution and
+// log each individual probe outcome for [SYMBOL-MAP] proof.
+function _fetchOHLCTD_probe(probe, resolution, count = 200) {
+  return new Promise((resolve, reject) => {
+    const opts = {
+      hostname: 'api.twelvedata.com',
+      path: `/time_series?symbol=${encodeURIComponent(probe)}&interval=${TD_INTERVAL_MAP[resolution]||'1day'}&outputsize=${count}&apikey=${TWELVE_DATA_KEY}&format=JSON`,
+      method: 'GET', headers: { 'User-Agent': 'ATLAS-FX/4.0' }, timeout: 15000
+    };
+    const req = https.request(opts, r => {
+      let data = ''; r.on('data', c => { data += c; });
+      r.on('end', () => {
+        try {
+          const p = JSON.parse(data);
+          if (p.status === 'error' || !p.values || !Array.isArray(p.values)) {
+            reject(new Error(`TwelveData: ${p.message || 'unknown'}`));
+            return;
+          }
+          resolve(p.values.slice().reverse().map(v => ({
+            time: Math.floor(new Date(v.datetime).getTime() / 1000),
+            open: parseFloat(v.open), high: parseFloat(v.high),
+            low: parseFloat(v.low),  close: parseFloat(v.close),
+            volume: v.volume ? parseFloat(v.volume) : 0
+          })));
+        } catch (e) { reject(new Error(`TwelveData parse: ${e.message}`)); }
+      });
+    });
+    req.on('error', reject);
+    req.on('timeout', () => reject(new Error('TwelveData timeout')));
+    req.end();
+  });
+}
+
+function fetchOHLCTD(symbol, resolution, count = 200) {
+  // Legacy single-symbol path retained for callers that pre-mapped the symbol.
+  const tdSym = TD_SYMBOL_MAP[symbol] || symbol;
+  return _fetchOHLCTD_probe(tdSym, resolution, count);
+}
 
 // TwelveData index probe list — primary symbol from TD_SYMBOL_MAP plus
 // alternatives that work on the free tier. Free-tier TD often resolves
 // indices via ETF tickers (SPY/QQQ/DIA) rather than cash-index tickers
-// (SPX/NDX/DJI). When the primary returns "Data not found", we walk the
-// probe list and the first symbol that returns candles wins. The chosen
-// mapping is logged via [SYMBOL-MAP].
+// (SPX/NDX/DJI). For each call we walk every probe in the list, EVEN if
+// the primary fails with a non-"data not found" error, because the
+// "symbol or figi parameter is missing or invalid" error from TD is also
+// a probe-level miss (not a hard provider outage).
+//
+// Critical: never call TD with an empty / blank symbol. We assert
+// non-empty probe strings before issuing the request.
 const TD_INDEX_PROBES = {
-  US500:  ['SPX', 'GSPC', '^GSPC', 'SPY'],
-  NAS100: ['NDX', 'IXIC', '^IXIC', 'QQQ'],
-  US30:   ['DIA', 'DJI', '^DJI'],
-  DJI:    ['DIA', 'DJI', '^DJI'],
+  // ETF first (free-tier reliable), then cash index, then prefixed variants.
+  US500:  ['SPY', 'IVV', 'VOO', 'SPX', 'GSPC', '^GSPC'],
+  SPX500: ['SPY', 'IVV', 'VOO', 'SPX', 'GSPC', '^GSPC'],
+  SPX:    ['SPY', 'IVV', 'VOO', 'SPX', 'GSPC', '^GSPC'],
+  NAS100: ['QQQ', 'NDX', 'IXIC', '^IXIC'],
+  US100:  ['QQQ', 'NDX', 'IXIC', '^IXIC'],
+  NDX:    ['QQQ', 'NDX', 'IXIC', '^IXIC'],
+  US30:   ['DIA', '^DJI', 'DJI'],
+  DJI:    ['DIA', '^DJI', 'DJI'],
   GER40:  ['DAX', '^GDAXI'],
   UK100:  ['UKX', '^FTSE'],
   HK50:   ['HSI', '^HSI'],
   JPN225: ['NKX', 'N225', '^N225']
 };
-async function fetchOHLCTDWithProbes(symbol, resolution, count = 200) {
-  // Primary mapped symbol comes from TD_SYMBOL_MAP; fall back through the
-  // index probe list if "Data not found".
-  const primary = TD_SYMBOL_MAP[symbol] || symbol;
-  const probes  = TD_INDEX_PROBES[symbol] ? [primary, ...TD_INDEX_PROBES[symbol].filter(p => p !== primary)] : [primary];
+
+async function fetchOHLCTDWithProbes(symbol, resolution, count = 200, coverage = null) {
+  const ac = (inferAssetClass(symbol) || '').toLowerCase();
+  // Build the probe list — always start with TD_SYMBOL_MAP primary if present,
+  // then dedupe in the configured probe list.
+  const primaryRaw = TD_SYMBOL_MAP[symbol] || symbol;
+  const indexProbes = TD_INDEX_PROBES[symbol] || null;
+  const probes = (indexProbes
+    ? [primaryRaw, ...indexProbes.filter(p => p !== primaryRaw)]
+    : [primaryRaw]
+  ).filter(p => p && String(p).trim().length > 0); // never call TD with blank
+
+  if (!probes.length) {
+    // Refuse to make the call rather than send a blank symbol to TwelveData.
+    const reason = 'no_probe_candidates_resolved';
+    console.log(`[SYMBOL-MAP] raw=${symbol} asset=${ac} provider=twelvedata resolution=${resolution} status=skip reason=${reason}`);
+    if (coverage) coverage.record(resolution, 'none', 0, reason);
+    throw new Error(`TwelveData: ${reason}`);
+  }
+
   let lastErr = null;
-  for (const probe of probes) {
+  for (let i = 0; i < probes.length; i++) {
+    const probe = probes[i];
     try {
-      // Inline a single-shot TD fetch using the probe symbol verbatim.
-      const candles = await new Promise((resolve, reject) => {
-        const opts = { hostname: 'api.twelvedata.com', path: `/time_series?symbol=${encodeURIComponent(probe)}&interval=${TD_INTERVAL_MAP[resolution]||'1day'}&outputsize=${count}&apikey=${TWELVE_DATA_KEY}&format=JSON`, method: 'GET', headers: { 'User-Agent': 'ATLAS-FX/4.0' }, timeout: 15000 };
-        const req = https.request(opts, r => {
-          let data = ''; r.on('data', c => { data += c; });
-          r.on('end', () => {
-            try {
-              const p = JSON.parse(data);
-              if (p.status === 'error' || !p.values || !Array.isArray(p.values)) { reject(new Error(`TwelveData: ${p.message || 'unknown'}`)); return; }
-              resolve(p.values.slice().reverse().map(v => ({ time: Math.floor(new Date(v.datetime).getTime()/1000), open: parseFloat(v.open), high: parseFloat(v.high), low: parseFloat(v.low), close: parseFloat(v.close), volume: v.volume ? parseFloat(v.volume) : 0 })));
-            } catch (e) { reject(new Error(`TwelveData parse: ${e.message}`)); }
-          });
-        });
-        req.on('error', reject);
-        req.on('timeout', () => reject(new Error('TwelveData timeout')));
-        req.end();
-      });
-      console.log(`[SYMBOL-MAP] raw=${symbol} asset=${(inferAssetClass(symbol)||'').toLowerCase()} provider=twelvedata mapped=${probe} probesTried=${probes.indexOf(probe)+1}/${probes.length} status=ok`);
+      const candles = await _fetchOHLCTD_probe(probe, resolution, count);
+      console.log(
+        `[SYMBOL-MAP] raw=${symbol} asset=${ac} provider=twelvedata candidate=${probe} ` +
+        `resolution=${resolution} probesTried=${i+1}/${probes.length} status=ok candles=${candles.length}`
+      );
+      console.log(
+        `[SYMBOL-MAP] raw=${symbol} asset=${ac} provider=twelvedata mapped=${probe} ` +
+        `mode=${i === 0 ? 'direct' : (TD_INDEX_PROBES[symbol] ? 'proxy' : 'fallback')}`
+      );
+      if (coverage) coverage.record(resolution, 'twelvedata', candles.length, null, probe);
       return candles;
     } catch (e) {
+      const reason = (e && e.message) || 'unknown';
+      console.log(
+        `[SYMBOL-MAP] raw=${symbol} asset=${ac} provider=twelvedata candidate=${probe} ` +
+        `resolution=${resolution} probesTried=${i+1}/${probes.length} status=fail reason=${reason}`
+      );
       lastErr = e;
-      // Only walk the probe list on "Data not found"-class errors. Hard failures
-      // (timeout, parse, network) bail immediately.
-      if (!/Data not found|symbol not found|invalid symbol/i.test(e.message || '')) break;
+      // Walk the probe list on every kind of probe-level miss — TD's
+      // "symbol or figi parameter is missing or invalid" + "Data not found"
+      // + "symbol not found" / "invalid symbol" are all retryable. Only
+      // network-level hard failures bail.
+      const probeMiss = /Data not found|symbol not found|invalid symbol|symbol or figi parameter is missing or invalid|api credits|rate limit/i.test(reason);
+      if (!probeMiss) break;
     }
   }
-  console.log(`[SYMBOL-MAP] raw=${symbol} asset=${(inferAssetClass(symbol)||'').toLowerCase()} provider=twelvedata probesTried=${probes.length}/${probes.length} status=fail reason=${(lastErr && lastErr.message) || 'unknown'}`);
+  console.log(
+    `[SYMBOL-MAP] raw=${symbol} asset=${ac} provider=twelvedata resolution=${resolution} ` +
+    `probesTried=${probes.length}/${probes.length} status=fail reason=${(lastErr && lastErr.message) || 'unknown'}`
+  );
   throw lastErr || new Error('TwelveData: all probes failed');
 }
 
-// FMP rate-limit memory. When FMP returns 429, we cache that for FMP_QUOTA_TTL
-// so subsequent OHLC calls in the same run skip FMP entirely instead of
-// hammering it (the live log was full of 429 spam). State self-heals after
-// the TTL window expires.
-const FMP_QUOTA_TTL_MS = 60 * 1000;
+// FMP cooldown memory — both 429 (rate-limit) and 402 (premium endpoint)
+// failures put FMP in cooldown so we stop spamming. Two tiers:
+//
+//   - 429 hit:  global FMP cooldown for FMP_QUOTA_TTL_MS (all symbols/resolutions).
+//               This is a hard rate limit; backing off entirely is correct.
+//   - 402 hit:  per-(symbol,resolution) cooldown for FMP_PREMIUM_TTL_MS. This
+//               targets the precise endpoint that requires a premium plan
+//               without disabling FMP for resolutions that DO work on the
+//               current subscription.
+//
+// Each cooldown window logs ONCE on entry. Subsequent skips are silent
+// (no spam in the live log).
+const FMP_QUOTA_TTL_MS   = 60 * 1000;       // 60s on 429
+const FMP_PREMIUM_TTL_MS = 30 * 60 * 1000;  // 30min on 402 (premium endpoint)
 let _fmpQuotaUntil = 0;
+const _fmpPremiumDisabled = new Map(); // key=`${symbol}:${resolution}` -> untilTs
 function fmpQuotaActive() { return Date.now() < _fmpQuotaUntil; }
+function fmpPremiumActive(symbol, resolution) {
+  const key = `${symbol}:${resolution}`;
+  const until = _fmpPremiumDisabled.get(key) || 0;
+  if (Date.now() >= until) { _fmpPremiumDisabled.delete(key); return false; }
+  return true;
+}
 function markFmpQuotaHit() {
+  // Log once per cooldown window — no spam.
+  if (!fmpQuotaActive()) {
+    log('WARN', `[FMP-QUOTA] 429 hit — disabling FMP globally for ${FMP_QUOTA_TTL_MS/1000}s; OHLC routes TD-only until cooldown expires`);
+  }
   _fmpQuotaUntil = Date.now() + FMP_QUOTA_TTL_MS;
-  log('WARN', `[FMP-QUOTA] 429 hit — disabling FMP for ${FMP_QUOTA_TTL_MS/1000}s; OHLC will route TwelveData-only until cooldown expires`);
+}
+function markFmpPremiumHit(symbol, resolution) {
+  const key = `${symbol}:${resolution}`;
+  const wasActive = _fmpPremiumDisabled.has(key);
+  _fmpPremiumDisabled.set(key, Date.now() + FMP_PREMIUM_TTL_MS);
+  if (!wasActive) {
+    log('WARN', `[FMP-PREMIUM] 402 hit symbol=${symbol} resolution=${resolution} — disabling FMP for this symbol/resolution for ${Math.round(FMP_PREMIUM_TTL_MS/60000)}min`);
+  }
 }
 
 // ── FMP OHLC fetcher ─────────────────────────────────────────────────
@@ -2472,61 +2681,80 @@ function fetchOHLCFMP(symbol,resolution,count=200){
   });
 }
 
-// Asset-class-aware OHLC dispatcher. FMP free-tier returns 402 on equity
-// historical endpoints; we demote FMP to legacy_optional for equities and
-// route TwelveData primary. FX / commodity / index keep FMP-primary
-// (FMP free coverage is OK there). Unsupported FMP resolutions (e.g. '1W')
-// go straight to TwelveData. The public signature is unchanged.
+// Asset-class-aware OHLC dispatcher. ATLAS doctrine:
+//   - TwelveData is primary for OHLC across all asset classes.
+//   - FMP is a LAST-RESORT fallback only when TD probes have all failed
+//     AND FMP is not in cooldown (429 global / 402 per-symbol-resolution).
+//   - Indices walk the per-symbol probe list (SPY/QQQ/DIA/etc.) before
+//     handing off to FMP.
+//
+// Coverage tracking: when called with a `coverage` object (from
+// macro/dataCoverage.js), every resolution outcome is recorded so the
+// caller can emit a truthful [DATA-SOURCE] line and Spidey can classify
+// OK/PARTIAL/UNAVAILABLE based on which timeframes actually loaded.
 //
 // Emits a [DATA-SOURCE-FETCH] line per resolution with the actual provider
 // that delivered candles — ground-truth proof of routing for the live log.
-async function fetchOHLC(symbol,resolution,count=200){
+async function fetchOHLC(symbol, resolution, count = 200, coverage = null) {
   const ac = inferAssetClass(normalizeSymbol(symbol));
-  const fmpUsable = FMP_API_KEY && FMP_INTERVAL_MAP[resolution] && !fmpQuotaActive();
-  // FMP free tier returns 402 on equity historical AND repeatedly 429s the rest.
-  // ATLAS doctrine: TwelveData is intended primary for OHLC. FMP becomes a
-  // last-resort fallback only when TD lacks data AND FMP is not in cooldown.
-  const tdIsIndex = (ac === ASSET_CLASS.INDEX);
+  const fmpQuotaCold     = fmpQuotaActive();
+  const fmpPremiumCold   = fmpPremiumActive(symbol, resolution);
+  const fmpResSupported  = !!FMP_INTERVAL_MAP[resolution];
+  const fmpUsable        = FMP_API_KEY && fmpResSupported && !fmpQuotaCold && !fmpPremiumCold;
 
-  // Try TwelveData FIRST (with index probe list) for everything except
-  // resolutions TD doesn't support natively (handled inside fetchOHLCTDWithProbes).
+  // Try TwelveData FIRST. fetchOHLCTDWithProbes records its own coverage
+  // entries via the SYMBOL-MAP log; we still record the final outcome.
   try {
-    const tdData = (tdIsIndex || TD_INDEX_PROBES[symbol])
-      ? await fetchOHLCTDWithProbes(symbol, resolution, count)
-      : await fetchOHLCTD(symbol, resolution, count);
-    log('INFO',`[OHLC] TD ${symbol} ${resolution} candles=${tdData.length}`);
+    const tdData = await fetchOHLCTDWithProbes(symbol, resolution, count, coverage);
+    log('INFO', `[OHLC] TD ${symbol} ${resolution} candles=${tdData.length}`);
     console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=twelvedata candles=${tdData.length}`);
     return tdData;
   } catch (tdErr) {
     const tdReason = (tdErr && tdErr.message) || 'unknown';
-    const tdNotFound = /Data not found|symbol not found|invalid symbol/i.test(tdReason);
-    log('WARN',`[OHLC] TD ${symbol} ${resolution} failed: ${tdReason}${tdNotFound ? ' (symbol-not-found)' : ''}`);
+    log('WARN', `[OHLC] TD ${symbol} ${resolution} failed: ${tdReason}`);
 
-    // FMP fallback — only when TD failed AND FMP isn't quota-blocked.
+    // FMP fallback — only when TD failed AND FMP isn't blocked.
     if (fmpUsable) {
       try {
         const data = await fetchOHLCFMP(symbol, resolution, count);
-        log('INFO',`[OHLC] FMP-fallback ${symbol} ${resolution} candles=${data.length}`);
+        log('INFO', `[OHLC] FMP-fallback ${symbol} ${resolution} candles=${data.length}`);
         console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=fmp-fallback candles=${data.length}`);
+        if (coverage) coverage.record(resolution, 'fmp-fallback', data.length, null);
         return data;
       } catch (fmpErr) {
         const fmpReason = (fmpErr && fmpErr.message) || 'unknown';
+        // 429 -> global cooldown
         if (/\b429\b|Limit Reach|Rate limit/i.test(fmpReason)) {
           markFmpQuotaHit();
           console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=none td_error=${tdReason} fmp_error=quota_429`);
-        } else {
+        }
+        // 402 -> per-(symbol,resolution) cooldown
+        else if (/\b402\b|Premium|Premium Query|subscription|premium endpoint/i.test(fmpReason)) {
+          markFmpPremiumHit(symbol, resolution);
+          console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=none td_error=${tdReason} fmp_error=premium_402`);
+        }
+        else {
           console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=none td_error=${tdReason} fmp_error=${fmpReason}`);
         }
+        if (coverage) coverage.record(resolution, 'none', 0, `td=${tdReason} | fmp=${fmpReason}`);
         throw new Error(`OHLC unavailable: TD=${tdReason} | FMP=${fmpReason}`);
       }
     }
-    // FMP unavailable (no key, unsupported res, or in cooldown).
-    const fmpStatus = !FMP_API_KEY ? 'no-key' : !FMP_INTERVAL_MAP[resolution] ? 'unsupported-resolution' : 'in-cooldown';
+    // FMP unavailable (no key, unsupported resolution, in cooldown).
+    const fmpStatus = !FMP_API_KEY ? 'no-key'
+                    : !fmpResSupported ? 'unsupported-resolution'
+                    : fmpQuotaCold ? 'in-cooldown-429'
+                    : fmpPremiumCold ? 'in-cooldown-402'
+                    : 'unavailable';
     console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=none td_error=${tdReason} fmp_status=${fmpStatus}`);
+    if (coverage) coverage.record(resolution, 'none', 0, `td=${tdReason} | fmp_status=${fmpStatus}`);
     throw tdErr;
   }
 }
-async function safeOHLC(sym,res,count=200){try{return await fetchOHLC(sym,res,count);}catch(e){log('WARN',`[OHLC] ${sym} ${res}: ${e.message}`);return null;}}
+async function safeOHLC(sym, res, count = 200, coverage = null) {
+  try { return await fetchOHLC(sym, res, count, coverage); }
+  catch (e) { log('WARN', `[OHLC] ${sym} ${res}: ${e.message}`); return null; }
+}
 
 function detectSwings(candles,lb=3){const sh=[],sl=[];for(let i=lb;i<candles.length-lb;i++){const c=candles[i];let isH=true,isL=true;for(let j=i-lb;j<=i+lb;j++){if(j===i)continue;if(candles[j].high>=c.high)isH=false;if(candles[j].low<=c.low)isL=false;}if(isH)sh.push({index:i,level:c.high,time:c.time});if(isL)sl.push({index:i,level:c.low,time:c.time});}return{swingHighs:sh,swingLows:sl};}
 function classifyStructure(sh,sl,lb=4){const rh=sh.slice(-lb),rl=sl.slice(-lb);if(rh.length<2||rl.length<2)return{bias:'Neutral',structure:'Insufficient data',conviction:0.3};const hp=[],lp=[];for(let i=1;i<rh.length;i++)hp.push(rh[i].level>rh[i-1].level?'HH':'LH');for(let i=1;i<rl.length;i++)lp.push(rl[i].level>rl[i-1].level?'HL':'LL');const hhC=hp.filter(x=>x==='HH').length,lhC=hp.filter(x=>x==='LH').length,hlC=lp.filter(x=>x==='HL').length,llC=lp.filter(x=>x==='LL').length,total=hp.length+lp.length,bull=(hhC+hlC)/total,bear=(lhC+llC)/total;if(bull>=0.75)return{bias:'Bullish',structure:'Trending',conviction:bull};if(bear>=0.75)return{bias:'Bearish',structure:'Trending',conviction:bear};if(bull>=0.55)return{bias:'Bullish',structure:'Transition',conviction:bull*0.8};if(bear>=0.55)return{bias:'Bearish',structure:'Transition',conviction:bear*0.8};return{bias:'Neutral',structure:'Range',conviction:0.3};}
@@ -2535,8 +2763,8 @@ function detectZones(candles){const zones={supply:[],demand:[]};if(candles.lengt
 function detectImbalances(candles){const ims=[],cp=candles[candles.length-1].close;for(let i=0;i<candles.length-2;i++){const c1=candles[i],c3=candles[i+2],c2=candles[i+1];if(c3.low>c1.high)ims.push({type:'Bullish',high:c3.low,low:c1.high,time:c2.time,filled:cp>=c1.high});if(c3.high<c1.low)ims.push({type:'Bearish',high:c1.low,low:c3.high,time:c2.time,filled:cp<=c1.low});}return ims.filter(im=>!im.filled).slice(-5);}
 function detectLiquidity(candles,tol=0.0005){const pools=[],seen=new Set(),cp=candles[candles.length-1].close;for(let i=0;i<candles.length-1;i++){for(const type of['EQH','EQL']){const val=type==='EQH'?candles[i].high:candles[i].low,key=`${type}_${val.toFixed(5)}`;if(seen.has(key))continue;const matches=candles.filter(c=>Math.abs((type==='EQH'?c.high:c.low)-val)/val<tol).length;if(matches>=2){seen.add(key);pools.push({type,level:val,strength:matches,time:candles[i].time});}}}return pools.sort((a,b)=>b.strength-a.strength).map(p=>({...p,proximate:Math.abs(p.level-cp)/cp<0.005})).slice(0,6);}
 
-async function runSpideyHTF(symbol,intervals){log('INFO',`[SPIDEY-HTF] ${symbol} [${intervals.join(',')}]`);const results={},tfW={'1W':4,'1D':3,'240':2,'60':1};for(const iv of intervals){const candles=await safeOHLC(symbol,iv,200);if(!candles||candles.length<20){results[iv]={bias:'Neutral',structure:'No data',conviction:0,lastBreak:'None',currentPrice:0};continue;}const{swingHighs:sh,swingLows:sl}=detectSwings(candles,3),st=classifyStructure(sh,sl),br=detectBreaks(candles,sh,sl),zones=detectZones(candles),imbs=detectImbalances(candles),liq=detectLiquidity(candles);results[iv]={bias:st.bias,structure:st.structure,conviction:Math.round(st.conviction*100)/100,lastBreak:br.lastBreak,breakDirection:br.direction,breakLevel:br.breakLevel,isEngineered:br.isEngineered,activeSupply:zones.supply[0]||null,activeDemand:zones.demand[0]||null,allSupply:zones.supply,allDemand:zones.demand,imbalances:imbs,liquidityPools:liq,swingHighs:sh.slice(-3),swingLows:sl.slice(-3),currentPrice:candles[candles.length-1].close};}let wS=0,wT=0;for(const[iv,r]of Object.entries(results)){const w=tfW[iv]||1,s=r.bias==='Bullish'?1:r.bias==='Bearish'?-1:0;wS+=s*w*r.conviction;wT+=w;}const norm=wT>0?wS/wT:0,domBias=norm>0.2?'Bullish':norm<-0.2?'Bearish':'Neutral',domConv=Math.min(Math.abs(norm),1);const allBr=Object.entries(results).filter(([,r])=>r.lastBreak!=='None').map(([iv,r])=>({...r,timeframe:iv,weight:tfW[iv]||1})).sort((a,b)=>b.weight-a.weight);const sigBreak=allBr[0]||null,cp=results[intervals[0]]?.currentPrice||0;let nearDraw=null;for(const[,r]of Object.entries(results)){const liq=r.liquidityPools?.find(p=>p.proximate);if(liq){nearDraw=liq;break;}}log('INFO',`[SPIDEY-HTF] ${symbol} → ${domBias} (${domConv.toFixed(2)})`);return{timeframes:results,dominantBias:domBias,dominantConviction:domConv,significantBreak:sigBreak,nearestDraw:nearDraw,currentPrice:cp};}
-async function runSpideyLTF(symbol,intervals){log('INFO',`[SPIDEY-LTF] ${symbol} [${intervals.join(',')}]`);const results={},tfW={'30':3,'15':2,'5':1,'1':0.5};for(const iv of intervals){const candles=await safeOHLC(symbol,iv,150);if(!candles||candles.length<20){results[iv]={bias:'Neutral',structure:'No data',conviction:0,lastBreak:'None',currentPrice:0};continue;}const{swingHighs:sh,swingLows:sl}=detectSwings(candles,2),st=classifyStructure(sh,sl),br=detectBreaks(candles,sh,sl),zones=detectZones(candles),imbs=detectImbalances(candles),liq=detectLiquidity(candles);results[iv]={bias:st.bias,structure:st.structure,conviction:Math.round(st.conviction*100)/100,lastBreak:br.lastBreak,breakDirection:br.direction,breakLevel:br.breakLevel,isEngineered:br.isEngineered,activeSupply:zones.supply[0]||null,activeDemand:zones.demand[0]||null,imbalances:imbs,liquidityPools:liq,swingHighs:sh.slice(-3),swingLows:sl.slice(-3),currentPrice:candles[candles.length-1].close};}let wS=0,wT=0;for(const[iv,r]of Object.entries(results)){const w=tfW[iv]||1,s=r.bias==='Bullish'?1:r.bias==='Bearish'?-1:0;wS+=s*w*r.conviction;wT+=w;}const norm=wT>0?wS/wT:0,domBias=norm>0.15?'Bullish':norm<-0.15?'Bearish':'Neutral',domConv=Math.min(Math.abs(norm),1);const cp=results[intervals[0]]?.currentPrice||0;let nearDraw=null;for(const[,r]of Object.entries(results)){const liq=r.liquidityPools?.find(p=>p.proximate);if(liq){nearDraw=liq;break;}}log('INFO',`[SPIDEY-LTF] ${symbol} → ${domBias} (${domConv.toFixed(2)})`);return{timeframes:results,dominantBias:domBias,dominantConviction:domConv,nearestDraw:nearDraw,currentPrice:cp};}
+async function runSpideyHTF(symbol,intervals){log('INFO',`[SPIDEY-HTF] ${symbol} [${intervals.join(',')}]`);const results={},tfW={'1W':4,'1D':3,'240':2,'60':1};for(const iv of intervals){const candles=await safeOHLC(symbol,iv,200,_currentCoverage);if(!candles||candles.length<20){results[iv]={bias:'Neutral',structure:'No data',conviction:0,lastBreak:'None',currentPrice:0};continue;}const{swingHighs:sh,swingLows:sl}=detectSwings(candles,3),st=classifyStructure(sh,sl),br=detectBreaks(candles,sh,sl),zones=detectZones(candles),imbs=detectImbalances(candles),liq=detectLiquidity(candles);results[iv]={bias:st.bias,structure:st.structure,conviction:Math.round(st.conviction*100)/100,lastBreak:br.lastBreak,breakDirection:br.direction,breakLevel:br.breakLevel,isEngineered:br.isEngineered,activeSupply:zones.supply[0]||null,activeDemand:zones.demand[0]||null,allSupply:zones.supply,allDemand:zones.demand,imbalances:imbs,liquidityPools:liq,swingHighs:sh.slice(-3),swingLows:sl.slice(-3),currentPrice:candles[candles.length-1].close};}let wS=0,wT=0;for(const[iv,r]of Object.entries(results)){const w=tfW[iv]||1,s=r.bias==='Bullish'?1:r.bias==='Bearish'?-1:0;wS+=s*w*r.conviction;wT+=w;}const norm=wT>0?wS/wT:0,domBias=norm>0.2?'Bullish':norm<-0.2?'Bearish':'Neutral',domConv=Math.min(Math.abs(norm),1);const allBr=Object.entries(results).filter(([,r])=>r.lastBreak!=='None').map(([iv,r])=>({...r,timeframe:iv,weight:tfW[iv]||1})).sort((a,b)=>b.weight-a.weight);const sigBreak=allBr[0]||null,cp=results[intervals[0]]?.currentPrice||0;let nearDraw=null;for(const[,r]of Object.entries(results)){const liq=r.liquidityPools?.find(p=>p.proximate);if(liq){nearDraw=liq;break;}}log('INFO',`[SPIDEY-HTF] ${symbol} → ${domBias} (${domConv.toFixed(2)})`);return{timeframes:results,dominantBias:domBias,dominantConviction:domConv,significantBreak:sigBreak,nearestDraw:nearDraw,currentPrice:cp};}
+async function runSpideyLTF(symbol,intervals){log('INFO',`[SPIDEY-LTF] ${symbol} [${intervals.join(',')}]`);const results={},tfW={'30':3,'15':2,'5':1,'1':0.5};for(const iv of intervals){const candles=await safeOHLC(symbol,iv,150,_currentCoverage);if(!candles||candles.length<20){results[iv]={bias:'Neutral',structure:'No data',conviction:0,lastBreak:'None',currentPrice:0};continue;}const{swingHighs:sh,swingLows:sl}=detectSwings(candles,2),st=classifyStructure(sh,sl),br=detectBreaks(candles,sh,sl),zones=detectZones(candles),imbs=detectImbalances(candles),liq=detectLiquidity(candles);results[iv]={bias:st.bias,structure:st.structure,conviction:Math.round(st.conviction*100)/100,lastBreak:br.lastBreak,breakDirection:br.direction,breakLevel:br.breakLevel,isEngineered:br.isEngineered,activeSupply:zones.supply[0]||null,activeDemand:zones.demand[0]||null,imbalances:imbs,liquidityPools:liq,swingHighs:sh.slice(-3),swingLows:sl.slice(-3),currentPrice:candles[candles.length-1].close};}let wS=0,wT=0;for(const[iv,r]of Object.entries(results)){const w=tfW[iv]||1,s=r.bias==='Bullish'?1:r.bias==='Bearish'?-1:0;wS+=s*w*r.conviction;wT+=w;}const norm=wT>0?wS/wT:0,domBias=norm>0.15?'Bullish':norm<-0.15?'Bearish':'Neutral',domConv=Math.min(Math.abs(norm),1);const cp=results[intervals[0]]?.currentPrice||0;let nearDraw=null;for(const[,r]of Object.entries(results)){const liq=r.liquidityPools?.find(p=>p.proximate);if(liq){nearDraw=liq;break;}}log('INFO',`[SPIDEY-LTF] ${symbol} → ${domBias} (${domConv.toFixed(2)})`);return{timeframes:results,dominantBias:domBias,dominantConviction:domConv,nearestDraw:nearDraw,currentPrice:cp};}
 async function runSpideyMicro(symbol,htfBias){const m15=await safeOHLC(symbol,'15',100),m5=await safeOHLC(symbol,'5',100);if(!m15||!m5)return{entryConfirmed:false,ltfBias:'No data',sweepDetected:false,inInducement:false,ltfBreak:'None',ltfBreakLevel:null,alignedWithHTF:false};const m15S=detectSwings(m15,2),m15St=classifyStructure(m15S.swingHighs,m15S.swingLows),m15B=detectBreaks(m15,m15S.swingHighs,m15S.swingLows),m5S=detectSwings(m5,2),m5B=detectBreaks(m5,m5S.swingHighs,m5S.swingLows);const sweep=m15B.isEngineered||m5B.isEngineered,rH15=m15S.swingHighs.slice(-3),inInd=rH15.filter((h,i)=>rH15.some((h2,j)=>j!==i&&Math.abs(h.level-h2.level)/h.level<0.001)).length>0,aligned=m15St.bias===htfBias,confirmed=aligned&&(m15B.lastBreak==='BOS'||m15B.lastBreak==='CHoCH')&&!inInd;return{entryConfirmed:confirmed,ltfBias:m15St.bias,ltfConviction:m15St.conviction,sweepDetected:sweep,inInducement:inInd,ltfBreak:m15B.lastBreak,ltfBreakLevel:m15B.breakLevel,alignedWithHTF:aligned,m5Break:m5B.lastBreak};}
 
 function cbScore(cb){if(!cb)return 0;let s=0;if(cb.direction===STANCE.HAWKISH)s+=0.20;if(cb.direction===STANCE.DOVISH)s-=0.20;if(cb.stance===STANCE.HAWKISH)s+=0.10;if(cb.stance===STANCE.DOVISH)s-=0.10;if(cb.rateCycle===RATE_CYCLE.HIKING)s+=0.10;if(cb.rateCycle===RATE_CYCLE.CUTTING)s-=0.10;s+=clamp(cb.terminalBias||0,-0.20,0.20);return round2(clamp(s,-0.50,0.50));}
@@ -2640,31 +2868,110 @@ async function deliverResult(msg, result) {
   });
 
   // 3. Gather live data surface (+ daily candles for Forward Expectation)
+  // Ambient coverage tracker — every safeOHLC/fetchOHLC during this analyse
+  // run records its outcome here. The downstream [DATA-SOURCE] line is
+  // emitted from this object's per-resolution view.
+  const coverage = setCurrentCoverage(createCoverage(symbol));
   let corey, spideyHTF, spideyLTF, jane, dailyCandles;
   try {
     [corey, spideyHTF, spideyLTF, dailyCandles] = await Promise.all([
       runCorey(symbol),
       runSpideyHTF(symbol, HTF_INTERVALS),
       runSpideyLTF(symbol, LTF_INTERVALS),
-      safeOHLC(symbol, '1D', 25)
+      safeOHLC(symbol, '1D', 25, coverage)
     ]);
     jane = runJane(symbol, spideyHTF, spideyLTF, corey);
   } catch (e) {
     log('ERROR', `[DELIVER] ${symbol} data gather failed: ${e.message}`);
     await msg.channel.send({ content: `⚠️ Macro data unavailable for ${symbol}: ${e.message}` });
+    setCurrentCoverage(null);
     return;
   }
 
+  // ── INCOREGO + Spidey state classification ─────────────────────────
+  // INCOREGO: build IN/CO/RE/GO from corey output and stamp it onto jane
+  // for the Discord presenter and the dashboard packet.
+  const incoregoBlock = buildIncorego({ symbol, corey, jane });
+  jane.incorego           = incoregoBlock.incorego;
+  jane.coreyContribution  = incoregoBlock;
+  jane.coreyStatus        = incoregoBlock.coreyStatus;
+  jane.activeCatalystWindow = incoregoBlock.activeCatalystWindow;
+  jane.nextEvent          = incoregoBlock.nextEvent;
+  jane.coreyEffectOnJaneProbability = incoregoBlock.coreyEffectOnJaneProbability;
+  // Spidey state from coverage. Required HTF/LTF lists default to the
+  // resolutions runSpideyHTF / runSpideyLTF actually probe. PARTIAL when
+  // some are missing, UNAVAILABLE when all required HTF or LTF missing.
+  const spideyState = coverage.spideyState({
+    htfRequired: ['1W', '1D', '240', '60'],
+    ltfRequired: ['30', '15', '5', '1']
+  });
+  jane.spideyState        = spideyState; // {state, reason, htfMissing, ltfMissing}
+  jane.spideyTag          = spideyState.state + (spideyState.reason ? ':' + spideyState.reason : '');
+
+  // Apply Corey probability cap to Jane's tradeProbability.
+  const baseProbability = advisoryWording.tradeProbability1to5(jane);
+  let cappedProbability = baseProbability;
+  if (incoregoBlock.probabilityCap != null && cappedProbability > incoregoBlock.probabilityCap) {
+    cappedProbability = incoregoBlock.probabilityCap;
+  }
+  // Spidey UNAVAILABLE -> probability cannot exceed 2/5 (no structure read).
+  if (spideyState.state === 'UNAVAILABLE' && cappedProbability > 2) cappedProbability = 2;
+  // Spidey PARTIAL -> probability cannot exceed 3/5 (incomplete structure).
+  if (spideyState.state === 'PARTIAL'    && cappedProbability > 3) cappedProbability = 3;
+  jane.tradeProbability = cappedProbability;
+  jane.marketConfidence = (jane.marketConfidence != null) ? jane.marketConfidence : (jane.conviction || 0);
+
+  // Build the 12-section advisory header (price/time/bias/probability/...).
   const candlesByTf = { '1D': dailyCandles };
+  const advisoryHeader = buildAdvisoryHeader({ symbol, jane, corey, htf: spideyHTF, ltf: spideyLTF, candlesByTf, incoregoBlock, dataCoverage: coverage });
+  jane.marketRead = jane.marketRead || advisoryHeader.split('**8. Market Read**\n')[1]?.split('\n**9.')[0];
+
+  // Spidey structured output — swings, BOS, body-close rule, pullback,
+  // invalidation; emits a structured PARTIAL / UNAVAILABLE block when
+  // coverage gaps exist instead of bare "n/a" text.
+  const spideyStructure = buildSpideyStructure({ symbol, htf: spideyHTF, ltf: spideyLTF, coverage });
+  jane.spideyStructure = {
+    state: spideyStructure.state, reason: spideyStructure.reason,
+    bullishBOS: spideyStructure.bullishBOS, bearishBOS: spideyStructure.bearishBOS,
+    prevSwingHigh: spideyStructure.prevSwingHigh, prevSwingLow: spideyStructure.prevSwingLow,
+    bodyCloseRequirement: spideyStructure.bodyCloseRequirement,
+    wickNotEnough: spideyStructure.wickNotEnough,
+    pullbackLevel: spideyStructure.pullbackLevel,
+    invalidationReference: spideyStructure.invalidationReference,
+    missingTimeframes: spideyStructure.missingTimeframes
+  };
+
   console.log(`[SYMBOL-TRACE] macroSymbol=${symbol} coreyParsedSymbol=${corey?.internalMacro?.parsed?.symbol || 'n/a'} coreyAssetClass=${corey?.internalMacro?.assetClass || 'n/a'} janeSymbol=${jane?.symbol || 'n/a'}`);
-  const sections = await formatMacro(symbol, corey, spideyHTF, spideyLTF, jane, candlesByTf);
-  console.log(`[PRESENTER] sections generated=${sections.length}`);
+  const macroSections = await formatMacro(symbol, corey, spideyHTF, spideyLTF, jane, candlesByTf);
+  // Output surface order — actionable advisory header FIRST, then the COREY
+  // INCOREGO section, then the SPIDEY structure block, then the longer
+  // macro report sections.
+  const sections = [
+    { name: 'ADVISORY HEADER',        text: advisoryWording.remapAdvisoryWording(advisoryHeader) },
+    { name: 'COREY INCOREGO',         text: advisoryWording.remapAdvisoryWording(renderIncoregoForDiscord({ symbol, incoregoBlock, jane, tradeProbability: cappedProbability })) },
+    { name: 'SPIDEY STRUCTURE',       text: advisoryWording.remapAdvisoryWording(spideyStructure.renderForDiscord()) },
+    ...macroSections.map(s => ({ name: s.name, text: advisoryWording.remapAdvisoryWording(s.text) }))
+  ];
+  console.log(`[PRESENTER] sections generated=${sections.length} (advisoryHeader + INCOREGO prepended)`);
 
   // Post the Jane packet to the dashboard service — populates the Execution
   // / Live Plan surface for ?symbol=<sym>. Source statuses reflect REAL
   // engine results (no fake values). Fire-and-forget — never blocks Discord
   // delivery.
   postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane);
+
+  // Truthful [DATA-SOURCE] summary — emitted with per-resolution coverage,
+  // INCOREGO-derived corey tag, Spidey state, and final Jane tag.
+  try {
+    logDataSource(symbol, {
+      coverage,
+      corey: incoregoBlock.coreyStatus.toLowerCase(),
+      coreyClone: incoregoBlock.coreyClone.sourceTag,
+      spidey: spideyState.state.toLowerCase() + (spideyState.reason ? ':' + spideyState.reason : ''),
+      jane: jane.actionState ? advisoryWording.advisoryActionState(jane.actionState).toLowerCase().replace(/[^a-z0-9_:]+/g, '_') : 'final'
+    });
+  } catch (_e) {}
+  setCurrentCoverage(null);
 
   // Macro mode skips the chart blocks above by sending charts-then-text. To
   // honour mode=macro semantics we suppress only the visual chart resends if
