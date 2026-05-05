@@ -53,7 +53,22 @@ const DH_SCORE_WATCH    = 8;  // ≥8 → post to Discord + trigger pipeline
 const DH_SCORE_INTERNAL = 5;  // 5–7 → store internally only
 
 // ── WEBHOOK ───────────────────────────────────────────────────
-const DH_WEBHOOK_URL = process.env.DARKHORSE_STOCK || null;
+// Webhook URL resolution — prefer the clearer per-channel env key
+// `WEEKLY_DARKHORSES` (display name + channel: WEEKLY_DARKHORSES /
+// #weekly_darkhorses) and fall back to the legacy `DARKHORSE_STOCK`
+// for backwards compatibility while the rename is in flight on Render.
+//
+// SECURITY: never log the URL itself or any substring. Only the
+// resolved env key name is logged via [DH-CHANNEL] env_key=...
+const DH_WEBHOOK_URL =
+  process.env.WEEKLY_DARKHORSES ||
+  process.env.DARKHORSE_STOCK   ||
+  null;
+const DH_WEBHOOK_ENV_KEY =
+  process.env.WEEKLY_DARKHORSES ? 'WEEKLY_DARKHORSES'
+  : process.env.DARKHORSE_STOCK ? 'DARKHORSE_STOCK'
+  : 'missing';
+const DH_TARGET_CHANNEL = 'weekly_darkhorses';
 
 // ── MARKET HOURS GATE ─────────────────────────────────────────
 function isMarketOpen() {
@@ -72,6 +87,10 @@ const DH_INTERNAL_STORE = new Map();
 let _lastMovementDigestAt = 0;   // FOMO control — cooldown tracker
 const dhLog = (level, msg, ...a) =>
   console.log(`[${new Date().toISOString()}] [DH-${level}] ${msg}`, ...a);
+
+// Boot-time channel resolution log — emitted once per process so the
+// operator can confirm which env var resolved without exposing any URL.
+dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL}`);
 
 // ── INIT ──────────────────────────────────────────────────────
 let _safeOHLC       = null;
@@ -506,11 +525,14 @@ async function runDarkHorseScan(universeOrOpts) {
         await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
         dhLog('INFO', `[WEBHOOK] Dark Horse posted — ${best.symbol}` +
                        (payload.replaced ? ' (sanitized)' : ''));
+        dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=watch symbol=${best.symbol}`);
       } catch (e) {
         dhLog('ERROR', `[WEBHOOK] Failed — ${best.symbol}: ${e.message}`);
+        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=watch symbol=${best.symbol} reason=${e.message}`);
       }
     } else {
-      dhLog('WARN', 'DARKHORSE_STOCK not set — webhook skipped');
+      dhLog('WARN', 'WEEKLY_DARKHORSES (preferred) and DARKHORSE_STOCK (legacy) both unset — webhook skipped');
+      dhLog('WARN', `[DH-CHANNEL] env_key=missing target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=watch reason=env_unset`);
     }
 
     await triggerPipeline(best);
@@ -526,11 +548,14 @@ async function runDarkHorseScan(universeOrOpts) {
         _lastMovementDigestAt = Date.now();
         dhLog('INFO', `[WEBHOOK] Movement digest posted` +
                        (payload.replaced ? ' (sanitized)' : ''));
+        dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=movement_digest level=${volatility.level} internal=${volatility.internalCount}`);
       } catch (e) {
         dhLog('ERROR', `[WEBHOOK] Movement digest failed: ${e.message}`);
+        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=${e.message}`);
       }
     } else {
-      dhLog('WARN', 'DARKHORSE_STOCK not set — movement digest webhook skipped');
+      dhLog('WARN', 'WEEKLY_DARKHORSES (preferred) and DARKHORSE_STOCK (legacy) both unset — movement digest skipped');
+      dhLog('WARN', `[DH-CHANNEL] env_key=missing target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=env_unset`);
     }
   }
 
