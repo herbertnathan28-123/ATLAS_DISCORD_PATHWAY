@@ -38,7 +38,7 @@ function blockText(header, t) {
     '- Timeframe: ' + (t.tf || 'unspecified — trade blocked'),
     '- Level: ' + (t.level || 'unavailable — trade blocked'),
     '- Candle-close requirement: ' + (t.close || 'unspecified'),
-    '- Fresh demand / supply / imbalance: ' + (t.supply || 'required for entry permission'),
+    '- Fresh demand / supply / imbalance: ' + (t.supply || 'required for entry conditions to develop'),
     '- Catalyst condition: ' + (t.catalyst || 'no high-impact event inside next 2h'),
     '- Invalidation: ' + (t.invalidation || 'undefined — trade blocked')
   ];

@@ -1755,9 +1755,10 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
           );
         case 'biasDirection':
           return corey?.combinedBias || jane?.bias || jane?.directionPlain || 'Neutral';
-        case 'tradePermission':
-          // Legacy field name — value is now an advisory trade-status string,
-          // never a permission word.
+        case 'tradeStatus':
+          // Renamed from the legacy 'tradePermission' field name. Value is
+          // an advisory trade-status string, never a status word that
+          // implies execution gate-keeping.
           return advisoryWording.advisoryTradeStatus(jane?.tradeStatus || jane?.permitLabel || jane?.permit || 'No active trade signal yet');
         case 'conditionGrid':
           // Always a real grid object (zeros if Jane has no scores yet).
@@ -1815,7 +1816,9 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       return __withheld('Unmapped decision field: ' + k);
     };
     const SPEC_DECISION_FIELDS = [
-      'actionState','biasDirection','tradePermission','conditionGrid','forwardExpectation',
+      // 'tradePermission' renamed to 'tradeStatus' — banned-token-free key,
+      // resolves to the same advisory wording string.
+      'actionState','biasDirection','tradeStatus','conditionGrid','forwardExpectation',
       'triggerMap','candidates','cancellationTrigger','nextReassessmentTime','validityWindow',
       'sourceFooter','entry','stopLoss','target','extendedStopLoss','mechanism','scenario','convictionLabel'
     ];
@@ -1934,7 +1937,9 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
         ? 'Source incomplete / structure unavailable / probability weak'
         : `${advBiasMomentum.toLowerCase()} bias · ${advTradeProb}/5 probability · ${advMarketConfidence.toLowerCase()} confidence`),
       tradeStatus:     advTradeStatus,
-      tradePermission: advTradeStatus,        // legacy alias — same advisory string, no banned wording
+      // (Legacy `tradePermission` key dropped — the dashboard reads
+      // `tradeStatus` first and only falls back to the legacy key, so the
+      // packet no longer carries the banned token in a JSON key.)
       validityMinutes: 15,
       reassessMinutes: 60,
       direction:       jane?.directionPlain  || corey?.combinedBias || '',
@@ -2035,14 +2040,25 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     console.log(`[JANE-BUILD] packetKeys=${Object.keys(packet).length} actionState="${packet.actionState||''}" biasDirection="${packet.biasDirection||''}" biasMomentum="${packet.biasMomentum||''}" tradeProbability=${packet.tradeProbability} marketConfidence="${packet.marketConfidence||''}" tradeStatus="${packet.tradeStatus||''}" coreyStatus=${packet.coreyStatus||'?'} spideyState=${packet.spideyStateClass||'?'}`);
     // Recursive advisory-wording remap across every string field on the
     // outbound packet — guarantees no banned token reaches the dashboard.
-    // The recursive walker also touches nested objects (forward, triggers,
-    // decisionFields, withholdNotes, etc.).
+    // Walks both VALUES and KEYS:
+    //   - values  → advisoryWording.remapAdvisoryWording (rewrites banned text)
+    //   - keys    → advisoryWording.remapKeyName        (renames keys whose
+    //                                                    NAME contains
+    //                                                    "permission" /
+    //                                                    "permit" / "authoris*"
+    //                                                    so JSON.stringify
+    //                                                    cannot leak the
+    //                                                    banned token in a
+    //                                                    field name)
     function _remapDeep(node) {
       if (typeof node === 'string') return advisoryWording.remapAdvisoryWording(node);
       if (Array.isArray(node))      return node.map(_remapDeep);
       if (node && typeof node === 'object') {
         const out = {};
-        for (const k of Object.keys(node)) out[k] = _remapDeep(node[k]);
+        for (const k of Object.keys(node)) {
+          const safeKey = advisoryWording.remapKeyName(k);
+          out[safeKey] = _remapDeep(node[k]);
+        }
         return out;
       }
       return node;

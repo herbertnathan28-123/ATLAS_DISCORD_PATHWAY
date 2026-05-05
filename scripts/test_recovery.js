@@ -220,6 +220,60 @@ function ok(name, cond, info) {
   ok('(F) header carries banned-wording-free copy', advisoryWording.filterBannedFromText(header).ok);
 }
 
+// ─── (E2) Key-name remap — packet keys cannot leak banned tokens ───────
+{
+  // Simulate the packet structure that previously leaked "permission" via
+  // the `tradePermission` key.
+  const sim = {
+    actionState: 'HOLD — BIAS STILL FORMING',
+    tradeStatus: 'No active trade signal yet',
+    tradePermission: 'No active trade signal yet',     // legacy key — must be renamed
+    decisionFields: {
+      tradePermission: 'No active trade signal yet',   // nested legacy key
+      permission: 'OPEN',                              // ad-hoc banned key
+      permitLabel: 'No active trade signal yet'        // banned key
+    }
+  };
+  function deepRemap(node) {
+    if (typeof node === 'string') return advisoryWording.remapAdvisoryWording(node);
+    if (Array.isArray(node))      return node.map(deepRemap);
+    if (node && typeof node === 'object') {
+      const out = {};
+      for (const k of Object.keys(node)) out[advisoryWording.remapKeyName(k)] = deepRemap(node[k]);
+      return out;
+    }
+    return node;
+  }
+  const remapped = deepRemap(sim);
+  const sweep = advisoryWording.filterBannedFromText(JSON.stringify(remapped));
+  ok('(E2) packet-key remap produces banned-token-free JSON', sweep.ok, `hits: ${sweep.hits.join(', ')}`);
+  ok('(E2) tradePermission key renamed to tradeStatus',         remapped.tradeStatus && !('tradePermission' in remapped));
+  ok('(E2) nested decisionFields.tradePermission renamed',      remapped.decisionFields.tradeStatus && !('tradePermission' in remapped.decisionFields));
+  ok('(E2) ad-hoc decisionFields.permission renamed',           remapped.decisionFields.advisoryState != null && !('permission' in remapped.decisionFields));
+  ok('(E2) decisionFields.permitLabel renamed',                 remapped.decisionFields.advisoryStateLabel != null && !('permitLabel' in remapped.decisionFields));
+}
+
+// ─── (E3) Source-text scrub — eventIntelligence + glossary + triggerMap ─
+{
+  // The three known string-literal sources that previously emitted
+  // "permission" / "Permission verdict" must produce banned-token-free output.
+  const ei  = require('../macro/eventIntelligence');
+  const gl  = require('../macro/glossary');
+  const tm  = require('../macro/triggerMap');
+  const sweep = advisoryWording.filterBannedFromText.bind(advisoryWording);
+
+  const eiOut = ei.build({ calendar: { intel: 'NFP — 1.5h from now' }, ctx: { dxy:{score:0,bias:'Neutral'}, vix:{score:0,level:'Normal'}, yield:{score:0,regime:'Normal'} }, fmp: null, symbol: 'AMD', tagsUsed: [] });
+  ok('(E3) eventIntelligence output banned-token-free', sweep(eiOut).ok, `hits: ${sweep(eiOut).hits.join(', ')}`);
+  ok('(E3) eventIntelligence emits "Advisory state:" (no longer "Permission verdict:")', /Advisory state:/.test(eiOut) && !/Permission verdict/i.test(eiOut));
+
+  const trigText = gl.TERMS.trigger;
+  ok('(E3) glossary trigger entry banned-token-free', sweep(trigText).ok, `text: ${trigText}`);
+  ok('(E3) glossary trigger says "activates entry conditions"', /activates entry conditions/.test(trigText));
+
+  const tmOut = tm.build({ jane: { triggerMap: { bullish: { tf: '15M', level: '94.10', close: '15M close > 94.10', invalidation: '15M close < 93.20' }, bearish: { tf: '15M', level: '90.20', close: '15M close < 90.20', invalidation: '15M close > 91.20' } } } });
+  ok('(E3) triggerMap output banned-token-free', sweep(tmOut).ok, `hits: ${sweep(tmOut).hits.join(', ')}`);
+}
+
 // ─── Summary ────────────────────────────────────────────────────────────
 console.log('');
 console.log('==========================');
