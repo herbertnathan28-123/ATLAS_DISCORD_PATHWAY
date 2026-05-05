@@ -8,6 +8,7 @@
 // ============================================================
 
 const https = require('https');
+const fomo  = require('./darkHorseFomoControl');
 
 // ── UNIVERSE ──────────────────────────────────────────────────
 // Full institutional universe — FX, indices, equities, commodities
@@ -68,6 +69,7 @@ function isMarketOpen() {
 
 // ── STATE ─────────────────────────────────────────────────────
 const DH_INTERNAL_STORE = new Map();
+let _lastMovementDigestAt = 0;   // FOMO control — cooldown tracker
 const dhLog = (level, msg, ...a) =>
   console.log(`[${new Date().toISOString()}] [DH-${level}] ${msg}`, ...a);
 
@@ -369,15 +371,16 @@ function dhSendWebhook(webhookUrl, payload) {
 // [SYMBOL] ↑ or ↓
 // Short reason describing trend strength
 // Confidence: X/10
+// + FOMO control: caution line + advisory trailer appended.
 function buildDHPayload(candidate) {
   const arrow = candidate.direction === 'Bullish' ? '↑' : candidate.direction === 'Bearish' ? '↓' : '→';
 
   const content =
-    `🐎 **DARK HORSE**\n` +
+    `🐎 **DARK HORSE — WATCH CANDIDATE (advisory only)**\n` +
     `**${candidate.symbol}** ${arrow}\n` +
     `${candidate.summary}\n` +
     `Confidence: ${candidate.score}/10\n\n` +
-    `⚠️ Scan flag only — pipeline: Corey → Spidey → Jane`;
+    `Scan flag only — full ATLAS confirmation path remains: Corey → Spidey → Jane.`;
 
   return { content };
 }
@@ -423,9 +426,25 @@ async function triggerPipeline(candidate) {
 
 // ============================================================
 // MAIN SCAN
-// Returns: single strongest instrument (highest score)
+// Returns: single strongest instrument (highest score) + FOMO
+// movement digest when WATCH:0 and volatility is elevated.
+//
+// Backward-compatible call shapes:
+//   runDarkHorseScan()                  — default universe
+//   runDarkHorseScan([symbols...])      — explicit universe
+//   runDarkHorseScan({ universe, vixLevel }) — explicit + VIX hint
 // ============================================================
-async function runDarkHorseScan(universe) {
+async function runDarkHorseScan(universeOrOpts) {
+  // Normalise input
+  let universe = null;
+  let vixLevel = null;
+  if (Array.isArray(universeOrOpts)) {
+    universe = universeOrOpts;
+  } else if (universeOrOpts && typeof universeOrOpts === 'object') {
+    universe = universeOrOpts.universe || null;
+    vixLevel = universeOrOpts.vixLevel || null;
+  }
+
   if (!isMarketOpen()) {
     dhLog('INFO', '━━━ Scan SKIPPED — market closed (weekend) ━━━');
     return { watch: [], internal: [], ignored: [], scannedAt: new Date().toISOString(), skipped: true };
@@ -463,6 +482,13 @@ async function runDarkHorseScan(universe) {
     dhLog('INFO', `[INTERNAL] ${r.symbol} ${r.score}/10 — stored`);
   }
 
+  // ── FOMO CONTROL — assess volatility from this scan ──
+  const allResults = [...watch, ...internal, ...ignored];
+  const volatility = fomo.assessVolatility(allResults, vixLevel);
+  dhLog('INFO', `[FOMO-ASSESS] level=${volatility.level} watch=${volatility.watchCount} ` +
+                `internal=${volatility.internalCount} avgInternal=${volatility.avgInternalScore} ` +
+                `vix=${volatility.vixLevel || 'n/a'} reason=${volatility.reason}`);
+
   // WATCH — post SINGLE STRONGEST only (highest score)
   // Rule: must be specific tradable symbol, correct output format
   if (watch.length > 0) {
@@ -471,8 +497,10 @@ async function runDarkHorseScan(universe) {
 
     if (DH_WEBHOOK_URL) {
       try {
-        await dhSendWebhook(DH_WEBHOOK_URL, buildDHPayload(best));
-        dhLog('INFO', `[WEBHOOK] Dark Horse posted — ${best.symbol}`);
+        const payload = fomo.sanitize(fomo.withFomoCaution(buildDHPayload(best)));
+        await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
+        dhLog('INFO', `[WEBHOOK] Dark Horse posted — ${best.symbol}` +
+                       (payload.replaced ? ' (sanitized)' : ''));
       } catch (e) {
         dhLog('ERROR', `[WEBHOOK] Failed — ${best.symbol}: ${e.message}`);
       }
@@ -482,8 +510,26 @@ async function runDarkHorseScan(universe) {
 
     await triggerPipeline(best);
   }
+  // ── MOVEMENT DIGEST — fires only when WATCH:0 + elevated ──
+  else if (fomo.shouldPostMovementDigest(volatility, _lastMovementDigestAt)) {
+    dhLog('INFO', `[MOVEMENT-DIGEST] firing — level=${volatility.level} ` +
+                  `internal=${volatility.internalCount} reason=${volatility.reason}`);
+    if (DH_WEBHOOK_URL) {
+      try {
+        const payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
+        await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
+        _lastMovementDigestAt = Date.now();
+        dhLog('INFO', `[WEBHOOK] Movement digest posted` +
+                       (payload.replaced ? ' (sanitized)' : ''));
+      } catch (e) {
+        dhLog('ERROR', `[WEBHOOK] Movement digest failed: ${e.message}`);
+      }
+    } else {
+      dhLog('WARN', 'DARKHORSE_STOCK not set — movement digest webhook skipped');
+    }
+  }
 
-  return { watch, internal, ignored, scannedAt: new Date().toISOString() };
+  return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
 }
 
 // ============================================================
