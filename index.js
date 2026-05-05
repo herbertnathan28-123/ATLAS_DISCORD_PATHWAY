@@ -2219,15 +2219,56 @@ client.on('messageCreate', async (msg) => {
     }
   });
 
-  setInterval(async () => {
-    try {
-      await runDarkHorseScan();
-    } catch (e) {
-      log('ERROR', `[DH SCHEDULER] ${e.message}`);
-    }
-  }, 15 * 60 * 1000);
+  // Dark Horse scheduler — initial scan + recurring 15-minute interval.
+  //
+  // Live observation (2026-05-05): the bot was redeploying on a ~7-12min
+  // cadence inside Render's normal restart window, so the engine
+  // logged "active" but never reached the first 15-minute tick. The
+  // initial-scan setTimeout below guarantees a scan fires within
+  // 60-120s of every boot, AFTER Corey live + calendar have had time
+  // to initialise. The recurring 15-minute setInterval is unchanged.
+  //
+  // All scheduler events emit a structured [DH-SCHEDULER] line so the
+  // operator can distinguish "scan fired and produced output" from
+  // "scan fired but skipped" from "scan never fired" without grepping
+  // the deeper [DH] / [WATCH] / [WEBHOOK] surfaces.
+  const DH_INTERVAL_MS         = 15 * 60 * 1000;
+  const DH_FIRST_SCAN_DELAY_MS = parseInt(process.env.DH_FIRST_SCAN_DELAY_MS || String(90 * 1000), 10);
 
-  log('INFO', '[BOOT] Dark Horse Engine active — scanning every 15 minutes (market hours Mon-Fri only)');
+  log('INFO', `[DH-SCHEDULER] registered interval=15m`);
+  log('INFO', `[DH-SCHEDULER] first_scan_scheduled_in=${Math.round(DH_FIRST_SCAN_DELAY_MS / 1000)}s`);
+
+  async function _dhScheduledScan(label) {
+    log('INFO', `[DH-SCHEDULER] ${label}`);
+    let result = null;
+    try {
+      result = await runDarkHorseScan();
+    } catch (e) {
+      log('ERROR', `[DH-SCHEDULER] scan_error reason=${(e && e.message) || 'unknown'}`);
+      return;
+    }
+    if (result && result.skipped) {
+      const reason = result.skipReason || 'unknown';
+      log('INFO', `[DH-SCHEDULER] scan_skipped reason=${reason}`);
+      return;
+    }
+    const watch    = (result && result.watch    && result.watch.length)    || 0;
+    const internal = (result && result.internal && result.internal.length) || 0;
+    const ignored  = (result && result.ignored  && result.ignored.length)  || 0;
+    log('INFO', `[DH-SCHEDULER] scan_complete watch=${watch} internal=${internal} ignored=${ignored}`);
+  }
+
+  // Initial scan — fires once, 60-120s after boot.
+  setTimeout(() => { _dhScheduledScan('first_scan_start'); }, DH_FIRST_SCAN_DELAY_MS);
+
+  // Recurring scan — every 15 minutes, independent of the initial scan.
+  setInterval(() => { _dhScheduledScan('recurring_scan_start'); }, DH_INTERVAL_MS);
+
+  log('INFO',
+    '[BOOT] Dark Horse Engine active — initial scan in '
+    + Math.round(DH_FIRST_SCAN_DELAY_MS / 1000)
+    + 's, then every 15 minutes (market hours Mon-Fri only)'
+  );
 });
 
 const MAX_RETRIES = 2;
