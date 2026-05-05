@@ -15,7 +15,7 @@ const TERMS = {
   flow: 'Flow — directional pressure (toward / away from a level) inferred from order-flow proxies.',
   regime: 'Regime — current market environment (risk-on / risk-off / range / trend).',
   stop_loss: 'Stop Loss — exit level that invalidates the trade idea; never moved against the position.',
-  trigger: 'Trigger — the specific price action that arms entry permission.'
+  trigger: 'Trigger — the specific price action that activates entry conditions.'
 };
 
 function lookup(tag) { return TERMS[tag] || null; }

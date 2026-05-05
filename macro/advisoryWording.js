@@ -182,6 +182,34 @@ function filterBannedFromText(text) {
   return { ok: hits.length === 0, hits };
 }
 
+// Remap object KEY names — ensures JSON.stringify never emits a banned
+// token in a key (the value-only deep remap can't touch keys). Used by
+// the recursive packet remap in index.js. Known keys map to advisory
+// equivalents; unknown keys with banned tokens are renamed generically.
+//
+// Acceptance: any field name carrying "permission" / "permit" / "authoris*"
+// gets renamed before the packet is JSON.stringify'd, so the post-remap
+// banned-token sweep returns clean.
+const KEY_REMAP = {
+  tradePermission:    'tradeStatus',
+  permission:         'advisoryState',
+  permitLabel:        'advisoryStateLabel',
+  permit:             'advisoryState',
+  permitStatus:       'advisoryStatus',
+  permitPlain:        'advisoryStatePlain',
+  authorisation:      'support',
+  authorisationLevel: 'supportLevel'
+};
+function remapKeyName(key) {
+  if (!key || typeof key !== 'string') return key;
+  if (Object.prototype.hasOwnProperty.call(KEY_REMAP, key)) return KEY_REMAP[key];
+  // Generic fallback for ad-hoc keys.
+  if (/permission/.test(key)) return key.replace(/permission/g, 'advisoryState').replace(/Permission/g, 'AdvisoryState');
+  if (/permit/.test(key))     return key.replace(/permit/g, 'advisoryState').replace(/Permit/g, 'AdvisoryState');
+  if (/authoris/i.test(key))  return key.replace(/[Aa]uthoris(?:ed|ing|ation|e)?/g, m => /^A/.test(m) ? 'Supported' : 'supported');
+  return key;
+}
+
 module.exports = {
   remapAdvisoryWording,
   advisoryActionState,
@@ -190,5 +218,7 @@ module.exports = {
   marketConfidenceLabel,
   tradeProbability1to5,
   filterBannedFromText,
+  remapKeyName,
+  KEY_REMAP,
   BANNED_PATTERNS
 };

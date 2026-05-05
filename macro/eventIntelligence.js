@@ -38,9 +38,12 @@ function build(input) {
     lines.push(`*Earnings context unavailable (${fmp.earnings.reason}).*`);
   }
 
-  // Permission verdict (creates / blocks / delays trade).
+  // Advisory state from the calendar layer (clears / delays / withholds
+  // trade readiness). Renamed from "Permission verdict:" — the calendar
+  // does not grant or revoke an execution permission; it shapes the
+  // advisory state.
   lines.push('');
-  lines.push(permissionLine(calendar));
+  lines.push(advisoryStateLine(calendar));
   return lines.join('\n');
 }
 
@@ -63,15 +66,15 @@ function describeDriver(ctx) {
   return parts.length ? parts.join(' · ') : 'macro inputs initialising';
 }
 
-function permissionLine(calendar) {
+function advisoryStateLine(calendar) {
   const intel = calendar?.intel;
-  if (!intel) return '*Permission verdict:* OPEN — no calendar block on entry.';
+  if (!intel) return '*Advisory state:* OPEN — no calendar block on entry conditions.';
   if (/—\s*([\d.]+)h from now/.test(intel)) {
     const h = parseFloat(intel.match(/—\s*([\d.]+)h from now/)[1]);
-    if (h <= 2) return '*Permission verdict:* BLOCK — high-impact event inside 2h.';
-    if (h <= 24) return '*Permission verdict:* DELAY — high-impact event inside 24h; reduce conviction.';
+    if (h <= 2) return '*Advisory state:* WITHHELD — high-impact event inside 2h; entry conditions on hold.';
+    if (h <= 24) return '*Advisory state:* DELAY — high-impact event inside 24h; reduce conviction.';
   }
-  return '*Permission verdict:* OPEN — calendar carries no near-term block.';
+  return '*Advisory state:* OPEN — calendar carries no near-term block.';
 }
 
 module.exports = { build };
