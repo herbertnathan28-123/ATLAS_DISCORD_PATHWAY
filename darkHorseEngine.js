@@ -9,10 +9,18 @@
 
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl');
+const intel = require('./darkHorseIntelligence');
 
 // ── UNIVERSE ──────────────────────────────────────────────────
-// Full institutional universe — FX, indices, equities, commodities
-// Crypto excluded permanently — zero exceptions
+// Full institutional universe — FX, indices, equities, commodities.
+// Crypto excluded permanently — zero exceptions.
+//
+// v1.1: expanded to cover the full global mover radar mandate.
+// JPN225 + AUS200 added to the index group; USOIL kept off the
+// commodity group until the FMP/TwelveData free-tier coverage is
+// re-validated (BRENT remains banned per CLAUDE.md). Symbols that
+// the live OHLC layer cannot resolve are filtered automatically by
+// scoreInstrument (insufficient data → skipped, not faked).
 const DEFAULT_UNIVERSE = [
   // FX Majors
   'EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','USDCHF','NZDUSD',
@@ -21,13 +29,13 @@ const DEFAULT_UNIVERSE = [
   'EURGBP','EURJPY','GBPJPY','AUDJPY','CADJPY','CHFJPY','EURAUD',
   'EURCAD','GBPAUD','GBPCAD','GBPCHF','AUDCAD','AUDNZD','NZDCAD',
 
-  // Indices
-  'NAS100','US500','DJI','GER40','UK100',
+  // Indices (global)
+  'NAS100','US500','DJI','GER40','UK100','JPN225','AUS200',
 
-  // Equities
+  // Equities (US momentum / mega-caps)
   'NVDA','AMD','ASML','AAPL','MSFT','META','GOOGL','AMZN','TSLA',
 
-  // Commodities
+  // Commodities (safety / inflation)
   'XAUUSD','XAGUSD'
 ];
 
@@ -342,6 +350,12 @@ async function scoreInstrument(symbol) {
     status:    total >= DH_SCORE_WATCH ? 'WATCH' : total >= DH_SCORE_INTERNAL ? 'INTERNAL' : 'IGNORED',
     currentPrice: htf[htf.length - 1].close,
     timestamp: Date.now(),
+    // v1.1: hand component objects + raw OHLC slices to the intelligence
+    // layer so the enricher can compute move-age / phase / structure
+    // detail without re-fetching candles. Internal use only.
+    _components: { struct, mom, brk, clean, cont },
+    _htf:        htf,
+    _ltf:        ltf
   };
 }
 
@@ -513,15 +527,63 @@ async function runDarkHorseScan(universeOrOpts) {
                 `internal=${volatility.internalCount} avgInternal=${volatility.avgInternalScore} ` +
                 `vix=${volatility.vixLevel || 'n/a'} reason=${volatility.reason}`);
 
-  // WATCH — post SINGLE STRONGEST only (highest score)
-  // Rule: must be specific tradable symbol, correct output format
+  // ── v1.1 GLOBAL MOVER INTELLIGENCE ENRICHMENT ───────────────
+  // Convert raw scoring records into intelligence-rich candidate
+  // objects (section, move age/phase, structure detail, cause, etc).
+  // Then rank globally with section caps so the digest shows true
+  // cross-market coverage rather than one-section saturation.
+  const corey = (universeOrOpts && typeof universeOrOpts === 'object') ? (universeOrOpts.corey || null) : null;
+  const calendarHealth = (universeOrOpts && typeof universeOrOpts === 'object') ? (universeOrOpts.calendarHealth || null) : null;
+
+  // Rank candidates by score across the WATCH + INTERNAL pool. We
+  // exclude IGNORED from the digest top-10 because they explicitly
+  // sit below the radar threshold.
+  const rankablePool = [...watch, ...internal];
+  const enriched = rankablePool
+    .filter(r => r && r._components && r._htf)
+    .map(r => intel.enrichCandidate({
+      candidate:      r,
+      htf:            r._htf,
+      ltf:            r._ltf,
+      components:     r._components,
+      corey,
+      watchThreshold: DH_SCORE_WATCH
+    }));
+  const ranked = intel.rankWithSectionCaps(enriched, { max: 10, capPerSection: 3 });
+
+  // ── [DH-RANKING] structured logs per spec ──
+  const sectionsScanned = Object.keys(ranked.bySection || {});
+  const top10Symbols    = ranked.top.map(c => c.symbol);
+  dhLog('INFO', `[DH-RANKING] universe_size=${symbols.length}`);
+  dhLog('INFO', `[DH-RANKING] sections_scanned=${sectionsScanned.join(',') || 'none'}`);
+  dhLog('INFO', `[DH-RANKING] top10=${top10Symbols.join(',') || 'none'}`);
+  dhLog('INFO', `[DH-RANKING] section_caps_applied=${ranked.sectionCapsApplied}`);
+  // ── [DH-CANDIDATE] per-candidate intelligence log ──
+  for (const e of ranked.top) {
+    const f = intel.buildCandidateLogFields(e);
+    dhLog('INFO',
+      `[DH-CANDIDATE] symbol=${f.symbol} section=${f.section} score=${f.score} ` +
+      `direction=${f.direction} move_strength=${f.move_strength} move_speed=${f.move_speed} ` +
+      `move_age=${f.move_age} move_phase=${f.move_phase} relative_strength=${f.relative_strength} ` +
+      `structure_state=${f.structure_state} continuation_window="${f.continuation_window}" ` +
+      `late_entry_risk=${f.late_entry_risk} why_not_watch="${f.why_not_watch}" ` +
+      `promotion_trigger="${f.promotion_trigger}"`);
+  }
+
+  // WATCH — post SINGLE STRONGEST only (highest score). v1.1 payload
+  // carries the full intelligence block per spec.
   if (watch.length > 0) {
-    const best = watch[0]; // Already sorted by score desc
+    const best = watch[0]; // already sorted by score desc
+    const bestEnriched = ranked.top.find(c => c.symbol === best.symbol)
+      || (enriched.find(c => c.symbol === best.symbol) || null);
     dhLog('INFO', `[WATCH] Best: ${best.symbol} ${best.score}/10 ${best.direction}`);
 
     if (DH_WEBHOOK_URL) {
       try {
-        const payload = fomo.sanitize(fomo.withFomoCaution(buildDHPayload(best)));
+        const watchPayload = bestEnriched
+          ? intel.buildWatchV11({ candidate: bestEnriched, ranked, corey })
+          : buildDHPayload(best); // legacy fallback if enrichment somehow missing
+        const payload = fomo.sanitize(fomo.withFomoCaution(watchPayload));
         await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
         dhLog('INFO', `[WEBHOOK] Dark Horse posted — ${best.symbol}` +
                        (payload.replaced ? ' (sanitized)' : ''));
@@ -539,11 +601,18 @@ async function runDarkHorseScan(universeOrOpts) {
   }
   // ── MOVEMENT DIGEST — fires only when WATCH:0 + elevated ──
   else if (fomo.shouldPostMovementDigest(volatility, _lastMovementDigestAt)) {
+    const expandedCount = Math.min(3, ranked.top.length);
+    const compactCount  = Math.max(0, Math.min(7, ranked.top.length - expandedCount));
     dhLog('INFO', `[MOVEMENT-DIGEST] firing — level=${volatility.level} ` +
                   `internal=${volatility.internalCount} reason=${volatility.reason}`);
+    dhLog('INFO', `[MOVEMENT-DIGEST] top_expanded=${expandedCount} top_compact=${compactCount} ` +
+                  `sections_included=${sectionsScanned.join(',') || 'none'} output_depth=v1.1`);
     if (DH_WEBHOOK_URL) {
       try {
-        const payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
+        const digestPayload = intel.buildMovementDigestV11({
+          ranked, volatility, corey, calendarHealth
+        });
+        const payload = fomo.sanitize(digestPayload);
         await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
         _lastMovementDigestAt = Date.now();
         dhLog('INFO', `[WEBHOOK] Movement digest posted` +
@@ -557,9 +626,26 @@ async function runDarkHorseScan(universeOrOpts) {
       dhLog('WARN', 'WEEKLY_DARKHORSES (preferred) and DARKHORSE_STOCK (legacy) both unset — movement digest skipped');
       dhLog('WARN', `[DH-CHANNEL] env_key=missing target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=env_unset`);
     }
+  } else if (volatility.level !== 'quiet') {
+    // Cooldown blocked — logged explicitly per spec.
+    dhLog('INFO', `[MOVEMENT-DIGEST] skipped reason=cooldown`);
   }
 
-  return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
+  // Strip the enrichment payload (heavy OHLC) from the returned shape;
+  // the engine consumers should not need raw candles.
+  const stripPrivate = (r) => {
+    if (!r) return r;
+    const { _components, _htf, _ltf, ...rest } = r;
+    return rest;
+  };
+  return {
+    watch:    watch.map(stripPrivate),
+    internal: internal.map(stripPrivate),
+    ignored:  ignored.map(stripPrivate),
+    ranked:   { top: ranked.top, sectionCapsApplied: ranked.sectionCapsApplied, sectionsScanned },
+    volatility,
+    scannedAt: new Date().toISOString()
+  };
 }
 
 // ============================================================
