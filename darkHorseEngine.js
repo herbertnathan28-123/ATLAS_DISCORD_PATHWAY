@@ -446,8 +446,13 @@ async function runDarkHorseScan(universeOrOpts) {
   }
 
   if (!isMarketOpen()) {
-    dhLog('INFO', '━━━ Scan SKIPPED — market closed (weekend) ━━━');
-    return { watch: [], internal: [], ignored: [], scannedAt: new Date().toISOString(), skipped: true };
+    dhLog('INFO', '━━━ Scan SKIPPED — market closed (weekend / outside US session) ━━━');
+    return {
+      watch: [], internal: [], ignored: [],
+      scannedAt: new Date().toISOString(),
+      skipped: true,
+      skipReason: 'outside_market_hours'
+    };
   }
 
   // Apply crypto ban to universe
