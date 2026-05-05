@@ -38,21 +38,32 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # No npm cache — repo has no package-lock.json, and setup-node's
+          # cache: 'npm' requires a lockfile. The recovery test only depends
+          # on stdlib + local macro/ modules, so install is fast anyway.
 
-      # `puppeteer` and `sharp` are heavy native deps the bot only needs at
-      # runtime. The acceptance test never loads renderer.js — keep the install
-      # quick and skip puppeteer's Chromium download. (sharp's prebuilt binary
-      # for ubuntu-latest is small enough to install normally.)
-      - name: Install dependencies
+      # The acceptance test (scripts/test_recovery.js) only requires the
+      # local macro/ modules — it does NOT load the renderer or any
+      # discord/puppeteer/sharp dependency. We install the test-time
+      # dependencies but skip puppeteer's heavy Chromium download.
+      - name: Install test dependencies
         env:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
         run: |
-          if [ -f package-lock.json ]; then
-            npm ci --no-audit --no-fund
-          else
-            npm install --no-audit --no-fund
-          fi
+          # The recovery suite uses zero npm dependencies (pure stdlib),
+          # so we do NOT install the bot's runtime deps here. Skipping the
+          # full install keeps the CI fast and avoids native-build
+          # surprises (puppeteer, sharp, parquetjs).
+          echo "::notice::skipping full npm install — recovery suite uses stdlib only"
+          # Sanity probe — confirm Node 20 + the changed files are present.
+          node --version
+          test -f scripts/test_recovery.js
+          test -f macro/dataCoverage.js
+          test -f macro/incorego.js
+          test -f macro/advisoryWording.js
+          test -f macro/advisoryHeader.js
+          test -f macro/spideyStructure.js
+          echo "✓ environment ready"
 
       - name: Syntax check (parse-only)
         run: |
