@@ -271,57 +271,436 @@ function preEventStageLabel(minutesOut) {
   return 'T-RELEASE';
 }
 
+// ── HUMANISE TRADINGVIEW ECONOMICS:* CODES ──────────────────
+const TITLE_CODE_MAP = {
+  USCPI: 'US CPI', USPCE: 'US PCE', USNFP: 'US Nonfarm Payrolls',
+  USINTR: 'US Fed Funds Rate Decision', USFOMC: 'FOMC Decision',
+  USECC: 'US Economic Conditions', USCC: 'US Consumer Confidence',
+  USRSL: 'US Retail Sales', USPMI: 'US PMI', USISM: 'US ISM',
+  USGDP: 'US GDP', USIR: 'US Interest Rate',
+  USADP: 'US ADP Employment Change',
+  EUCPI: 'Eurozone CPI', EUINTR: 'ECB Interest Rate Decision',
+  EUGDP: 'Eurozone GDP', EUPMI: 'Eurozone PMI',
+  GBCPI: 'UK CPI', GBINTR: 'BOE Interest Rate Decision',
+  GBGDP: 'UK GDP', GBPMI: 'UK PMI',
+  JPINTR: 'BOJ Interest Rate Decision', JPCPI: 'Japan CPI',
+  AUINTR: 'RBA Interest Rate Decision', AUCPI: 'Australia CPI',
+  CAINTR: 'BOC Interest Rate Decision', CACPI: 'Canada CPI',
+  NZINTR: 'RBNZ Interest Rate Decision', NZCPI: 'New Zealand CPI',
+  CHINTR: 'SNB Interest Rate Decision',
+};
+function humanizeTitle(raw) {
+  if (!raw) return '(unnamed event)';
+  let t = String(raw).trim();
+  t = t.replace(/^[A-Z]{3,12}:/, '');
+  if (TITLE_CODE_MAP[t]) return TITLE_CODE_MAP[t];
+  if (/^[A-Z0-9]{4,12}$/.test(t)) return TITLE_CODE_MAP[t] || `${t} (raw code)`;
+  return t;
+}
+
+// ── AFFECTED-MARKET BUCKETING ────────────────────────────────
+const SYM_BUCKET_RULES = [
+  { key: 'DXY',          match: s => s === 'DXY' },
+  { key: 'USD pairs',    match: s => /^USD|USD$/.test(s) && !/^XAU|^XAG|^DXY$/.test(s) },
+  { key: 'EUR pairs',    match: s => /^EUR/.test(s) },
+  { key: 'GBP pairs',    match: s => /^GBP/.test(s) },
+  { key: 'JPY crosses',  match: s => /JPY$/.test(s) },
+  { key: 'AUD/NZD pairs',match: s => /^AUD|^NZD/.test(s) },
+  { key: 'Metals',       match: s => /^XAU|^XAG/.test(s) },
+  { key: 'US indices',   match: s => /^(NAS100|US500|US30|SPX|NDX|IXIC|GSPC|DJI)$/.test(s) },
+  { key: 'EU indices',   match: s => /^(GER40|UK100)$/.test(s) },
+  { key: 'Asia indices', match: s => /^(JPN225|HK50)$/.test(s) },
+  { key: 'Energy',       match: s => /^(USOIL|WTI|BRENT|NATGAS)$/.test(s) },
+];
+function bucketAffected(symbols) {
+  const out = {};
+  if (!symbols || !symbols.length) return out;
+  for (const s of symbols) {
+    for (const rule of SYM_BUCKET_RULES) {
+      if (rule.match(s)) {
+        if (!out[rule.key]) out[rule.key] = [];
+        if (!out[rule.key].includes(s)) out[rule.key].push(s);
+        break;
+      }
+    }
+  }
+  return out;
+}
+const BUCKET_ORDER = ['DXY','USD pairs','EUR pairs','GBP pairs','JPY crosses','AUD/NZD pairs','Metals','US indices','EU indices','Asia indices','Energy'];
+
+// ── DRIVER + RISK-TONE INFERENCE ─────────────────────────────
+const DRIVER_PATTERNS = [
+  { test: /\b(cpi|pce|inflation)\b/i,                                  label: 'inflation print',          short: 'inflation' },
+  { test: /\b(nonfarm|nfp|unemployment|jobs|employment change|adp)\b/i, label: 'labour data',              short: 'labour' },
+  { test: /\b(fed|fomc|ecb|boe|boj|rba|boc|rbnz|snb|rate decision|policy decision|press conference)\b/i, label: 'central-bank policy event', short: 'central bank' },
+  { test: /\bgdp\b/i,                                                   label: 'growth data',              short: 'growth' },
+  { test: /\b(retail sales)\b/i,                                        label: 'consumer-demand data',     short: 'consumer demand' },
+  { test: /\b(pmi|ism)\b/i,                                             label: 'activity data',            short: 'activity' },
+  { test: /\b(tariff|sanction|geopolit|war|invasion|attack)\b/i,        label: 'geopolitical shock',       short: 'geopolitical' },
+];
+function classifyEventDriver(title) {
+  const t = String(title || '');
+  for (const p of DRIVER_PATTERNS) if (p.test.test(t)) return p;
+  return null;
+}
+function inferDriverLabels(highEvents) {
+  const labels = new Set();
+  for (const e of highEvents) {
+    const c = classifyEventDriver(e.title);
+    if (c) labels.add(c.label);
+  }
+  return labels.size ? [...labels].slice(0, 3) : [];
+}
+function inferDriverShorts(highEvents) {
+  const shorts = new Set();
+  for (const e of highEvents) {
+    const c = classifyEventDriver(e.title);
+    if (c) shorts.add(c.short);
+  }
+  return [...shorts];
+}
+function inferRiskTone(eventRisk, geoLevel, driverLabels) {
+  if (eventRisk === EVENT_RISK.EXTREME)
+    return 'Defensive — multiple high-impact catalysts; expect choppy, fade-prone tape';
+  if (geoLevel === GEO_RISK.HIGH)
+    return 'Cautious — geopolitical stress in driver mix; safe-haven flow likely';
+  if (eventRisk === EVENT_RISK.HIGH)
+    return 'Cautious — defensive flow possible into release windows';
+  if (eventRisk === EVENT_RISK.MODERATE)
+    return 'Selective — single high-impact catalyst; trade window-aware';
+  if (driverLabels.some(l => /central-bank/.test(l)))
+    return 'Sensitive — policy tone risk; small surprises produce outsized moves';
+  return 'Calm — no scheduled high-impact catalyst; tape is driver-led';
+}
+
+// ── DOMINANT RISK SCORE (1..5 emoji bar) ─────────────────────
+function riskScoreFromState(eventRisk, geoLevel) {
+  let score = 1;
+  if (eventRisk === EVENT_RISK.MODERATE) score = 2;
+  else if (eventRisk === EVENT_RISK.HIGH) score = 4;
+  else if (eventRisk === EVENT_RISK.EXTREME) score = 5;
+  if (geoLevel === GEO_RISK.MODERATE && score < 4) score += 1;
+  if (geoLevel === GEO_RISK.HIGH && score < 5) score += 1;
+  if (score > 5) score = 5;
+  return score;
+}
+function riskScoreEmoji(score) {
+  // 1=green, 2=yellow, 3=orange, 4-5=red
+  const colour = score === 1 ? '🟩' : score === 2 ? '🟨' : score === 3 ? '🟧' : '🟥';
+  return `${colour.repeat(score)}/5`;
+}
+
+// ── DAY THEME ────────────────────────────────────────────────
+function buildDayTheme(highEvents, driverLabels, primaryAffected) {
+  if (!highEvents.length) {
+    return 'No scheduled high-impact catalyst today. The tape is driver-led — direction will be set by the live VIX, DXY, and yields read rather than the calendar.';
+  }
+  // Find the dominant currency by frequency
+  const ccyCounts = {};
+  for (const e of highEvents) {
+    const c = (e.currency || '').toUpperCase();
+    if (c) ccyCounts[c] = (ccyCounts[c] || 0) + 1;
+  }
+  const dominantCcy = Object.keys(ccyCounts).sort((a, b) => ccyCounts[b] - ccyCounts[a])[0] || 'USD';
+  const driverPhrase = driverLabels.length ? driverLabels.join(' + ') : 'scheduled catalyst risk';
+  const affectedPhrase = primaryAffected || `${dominantCcy} pairs`;
+  return `${dominantCcy} ${driverPhrase} dominates today, with ${humanizeTitle(highEvents[0].title)} creating the main volatility window for ${affectedPhrase}.`;
+}
+
+// ── MECHANISM CHAIN (cause → expectation → reaction → impact) ─
+function mechanismChainFor(rawEvent) {
+  const c = classifyEventDriver(rawEvent.title);
+  const ccy = rawEvent.currency || 'home currency';
+  if (!c) {
+    return [
+      `cause: surprise vs forecast`,
+      `expectation: short-term rate-path repricing`,
+      `market reaction: ${ccy} repositions in the front end`,
+      `asset impact: ${ccy} pairs and correlated risk respond on the first close`,
+    ].join(' → ');
+  }
+  if (c.short === 'inflation') {
+    return `cause: ${ccy} inflation surprise vs forecast → expectation: rate-path repricing in the front end → market reaction: ${ccy} and yields move first → asset impact: DXY direction sets gold and US-index reaction`;
+  }
+  if (c.short === 'labour') {
+    return `cause: ${ccy} labour surprise vs forecast → expectation: central-bank reaction-function pricing → market reaction: short-end rates and ${ccy} reposition → asset impact: rate-sensitive assets (gold, indices) follow on first HTF close`;
+  }
+  if (c.short === 'central bank') {
+    return `cause: tone vs current market pricing → expectation: rate-path lean shifts → market reaction: ${ccy} repositions on tone, not headline → asset impact: cross-pair flow and rate-sensitive assets follow`;
+  }
+  if (c.short === 'growth') {
+    return `cause: growth surprise vs forecast → expectation: terminal-rate expectations reset → market reaction: ${ccy} and equity indices respond → asset impact: risk appetite shifts on the first HTF close`;
+  }
+  if (c.short === 'consumer demand') {
+    return `cause: consumer-spending surprise → expectation: growth/rate path repricing → market reaction: ${ccy} repositions → asset impact: consumer-cyclical equities and ${ccy} pairs follow`;
+  }
+  if (c.short === 'activity') {
+    return `cause: activity reading vs 50 expansion line → expectation: growth/rate path repricing → market reaction: ${ccy} responds on directional surprise → asset impact: defensive vs cyclical rotation in equities`;
+  }
+  if (c.short === 'geopolitical') {
+    return `cause: geopolitical shock event → expectation: safe-haven rotation → market reaction: DXY/CHF/JPY/XAU bid → asset impact: equities and credit offered, vol indices lift`;
+  }
+  return `cause: surprise vs forecast → expectation: short-term rate-path repricing → market reaction: ${ccy} moves first → asset impact: correlated risk follows on first HTF close`;
+}
+
+// ── PER-CURRENCY/ASSET NARRATIVES ────────────────────────────
+const NARRATIVE_TEMPLATES = {
+  USD: (drivers) => ({
+    label: 'USD / DXY',
+    body: drivers.includes('inflation')
+      ? 'Hot CPI lifts USD via rate-path repricing; soft CPI eases it. Watching first close above/below the pre-print VWAP.'
+      : drivers.includes('labour')
+      ? 'Strong labour data supports USD; weak data pressures it. Watching the front-end yield reaction on the first 5m/15m close.'
+      : drivers.includes('central bank')
+      ? 'Tone vs market pricing is the lever. Hawkish lean supports USD; dovish lean pressures it. Surprises produce outsized moves.'
+      : 'USD direction depends on print vs forecast and first structure confirmation.',
+  }),
+  EUR: () => ({
+    label: 'EUR',
+    body: 'ECB tone is the lever — hawkish lean supports EUR; dovish lean pressures. Watching cross-pair flow vs USD and EURGBP for relative strength.',
+  }),
+  GBP: () => ({
+    label: 'GBP',
+    body: 'BOE pricing and UK growth surprises drive GBP. Watching GBPUSD vs EURGBP for relative strength once data prints.',
+  }),
+  JPY: () => ({
+    label: 'JPY',
+    body: 'Yen reacts to safe-haven flow and BOJ policy gap vs G10. Watching USDJPY vs DXY for confirmation of risk tone.',
+  }),
+  AUD: () => ({
+    label: 'AUD / NZD',
+    body: 'Risk-sensitive currencies. Reaction to global risk tone and any RBA/RBNZ commentary. Watching AUDUSD vs equity indices for risk-on/off confirmation.',
+  }),
+  CAD: () => ({
+    label: 'CAD',
+    body: 'Tied to oil and BOC pricing. Watching USOIL alongside USDCAD for the dominant driver of the day.',
+  }),
+  GOLD: (drivers) => ({
+    label: 'Gold (XAUUSD)',
+    body: drivers.includes('inflation') || drivers.includes('central bank')
+      ? 'Inverse to USD/yields. Watching rejection or reclaim of pre-print high after the release.'
+      : 'Driven by USD/yields and risk-off flow. Watching for breakdown vs prior session high/low after data.',
+  }),
+  INDICES: (drivers) => ({
+    label: 'US Indices (NAS100 / US500 / US30)',
+    body: drivers.includes('inflation') || drivers.includes('labour') || drivers.includes('central bank')
+      ? 'Risk asset, sensitive to rate-path repricing. Watching held vs lost VWAP after each release.'
+      : 'Risk-on/off driven. Watching VWAP and prior-session levels for first directional bias.',
+  }),
+};
+function buildCurrencyNarratives(highEvents, affectedBuckets) {
+  const ccyHits = new Set();
+  for (const e of highEvents) {
+    const c = (e.currency || '').toUpperCase();
+    if (c) ccyHits.add(c);
+  }
+  const drivers = inferDriverShorts(highEvents);
+  const narratives = [];
+  if (ccyHits.has('USD') || affectedBuckets['DXY'] || affectedBuckets['USD pairs']) {
+    narratives.push(NARRATIVE_TEMPLATES.USD(drivers));
+  }
+  if (ccyHits.has('EUR') || affectedBuckets['EUR pairs']) narratives.push(NARRATIVE_TEMPLATES.EUR());
+  if (ccyHits.has('GBP') || affectedBuckets['GBP pairs']) narratives.push(NARRATIVE_TEMPLATES.GBP());
+  if (ccyHits.has('JPY') || affectedBuckets['JPY crosses']) narratives.push(NARRATIVE_TEMPLATES.JPY());
+  if (ccyHits.has('AUD') || ccyHits.has('NZD') || affectedBuckets['AUD/NZD pairs']) narratives.push(NARRATIVE_TEMPLATES.AUD());
+  if (ccyHits.has('CAD'))                                 narratives.push(NARRATIVE_TEMPLATES.CAD());
+  if (affectedBuckets['Metals'] || drivers.includes('inflation') || drivers.includes('central bank')) {
+    narratives.push(NARRATIVE_TEMPLATES.GOLD(drivers));
+  }
+  if (affectedBuckets['US indices'] || ccyHits.has('USD')) {
+    narratives.push(NARRATIVE_TEMPLATES.INDICES(drivers));
+  }
+  return narratives;
+}
+
+// ── CLASH & LIQUIDITY RISKS ──────────────────────────────────
+function buildClashRisks(highEvents, NOW) {
+  if (!highEvents.length) {
+    return ['No scheduled high-impact prints — release-window clash risk is low. Watch the tape for driver-led moves.'];
+  }
+  const sorted = highEvents.slice().sort((a, b) => (a.scheduled_time || 0) - (b.scheduled_time || 0));
+  const lines = [];
+
+  // Cluster detection — events within 4h
+  const clusters = [];
+  let cur = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const gap = (sorted[i].scheduled_time || 0) - (sorted[i-1].scheduled_time || 0);
+    if (gap <= 4 * 60 * 60 * 1000) cur.push(sorted[i]);
+    else { clusters.push(cur); cur = [sorted[i]]; }
+  }
+  clusters.push(cur);
+
+  const clusterCount = clusters.filter(c => c.length >= 2).length;
+  if (clusterCount > 0) {
+    const biggestCluster = clusters.sort((a, b) => b.length - a.length)[0];
+    const startT = fmtAwstShort(biggestCluster[0].scheduled_time);
+    const endT   = fmtAwstShort(biggestCluster[biggestCluster.length - 1].scheduled_time);
+    lines.push(`**Event clustering:** ${biggestCluster.length} high-impact prints between ${startT} and ${endT} AWST. Cumulative spike risk; vol carries between releases.`);
+  } else if (sorted.length === 1) {
+    lines.push(`**Single window:** one high-impact print at ${fmtAwstShort(sorted[0].scheduled_time)} AWST. Concentrated risk in that 30-minute envelope.`);
+  } else {
+    lines.push(`**Spread windows:** ${sorted.length} high-impact prints distributed across the day; vol resets between each.`);
+  }
+
+  lines.push(`**Release-window spike risk:** spreads widen, liquidity thins, fakeouts likely in the first 60–90 seconds of each print.`);
+  lines.push(`**Stop-sweep risk:** tight stops above/below recent highs/lows are liable to be cleared into the release. Avoid stops in obvious sweep zones.`);
+  if (sorted.length >= 2) {
+    lines.push(`**Timing conflict:** flow from one release can bleed into the next — especially when both touch the same currency. Read the second release in the context of the first.`);
+  }
+  lines.push(`**Why structure matters:** only post-release HTF closes are tradable signal. The first wick is rarely the move.`);
+  return lines;
+}
+
+// ── ATLAS RESPONSE / TRADE WINDOWS ───────────────────────────
+function buildAtlasResponseWindows(highEvents) {
+  if (!highEvents.length) {
+    return [
+      'No scheduled no-trade windows today.',
+      'Reassessment: read live VIX / DXY / yields; size only with confirmed structure.',
+      'Wait for liquidity sweep + 5m/15m close before treating any directional move as continuation.',
+      'Pre-position only with confirmed structure already live; no blind directional bets.',
+    ];
+  }
+  const sorted = highEvents.slice().sort((a, b) => (a.scheduled_time || 0) - (b.scheduled_time || 0));
+  const windows = sorted.slice(0, 4).map(e => `${fmtAwstShort(e.scheduled_time)} AWST (${humanizeTitle(e.title)})`);
+  return [
+    `**No-trade window:** 15 minutes before and 30 minutes after each of: ${windows.join(' · ')}.`,
+    `**Reassessment:** after the first 5m/15m candle close post-release.`,
+    `**Pre-positioning:** allowed only with confirmed structure already live before the no-trade window opens.`,
+    `**Trigger rule:** wait for liquidity sweep + reclaim before treating the move as continuation.`,
+    `**No direct buy/sell calls** — Corey's job is mechanism + window discipline, not signal generation.`,
+  ];
+}
+
+// ── COMPACT TIME FORMATTERS ──────────────────────────────────
+function fmtAwstShort(t) {
+  if (!t) return '—';
+  const awst = new Date(new Date(t).getTime() + 8 * 60 * 60 * 1000);
+  return `${String(awst.getUTCHours()).padStart(2, '0')}:${String(awst.getUTCMinutes()).padStart(2, '0')}`;
+}
+function fmtUtcShort(t) {
+  if (!t) return '—';
+  const d = new Date(t);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+}
+function fmtAwstDate(t) {
+  if (!t) return 'unavailable';
+  const awst = new Date(new Date(t).getTime() + 8 * 60 * 60 * 1000);
+  return awst.toISOString().slice(0, 10);
+}
+
+// ── EVENT-RISK LABEL ─────────────────────────────────────────
+function eventRiskLabel(r) { return (r || 'low').toString().toUpperCase(); }
+
+// ── "WHAT COREY IS WAITING TO SEE AFTER" ─────────────────────
+function coreyWatchingFor(rawEvent) {
+  const t = String(rawEvent.title || '').toLowerCase();
+  if (/\b(cpi|pce|inflation)\b/.test(t))
+    return 'directional flow into the print, then the first reclaim or rejection on 5m/15m post-release';
+  if (/\b(nonfarm|nfp|unemployment|jobs|employment change|adp)\b/.test(t))
+    return 'rate-path repricing in the front end and whether USD respects/loses prior session levels';
+  if (/\b(fed|fomc|ecb|boe|boj|rba|boc|rate decision|policy decision|press conference)\b/.test(t))
+    return 'tone vs current market pricing — hawkish vs dovish lean is the lever, not the headline';
+  if (/\b(gdp|retail sales|pmi|ism)\b/.test(t))
+    return 'whether the surprise reprices the rate path and how risk indices respond on the first close';
+  if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
+    return 'safe-haven rotation depth — DXY / CHF / JPY / XAU bid alongside equity offer';
+  return 'the first higher-timeframe close after the print and whether structure forms either side';
+}
+
+// ============================================================
+// PRE-EVENT ALERT — trader-grade rebuild
+// ============================================================
 function buildPreEventAlertPayload(rawEvent, minutesOut) {
   const a = analyseEvent(rawEvent);
   if (!a) return { content: '' };
   const stage = preEventStageLabel(minutesOut);
-  const affected = (a.affected || []).length ? a.affected.join(', ') : 'unavailable';
-  const sched = fmtUtcWithAwst(a.scheduled_time);
+  const cleanTitle = humanizeTitle(a.title);
+  const buckets = bucketAffected(a.affected);
   const cautionByStage = {
-    'T-4H':  'Setup window — confirm bias before any pre-positioning.',
-    'T-1H':  'Approach window — execution becomes time-sensitive. Avoid late entries.',
-    'T-30M': 'Final lead-in — liquidity thins; spreads widen; do not chase.',
-    'T-15M': 'Imminent — stand down unless a confirmed pre-event setup is already live.',
-    'T-RELEASE': 'Release window — first move is rarely the move. Wait for liquidity sweep + reclaim.',
+    'T-4H':  'Setup window. Confirm bias before any pre-positioning.',
+    'T-1H':  'Approach window. Execution becomes time-sensitive — avoid late entries.',
+    'T-30M': 'Final lead-in. Liquidity thins, spreads widen — do not chase.',
+    'T-15M': 'Imminent. Stand down unless a confirmed pre-event setup is already live.',
+    'T-RELEASE': 'Release window. The first move is rarely the move — wait for liquidity sweep + reclaim.',
   };
-  const possibleMechanism =
-    `${a.coreyView}\n\nMechanism: ${a.mechanism}`;
 
-  const content =
-    `**ATLAS MARKET INTEL — HIGH-IMPACT PRE-EVENT ALERT (${stage})**\n\n` +
-    `**Event:** ${a.title}\n` +
-    `**Country / Currency:** ${rawEvent.country || 'unavailable'} / ${a.currency || 'unavailable'}\n` +
-    `**Scheduled:** ${sched}\n` +
-    `**Impact level:** ${(rawEvent.impact || 'unavailable').toString().toUpperCase()}\n` +
-    `**Affected symbols:** ${affected}\n` +
-    `**Expected volatility risk:** elevated until first close after release\n\n` +
-    `**Possible mechanisms (conditional):**\n${possibleMechanism}\n\n` +
-    `**Conditional bias:** ${a.bias.label}\n` +
-    `_${BIAS_CONDITIONAL_DISCLAIMER}_\n\n` +
-    `**Caution:** ${cautionByStage[stage] || cautionByStage['T-1H']}`;
+  const lines = [];
+  lines.push(`**ATLAS MARKET INTEL — PRE-EVENT ALERT (${stage})**`);
+  lines.push('');
+  lines.push(`**Event:** ${cleanTitle}`);
+  lines.push(`**Currency:** ${a.currency || 'unavailable'}${rawEvent.country ? ` (${rawEvent.country})` : ''}`);
+  lines.push(`**Time:** ${fmtAwstShort(a.scheduled_time)} AWST · ${fmtUtcShort(a.scheduled_time)} UTC`);
+  lines.push(`**Impact:** ${(rawEvent.impact || 'unavailable').toString().toUpperCase()}`);
+  lines.push('');
+  lines.push(`**Affected markets**`);
+  for (const k of BUCKET_ORDER) {
+    if (buckets[k] && buckets[k].length) lines.push(`• ${k}: ${buckets[k].slice(0, 6).join(', ')}`);
+  }
+  lines.push('');
+  lines.push(`**Mechanism chain**`);
+  lines.push(mechanismChainFor(rawEvent));
+  lines.push('');
+  lines.push(`**Corey read**`);
+  lines.push(a.coreyView);
+  lines.push('');
+  lines.push(`**Trader guidance**`);
+  lines.push(`• ${cautionByStage[stage] || cautionByStage['T-1H']}`);
+  lines.push(`• Wait for liquidity sweep + 5m/15m candle-close confirmation before treating any move as continuation.`);
+  lines.push(`• Trade smaller around the print; reassess once structure has formed.`);
+  lines.push('');
+  lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
 
-  return { content, stage };
+  return { content: lines.join('\n'), stage };
 }
 
 // ============================================================
-// RELEASED EVENT ALERT
+// RELEASED EVENT ALERT — trader-grade rebuild
 // ============================================================
 function buildReleasedEventAlertPayload(rawEvent) {
   const a = analyseEvent(rawEvent);
   if (!a) return { content: '' };
-  const affected = (a.affected || []).length ? a.affected.join(', ') : 'unavailable';
-  const content =
-    `**ATLAS MARKET INTEL — RELEASED EVENT**\n\n` +
-    `**Event:** ${a.title}\n` +
-    `**Released at:** ${fmtUtcWithAwst(a.scheduled_time)}\n` +
-    `**Values:** actual=${fmtVal(a.actual)} · forecast=${fmtVal(a.forecast)} · previous=${fmtVal(a.previous)}\n` +
-    `**Likely affected symbols:** ${affected}\n\n` +
-    `**Corey view:** ${a.coreyView}\n\n` +
-    `**Conditional bias:** ${a.bias.label}\n` +
-    `_${BIAS_CONDITIONAL_DISCLAIMER}_\n\n` +
-    `**First-reaction caution:** Immediate volatility is high. Do not chase the first spike. ` +
-    `Wait for liquidity sweep, rejection, and a candle-close confirmation on 5m/15m before treating the move as continuation.`;
-  return { content };
+  const cleanTitle = humanizeTitle(a.title);
+  const buckets = bucketAffected(a.affected);
+
+  let surpriseLine;
+  const A = parseFloat(a.actual);
+  const F = parseFloat(a.forecast);
+  if (Number.isFinite(A) && Number.isFinite(F)) {
+    if (A > F)      surpriseLine = `Print came in **above forecast** (${a.actual} vs ${a.forecast}).`;
+    else if (A < F) surpriseLine = `Print came in **below forecast** (${a.actual} vs ${a.forecast}).`;
+    else            surpriseLine = `Print came in **in line with forecast** (${a.actual}).`;
+  } else {
+    surpriseLine = `Values: actual ${fmtVal(a.actual)} · forecast ${fmtVal(a.forecast)} · previous ${fmtVal(a.previous)}.`;
+  }
+
+  const lines = [];
+  lines.push(`**ATLAS MARKET INTEL — RELEASED EVENT**`);
+  lines.push('');
+  lines.push(`**Event:** ${cleanTitle}`);
+  lines.push(`**Released:** ${fmtAwstShort(a.scheduled_time)} AWST`);
+  lines.push(`**Result:** ${surpriseLine}`);
+  lines.push('');
+  lines.push(`**Likely affected markets**`);
+  for (const k of BUCKET_ORDER) {
+    if (buckets[k] && buckets[k].length) lines.push(`• ${k}: ${buckets[k].slice(0, 6).join(', ')}`);
+  }
+  lines.push('');
+  lines.push(`**Mechanism chain**`);
+  lines.push(mechanismChainFor(rawEvent));
+  lines.push('');
+  lines.push(`**Corey read**`);
+  lines.push(a.coreyView);
+  lines.push('');
+  lines.push(`**First-reaction caution**`);
+  lines.push(`• Immediate volatility is high — do not chase the first spike.`);
+  lines.push(`• Wait for liquidity sweep, rejection, and a 5m/15m candle close before treating the move as continuation.`);
+  lines.push(`• Reassess bias only after the first higher-timeframe close has formed.`);
+  lines.push('');
+  lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
+
+  return { content: lines.join('\n') };
 }
 
 // ============================================================
@@ -343,6 +722,23 @@ function nextMajor(eventsToday, eventsTomorrow, now) {
   return high[0] || null;
 }
 
+// ============================================================
+// DAILY ROADMAP — 9-section ATLAS Event Intelligence + Daily
+// Roadmap layer. Compressed Discord version of the locked
+// "ATLAS FX — Macro + Roadmap Master Brief v2.0" doctrine.
+//
+// Sections (in order):
+//   0. Header + Dominant Risk Score
+//   1. THEME
+//   2. HEADLINE RISK
+//   3. EVENT INTELLIGENCE (full mechanism chain)
+//   4. KEY EVENT WINDOWS — AWST
+//   5. CURRENCY / ASSET NARRATIVES
+//   6. CLASH & LIQUIDITY RISKS
+//   7. ATLAS RESPONSE / TRADE WINDOWS
+//   8. PRIORITY WATCHLIST (bucketed)
+//   9. NEXT WATCH
+// ============================================================
 function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   const NOW = now || Date.now();
   const events = (snapshot && snapshot.events) || [];
@@ -351,60 +747,204 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   const dayEnd   = new Date(NOW); dayEnd.setUTCHours(23,59,59,999);
   const next24End = NOW + 24 * 60 * 60 * 1000;
 
-  const today = events.filter(e => e.scheduled_time >= dayStart.getTime() && e.scheduled_time <= dayEnd.getTime());
+  const today  = events.filter(e => e.scheduled_time >= dayStart.getTime() && e.scheduled_time <= dayEnd.getTime());
   const next24 = events.filter(e => e.scheduled_time > NOW && e.scheduled_time <= next24End);
 
-  const highToday = today.filter(e => deriveRelevance(e) === RELEVANCE.HIGH);
+  const highToday         = today.filter(e => deriveRelevance(e) === RELEVANCE.HIGH);
   const highInterestToday = today.filter(e => isHighInterest(e) && deriveRelevance(e) !== RELEVANCE.HIGH);
 
-  const calendarMode   = health.calendar_mode || 'UNAVAILABLE';
-  const calendarSource = health.source_used || 'unavailable';
-  const eventRisk      = classifyEventRisk(highToday.length, (geoCtx && geoCtx.level) || GEO_RISK.LOW);
-  const next = nextMajor(today, next24.filter(e => !today.includes(e)), NOW);
+  const eventRisk    = classifyEventRisk(highToday.length, (geoCtx && geoCtx.level) || GEO_RISK.LOW);
+  const geoLevel     = (geoCtx && geoCtx.level) || GEO_RISK.LOW;
+  const driverLabels = inferDriverLabels(highToday);
+  const riskTone     = inferRiskTone(eventRisk, geoLevel, driverLabels);
+  const next         = nextMajor(today, next24.filter(e => !today.includes(e)), NOW);
+  const riskScore    = riskScoreFromState(eventRisk, geoLevel);
 
   // Affected symbols across today's high-impact set
   const affected = new Set();
   for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
-  const affectedList = [...affected].slice(0, 16);
+  const buckets = bucketAffected([...affected]);
 
-  // Top high-impact list (max 6 to keep message concise)
-  const highBlock = highToday.length
-    ? highToday.slice(0, 6).map(e => `• **${e.title}** — ${e.currency || '??'} · ${fmtUtcWithAwst(e.scheduled_time)} · impact ${e.impact || 'high'}`).join('\n')
-    : '_None scheduled today._';
+  // Sort + format event windows in AWST chronological order
+  const sortedHigh = highToday.slice().sort((a, b) => (a.scheduled_time || 0) - (b.scheduled_time || 0));
+  const sortedHighInterest = highInterestToday.slice().sort((a, b) => (a.scheduled_time || 0) - (b.scheduled_time || 0));
 
-  const highInterestBlock = highInterestToday.length
-    ? highInterestToday.slice(0, 4).map(e => `• ${e.title} — ${e.currency || '??'} · ${fmtUtcWithAwst(e.scheduled_time)}`).join('\n')
-    : '_None scheduled today._';
+  // Pick headline event (highest impact, earliest in the day)
+  const headline = sortedHigh[0] || null;
 
-  const nextLine = next
-    ? `${next.title} — ${next.currency || '??'} · ${fmtUtcWithAwst(next.scheduled_time)}`
-    : 'No high-impact event scheduled in the next 48 hours.';
+  // Primary affected bucket name for the THEME line
+  // Build the THEME's "main volatility window for X, Y, Z" phrase from
+  // whichever buckets actually have symbols today. Preserves bucket case.
+  const themeAssets = [];
+  if (buckets['DXY'] || buckets['USD pairs']) themeAssets.push('USD pairs');
+  if (buckets['Metals']) themeAssets.push('gold');
+  if (buckets['US indices']) themeAssets.push('US indices');
+  if (!themeAssets.length) {
+    if (buckets['EUR pairs']) themeAssets.push('EUR pairs');
+    if (buckets['GBP pairs']) themeAssets.push('GBP pairs');
+    if (buckets['JPY crosses']) themeAssets.push('JPY crosses');
+  }
+  const primaryAffectedPhrase = themeAssets.length ? themeAssets.slice(0, 3).join(', ') : null;
 
-  const traderNote =
-    'Pre-position only with confirmed structure. Sit out the release window. ' +
-    'Re-enter only after liquidity sweep + candle-close confirmation on 5m/15m.';
+  const briefingDate = fmtAwstDate(NOW);
+  const lines = [];
 
-  const utcDay = dayStart.toISOString().slice(0, 10);
-  const content =
-    `**ATLAS MARKET INTEL — DAILY EVENT BULLETIN**\n\n` +
-    `**Date / Timezone:** ${utcDay} (UTC) — AWST is UTC+8\n` +
-    `**Calendar mode:** ${calendarMode}\n` +
-    `**Calendar source:** ${calendarSource}\n` +
-    `**High-impact events today:** ${highToday.length}\n${highBlock}\n\n` +
-    `**High-interest events today:** ${highInterestToday.length}\n${highInterestBlock}\n\n` +
-    `**Next major event:** ${nextLine}\n` +
-    `**Next 24h event count:** ${next24.length}\n\n` +
-    `**Affected currencies / assets / symbols:**\n${affectedList.length ? affectedList.join(', ') : 'unavailable'}\n\n` +
-    `**Event risk:** ${eventRisk}\n` +
-    `**Geopolitical risk:** ${(geoCtx && geoCtx.level) || GEO_RISK.LOW} — ${(geoCtx && geoCtx.summary) || 'inferred from market drivers'}\n\n` +
-    `**Corey view / why it matters:**\n${highToday.length
-      ? 'Today carries scheduled risk events that can reprice rate paths and risk appetite. Trade smaller into release windows; reassess after first structure confirmation.'
-      : 'No scheduled high-impact prints today. Macro tape is driver-led; watch the live VIX / DXY / yields read for regime change.'}\n\n` +
-    `**Trader note:** ${traderNote}\n` +
-    `_${BIAS_CONDITIONAL_DISCLAIMER}_`;
+  // ── HEADER ──
+  lines.push(`**ATLAS MARKET INTEL — DAILY ROADMAP**`);
+  lines.push(`_${briefingDate} · AWST_`);
+  lines.push(`**Dominant Risk Score:** ${riskScoreEmoji(riskScore)}  ·  Event Risk **${eventRiskLabel(eventRisk)}**  ·  Geopolitical **${geoLevel}**`);
+  lines.push('');
+
+  // ── 1. THEME ──
+  lines.push(`**1. THEME**`);
+  lines.push(buildDayTheme(highToday, driverLabels, primaryAffectedPhrase));
+  lines.push('');
+
+  // ── 2. HEADLINE RISK ──
+  lines.push(`**2. HEADLINE RISK**`);
+  if (headline) {
+    const ht = humanizeTitle(headline.title);
+    const c = classifyEventDriver(headline.title);
+    const why = c
+      ? (c.short === 'inflation' ? 'Inflation drives the Fed reaction function. A surprise in either direction repositions the rate path.'
+        : c.short === 'labour'    ? 'Labour data sets the central-bank reaction function. Strong/weak surprise reprices the front end.'
+        : c.short === 'central bank' ? 'Tone vs current market pricing is the lever. Hawkish/dovish lean reprices the rate path.'
+        : c.short === 'growth'    ? 'Growth surprise resets terminal-rate expectations and risk appetite.'
+        : c.short === 'consumer demand' ? 'Consumer-spending surprise reprices growth/rate expectations.'
+        : c.short === 'activity'  ? 'Activity sub-50 vs above-50 is the directional lever for the home currency.'
+        : c.short === 'geopolitical' ? 'Geopolitical shocks trigger fast safe-haven rotation across the major asset classes.'
+        : 'Surprise vs forecast reprices the rate path and risk appetite.')
+      : 'Surprise vs forecast reprices the rate path and risk appetite.';
+    const reaction = c
+      ? (c.short === 'inflation'  ? 'Hot print → USD/yields lift, gold + US indices pressured. Soft print → opposite.'
+        : c.short === 'labour'    ? 'Strong print → USD bid via rate-path repricing. Weak print → USD pressured, gold/indices supported.'
+        : c.short === 'central bank' ? 'Hawkish lean → home currency bid. Dovish lean → home currency pressured. Tone matters more than headline.'
+        : c.short === 'growth'    ? 'Stronger reading → home currency + indices supported. Weaker → both pressured.'
+        : c.short === 'consumer demand' ? 'Strong → home currency + consumer cyclicals supported. Weak → both pressured.'
+        : c.short === 'activity'  ? 'Above 50 → home currency supported. Sub-50 → home currency pressured, defensives bid.'
+        : c.short === 'geopolitical' ? 'DXY/CHF/JPY/XAU bid; equities and credit offered; vol indices lift.'
+        : 'Direction depends on print vs forecast.')
+      : 'Direction depends on print vs forecast.';
+    lines.push(`• **Main event:** ${ht}`);
+    lines.push(`• **Time:** ${fmtAwstShort(headline.scheduled_time)} AWST`);
+    lines.push(`• **Why it matters:** ${why}`);
+    lines.push(`• **Possible market behaviour:** ${reaction}`);
+  } else {
+    lines.push(`• No scheduled high-impact catalyst today.`);
+    lines.push(`• Tape is driver-led — direction set by live VIX / DXY / yields.`);
+  }
+  lines.push('');
+
+  // ── 3. EVENT INTELLIGENCE ──
+  lines.push(`**3. EVENT INTELLIGENCE**`);
+  if (headline) {
+    const ht = humanizeTitle(headline.title);
+    const ccy = headline.currency || 'unavailable';
+    const summary = (function (e) {
+      const c = classifyEventDriver(e.title);
+      const ccyL = e.currency || 'home currency';
+      if (!c) return `${ccyL} data release. Direction of surprise vs forecast typically flows through ${ccyL} pairs and correlated risk assets.`;
+      if (c.short === 'inflation')  return `${ccyL} inflation print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}. Hot/soft surprise reprices the front end of the curve.`;
+      if (c.short === 'labour')     return `${ccyL} labour-market print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}. Strong/weak surprise reprices the central-bank reaction function.`;
+      if (c.short === 'central bank') return `${ccyL} central-bank decision. Tone vs current market pricing is the dominant lever. Surprises produce outsized moves.`;
+      if (c.short === 'growth')     return `${ccyL} growth print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}. Surprise resets terminal-rate expectations and risk appetite.`;
+      if (c.short === 'consumer demand') return `${ccyL} consumer-demand print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}.`;
+      if (c.short === 'activity')   return `${ccyL} activity print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}. Sub-50 typically signals contraction.`;
+      if (c.short === 'geopolitical') return `Geopolitical event affecting ${ccyL} and global risk appetite.`;
+      return `${ccyL} ${c.label}. Direction depends on print vs forecast.`;
+    })(headline);
+    const a = analyseEvent(headline);
+    const buckets2 = bucketAffected(a.affected);
+    const affectedShort = BUCKET_ORDER
+      .filter(k => buckets2[k] && buckets2[k].length)
+      .map(k => k)
+      .slice(0, 5)
+      .join(' · ');
+
+    lines.push(`**Headline:** ${ht}`);
+    lines.push(`**Time:** ${fmtAwstShort(headline.scheduled_time)} AWST · ${fmtUtcShort(headline.scheduled_time)} UTC`);
+    lines.push(`**Summary:** ${summary}`);
+    lines.push(`**Corey commentary:** ${a.coreyView}`);
+    lines.push(`**Mechanism chain:** ${mechanismChainFor(headline)}`);
+    lines.push(`**Trader note:** Stand down through the release. Re-engage only after liquidity sweep + 5m/15m confirmation. Sizing should be reduced into the print.`);
+    lines.push(`**Affected:** ${affectedShort || 'unavailable'}`);
+  } else {
+    lines.push(`No scheduled headline event today. Watch live VIX / DXY / yields for regime change. Mechanism: driver moves first, calendar second.`);
+  }
+  lines.push('');
+
+  // ── 4. KEY EVENT WINDOWS ──
+  lines.push(`**4. KEY EVENT WINDOWS (AWST)**`);
+  if (sortedHigh.length) {
+    for (const e of sortedHigh.slice(0, 6)) {
+      const t = humanizeTitle(e.title);
+      const ccy = e.currency ? ` — ${e.currency}` : '';
+      const imp = (e.impact || 'high').toString().toLowerCase() === 'high' ? 'High'
+                : (e.impact || '').toString().toLowerCase() === 'medium' ? 'Medium' : 'Low';
+      lines.push(`• ${fmtAwstShort(e.scheduled_time)} — ${t}${ccy} — ${imp}`);
+    }
+  } else {
+    lines.push(`• No high-impact events scheduled today.`);
+  }
+  if (sortedHighInterest.length) {
+    lines.push(`_Also of interest:_`);
+    for (const e of sortedHighInterest.slice(0, 3)) {
+      const t = humanizeTitle(e.title);
+      const ccy = e.currency ? ` — ${e.currency}` : '';
+      lines.push(`• ${fmtAwstShort(e.scheduled_time)} — ${t}${ccy} — Medium`);
+    }
+  }
+  lines.push('');
+
+  // ── 5. CURRENCY / ASSET NARRATIVES ──
+  lines.push(`**5. CURRENCY / ASSET NARRATIVES**`);
+  const narratives = buildCurrencyNarratives(highToday, buckets);
+  if (narratives.length) {
+    for (const n of narratives) {
+      lines.push(`**${n.label}**`);
+      lines.push(`• ${n.body}`);
+    }
+  } else {
+    lines.push(`No specific currency/asset narratives — driver-led tape. Watch DXY, gold, and US indices vs live VIX/yields read.`);
+  }
+  lines.push('');
+
+  // ── 6. CLASH & LIQUIDITY RISKS ──
+  lines.push(`**6. CLASH & LIQUIDITY RISKS**`);
+  for (const l of buildClashRisks(sortedHigh, NOW)) lines.push(`• ${l}`);
+  lines.push('');
+
+  // ── 7. ATLAS RESPONSE / TRADE WINDOWS ──
+  lines.push(`**7. ATLAS RESPONSE / TRADE WINDOWS**`);
+  for (const l of buildAtlasResponseWindows(sortedHigh)) lines.push(`• ${l}`);
+  lines.push('');
+
+  // ── 8. PRIORITY WATCHLIST ──
+  lines.push(`**8. PRIORITY WATCHLIST**`);
+  if (Object.keys(buckets).length) {
+    for (const k of BUCKET_ORDER) {
+      if (buckets[k] && buckets[k].length) lines.push(`**${k}:** ${buckets[k].slice(0, 8).join(', ')}`);
+    }
+  } else {
+    lines.push(`_No specific priority watchlist — driver-led tape._`);
+  }
+  lines.push('');
+
+  // ── 9. NEXT WATCH ──
+  lines.push(`**9. NEXT WATCH**`);
+  if (next) {
+    lines.push(`• **Next major:** ${humanizeTitle(next.title)}${next.currency ? ` (${next.currency})` : ''}`);
+    lines.push(`• **Time:** ${fmtAwstShort(next.scheduled_time)} AWST`);
+    lines.push(`• **Watching for:** ${coreyWatchingFor(next)}`);
+  } else {
+    lines.push(`• No high-impact event scheduled in the next 48 hours.`);
+    lines.push(`• Watching for: regime change in live drivers (VIX 20, DXY 100, 10y-2y zero).`);
+  }
+  lines.push('');
+  lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
 
   return {
-    content,
+    content: lines.join('\n'),
     counts: {
       highImpactTodayCount: highToday.length,
       highInterestTodayCount: highInterestToday.length,
@@ -412,8 +952,11 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
     },
     nextMajorEvent: next,
     eventRisk,
-    affectedSymbols: affectedList,
-    calendarMode, calendarSource,
+    riskScore,
+    driver: driverLabels.join(' + '),
+    affectedSymbols: [...affected].slice(0, 16),
+    calendarMode: health.calendar_mode || 'UNAVAILABLE',
+    calendarSource: health.source_used || 'unavailable',
   };
 }
 
