@@ -614,12 +614,40 @@ async function runDarkHorseScan(universeOrOpts) {
     dhLog('INFO', `[MOVEMENT-DIGEST] firing — level=${volatility.level} ` +
                   `internal=${volatility.internalCount} reason=${volatility.reason}`);
     try {
-      const payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
+      // ── DARK HORSE v1.1 — global mover ranking ──
+      // Use the existing scan results as the ranking universe. Pull
+      // HTF candles via the engine's own _safeOHLC (cached) so we
+      // don't double-fetch. The ranking module is purely additive;
+      // if it throws for any reason we fall through to the v0.1
+      // simple digest so the operator never loses the heartbeat.
+      let payload;
+      let kind = 'movement_digest';
+      try {
+        const rank = require('./darkHorseRanking');
+        const candleProvider = async (sym) => {
+          if (typeof _safeOHLC !== 'function') return null;
+          try { return await _safeOHLC(sym, '1D', 100); }
+          catch (_e) { return null; }
+        };
+        // Universe for ranking = everything that scored > 0 on this scan.
+        const rankingUniverse = [...watch, ...internal];
+        const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
+          topN: 10, sectionCap: 2, sectionCapMax: 3,
+          watchThreshold: DH_SCORE_WATCH,
+        });
+        rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
+        payload = fomo.sanitize(rank.buildRankedMovementDigestPayload(ranking, volatility));
+        kind = 'movement_digest_v1_1';
+      } catch (rankErr) {
+        dhLog('WARN', `[DH-RANKING] v1.1 build failed, falling back to v0.1: ${rankErr.message}`);
+        payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
+      }
+
       await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
       _lastMovementDigestAt = Date.now();
       dhLog('INFO', `[WEBHOOK] Movement digest posted` +
                      (payload.replaced ? ' (sanitized)' : ''));
-      dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=movement_digest level=${volatility.level} internal=${volatility.internalCount}`);
+      dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${kind} level=${volatility.level} internal=${volatility.internalCount}`);
     } catch (e) {
       dhLog('ERROR', `[WEBHOOK] Movement digest failed: ${e.message}`);
       dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=${e.message}`);
