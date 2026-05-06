@@ -630,43 +630,423 @@ function coreyWatchingFor(rawEvent) {
 // ============================================================
 // PRE-EVENT ALERT — trader-grade rebuild
 // ============================================================
+// ── EVENT-CURRENCY-AWARE AFFECTED MARKETS ────────────────────
+// When the event's home currency is X, the trader-facing post must
+// label X-pairs correctly:
+//   - "Primary" = the most-watched X pair (e.g. CAD event → USDCAD)
+//   - "X crosses" = the cross-pairs that share X (e.g. EURCAD, CADJPY)
+//   - "Related macro" = correlated assets (e.g. CAD → USOIL/WTI)
+// This avoids the prior bug where a CAD event called USDCAD a "USD pair".
+const EVENT_CCY_BUCKETS = {
+  USD: {
+    primary: 'DXY',
+    crosses: ['EURUSD','GBPUSD','USDJPY','USDCAD','USDCHF','AUDUSD','NZDUSD'],
+    related: ['XAUUSD','NAS100','US500','US30'],
+    label:   'USD',
+  },
+  EUR: {
+    primary: 'EURUSD',
+    crosses: ['EURGBP','EURJPY','EURAUD','EURCAD','EURCHF'],
+    related: ['GER40'],
+    label:   'EUR',
+  },
+  GBP: {
+    primary: 'GBPUSD',
+    crosses: ['EURGBP','GBPJPY','GBPAUD','GBPCAD','GBPCHF'],
+    related: ['UK100'],
+    label:   'GBP',
+  },
+  JPY: {
+    primary: 'USDJPY',
+    crosses: ['EURJPY','GBPJPY','AUDJPY','CADJPY','CHFJPY'],
+    related: ['JPN225'],
+    label:   'JPY',
+  },
+  AUD: {
+    primary: 'AUDUSD',
+    crosses: ['EURAUD','GBPAUD','AUDJPY','AUDCAD','AUDNZD'],
+    related: ['XAUUSD'],
+    label:   'AUD',
+  },
+  NZD: {
+    primary: 'NZDUSD',
+    crosses: ['AUDNZD','NZDCAD'],
+    related: [],
+    label:   'NZD',
+  },
+  CAD: {
+    primary: 'USDCAD',
+    crosses: ['EURCAD','GBPCAD','CADJPY','AUDCAD','NZDCAD'],
+    related: ['USOIL','WTI'],
+    label:   'CAD',
+  },
+  CHF: {
+    primary: 'USDCHF',
+    crosses: ['EURCHF','GBPCHF','CHFJPY'],
+    related: ['XAUUSD'],
+    label:   'CHF',
+  },
+};
+function eventCurrencyBucketing(rawEvent) {
+  const ccy = String(rawEvent.currency || '').toUpperCase();
+  return EVENT_CCY_BUCKETS[ccy] || null;
+}
+
+// ── WHY THIS MATTERS (plain-English event explanation) ───────
+function whyThisMatters(rawEvent) {
+  const ccy = rawEvent.currency || 'the home currency';
+  const t   = String(rawEvent.title || '').toLowerCase();
+  if (/\b(cpi|pce|inflation)\b/.test(t)) {
+    return `This is the headline inflation print for ${ccy}. ` +
+           `Inflation drives the central-bank reaction function — a hotter print pushes rate-cut pricing further out and supports ${ccy}; a softer print pulls cuts forward and pressures ${ccy}. ` +
+           `Volatility expands because every tick of surprise reprices the front end of the curve.`;
+  }
+  if (/\bivey pmi\b/.test(t)) {
+    return `Ivey PMI is a Canadian purchasing-managers gauge that captures business activity, inventories, employment, and price pressure across the Canadian economy. ` +
+           `${ccy} traders watch it because above-50 readings signal expansion (CAD-supportive); below-50 signal contraction (CAD-pressuring). ` +
+           `It is a growth read, but it also feeds rate-path expectations at the BOC and tracks oil-sensitive sentiment via the Canadian energy complex.`;
+  }
+  if (/\bpmi\b/.test(t)) {
+    return `This is a purchasing-managers activity print for ${ccy}. ` +
+           `Above-50 means expansion, below-50 means contraction. ` +
+           `${ccy} traders watch it because it gauges growth, feeds rate-path expectations, and influences risk-on/off rotation in the home indices.`;
+  }
+  if (/\bism\b/.test(t)) {
+    return `ISM is a US activity gauge. Above-50 means expansion, below-50 means contraction. ` +
+           `${ccy} traders watch it because it feeds Fed reaction-function pricing and influences risk indices.`;
+  }
+  if (/\b(nonfarm|nfp|unemployment|jobs|employment change|adp)\b/.test(t)) {
+    return `This is a ${ccy} labour-market print. ` +
+           `Strong labour data supports ${ccy} via repricing of the rate path; weak data pressures ${ccy} and supports rate-sensitive assets such as gold and equity indices. ` +
+           `Volatility expands because labour data is the cleanest read on the central-bank reaction function.`;
+  }
+  if (/\bgdp\b/.test(t)) {
+    return `This is the headline ${ccy} growth print. ` +
+           `Stronger growth supports ${ccy} and risk indices via repricing of terminal-rate expectations; weaker growth pressures both. ` +
+           `Volatility expands because growth surprises reset the macro framework.`;
+  }
+  if (/\b(retail sales)\b/.test(t)) {
+    return `This is a ${ccy} consumer-demand print. ` +
+           `Stronger demand supports ${ccy} and consumer-cyclical equities; weaker demand pressures both. ` +
+           `Volatility expands because the print reprices growth/rate expectations.`;
+  }
+  if (/\b(fed|fomc|ecb|boe|boj|rba|boc|rbnz|snb|policy decision|press conference|rate decision)\b/.test(t)) {
+    return `This is a central-bank communication event for ${ccy}. ` +
+           `Tone vs current market pricing is the lever — hawkish lean supports ${ccy}, dovish lean pressures it. ` +
+           `Volatility expands sharply on tone surprises, especially in the press-conference segment.`;
+  }
+  if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t)) {
+    return `This is a geopolitical-shock event. ` +
+           `Safe-haven rotation is the dominant mechanism: DXY / CHF / JPY / XAU bid; equities and credit offered. ` +
+           `Volatility expands across the board; correlation patterns change rapidly.`;
+  }
+  return `This is a ${ccy} data release. ` +
+         `Direction of surprise versus forecast typically flows through ${ccy} pairs and correlated risk assets. ` +
+         `Volatility expands until first higher-timeframe close confirms structure either side.`;
+}
+
+// ── COREY MECHANISM CHAIN (long-form, multi-line for pre-event) ─
+function mechanismChainLong(rawEvent) {
+  const ccy = rawEvent.currency || 'the home currency';
+  const t   = String(rawEvent.title || '').toLowerCase();
+  const bk  = eventCurrencyBucketing(rawEvent);
+  const primary = bk ? bk.primary : `${ccy} pairs`;
+  const crossLabel = bk ? `${bk.label} crosses` : 'cross-pairs';
+  const related = bk && bk.related.length ? ` → ${bk.related.slice(0, 2).join('/')} spillover` : '';
+
+  if (/\bivey pmi\b/.test(t) || (/\bpmi\b/.test(t) && ccy === 'CAD')) {
+    return `Event surprise → ${ccy} repricing → ${primary} reaction → ${crossLabel} response${related} → structure confirmation required on 5m/15m close`;
+  }
+  if (/\bpmi\b/.test(t) || /\bism\b/.test(t)) {
+    return `Activity surprise → growth/rate-path repricing → ${primary} reaction → ${crossLabel} response${related} → structure confirmation required on 5m/15m close`;
+  }
+  if (/\b(cpi|pce|inflation)\b/.test(t)) {
+    return `Inflation surprise → rate-path repricing in the front end → ${primary} reaction${related ? related : ' → gold reaction'} → ${crossLabel} response → structure confirmation required on 5m/15m close`;
+  }
+  if (/\b(nonfarm|nfp|unemployment|jobs|employment change|adp)\b/.test(t)) {
+    return `Labour surprise → central-bank reaction-function pricing → ${primary} reaction${related ? related : ''} → ${crossLabel} response → structure confirmation required on 5m/15m close`;
+  }
+  if (/\b(fed|fomc|ecb|boe|boj|rba|boc|rbnz|snb|rate decision|policy decision|press conference)\b/.test(t)) {
+    return `Tone vs market pricing → rate-path lean shifts → ${primary} reaction${related ? related : ''} → ${crossLabel} response → structure confirmation required on 5m/15m close`;
+  }
+  return `Event surprise → ${ccy} repricing → ${primary} reaction → ${crossLabel} response${related} → structure confirmation required on 5m/15m close`;
+}
+
+// ── SCENARIO MAP — bullish / bearish / neutral ───────────────
+function scenarioMap(rawEvent) {
+  const ccy = rawEvent.currency || 'the home currency';
+  const bk  = eventCurrencyBucketing(rawEvent);
+  const t   = String(rawEvent.title || '').toLowerCase();
+  const primary = bk ? bk.primary : `${ccy} pairs`;
+  const isInverse = bk && /^USD/.test(bk.primary || '');  // pair where ccy STRENGTH = USDCCY DOWN
+
+  // Strength-direction labels (e.g. for CAD: USDCAD lower means CAD bid).
+  const strongerCcy = isInverse
+    ? `${primary} pressure lower if structure confirms`
+    : `${primary} pressure higher if structure confirms`;
+  const weakerCcy = isInverse
+    ? `${primary} pressure higher if structure confirms`
+    : `${primary} pressure lower if structure confirms`;
+
+  // Class-aware "stronger reading" / "weaker reading" descriptors.
+  let strongerDescr, weakerDescr;
+  if (/\bpmi\b/.test(t) || /\bism\b/.test(t)) {
+    strongerDescr = `Above-50 / stronger-than-expected reading supports ${ccy}`;
+    weakerDescr   = `Sub-50 / weaker-than-expected reading pressures ${ccy}`;
+  } else if (/\b(cpi|pce|inflation)\b/.test(t)) {
+    strongerDescr = `Hotter-than-forecast print supports ${ccy} (rate-path stays higher for longer)`;
+    weakerDescr   = `Softer-than-forecast print pressures ${ccy} (rate-cut pricing pulls forward)`;
+  } else if (/\b(nonfarm|nfp|unemployment|jobs|employment change|adp)\b/.test(t)) {
+    strongerDescr = `Stronger-than-forecast labour data supports ${ccy}`;
+    weakerDescr   = `Weaker-than-forecast labour data pressures ${ccy}`;
+  } else if (/\bgdp\b/.test(t)) {
+    strongerDescr = `Stronger-than-forecast GDP supports ${ccy}`;
+    weakerDescr   = `Weaker-than-forecast GDP pressures ${ccy}`;
+  } else if (/\b(fed|fomc|ecb|boe|boj|rba|boc|rbnz|snb|rate decision|policy decision|press conference)\b/.test(t)) {
+    strongerDescr = `Hawkish lean (firmer rate path / firmer guidance) supports ${ccy}`;
+    weakerDescr   = `Dovish lean (softer rate path / softer guidance) pressures ${ccy}`;
+  } else {
+    strongerDescr = `Above-forecast / strong reading supports ${ccy}`;
+    weakerDescr   = `Below-forecast / weak reading pressures ${ccy}`;
+  }
+
+  const crossNote = bk
+    ? `${bk.label} crosses (${bk.crosses.slice(0, 4).join(', ')}) react in the same direction as the ${primary} move`
+    : 'Cross-pair flow follows the dominant move';
+
+  const relatedNote = bk && bk.related.length
+    ? `${bk.related[0]} ${bk.related[0] === 'USOIL' || bk.related[0] === 'WTI' ? 'tracks the CAD-oil correlation' : 'reacts via the related-macro channel'}`
+    : null;
+
+  return {
+    bullish: [
+      `${strongerDescr}`,
+      `${strongerCcy}`,
+      crossNote,
+      ...(relatedNote ? [relatedNote] : []),
+    ],
+    bearish: [
+      `${weakerDescr}`,
+      `${weakerCcy}`,
+      crossNote,
+      ...(relatedNote ? [relatedNote] : []),
+    ],
+    neutral: [
+      `In-line print or whipsaw → no continuation assumed`,
+      `Corey remains conditional until 5m/15m close confirms direction`,
+      `Stand aside through the spike phase`,
+    ],
+  };
+}
+
+// ── COREY WATCH WINDOW (T-stage timeline) ───────────────────
+function coreyWatchWindowLines() {
+  return [
+    'T-60 to T-15: conditions building / spreads may widen',
+    'T-5 to release: no late entry advised',
+    'T+0 to T+15: spike / liquidity phase',
+    'T+15 to T+45: confirmation phase',
+    'Reassess after first stable 15m close',
+  ];
+}
+
+// ── FINAL ADVISORY STATE ────────────────────────────────────
+const ADVISORY_STATE = {
+  HOLD_FORMING:        'HOLD — BIAS STILL FORMING',
+  MONITOR_BUILDING:    'MONITOR — CONDITIONS BUILDING',
+  ENTRY_DEVELOPING:    'ENTRY CONDITIONS DEVELOPING',
+  ENTRY_NOT_ADVISED:   'ENTRY NOT ADVISED',
+  WITHHELD_INCOMPLETE: 'DECISION WITHHELD — SOURCE INCOMPLETE',
+};
+function finalAdvisoryStateForStage(stage, calendarMode) {
+  if (calendarMode && /UNAVAILABLE|DEGRADED/i.test(calendarMode)) return ADVISORY_STATE.WITHHELD_INCOMPLETE;
+  if (stage === 'T-RELEASE' || stage === 'T-15M') return ADVISORY_STATE.ENTRY_NOT_ADVISED;
+  if (stage === 'T-30M') return ADVISORY_STATE.ENTRY_NOT_ADVISED;
+  if (stage === 'T-1H')  return ADVISORY_STATE.MONITOR_BUILDING;
+  if (stage === 'T-4H')  return ADVISORY_STATE.HOLD_FORMING;
+  return ADVISORY_STATE.HOLD_FORMING;
+}
+
+// ── RISK / INTENSITY CUES (1..5 ratings) ────────────────────
+function riskIntensityCues(stage, eventRisk) {
+  // Event risk: from the calendar classification
+  const eventRiskScore =
+    eventRisk === EVENT_RISK.EXTREME  ? 5
+    : eventRisk === EVENT_RISK.HIGH    ? 4
+    : eventRisk === EVENT_RISK.MODERATE ? 3
+    : 2;
+  // Timing pressure: rises as we approach release
+  const timingScore =
+    stage === 'T-RELEASE' ? 5
+    : stage === 'T-15M'   ? 5
+    : stage === 'T-30M'   ? 4
+    : stage === 'T-1H'    ? 3
+    : 2;
+  // Confirmation need is always high for high-impact pre-event
+  const confirmScore = eventRiskScore >= 4 ? 5 : 4;
+  // Volatility risk tracks event-risk + timing pressure
+  const volScore = Math.min(5, Math.round((eventRiskScore + timingScore) / 2));
+  return {
+    eventRisk:        eventRiskScore,
+    timingPressure:   timingScore,
+    confirmationNeed: confirmScore,
+    volatilityRisk:   volScore,
+  };
+}
+function ratingBar(n) {
+  return `${'⬛'.repeat(n)}${'⬜'.repeat(5 - n)} ${n}/5`;
+}
+
+// ── BUCKETED AFFECTED MARKETS — event-currency aware ────────
+function bucketAffectedForEvent(rawEvent) {
+  const bk = eventCurrencyBucketing(rawEvent);
+  if (!bk) {
+    // Fallback to the legacy bucketing
+    const a = analyseEvent(rawEvent);
+    return {
+      hasEventBuckets: false,
+      legacy: bucketAffected(a.affected || []),
+    };
+  }
+  return {
+    hasEventBuckets: true,
+    primary: bk.primary,
+    crosses: bk.crosses,
+    related: bk.related,
+    label:   bk.label,
+  };
+}
+
+// ── COREY MODE — derived from corey_live status ─────────────
+function coreyModeLabel() {
+  if (!_coreyLiveModule || typeof _coreyLiveModule.getLiveContext !== 'function') return 'UNAVAILABLE';
+  let ctx;
+  try { ctx = _coreyLiveModule.getLiveContext(); }
+  catch (_e) { return 'UNAVAILABLE'; }
+  if (!ctx) return 'UNAVAILABLE';
+  // Live cache layer reports status when available; fall back to LIVE.
+  return (ctx.status && typeof ctx.status === 'string') ? String(ctx.status).toUpperCase() : 'LIVE';
+}
+function calendarSourceLabel() {
+  try {
+    const snap = _calendarModule && _calendarModule.getCalendarSnapshot && _calendarModule.getCalendarSnapshot();
+    const src  = snap && snap.health && snap.health.source_used;
+    if (src === 'tradingview')        return 'TradingView calendar';
+    if (src === 'trading_economics')  return 'Trading Economics calendar';
+    if (src === 'degraded')           return 'degraded fallback calendar';
+    return 'unavailable';
+  } catch (_e) { return 'unavailable'; }
+}
+function calendarModeLabel() {
+  try {
+    const snap = _calendarModule && _calendarModule.getCalendarSnapshot && _calendarModule.getCalendarSnapshot();
+    return (snap && snap.health && snap.health.calendar_mode) || 'UNAVAILABLE';
+  } catch (_e) { return 'UNAVAILABLE'; }
+}
+
+// ============================================================
+// PRE-EVENT ALERT — ATLAS Event Intelligence quality
+// 8-section structure per Nathan's Pre-Event Alert spec.
+// ============================================================
 function buildPreEventAlertPayload(rawEvent, minutesOut) {
   const a = analyseEvent(rawEvent);
   if (!a) return { content: '' };
-  const stage = preEventStageLabel(minutesOut);
+  const stage    = preEventStageLabel(minutesOut);
   const cleanTitle = humanizeTitle(a.title);
-  const buckets = bucketAffected(a.affected);
-  const cautionByStage = {
-    'T-4H':  'Setup window. Confirm bias before any pre-positioning.',
-    'T-1H':  'Approach window. Execution becomes time-sensitive — avoid late entries.',
-    'T-30M': 'Final lead-in. Liquidity thins, spreads widen — do not chase.',
-    'T-15M': 'Imminent. Stand down unless a confirmed pre-event setup is already live.',
-    'T-RELEASE': 'Release window. The first move is rarely the move — wait for liquidity sweep + reclaim.',
-  };
+  const cMode    = calendarModeLabel();
+  const cSource  = calendarSourceLabel();
+  const cMode2   = coreyModeLabel();
+  const eventRisk = a.relevance === RELEVANCE.HIGH ? EVENT_RISK.HIGH
+                  : a.relevance === RELEVANCE.MODERATE ? EVENT_RISK.MODERATE
+                  : EVENT_RISK.LOW;
+  const cues   = riskIntensityCues(stage, eventRisk);
+  const finalState = finalAdvisoryStateForStage(stage, cMode);
+  const bk     = bucketAffectedForEvent(rawEvent);
+  const map    = scenarioMap(rawEvent);
+  const why    = whyThisMatters(rawEvent);
+  const chain  = mechanismChainLong(rawEvent);
 
   const lines = [];
-  lines.push(`**ATLAS MARKET INTEL — PRE-EVENT ALERT (${stage})**`);
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push(`🟦 **ATLAS MARKET INTEL — PRE-EVENT ALERT**`);
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
   lines.push('');
-  lines.push(`**Event:** ${cleanTitle}`);
-  lines.push(`**Currency:** ${a.currency || 'unavailable'}${rawEvent.country ? ` (${rawEvent.country})` : ''}`);
-  lines.push(`**Time:** ${fmtAwstShort(a.scheduled_time)} AWST (${fmtUtcShort(a.scheduled_time)} UTC)`);
-  lines.push(`**Impact:** ${(rawEvent.impact || 'unavailable').toString().toUpperCase()}`);
+
+  // ── EVENT ──
+  lines.push('**EVENT**');
+  lines.push(`• Event: ${cleanTitle}`);
+  lines.push(`• Currency: ${a.currency || 'unavailable'}${rawEvent.country ? ` (${rawEvent.country})` : ''}`);
+  lines.push(`• Release time: ${fmtAwstShort(a.scheduled_time)} AWST / ${fmtUtcShort(a.scheduled_time)} UTC`);
+  lines.push(`• Alert window: ${stage}`);
+  lines.push(`• Impact: ${(rawEvent.impact || 'unavailable').toString().toUpperCase()}`);
+  lines.push(`• Source: ${cSource}`);
+  lines.push(`• Corey mode: ${cMode2}`);
   lines.push('');
-  lines.push(`**Affected markets**`);
-  for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) lines.push(`• ${k}: ${buckets[k].slice(0, 6).join(', ')}`);
+
+  // ── WHY THIS MATTERS ──
+  lines.push('**WHY THIS MATTERS**');
+  lines.push(why);
+  lines.push('');
+
+  // ── COREY MECHANISM CHAIN ──
+  lines.push('**COREY MECHANISM CHAIN**');
+  lines.push(chain);
+  lines.push('');
+
+  // ── SCENARIO MAP ──
+  lines.push('**SCENARIO MAP**');
+  lines.push(`__Bullish ${a.currency || 'home'} scenario:__`);
+  for (const l of map.bullish) lines.push(`• ${l}`);
+  lines.push('');
+  lines.push(`__Bearish ${a.currency || 'home'} scenario:__`);
+  for (const l of map.bearish) lines.push(`• ${l}`);
+  lines.push('');
+  lines.push(`__Neutral / mixed scenario:__`);
+  for (const l of map.neutral) lines.push(`• ${l}`);
+  lines.push('');
+
+  // ── AFFECTED MARKETS ──
+  lines.push('**AFFECTED MARKETS**');
+  if (bk.hasEventBuckets) {
+    lines.push(`• Primary: ${bk.primary}`);
+    lines.push(`• ${bk.label} crosses: ${bk.crosses.join(', ')}`);
+    if (bk.related.length) {
+      lines.push(`• Related macro: ${bk.related.join(' / ')} (where ${bk.label} sensitivity is relevant)`);
+    }
+  } else {
+    // Fallback to legacy buckets if currency unknown
+    const order = ['DXY','USD pairs','EUR pairs','GBP pairs','JPY crosses','AUD/NZD pairs','Metals','US indices','EU indices','Asia indices','Energy'];
+    for (const k of order) {
+      if (bk.legacy[k] && bk.legacy[k].length) lines.push(`• ${k}: ${bk.legacy[k].slice(0, 6).join(', ')}`);
+    }
   }
   lines.push('');
-  lines.push(`**Mechanism chain**`);
-  lines.push(mechanismChainFor(rawEvent));
+
+  // ── TRADER OPERATING GUIDANCE ──
+  lines.push('**TRADER OPERATING GUIDANCE**');
+  lines.push('• No pre-release chase.');
+  lines.push('• Entry conditions not developed until price confirms after release.');
+  lines.push('• Wait for liquidity sweep + 5m/15m candle-close confirmation.');
+  lines.push('• Reduce size or stand aside if spread/volatility expands.');
+  lines.push('• First clean structure after the print is more important than the first spike.');
   lines.push('');
-  lines.push(`**Corey read**`);
-  lines.push(a.coreyView);
+
+  // ── COREY WATCH WINDOW ──
+  lines.push('**COREY WATCH WINDOW**');
+  for (const l of coreyWatchWindowLines()) lines.push(`• ${l}`);
   lines.push('');
-  lines.push(`**Trader guidance**`);
-  lines.push(`• ${cautionByStage[stage] || cautionByStage['T-1H']}`);
-  lines.push(`• Wait for liquidity sweep + 5m/15m candle-close confirmation before treating any move as continuation.`);
-  lines.push(`• Trade smaller around the print; reassess once structure has formed.`);
+
+  // ── INTENSITY CUES ──
+  lines.push('**INTENSITY**');
+  lines.push(`• Event risk:        ${ratingBar(cues.eventRisk)}`);
+  lines.push(`• Timing pressure:   ${ratingBar(cues.timingPressure)}`);
+  lines.push(`• Confirmation need: ${ratingBar(cues.confirmationNeed)}`);
+  lines.push(`• Volatility risk:   ${ratingBar(cues.volatilityRisk)}`);
+  lines.push('');
+
+  // ── FINAL ADVISORY STATE ──
+  lines.push('**FINAL ADVISORY STATE**');
+  lines.push(finalState);
   lines.push('');
   lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
 
@@ -680,41 +1060,100 @@ function buildReleasedEventAlertPayload(rawEvent) {
   const a = analyseEvent(rawEvent);
   if (!a) return { content: '' };
   const cleanTitle = humanizeTitle(a.title);
-  const buckets = bucketAffected(a.affected);
+  const cMode    = calendarModeLabel();
+  const cSource  = calendarSourceLabel();
+  const cMode2   = coreyModeLabel();
+  const bk       = bucketAffectedForEvent(rawEvent);
+  const map      = scenarioMap(rawEvent);
+  const why      = whyThisMatters(rawEvent);
+  const chain    = mechanismChainLong(rawEvent);
 
+  // Surprise narration — pure read of actual vs forecast (never certainty).
   let surpriseLine;
   const A = parseFloat(a.actual);
   const F = parseFloat(a.forecast);
+  let surpriseSide = 'mixed';   // 'above' | 'below' | 'inline' | 'mixed'
   if (Number.isFinite(A) && Number.isFinite(F)) {
-    if (A > F)      surpriseLine = `Print came in **above forecast** (${a.actual} vs ${a.forecast}).`;
-    else if (A < F) surpriseLine = `Print came in **below forecast** (${a.actual} vs ${a.forecast}).`;
-    else            surpriseLine = `Print came in **in line with forecast** (${a.actual}).`;
+    if (A > F)      { surpriseLine = `Print came in **above forecast** (${a.actual} vs ${a.forecast}).`; surpriseSide = 'above'; }
+    else if (A < F) { surpriseLine = `Print came in **below forecast** (${a.actual} vs ${a.forecast}).`; surpriseSide = 'below'; }
+    else            { surpriseLine = `Print came in **in line with forecast** (${a.actual}).`;          surpriseSide = 'inline'; }
   } else {
     surpriseLine = `Values: actual ${fmtVal(a.actual)} · forecast ${fmtVal(a.forecast)} · previous ${fmtVal(a.previous)}.`;
   }
 
   const lines = [];
-  lines.push(`**ATLAS MARKET INTEL — RELEASED EVENT**`);
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push(`🟧 **ATLAS MARKET INTEL — RELEASED EVENT**`);
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
   lines.push('');
-  lines.push(`**Event:** ${cleanTitle}`);
-  lines.push(`**Released:** ${fmtAwstShort(a.scheduled_time)} AWST`);
-  lines.push(`**Result:** ${surpriseLine}`);
+
+  // ── EVENT ──
+  lines.push('**EVENT**');
+  lines.push(`• Event: ${cleanTitle}`);
+  lines.push(`• Currency: ${a.currency || 'unavailable'}${rawEvent.country ? ` (${rawEvent.country})` : ''}`);
+  lines.push(`• Released: ${fmtAwstShort(a.scheduled_time)} AWST / ${fmtUtcShort(a.scheduled_time)} UTC`);
+  lines.push(`• Impact: ${(rawEvent.impact || 'unavailable').toString().toUpperCase()}`);
+  lines.push(`• Source: ${cSource}`);
+  lines.push(`• Corey mode: ${cMode2}`);
   lines.push('');
-  lines.push(`**Likely affected markets**`);
-  for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) lines.push(`• ${k}: ${buckets[k].slice(0, 6).join(', ')}`);
+
+  // ── RESULT ──
+  lines.push('**RESULT**');
+  lines.push(surpriseLine);
+  if (a.previous != null && a.previous !== '') lines.push(`Previous: ${a.previous}`);
+  lines.push('');
+
+  // ── COREY READ ──
+  lines.push('**COREY READ**');
+  lines.push(why);
+  lines.push('');
+
+  // ── MECHANISM CHAIN ──
+  lines.push('**COREY MECHANISM CHAIN**');
+  lines.push(chain);
+  lines.push('');
+
+  // ── ACTIVE SCENARIO ──
+  lines.push('**ACTIVE SCENARIO**');
+  if (surpriseSide === 'above') {
+    lines.push(`Bullish ${a.currency || 'home'} scenario is the active read post-print.`);
+    for (const l of map.bullish) lines.push(`• ${l}`);
+  } else if (surpriseSide === 'below') {
+    lines.push(`Bearish ${a.currency || 'home'} scenario is the active read post-print.`);
+    for (const l of map.bearish) lines.push(`• ${l}`);
+  } else {
+    lines.push('Neutral / mixed scenario — no continuation assumed.');
+    for (const l of map.neutral) lines.push(`• ${l}`);
   }
   lines.push('');
-  lines.push(`**Mechanism chain**`);
-  lines.push(mechanismChainFor(rawEvent));
+
+  // ── AFFECTED MARKETS ──
+  lines.push('**AFFECTED MARKETS**');
+  if (bk.hasEventBuckets) {
+    lines.push(`• Primary: ${bk.primary}`);
+    lines.push(`• ${bk.label} crosses: ${bk.crosses.join(', ')}`);
+    if (bk.related.length) {
+      lines.push(`• Related macro: ${bk.related.join(' / ')}`);
+    }
+  } else {
+    for (const k of BUCKET_ORDER) {
+      if (bk.legacy[k] && bk.legacy[k].length) lines.push(`• ${k}: ${bk.legacy[k].slice(0, 6).join(', ')}`);
+    }
+  }
   lines.push('');
-  lines.push(`**Corey read**`);
-  lines.push(a.coreyView);
+
+  // ── FIRST-REACTION CAUTION ──
+  lines.push('**FIRST-REACTION CAUTION**');
+  lines.push('• Immediate volatility is high — do not chase the first spike.');
+  lines.push('• Wait for liquidity sweep, rejection, and a 5m/15m candle close before treating the move as continuation.');
+  lines.push('• Reassess bias only after the first higher-timeframe close has formed.');
   lines.push('');
-  lines.push(`**First-reaction caution**`);
-  lines.push(`• Immediate volatility is high — do not chase the first spike.`);
-  lines.push(`• Wait for liquidity sweep, rejection, and a 5m/15m candle close before treating the move as continuation.`);
-  lines.push(`• Reassess bias only after the first higher-timeframe close has formed.`);
+
+  // ── FINAL ADVISORY STATE ──
+  lines.push('**FINAL ADVISORY STATE**');
+  lines.push((cMode && /UNAVAILABLE|DEGRADED/i.test(cMode))
+    ? ADVISORY_STATE.WITHHELD_INCOMPLETE
+    : ADVISORY_STATE.ENTRY_DEVELOPING);
   lines.push('');
   lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
 
@@ -1105,12 +1544,32 @@ function getCoreyMarketIntelContext() {
 // ============================================================
 // SANITISER + WEBHOOK DELIVERY
 // ============================================================
+// Market-Intel-specific banned wording (in addition to the FOMO control set).
+// Per Nathan's Pre-Event Alert spec these advisory phrases are banned:
+//   authorised / authorized / permitted / permission / blocked /
+//   trade authorisation / no trade permitted
+const MARKET_INTEL_BANNED = [
+  { name: 'permitted',         pattern: /\bpermitted\b/i },
+  { name: 'blocked',           pattern: /\bblocked\b/i },
+  { name: 'no_trade_permitted',pattern: /\bno\s+trade\s+permitted\b/i },
+  { name: 'trade_authorisation',pattern: /\btrade\s+authori[sz]ation\b/i },
+];
 function sanitize(payload) {
-  const result = fomo.sanitize(payload);
-  if (result.replaced) {
-    console.warn(`[${ts()}] [MARKET-INTEL-GUARD] banned phrases stripped: ${result.foundBanned.join(',')}`);
+  let result = fomo.sanitize(payload);
+  const extraFound = [];
+  let content = result.content;
+  for (const { name, pattern } of MARKET_INTEL_BANNED) {
+    if (pattern.test(content)) {
+      extraFound.push(name);
+      const g = pattern.flags.includes('g') ? pattern.flags : pattern.flags + 'g';
+      content = content.replace(new RegExp(pattern.source, g), '[REDACTED-MI]');
+    }
   }
-  return result;
+  const allFound = [...(result.foundBanned || []), ...extraFound];
+  if (allFound.length) {
+    console.warn(`[${ts()}] [MARKET-INTEL-GUARD] banned phrases stripped: ${allFound.join(',')}`);
+  }
+  return Object.assign({}, result, { content, foundBanned: allFound, replaced: allFound.length > 0 });
 }
 
 function sendWebhook(url, payload) {
