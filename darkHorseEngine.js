@@ -10,6 +10,38 @@
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl');
 
+// ── COREY LIVE — defensive optional require ───────────────────
+// Used solely to source VIX level for FOMO assessment. The
+// engine never modifies coreyLive; it only reads getLiveContext().
+// CLAUDE.md restricts modification of getLiveContext / getMarketContext,
+// not invocation. If the module is unavailable for any reason the
+// engine logs vix=unavailable reason=<...> rather than failing.
+let _coreyLive = null;
+let _coreyLiveLoadReason = null;
+try {
+  _coreyLive = require('./corey_live_data');
+} catch (e) {
+  _coreyLiveLoadReason = `corey_live_data_require_threw:${e.message}`;
+}
+
+function getVixContext() {
+  if (!_coreyLive) {
+    return { level: null, available: false,
+             reason: _coreyLiveLoadReason || 'corey_live_data_module_unavailable' };
+  }
+  if (typeof _coreyLive.getLiveContext !== 'function') {
+    return { level: null, available: false, reason: 'getLiveContext_not_a_function' };
+  }
+  let ctx;
+  try { ctx = _coreyLive.getLiveContext(); }
+  catch (e) { return { level: null, available: false, reason: `getLiveContext_threw:${e.message}` }; }
+  if (!ctx) return { level: null, available: false, reason: 'live_context_null' };
+  const vix = ctx.vix || (ctx.live && ctx.live.vix) || null;
+  if (!vix) return { level: null, available: false, reason: 'vix_field_absent' };
+  if (vix.level == null || vix.level === '') return { level: null, available: false, reason: 'vix_level_empty' };
+  return { level: vix.level, available: true };
+}
+
 // ── UNIVERSE ──────────────────────────────────────────────────
 // Full institutional universe — FX, indices, equities, commodities
 // Crypto excluded permanently — zero exceptions
@@ -507,11 +539,49 @@ async function runDarkHorseScan(universeOrOpts) {
   }
 
   // ── FOMO CONTROL — assess volatility from this scan ──
+  // VIX precedence: explicit caller override > corey_live_data >
+  // unavailable (with logged reason). Caller passes null/undefined
+  // to indicate "engine should self-source from corey_live_data".
   const allResults = [...watch, ...internal, ...ignored];
-  const volatility = fomo.assessVolatility(allResults, vixLevel);
+  let effectiveVixLevel = (vixLevel != null && vixLevel !== '') ? vixLevel : null;
+  let vixSource = effectiveVixLevel ? 'caller' : null;
+  let vixUnavailableReason = null;
+  if (!effectiveVixLevel) {
+    const vctx = getVixContext();
+    if (vctx.available) {
+      effectiveVixLevel = vctx.level;
+      vixSource = 'corey_live_data';
+    } else {
+      vixUnavailableReason = vctx.reason;
+    }
+  }
+
+  const volatility = fomo.assessVolatility(allResults, effectiveVixLevel);
+  const vixDisplay = volatility.vixLevel
+    ? `vix=${volatility.vixLevel} vix_source=${vixSource}`
+    : `vix=unavailable reason=${vixUnavailableReason || 'unknown'}`;
   dhLog('INFO', `[FOMO-ASSESS] level=${volatility.level} watch=${volatility.watchCount} ` +
                 `internal=${volatility.internalCount} avgInternal=${volatility.avgInternalScore} ` +
-                `vix=${volatility.vixLevel || 'n/a'} reason=${volatility.reason}`);
+                `${vixDisplay} reason=${volatility.reason}`);
+
+  // ── MOVEMENT DIGEST DECISION LOGGING — emitted on every scan ──
+  // Always fires, regardless of WATCH branch. Operators must always
+  // be able to see why the digest did or did not post.
+  const decision = fomo.evaluateDigestDecision(volatility, _lastMovementDigestAt);
+  const webhookConfig = DH_WEBHOOK_URL ? 'present' : 'missing';
+  const eligibleButNoWebhook = decision.fire && webhookConfig === 'missing';
+  const finalFire = decision.fire && !eligibleButNoWebhook;
+  const finalReason = eligibleButNoWebhook ? 'webhook_missing' : decision.reason;
+
+  dhLog('INFO', `[MOVEMENT-DIGEST] decision=${finalFire ? 'fire' : 'skip'}`);
+  if (!finalFire) {
+    dhLog('INFO', `[MOVEMENT-DIGEST] skipped reason=${finalReason}`);
+  }
+  dhLog('INFO', `[MOVEMENT-DIGEST] cooldown_active=${decision.cooldown_active}`);
+  dhLog('INFO', `[MOVEMENT-DIGEST] cooldown_remaining_ms=${decision.cooldown_remaining_ms}`);
+  dhLog('INFO', `[MOVEMENT-DIGEST] threshold_pass=${decision.threshold_pass}`);
+  dhLog('INFO', `[MOVEMENT-DIGEST] webhook_config=${webhookConfig}`);
+  dhLog('INFO', `[MOVEMENT-DIGEST] env_key=${DH_WEBHOOK_ENV_KEY}`);
 
   // WATCH — post SINGLE STRONGEST only (highest score)
   // Rule: must be specific tradable symbol, correct output format
@@ -537,25 +607,22 @@ async function runDarkHorseScan(universeOrOpts) {
 
     await triggerPipeline(best);
   }
-  // ── MOVEMENT DIGEST — fires only when WATCH:0 + elevated ──
-  else if (fomo.shouldPostMovementDigest(volatility, _lastMovementDigestAt)) {
+  // ── MOVEMENT DIGEST — finalFire already accounts for cooldown,
+  // threshold, watch_present, and webhook_missing. The skip-path
+  // logging (with structured reason) was emitted above. ──
+  else if (finalFire) {
     dhLog('INFO', `[MOVEMENT-DIGEST] firing — level=${volatility.level} ` +
                   `internal=${volatility.internalCount} reason=${volatility.reason}`);
-    if (DH_WEBHOOK_URL) {
-      try {
-        const payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
-        await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
-        _lastMovementDigestAt = Date.now();
-        dhLog('INFO', `[WEBHOOK] Movement digest posted` +
-                       (payload.replaced ? ' (sanitized)' : ''));
-        dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=movement_digest level=${volatility.level} internal=${volatility.internalCount}`);
-      } catch (e) {
-        dhLog('ERROR', `[WEBHOOK] Movement digest failed: ${e.message}`);
-        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=${e.message}`);
-      }
-    } else {
-      dhLog('WARN', 'WEEKLY_DARKHORSES (preferred) and DARKHORSE_STOCK (legacy) both unset — movement digest skipped');
-      dhLog('WARN', `[DH-CHANNEL] env_key=missing target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=env_unset`);
+    try {
+      const payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
+      await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
+      _lastMovementDigestAt = Date.now();
+      dhLog('INFO', `[WEBHOOK] Movement digest posted` +
+                     (payload.replaced ? ' (sanitized)' : ''));
+      dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=movement_digest level=${volatility.level} internal=${volatility.internalCount}`);
+    } catch (e) {
+      dhLog('ERROR', `[WEBHOOK] Movement digest failed: ${e.message}`);
+      dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=${e.message}`);
     }
   }
 
