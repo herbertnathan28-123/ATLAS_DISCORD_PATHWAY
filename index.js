@@ -2269,6 +2269,19 @@ client.on('messageCreate', async (msg) => {
     + Math.round(DH_FIRST_SCAN_DELAY_MS / 1000)
     + 's, then every 15 minutes (market hours Mon-Fri only)'
   );
+
+  // ── COREY MARKET INTEL — analysed event bulletin scheduler ──
+  // Reads corey_calendar + corey_live_data (read-only). Posts daily
+  // bulletin / pre-event alerts / released-event alerts to
+  // MARKET_INTEL_WEBHOOK. Safe-fail: if env var missing the module
+  // logs webhook_config=missing and skips posting. Never throws.
+  try {
+    const coreyMarketIntel = require('./coreyMarketIntel');
+    coreyMarketIntel.start();
+    log('INFO', '[BOOT] Corey Market Intel scheduler active — daily bulletin + pre-event/release alerts');
+  } catch (e) {
+    log('ERROR', `[BOOT] Corey Market Intel start failed: ${e.message}`);
+  }
 });
 
 const MAX_RETRIES = 2;
