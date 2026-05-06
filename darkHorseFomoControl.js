@@ -118,20 +118,58 @@ function assessVolatility(results, externalVixLevel) {
 }
 
 // ============================================================
-// SHOULD POST MOVEMENT DIGEST?
-// Fires only when:
-//   1. WATCH:0
-//   2. Volatility level >= 'elevated'
-//   3. Cooldown elapsed since last digest
+// EVALUATE DIGEST DECISION — explicit, structured outcome.
+// Returns:
+//   {
+//     fire: bool,
+//     reason: 'fire' | 'cooldown' | 'threshold_not_met'
+//             | 'quiet_regime' | 'watch_present' | 'unknown',
+//     threshold_pass: bool,
+//     cooldown_active: bool,
+//     cooldown_remaining_ms: number,
+//   }
+// 'webhook_missing' is NOT decided here — that's a routing
+// concern owned by the engine. The engine promotes 'fire' to
+// 'skip / webhook_missing' if the env vars are unset.
+// ============================================================
+function evaluateDigestDecision(volatility, lastDigestAt) {
+  const last = Number(lastDigestAt || 0);
+  const elapsed = last ? Date.now() - last : Infinity;
+  const cooldown_remaining_ms = last && elapsed < MOVEMENT_DIGEST_COOLDOWN_MS
+    ? MOVEMENT_DIGEST_COOLDOWN_MS - elapsed
+    : 0;
+  const cooldown_active = cooldown_remaining_ms > 0;
+
+  if (!volatility) {
+    return { fire: false, reason: 'unknown',
+             threshold_pass: false, cooldown_active, cooldown_remaining_ms };
+  }
+  if (volatility.watchCount > 0) {
+    return { fire: false, reason: 'watch_present',
+             threshold_pass: false, cooldown_active, cooldown_remaining_ms };
+  }
+  if (volatility.level === 'quiet') {
+    return { fire: false, reason: 'quiet_regime',
+             threshold_pass: false, cooldown_active, cooldown_remaining_ms };
+  }
+  if (volatility.internalCount === 0 && !volatility.vixLevel) {
+    return { fire: false, reason: 'threshold_not_met',
+             threshold_pass: false, cooldown_active, cooldown_remaining_ms };
+  }
+  if (cooldown_active) {
+    return { fire: false, reason: 'cooldown',
+             threshold_pass: true, cooldown_active, cooldown_remaining_ms };
+  }
+  return { fire: true, reason: 'fire',
+           threshold_pass: true, cooldown_active: false, cooldown_remaining_ms: 0 };
+}
+
+// ============================================================
+// SHOULD POST MOVEMENT DIGEST? (boolean wrapper retained for
+// backward-compatibility; preferred call is evaluateDigestDecision)
 // ============================================================
 function shouldPostMovementDigest(volatility, lastDigestAt) {
-  if (!volatility) return false;
-  if (volatility.watchCount > 0) return false;            // WATCH alert takes precedence
-  if (volatility.level === 'quiet') return false;         // nothing to report
-  if (volatility.internalCount === 0 && !volatility.vixLevel) return false; // nothing to monitor
-  const last = Number(lastDigestAt || 0);
-  if (last && Date.now() - last < MOVEMENT_DIGEST_COOLDOWN_MS) return false;
-  return true;
+  return evaluateDigestDecision(volatility, lastDigestAt).fire;
 }
 
 // ============================================================
@@ -217,6 +255,7 @@ module.exports = {
   WATCH_ADVISORY_TRAILER,
   MOVEMENT_DIGEST_COOLDOWN_MS,
   assessVolatility,
+  evaluateDigestDecision,
   shouldPostMovementDigest,
   buildMovementDigestPayload,
   sanitize,
