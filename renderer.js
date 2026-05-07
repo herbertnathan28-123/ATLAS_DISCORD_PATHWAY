@@ -280,4 +280,52 @@ async function renderAllPanels(symbol) {
   };
 }
 
-module.exports = { renderAllPanels };
+/**
+ * runRenderer — artefact provider entry point for the doctrine pipeline.
+ * Returns rendererArtefacts shape consumed by JaneInputPacket.
+ * In test mode: short-circuit, no Puppeteer launch.
+ */
+async function runRenderer(symbol, opts = {}) {
+  const testMode = opts.testMode || process.env.ATLAS_TEST_MODE === '1';
+  const timestamp = new Date().toISOString();
+
+  if (testMode) {
+    return {
+      chartRefs: [],
+      timeframeCoverage: [],
+      captureStatus: 'SKIPPED_TEST_MODE',
+      renderValidity: true,
+      symbolIntegrity: 'OK',
+      symbol,
+      timestamp,
+    };
+  }
+
+  try {
+    // Phase B: invoke existing renderAllPanels and shape its output.
+    // Phase D: tighten chartRefs format, integrate symbol mapping, status flags.
+    const result = await renderAllPanels(symbol);
+    return {
+      chartRefs: Array.isArray(result && result.charts) ? result.charts : (Array.isArray(result) ? result : []),
+      timeframeCoverage: (result && result.timeframes) || ['W', 'D', '240', '60', '30', '15', '5', '1'],
+      captureStatus: result ? 'OK' : 'PARTIAL',
+      renderValidity: !!result,
+      symbolIntegrity: 'OK',
+      symbol,
+      timestamp,
+    };
+  } catch (err) {
+    return {
+      chartRefs: [],
+      timeframeCoverage: [],
+      captureStatus: 'FAILED',
+      renderValidity: false,
+      symbolIntegrity: 'OK',
+      error: err.message,
+      symbol,
+      timestamp,
+    };
+  }
+}
+
+module.exports = { renderAllPanels, runRenderer };
