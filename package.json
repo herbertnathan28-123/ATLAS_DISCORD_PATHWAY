@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "audit": "node scripts/atlas_audit.js",
+    "test:runtime": "node scripts/atlas_runtime_test.js --symbol EURUSD",
+    "doctrine": "npm run audit && npm run test:runtime",
+    "prebuild": "npm run doctrine"
   },
   "dependencies": {
     "@dsnp/parquetjs": "^1.8.7",

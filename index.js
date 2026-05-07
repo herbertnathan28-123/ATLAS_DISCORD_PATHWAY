@@ -18,6 +18,14 @@ const http=require('http');
 
 const{dhInit,dhSetPipelineTrigger,runDarkHorseScan,getDHInternalStore,getDHCandidate,DH_UNIVERSE}=require('./darkHorseEngine');
 
+// ── ATLAS Foundation Repair v1.0.1 — doctrine pipeline boot ──
+// Wires orchestrator + consume-only output surfaces (discord_output,
+// dashboard_session) into the existing HTTP server. The boot module
+// owns the runAnalysis + deliverToDiscord + publishToDashboard calls
+// in a clean isolated file so the static doctrine audit can detect
+// the call chain reliably.
+const atlasDoctrineBoot = require('./atlas_doctrine_boot');
+
 const coreyLive = require('./corey_live_data');
 const coreyCalendar = require('./corey_calendar');
 coreyLive.init();
@@ -2532,7 +2540,21 @@ function tsPersist(){try{const o={};for(const[k,v]of TS_STORE)o[k]=v;fs.writeFil
 function tsLoadPersisted(){if(!TS_PERSIST_PATH)return;try{if(!fs.existsSync(TS_PERSIST_PATH))return;const data=JSON.parse(fs.readFileSync(TS_PERSIST_PATH,'utf8'));const now=Date.now();let loaded=0;for(const[sym,e]of Object.entries(data)){if(e.latest&&(now-e.latest.timestamp)<TS_TTL_MS){TS_STORE.set(sym,e);loaded++;}}log('INFO',`[TS LOAD] ${loaded} symbols loaded`);}catch(e){log('WARN',`[TS LOAD] ${e.message}`);}}
 setInterval(()=>{const now=Date.now();let rm=0;for(const[sym,e]of TS_STORE){if(e.latest&&(now-e.latest.timestamp)>TS_TTL_MS*2){TS_STORE.delete(sym);rm++;}}if(rm>0)log('INFO',`[TS CLEANUP] Removed ${rm}`);},30*60*1000);
 
-function startTSServer(){if(!TS_ENABLED){log('INFO','[TS SERVER] Disabled');return;}const srv=http.createServer((req,res)=>{if(req.method==='GET'&&req.url==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,service:'ATLAS FX v4.0',signals:TS_STORE.size}));return;}if(req.method==='POST'&&req.url==='/trendspider'){let body='';req.on('data',c=>{body+=c;});req.on('end',()=>{const rt=Date.now();try{const raw=JSON.parse(body);const rawSym=raw.symbol||raw.ticker||raw.pair||'';if(!rawSym){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Missing symbol'}));return;}const sig=tsNorm(raw,rt);if(!sig.symbol){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Could not resolve symbol'}));return;}const grade=tsGrade(sig,rt);if(grade!=='Unusable')tsStore(sig);res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,symbol:sig.symbol,stored:grade!=='Unusable',status:grade}));}catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Invalid JSON'}));}});req.on('error',()=>{res.writeHead(500);res.end();});return;}res.writeHead(404);res.end();});srv.on('error',e=>log('ERROR',`[TS SERVER] ${e.message}`));srv.listen(TS_PORT,()=>log('INFO',`[TS SERVER] Listening on port ${TS_PORT}`));}
+function startTSServer(){if(!TS_ENABLED){log('INFO','[TS SERVER] Disabled');return;}const srv=http.createServer((req,res)=>{if(req.method==='GET'&&req.url==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,service:'ATLAS FX v4.0',signals:TS_STORE.size}));return;}if(req.method==='POST'&&req.url==='/trendspider'){let body='';req.on('data',c=>{body+=c;});req.on('end',()=>{const rt=Date.now();try{const raw=JSON.parse(body);const rawSym=raw.symbol||raw.ticker||raw.pair||'';if(!rawSym){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Missing symbol'}));return;}const sig=tsNorm(raw,rt);if(!sig.symbol){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Could not resolve symbol'}));return;}const grade=tsGrade(sig,rt);if(grade!=='Unusable')tsStore(sig);res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:true,symbol:sig.symbol,stored:grade!=='Unusable',status:grade}));}catch(e){res.writeHead(400,{'Content-Type':'application/json'});res.end(JSON.stringify({ok:false,error:'Invalid JSON'}));}});req.on('error',()=>{res.writeHead(500);res.end();});return;}
+// ── ATLAS Foundation Repair v1.0.1 — POST /atlas/run ──
+// runAnalysis(symbol) → JaneDecisionPacket → fanned out to consume-only
+// surfaces (deliverToDiscord, publishToDashboard). Output surfaces never
+// touch evidence engines directly. Body: { symbol: 'EURUSD' } or query.
+if (req.method === "POST" && req.url.split("?")[0] === "/atlas/run") {
+  atlasDoctrineBoot.handleAtlasRun(req, res).catch(err => {
+    try {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: err && err.message }));
+    } catch (_e) { /* ignore */ }
+  });
+  return;
+}
+res.writeHead(404);res.end();});srv.on('error',e=>log('ERROR',`[TS SERVER] ${e.message}`));srv.listen(TS_PORT,()=>log('INFO',`[TS SERVER] Listening on port ${TS_PORT}`));}
 
 // Single-shot TD fetch using a verbatim probe symbol (no remap). Used by
 // fetchOHLCTDWithProbes so we can walk a candidate list per resolution and
