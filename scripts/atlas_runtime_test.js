@@ -55,7 +55,14 @@ const TEST_SYMBOL = argOf('--symbol', 'EURUSD');
 const CONFIG_PATH_ARG = argOf('--config', null);
 const TIMEOUT_MS = parseInt(argOf('--timeout', '30000'), 10);
 
-process.env.ATLAS_TEST_MODE = '1';
+// Phase D — production mode flag. When --production is passed, the runtime
+// test does NOT set ATLAS_TEST_MODE. A9 must then PASS only against real
+// audit-grade Corey Clone evidence (full CoreyCloneOutputD, not status-only).
+const PRODUCTION_MODE = process.argv.includes('--production');
+
+if (!PRODUCTION_MODE) {
+  process.env.ATLAS_TEST_MODE = '1';
+}
 process.env.ATLAS_TEST_SYMBOL = TEST_SYMBOL;
 process.env.ATLAS_DRY_RUN = '1';
 process.env.DISCORD_DRY_RUN = '1';
@@ -645,7 +652,7 @@ async function main() {
     }
     const t0 = Date.now();
     log(`Invoking ${eng}(${TEST_SYMBOL})...`);
-    const out = await invokeWithTimeout(r.callable, [TEST_SYMBOL, { testMode: true, dryRun: true }], TIMEOUT_MS);
+    const out = await invokeWithTimeout(r.callable, [TEST_SYMBOL, { testMode: !PRODUCTION_MODE, dryRun: true }], TIMEOUT_MS);
     callResults[eng] = {
       invoked: true,
       ok: out.ok,
@@ -700,7 +707,7 @@ async function main() {
   if (resolutions.jane.callable) {
     const t0 = Date.now();
     log(`Invoking jane(JaneInputPacket)...`);
-    const out = await invokeWithTimeout(resolutions.jane.callable, [janeInputPacket, { testMode: true, dryRun: true }], TIMEOUT_MS);
+    const out = await invokeWithTimeout(resolutions.jane.callable, [janeInputPacket, { testMode: !PRODUCTION_MODE, dryRun: true }], TIMEOUT_MS);
     janeCall = { invoked: true, ok: out.ok, error: out.error, value: out.value, durationMs: Date.now() - t0 };
     janeDecisionPacket = out.value;
     if (out.ok) log(`  jane: returned ${typeOf(out.value)} in ${janeCall.durationMs}ms`);
@@ -736,7 +743,7 @@ async function main() {
     };
     if (r.callable && janeDecisionPacket) {
       log(`Invoking ${routeKey}(JaneDecisionPacket)...`);
-      const out = await invokeWithTimeout(r.callable, [janeDecisionPacket, { testMode: true, dryRun: true }], TIMEOUT_MS);
+      const out = await invokeWithTimeout(r.callable, [janeDecisionPacket, { testMode: !PRODUCTION_MODE, dryRun: true }], TIMEOUT_MS);
       outputProbes[routeKey].invokeOk = out.ok;
       outputProbes[routeKey].invokeError = out.error;
       log(`  ${routeKey}: ${out.ok ? 'accepted' : 'errored: ' + out.error}`);

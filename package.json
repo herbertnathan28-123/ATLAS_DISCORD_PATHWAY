@@ -6,8 +6,15 @@
     "start": "node index.js",
     "audit": "node scripts/atlas_audit.js",
     "test:runtime": "node scripts/atlas_runtime_test.js --symbol EURUSD",
+    "test:runtime:production": "node scripts/atlas_runtime_test.js --symbol EURUSD --production",
     "doctrine": "npm run audit && npm run test:runtime",
-    "prebuild": "npm run doctrine"
+    "doctrine:foundation": "npm run audit && npm run test:runtime",
+    "doctrine:production": "npm run audit && npm run test:runtime:production",
+    "cache:harvest": "node scripts/cache_harvest.js",
+    "cache:refresh": "node scripts/cache_harvest.js --refresh",
+    "cache:verify": "node scripts/cache_verify.js",
+    "cache:scrub": "node scripts/cache_scrub.js",
+    "prebuild": "npm run doctrine:foundation"
   },
   "dependencies": {
     "@dsnp/parquetjs": "^1.8.7",

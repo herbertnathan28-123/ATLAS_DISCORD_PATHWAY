@@ -9,3 +9,7 @@ audit.json
 audit.summary.md
 runtime-packet-test.json
 runtime-packet-test.summary.md
+
+# ATLAS Phase D — local historical cache (Render-only persistent disk in production)
+data/historical/
+data/historical/**
