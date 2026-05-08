@@ -199,9 +199,16 @@ async function coreyCloneRun(symbol, opts) {
     rejection_reasons:      match.rejection_reasons,
     similarity_threshold:   match.similarity_threshold,
     topSimilarities:        match.cohort ? match.cohort.slice(0, 5).map(c => +c.similarity.toFixed(4)) : [],
+    query_active_vars:      match.query_active_vars  || null,
+    query_dropped_vars:     match.query_dropped_vars || null,
   });
   if (!match.ok) {
-    audit.warn('corey_clone_partial_matcher_not_ok', { symbol, reason: match.reason });
+    audit.warn('corey_clone_partial_matcher_not_ok', {
+      symbol,
+      reason:             match.reason,
+      query_active_vars:  match.query_active_vars  || null,
+      query_dropped_vars: match.query_dropped_vars || null,
+    });
     return partial(symbol, match.reason || 'matcher returned not-ok', {
       cacheStatus: freshness,
       denominator_pre_filter: 0,
