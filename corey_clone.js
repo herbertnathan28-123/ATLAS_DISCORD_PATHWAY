@@ -90,6 +90,14 @@ async function coreyCloneRun(symbol, opts) {
     };
   }
 
+  // Surface the cache directory once per production-mode run so the operator
+  // can confirm Render's persistent disk is actually being read.
+  audit.info('corey_clone_production_run', {
+    symbol,
+    cacheDir: config.CACHE_DIR,
+    jsonlPath: config.jsonlPath(symbol),
+  });
+
   // Symbol must be in Annex A.
   const sym = config.getSymbol(symbol);
   if (!sym) {
@@ -100,7 +108,16 @@ async function coreyCloneRun(symbol, opts) {
   // Read cache.
   const read = reader.readCandles(symbol);
   if (!read.ok) {
-    if (read.errors && read.errors.length) audit.warn('corey_clone_cache_read_errors', { symbol, errors: read.errors.slice(0, 3) });
+    audit.warn('corey_clone_partial_cache_unreadable', {
+      symbol,
+      cacheDir: config.CACHE_DIR,
+      jsonlPath: config.jsonlPath(symbol),
+      rowCount: read.rows ? read.rows.length : 0,
+      badCount: read.badCount || 0,
+      errorCount: read.errors ? read.errors.length : 0,
+      firstErrors: read.errors ? read.errors.slice(0, 3) : [],
+      freshnessSeverity: read.freshness && read.freshness.severity,
+    });
     return partial(symbol, read.errors && read.errors[0] ? read.errors[0] : 'cache unavailable', {
       cacheStatus: read.freshness || { ok: false, severity: 'severe', reason: 'cache unavailable' },
       denominator_pre_filter: 0,
@@ -112,6 +129,12 @@ async function coreyCloneRun(symbol, opts) {
   // Freshness gating.
   const freshness = read.freshness;
   if (freshness && freshness.severity === 'severe') {
+    audit.warn('corey_clone_partial_cache_severely_stale', {
+      symbol,
+      ageDays: freshness.ageDays,
+      reason: freshness.reason,
+      lastVerifiedAt: read.manifest && read.manifest.last_verified_at,
+    });
     return partial(symbol, freshness.reason || 'cache verification severely stale (>90 days); cache:verify/cache:refresh required before evidence trusted', {
       cacheStatus: freshness,
       denominator_pre_filter: 0,
@@ -129,7 +152,20 @@ async function coreyCloneRun(symbol, opts) {
   // the query. The OUTCOME windows are computed for CANDIDATE bars
   // (i.e. earlier in the series).
   const rows = read.rows;
+  audit.info('corey_clone_cache_loaded', {
+    symbol,
+    rowCount: rows.length,
+    firstOpen: rows.length ? rows[0].open_time : null,
+    lastOpen:  rows.length ? rows[rows.length - 1].open_time : null,
+    freshnessSeverity: freshness && freshness.severity,
+    freshnessAgeDays:  freshness && freshness.ageDays,
+  });
   if (rows.length < config.SIMILARITY.zScoreWindowBars + 21) {
+    audit.warn('corey_clone_partial_insufficient_history', {
+      symbol,
+      rowCount: rows.length,
+      required: config.SIMILARITY.zScoreWindowBars + 21,
+    });
     return partial(symbol, 'insufficient cache history for matcher (need ≥ 252 + 20 bars)', {
       cacheStatus: freshness,
       denominator_pre_filter: 0,
@@ -141,6 +177,7 @@ async function coreyCloneRun(symbol, opts) {
 
   // Run matcher.
   let match;
+  const tMatch0 = Date.now();
   try {
     match = matcher.matchAnalogues(rows, queryIdx);
   } catch (e) {
@@ -152,7 +189,19 @@ async function coreyCloneRun(symbol, opts) {
       rejection_reasons:       { matcher_error: 1 },
     });
   }
+  audit.info('corey_clone_matcher_done', {
+    symbol,
+    durationMs:             Date.now() - tMatch0,
+    ok:                     match.ok,
+    cohortSize:             match.cohort ? match.cohort.length : 0,
+    denominator_pre_filter: match.denominator_pre_filter,
+    rejected_count:         match.rejected_count,
+    rejection_reasons:      match.rejection_reasons,
+    similarity_threshold:   match.similarity_threshold,
+    topSimilarities:        match.cohort ? match.cohort.slice(0, 5).map(c => +c.similarity.toFixed(4)) : [],
+  });
   if (!match.ok) {
+    audit.warn('corey_clone_partial_matcher_not_ok', { symbol, reason: match.reason });
     return partial(symbol, match.reason || 'matcher returned not-ok', {
       cacheStatus: freshness,
       denominator_pre_filter: 0,
@@ -277,6 +326,17 @@ async function coreyCloneRun(symbol, opts) {
 
   // ACTIVE floor
   if (confidence < config.ACTIVE_CONFIDENCE_FLOOR) {
+    audit.warn('corey_clone_partial_below_active_floor', {
+      symbol: sym.atlas,
+      confidence,
+      activeFloor:    config.ACTIVE_CONFIDENCE_FLOOR,
+      p_max,
+      cohortFactor,
+      stalenessFactor,
+      cohortSize:     N,
+      dominantLabel,
+      outcomeDistribution,
+    });
     return partial(sym.atlas, 'computed cohort confidence below ACTIVE threshold', {
       cacheStatus: freshness,
       denominator_pre_filter: match.denominator_pre_filter,
@@ -303,6 +363,13 @@ async function coreyCloneRun(symbol, opts) {
     }
   }
   if (finalAnalogues.length < config.COHORT.minCohortSize) {
+    audit.warn('corey_clone_partial_post_validate_below_min', {
+      symbol: sym.atlas,
+      finalCount:        finalAnalogues.length,
+      minRequired:       config.COHORT.minCohortSize,
+      postValidateDropped,
+      finalDropReasons,
+    });
     return partial(sym.atlas, 'no analogues met audit-grade matching variables', {
       cacheStatus: freshness,
       denominator_pre_filter: match.denominator_pre_filter,
