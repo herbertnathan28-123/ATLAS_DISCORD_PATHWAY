@@ -18,6 +18,7 @@
  */
 
 const { validatePacket } = require('./contracts');
+const cloneValidator     = require('./corey_history_validator');
 
 const ASSET_CLASS_BY_PREFIX = [
   { test: /^[A-Z]{6}$/, cls: 'fx' },                  // EURUSD etc
@@ -49,7 +50,25 @@ async function runJane(input, opts = {}) {
   const testMode = opts.testMode || process.env.ATLAS_TEST_MODE === '1';
 
   // Authority gating — doctrine first
-  const ss = input.sourceStatus || {};
+  const ss = Object.assign({}, input.sourceStatus || {});
+
+  // ── Phase D Jane trust rule (D.1.0.3 §JANE TRUST RULE) ──
+  // If Corey Clone arrives ACTIVE, every analogue must validate against the
+  // locked 11-field contract. ANY malformed analogue voids the entire packet.
+  // The whole Corey Clone lane is then downgraded to PARTIAL with weight 0.
+  // Jane never manufactures historical confidence; never reuses old packets;
+  // never computes analogues itself. Test-mode packets keep the Phase B
+  // shape and are not subjected to the Phase D analogue contract — that
+  // would defeat foundation-doctrine compatibility.
+  let coreyCloneTrustReason = null;
+  if (!testMode && ss.coreyClone === 'ACTIVE' && input.coreyClone && Array.isArray(input.coreyClone.analogues)) {
+    const av = cloneValidator.validateAnalogueSet(input.coreyClone.analogues);
+    if (!av.ok) {
+      coreyCloneTrustReason = `corey clone analogues failed validation: ${av.perAnalogueErrors.length} bad`;
+      ss.coreyClone = 'PARTIAL';
+    }
+  }
+
   const spideyActive = ss.spidey === 'ACTIVE';
   const coreyActive = ss.corey === 'ACTIVE';
   const cloneActive = ss.coreyClone === 'ACTIVE';
@@ -104,7 +123,9 @@ async function runJane(input, opts = {}) {
     macroSummary: input.macro && input.macro.evidence ? input.macro.evidence : null,
     coreyCloneSummary: input.coreyClone && (input.coreyClone.analogues || input.coreyClone.status) ? (input.coreyClone.analogues || input.coreyClone.status) : null,
     eventCatalystRisk: input.corey && input.corey.riskModifiers ? input.corey.riskModifiers : [],
-    conflictSummary: detectConflict(input),
+    conflictSummary: coreyCloneTrustReason
+      ? `${detectConflict(input)}; coreyClone packet rejected: ${coreyCloneTrustReason}`
+      : detectConflict(input),
     invalidation: input.spidey && input.spidey.invalidation ? input.spidey.invalidation : null,
     sourceStatus: Object.assign({}, ss),
     chartRefs: input.rendererArtefacts && input.rendererArtefacts.chartRefs ? input.rendererArtefacts.chartRefs : [],

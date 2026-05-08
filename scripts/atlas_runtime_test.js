@@ -55,7 +55,14 @@ const TEST_SYMBOL = argOf('--symbol', 'EURUSD');
 const CONFIG_PATH_ARG = argOf('--config', null);
 const TIMEOUT_MS = parseInt(argOf('--timeout', '30000'), 10);
 
-process.env.ATLAS_TEST_MODE = '1';
+// Phase D — production mode flag. When --production is passed, the runtime
+// test does NOT set ATLAS_TEST_MODE. A9 must then PASS only against real
+// audit-grade Corey Clone evidence (full CoreyCloneOutputD, not status-only).
+const PRODUCTION_MODE = process.argv.includes('--production');
+
+if (!PRODUCTION_MODE) {
+  process.env.ATLAS_TEST_MODE = '1';
+}
 process.env.ATLAS_TEST_SYMBOL = TEST_SYMBOL;
 process.env.ATLAS_DRY_RUN = '1';
 process.env.DISCORD_DRY_RUN = '1';
@@ -607,7 +614,8 @@ async function main() {
   log(`ATLAS_RUNTIME_PACKET_TEST v${VERSION}  (doctrine locked ${DOCTRINE_LOCKED_AT})`);
   log(`Repo:        ${REPO_ROOT}`);
   log(`Test symbol: ${TEST_SYMBOL}`);
-  log(`Test mode:   ATLAS_TEST_MODE=1 ATLAS_DRY_RUN=1 DISCORD_DRY_RUN=1 DISABLE_NETWORK=1`);
+  log(`Mode:        ${PRODUCTION_MODE ? 'PRODUCTION (real evidence required)' : 'TEST (engines short-circuit)'}`);
+  log(`Env:         ATLAS_TEST_MODE=${process.env.ATLAS_TEST_MODE || '(unset)'} ATLAS_DRY_RUN=${process.env.ATLAS_DRY_RUN || '(unset)'} DISCORD_DRY_RUN=${process.env.DISCORD_DRY_RUN || '(unset)'} DISABLE_NETWORK=${process.env.DISABLE_NETWORK || '(unset)'}`);
   log('');
 
   const cfgLoad = loadConfig();
@@ -645,7 +653,7 @@ async function main() {
     }
     const t0 = Date.now();
     log(`Invoking ${eng}(${TEST_SYMBOL})...`);
-    const out = await invokeWithTimeout(r.callable, [TEST_SYMBOL, { testMode: true, dryRun: true }], TIMEOUT_MS);
+    const out = await invokeWithTimeout(r.callable, [TEST_SYMBOL, { testMode: !PRODUCTION_MODE, dryRun: true }], TIMEOUT_MS);
     callResults[eng] = {
       invoked: true,
       ok: out.ok,
@@ -657,6 +665,33 @@ async function main() {
     else log(`  ${eng}: ERROR — ${out.error}`);
   }
   log('');
+
+  // Production-mode diagnostic: surface the exact Corey Clone exit reason and
+  // counters so the next operator run is self-describing without forcing a
+  // dive into runtime-packet-test.json.
+  if (PRODUCTION_MODE) {
+    const cc = callResults.coreyClone;
+    log('--- Corey Clone production-mode result ---');
+    if (!cc || !cc.invoked)        log(`  not invoked`);
+    else if (!cc.ok)               log(`  ERROR — ${cc.error}`);
+    else if (!cc.value || typeof cc.value !== 'object') log(`  unexpected non-object return`);
+    else {
+      const v = cc.value;
+      log(`  status:                  ${v.status || 'ACTIVE'}`);
+      if (v.reason)                       log(`  reason:                  ${v.reason}`);
+      if (v.cacheStatus)                  log(`  cacheStatus:             ${v.cacheStatus.severity || '?'} (ageDays=${v.cacheStatus.ageDays != null ? Math.round(v.cacheStatus.ageDays) : '?'})`);
+      if (v.denominator_pre_filter != null) log(`  denominator_pre_filter:  ${v.denominator_pre_filter}`);
+      if (v.accepted_analogue_count != null) log(`  accepted_analogue_count: ${v.accepted_analogue_count}`);
+      if (v.rejected_analogue_count != null) log(`  rejected_analogue_count: ${v.rejected_analogue_count}`);
+      if (v.rejection_reasons && typeof v.rejection_reasons === 'object') {
+        const top = Object.entries(v.rejection_reasons).sort((a, b) => b[1] - a[1]).slice(0, 6);
+        if (top.length) log(`  rejection_reasons (top): ${top.map(([k, n]) => `${k}=${n}`).join(', ')}`);
+      }
+      if (typeof v.confidence === 'number') log(`  confidence:              ${v.confidence.toFixed(4)}`);
+      if (v.baseRateStats)                  log(`  baseRateStats:           ft=${(v.baseRateStats.follow_through||0).toFixed(2)} rev=${(v.baseRateStats.reversal||0).toFixed(2)} rng=${(v.baseRateStats.range||0).toFixed(2)}`);
+    }
+    log('');
+  }
 
   // --- Validate evidence packets --------------------------------------------
 
@@ -700,7 +735,7 @@ async function main() {
   if (resolutions.jane.callable) {
     const t0 = Date.now();
     log(`Invoking jane(JaneInputPacket)...`);
-    const out = await invokeWithTimeout(resolutions.jane.callable, [janeInputPacket, { testMode: true, dryRun: true }], TIMEOUT_MS);
+    const out = await invokeWithTimeout(resolutions.jane.callable, [janeInputPacket, { testMode: !PRODUCTION_MODE, dryRun: true }], TIMEOUT_MS);
     janeCall = { invoked: true, ok: out.ok, error: out.error, value: out.value, durationMs: Date.now() - t0 };
     janeDecisionPacket = out.value;
     if (out.ok) log(`  jane: returned ${typeOf(out.value)} in ${janeCall.durationMs}ms`);
@@ -736,7 +771,7 @@ async function main() {
     };
     if (r.callable && janeDecisionPacket) {
       log(`Invoking ${routeKey}(JaneDecisionPacket)...`);
-      const out = await invokeWithTimeout(r.callable, [janeDecisionPacket, { testMode: true, dryRun: true }], TIMEOUT_MS);
+      const out = await invokeWithTimeout(r.callable, [janeDecisionPacket, { testMode: !PRODUCTION_MODE, dryRun: true }], TIMEOUT_MS);
       outputProbes[routeKey].invokeOk = out.ok;
       outputProbes[routeKey].invokeError = out.error;
       log(`  ${routeKey}: ${out.ok ? 'accepted' : 'errored: ' + out.error}`);

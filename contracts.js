@@ -37,6 +37,37 @@ const PACKET_CONTRACTS = {
     },
     statusOnlyAcceptable: ['PARTIAL', 'UNAVAILABLE'],
   },
+  // Phase D extended contract (D.1.0.3). STRICT SUPERSET of CoreyCloneOutput.
+  // Old fields preserved. Status-only PARTIAL/UNAVAILABLE remains acceptable.
+  CoreyCloneOutputD: {
+    required: {
+      authority: 'historical_analogue_base_rate',
+    },
+    statusOnlyAcceptable: ['PARTIAL', 'UNAVAILABLE'],
+    activeRequired: {
+      score:                       'number',
+      confidence:                  'number',
+      symbol:                      'string',
+      timestamp:                   'any',
+      matcher_version:             'string',
+      outcome_classifier_version:  'string',
+      cacheStatus:                 'object',
+      denominator_pre_filter:      'number',
+      rejected_analogue_count:     'number',
+      accepted_analogue_count:     'number',
+      matching_variables:          'object',
+      tolerances:                  'object',
+      weights:                     'array',
+      analogues:                   'array',
+      outcomeDistribution:         'object',
+      baseRateStats:               'object',
+      limitations:                 'array',
+      warningFlags:                'array',
+      timeframeRelevance:          'any',
+      auditTrail:                  'object',
+    },
+    partialFields: ['reason', 'denominator_pre_filter', 'rejected_analogue_count', 'rejection_reasons', 'cacheStatus', 'auditTrail'],
+  },
   MacroOutput: {
     required: {
       authority: 'macro_normalisation',
