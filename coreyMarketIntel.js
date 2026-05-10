@@ -215,7 +215,13 @@ function analyseEvent(rawEvent) {
   };
 }
 
-function fmtVal(v) { return v == null || v === '' ? 'unavailable' : String(v); }
+// fmtVal — operator-facing data placeholder. Returns the value as a
+// string, or '—' when missing. Per the locked dashboard/macro wording
+// standard the default MUST NOT be the banned token "unavailable".
+// Call sites that need richer per-field fallbacks should pass the field
+// through fmtValOr(value, fallback) instead.
+function fmtVal(v) { return v == null || v === '' ? '—' : String(v); }
+function fmtValOr(v, fallback) { return v == null || v === '' ? fallback : String(v); }
 
 function fmtUtcWithAwst(t) {
   if (!t) return 'unavailable';

@@ -474,17 +474,17 @@ function structureTimeline(htf, ltf) {
   return { bos, zone, zoneTimeMs, age };
 }
 
-// Permit status — must reconcile with Trade Status. Never returns
-// "permit available" when readiness is low or the system has flagged a block.
+// Trade Status — must reconcile with the Trade Status block. Never returns
+// "Active read" when readiness is low or the system has flagged a stand-down.
 function permitPlain(jane, readiness) {
-  if (!AUTH_AVAILABLE) return 'Trade permit is BLOCKED — ATLAS is running without authentication. Charts and analysis remain available; execution is disabled.';
-  if (!isTradePermitAllowed()) return 'Trade permit is BLOCKED — ATLAS is in build mode. Analysis is fully live; execution is disabled until the system is promoted to operational.';
-  if (jane && jane.doNotTrade) return `Trade permit is BLOCKED — ${jane.doNotTradeReason || 'do-not-trade conditions are active.'}`;
+  if (!AUTH_AVAILABLE) return 'Trade entry not available — ATLAS is running without authentication. Charts and analysis remain available; execution is disabled.';
+  if (!isTradePermitAllowed()) return 'Trade entry not available — system in build mode. Analysis is fully live; execution is disabled until the system is promoted to operational.';
+  if (jane && jane.doNotTrade) return `Trade entry not available — ${jane.doNotTradeReason || 'stand-down conditions are active.'}`;
   const r = Number.isFinite(readiness) ? readiness : (jane ? readinessScore(jane) : 0);
-  if (r <= 3) return `Trade permit is BLOCKED — Market Readiness ${r}/10 is below the minimum bar (4/10) for capital. The setup is not mature enough to risk capital.`;
-  if (jane && jane.convictionLabel === 'Abstain') return 'Trade permit is BLOCKED — no authorised trade conviction. The system does not have enough clean evidence to risk capital. This does not mean price will not move.';
-  if (jane && jane.convictionLabel === 'Low') return 'Trade permit is CONDITIONAL — only experienced traders, only with reduced exposure, and only on confirmed lower-timeframe structure inside the entry zone.';
-  return 'Trade permit is AVAILABLE — execution unlocks the moment lower-timeframe structure confirms inside the entry zone, sized to the dollar risk in the Execution tab.';
+  if (r <= 3) return `Trade entry not available — Market Readiness ${r}/10 is below the minimum bar (4/10) for capital. The setup is not mature enough to risk capital.`;
+  if (jane && jane.convictionLabel === 'Abstain') return 'Trade entry not available — insufficient conviction. The system does not have enough clean evidence to risk capital. This does not mean price will not move.';
+  if (jane && jane.convictionLabel === 'Low') return 'Trade entry conditional — only experienced traders, only with reduced exposure, and only on confirmed lower-timeframe structure inside the entry zone.';
+  return 'Trade entry available — execution unlocks the moment lower-timeframe structure confirms inside the entry zone, sized to the dollar risk in the Execution tab.';
 }
 
 function buildTradeStatus(sym, jane, corey, htf, ltf) {
@@ -1489,19 +1489,21 @@ async function formatMacro(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf) 
   }
   const macroLanguage = require('./macro/language');
   const fallbackAssetClass = (typeof inferAssetClass === 'function') ? inferAssetClass(normalizeSymbol(sym)) : 'unknown';
+  // SPEC B locked legacy section list. FORWARD EXPECTATION / TRIGGER
+  // MAP / FINAL VERDICT removed as standalone sections per the locked
+  // wording standard — useful logic folded into TRADE STATUS /
+  // EXECUTION LOGIC / VALIDITY by the macro v3 builders. The legacy
+  // path here mirrors that contract so the fallback is consistent.
   const sections = [
-    { name: 'TRADE STATUS',      text: buildTradeStatus(sym, jane, corey, spideyHTF, spideyLTF) },
-    { name: 'FORWARD EXPECTATION', text: buildForwardExpectation(sym, jane, corey, spideyHTF, spideyLTF, candlesByTf || {}) },
-    { name: 'TRIGGER MAP',       text: buildTriggerMap(sym, jane, spideyHTF, spideyLTF) },
-    { name: 'PRICE TABLE',       text: buildPriceTable(sym, jane, spideyHTF, spideyLTF) },
-    { name: 'ROADMAP',           text: buildRoadmap() },
-    { name: 'EVENT INTELLIGENCE', text: buildEventIntel(sym, corey) },
-    { name: 'MARKET OVERVIEW',   text: buildMarketOverview(sym, corey) },
-    { name: 'EVENTS & CATALYSTS', text: buildEventsCatalysts(sym, corey) },
-    { name: 'HISTORICAL CONTEXT', text: buildHistoricalContext(sym, corey) },
-    { name: 'EXECUTION LOGIC',   text: buildExecutionLogic(sym, jane, corey) },
-    { name: 'FINAL VERDICT',     text: buildValidity(sym, corey, jane) },
-    { name: 'VERIFICATION',      text: buildVerification(sym) }
+    { name: 'TRADE STATUS',                text: buildTradeStatus(sym, jane, corey, spideyHTF, spideyLTF) },
+    { name: 'PRICE TABLE — ANALYSED TARGETS', text: buildPriceTable(sym, jane, spideyHTF, spideyLTF) },
+    { name: 'ROADMAP LINK',                text: buildRoadmap() },
+    { name: 'GLOBAL / EVENT INTELLIGENCE', text: buildEventIntel(sym, corey) },
+    { name: 'MARKET OVERVIEW',             text: buildMarketOverview(sym, corey) },
+    { name: 'EVENTS & CATALYSTS',          text: buildEventsCatalysts(sym, corey) },
+    { name: 'HISTORICAL CONTEXT',          text: buildHistoricalContext(sym, corey) },
+    { name: 'EXECUTION LOGIC',             text: buildExecutionLogic(sym, jane, corey) },
+    { name: 'VALIDITY',                    text: buildValidity(sym, corey, jane) }
   ];
   // Legacy fallback hardening — scrubSoft so banned strings never reach Discord
   // even when v3 has thrown and the legacy path is running. Asset-class-aware

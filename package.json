@@ -14,6 +14,7 @@
     "cache:refresh": "node scripts/cache_harvest.js --refresh",
     "cache:verify": "node scripts/cache_verify.js",
     "cache:scrub": "node scripts/cache_scrub.js",
+    "qa:macro": "node scripts/test_macro_qa.js",
     "prebuild": "npm run doctrine:foundation"
   },
   "dependencies": {
