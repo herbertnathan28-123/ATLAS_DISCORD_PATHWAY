@@ -8,7 +8,7 @@ const { arrow } = require('./language');
 
 function build(input) {
   const { calendar, fmp, symbol, ctx, tagsUsed } = input;
-  if (tagsUsed) tagsUsed.push('event_risk', 'macro_driver');
+  if (tagsUsed) tagsUsed.push('event_risk', 'market_driver');
 
   const lines = ['## GLOBAL / EVENT INTELLIGENCE'];
   lines.push('');
