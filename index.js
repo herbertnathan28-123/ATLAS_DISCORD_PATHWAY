@@ -3085,16 +3085,39 @@ async function deliverResult(msg, result) {
 
   console.log(`[SYMBOL-TRACE] macroSymbol=${symbol} coreyParsedSymbol=${corey?.internalMacro?.parsed?.symbol || 'n/a'} coreyAssetClass=${corey?.internalMacro?.assetClass || 'n/a'} janeSymbol=${jane?.symbol || 'n/a'}`);
   const macroSections = await formatMacro(symbol, corey, spideyHTF, spideyLTF, jane, candlesByTf);
-  // Output surface order — actionable advisory header FIRST, then the COREY
-  // INCOREGO section, then the SPIDEY structure block, then the longer
-  // macro report sections.
-  const sections = [
-    { name: 'ADVISORY HEADER',        text: advisoryWording.remapAdvisoryWording(advisoryHeader) },
-    { name: 'COREY INCOREGO',         text: advisoryWording.remapAdvisoryWording(renderIncoregoForDiscord({ symbol, incoregoBlock, jane, tradeProbability: cappedProbability })) },
-    { name: 'SPIDEY STRUCTURE',       text: advisoryWording.remapAdvisoryWording(spideyStructure.renderForDiscord()) },
-    ...macroSections.map(s => ({ name: s.name, text: advisoryWording.remapAdvisoryWording(s.text) }))
-  ];
-  console.log(`[PRESENTER] sections generated=${sections.length} (advisoryHeader + INCOREGO prepended)`);
+
+  // ─────────────────────────────────────────────────────────────────────
+  // USER-FACING DISCORD BATCH — locked SPEC B output ONLY.
+  //
+  // ATLAS ADVISORY / COREY READ / COREY IMPACT ON JANE / COREY CLONE /
+  // SPIDEY STRUCTURE were previously prepended to every analyse output.
+  // Per the locked dashboard/macro wording standard they are now stripped
+  // from the primary user channel and routed to dev/audit logs only.
+  // The auxiliary content remains computed (the macro v3 builder reads
+  // jane.coreyContribution / jane.spideyStructure / jane.marketRead) but
+  // is not emitted as separate user-visible messages.
+  //
+  // Set ATLAS_DEBUG_AUX=1 (operator/audit only — never on the production
+  // bot) to re-emit the auxiliary sections under their own headings.
+  // ─────────────────────────────────────────────────────────────────────
+  const sections = macroSections.map(s => ({
+    name: s.name,
+    text: advisoryWording.remapAdvisoryWording(s.text)
+  }));
+  if (process.env.ATLAS_DEBUG_AUX === '1') {
+    sections.unshift(
+      { name: 'AUDIT — advisory header', text: advisoryWording.remapAdvisoryWording(advisoryHeader) },
+      { name: 'AUDIT — incorego',        text: advisoryWording.remapAdvisoryWording(renderIncoregoForDiscord({ symbol, incoregoBlock, jane, tradeProbability: cappedProbability })) },
+      { name: 'AUDIT — structure',       text: advisoryWording.remapAdvisoryWording(spideyStructure.renderForDiscord()) }
+    );
+    console.log('[PRESENTER] ATLAS_DEBUG_AUX=1 — auxiliary sections re-emitted (audit mode).');
+  } else {
+    // Always log the auxiliary content to console for ops visibility,
+    // never to the user channel. Ops can grep the Render logs for these
+    // tags when something looks off.
+    console.log('[AUDIT-OFFLINE] advisoryHeader=' + advisoryHeader.length + ' chars · incorego=present · spideyStructure=' + spideyStructure.state);
+  }
+  console.log(`[PRESENTER] sections generated=${sections.length} (locked v3 spec only)`);
 
   // Post the Jane packet to the dashboard service — populates the Execution
   // / Live Plan surface for ?symbol=<sym>. Source statuses reflect REAL
@@ -3161,9 +3184,11 @@ async function deliverResult(msg, result) {
 }
 // Test-route export. The live-route QA harness loads this module under a
 // stub sandbox and calls formatMacro() to verify the production presenter
-// path emits zero banned tokens. This is the same function Discord
-// commands use (`!eurusd analyse` → formatMacro → formatMacroV3).
-module.exports = { formatMacro };
+// path emits zero banned tokens. The full-batch QA harness additionally
+// drives deliverResult() through a mocked msg.channel.send to capture
+// EVERY message the analyse command would push to Discord — locking the
+// final user-facing batch to the macro v3 sections only.
+module.exports = { formatMacro, deliverResult };
 
 // Live login is suppressed when ATLAS_NO_LOGIN=1 — used by the QA
 // harness so requiring index.js does not attempt a Discord connection.

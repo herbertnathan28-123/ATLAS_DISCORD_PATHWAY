@@ -74,7 +74,7 @@ function build(input) {
     if (structure?.targets?.length) lines.push('**Exit Points:** ' + structure.targets.join(' → '));
   }
   lines.push('**Flow:** ' + (structure?.flow || 'no clear directional pressure yet'));
-  lines.push('**Validity Window:** ' + (structure?.validityWindow || 'until structure or event resets the read'));
+  lines.push('**Validity Window:** ' + planValidityWindow(structure));
   if (structure?.cancellation?.length) lines.push('**Cancellation Conditions:** ' + structure.cancellation.join('; '));
   lines.push('**Event Risk:** ' + (evOverride.label || 'no high-impact event in active window'));
   lines.push('**What Needs to Happen Next:** ' + nextStep(action, evOverride));
@@ -236,6 +236,30 @@ function executionConfidence(action, jane) {
 }
 function nextReview(structure) {
   return (structure && structure.nextReview) || 'next primary-timeframe close (or first event-window boundary, whichever comes sooner)';
+}
+
+// Render the Live Plan's Validity Window using exact UTC + AWST when no
+// upstream descriptor is supplied. Mirrors the VALIDITY block format so
+// the user reads the same expiry shape in both places. Default expiry is
+// 4 hours from build time when no minutes/expiry hint is supplied.
+function planValidityWindow(structure) {
+  if (structure && typeof structure.validityWindow === 'string' && structure.validityWindow && !/until structure or event resets/i.test(structure.validityWindow)) {
+    return structure.validityWindow;
+  }
+  let d;
+  if (structure && structure.validityExpiryUtc) {
+    const t = Date.parse(structure.validityExpiryUtc);
+    d = Number.isFinite(t) ? new Date(t) : new Date(Date.now() + 4 * 3600 * 1000);
+  } else if (structure && Number.isFinite(structure.validityMinutes) && structure.validityMinutes > 0) {
+    d = new Date(Date.now() + structure.validityMinutes * 60 * 1000);
+  } else {
+    d = new Date(Date.now() + 4 * 3600 * 1000);
+  }
+  const pad = function (n) { return n < 10 ? '0' + n : n; };
+  const utc  = pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' UTC';
+  const a    = new Date(d.getTime() + 8 * 3600 * 1000);
+  const awst = pad(a.getUTCHours()) + ':' + pad(a.getUTCMinutes()) + ' AWST';
+  return 'Valid until ' + utc + ' / ' + awst + ', or earlier if buyer/seller control changes before then.';
 }
 function probabilityModel(corey, spidey) {
   // Composite-driven probabilities; deliberately conservative so close

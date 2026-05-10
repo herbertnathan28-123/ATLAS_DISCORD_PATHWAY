@@ -13,7 +13,10 @@ function build(input) {
   lines.push('');
 
   if (!history || !Array.isArray(history.recent20) || !history.recent20.length) {
-    lines.push(`*Historical OHLCV cache not loaded for ${symbol || 'symbol'} — pass input.history.recent20 from cacheReader.getRecentCandles(symbol, 20) before relying on this section.*`);
+    // Operator-facing fallback only. Internal diagnostic detail
+    // (cacheReader path, recent20 hint) goes to console logs.
+    console.log(`[HISTORICAL-CTX] history.recent20 not present for ${symbol || 'symbol'}; emitting calm placeholder.`);
+    lines.push(`*Historical context for ${symbol || 'this symbol'} will populate once the recent-bar cache is published. Charts above remain live.*`);
     return lines.join('\n');
   }
 
