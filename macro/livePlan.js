@@ -147,7 +147,7 @@ function collectMissing({ corey, spidey, evOverride, structure }) {
   if (corey.score && spidey.score && Math.sign(corey.score) !== Math.sign(spidey.score))
     out.push('macro and structure disagree on direction');
   if (evOverride.permission === 'BLOCK') out.push(evOverride.label);
-  if (structure && !structure.trigger) out.push('no confirmation condition has been defined for entry');
+  if (structure && !structure.trigger) out.push('no buyer or seller control level is currently reliable enough to publish');
   if (structure && structure.stopLoss == null) out.push('stop loss level is not yet defined');
   return out;
 }
@@ -168,11 +168,11 @@ function qualityLabel(c) {
 }
 function nextStep(action, evOverride) {
   if (evOverride.permission === 'BLOCK') return 'wait for the event window to clear, then re-check structure.';
-  if (action.state.startsWith('TRADE') || action.state.startsWith('ENTRY CONFIRMED')) return 'execute on the defined confirmation; manage stop loss; do not chase if missed.';
-  if (action.state.startsWith('ARMED')) return 'monitor for the confirmation condition; do not pre-empt.';
+  if (action.state.startsWith('TRADE') || action.state.startsWith('ENTRY CONFIRMED')) return 'execute on the published buyer or seller control level; manage stop loss; do not chase if missed.';
+  if (action.state.startsWith('ARMED')) return 'monitor for the buyer or seller control level to publish; do not pre-empt.';
   if (action.state.startsWith('CONFIRMATION APPROACHING')) return 'prepare order; verify event risk and spread before submission.';
-  if (action.state.startsWith('CONDITIONS BUILDING')) return 'wait for one more confirmation candle on the primary timeframe.';
-  return 'stand aside until the listed missing conditions resolve.';
+  if (action.state.startsWith('CONDITIONS BUILDING')) return 'wait for one more full candle body close beyond the primary level on the primary timeframe.';
+  return 'stand aside until ATLAS publishes a reliable buyer or seller control level.';
 }
 function formatLevel(p, ext) { return ext != null ? p + ' (extended ' + ext + ')' : String(p); }
 function pct(v) { const n = (v || 0); return (n >= 0 ? '+' : '') + Math.round(n * 100) + '%'; }
