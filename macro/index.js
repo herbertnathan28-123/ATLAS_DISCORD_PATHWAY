@@ -79,9 +79,12 @@ async function buildMacroV3(input) {
     requestedSymbol:  input.symbol,
     renderedSymbol:   input.symbol
   });
+  // Presenter QA result is logged for ops grep ONLY. The contradiction
+  // reason MUST NOT be appended to the rendered text — the Discord
+  // wrapper (index.js deliverResult) suppresses the v3 batch and emits
+  // a clean operator-safe fallback if QA flags anything.
   if (!qa.ok) {
     console.error('[PRESENTER-QA] fail reason=' + qa.reason);
-    text += '\n\n*Presenter QA flagged contradiction:* `' + qa.reason + '` — text shown for transparency.';
   } else {
     console.log('[PRESENTER-QA] pass');
   }

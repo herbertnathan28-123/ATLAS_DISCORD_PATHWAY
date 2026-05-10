@@ -34,7 +34,7 @@ function build(input) {
   lines.push(row('EXIT POINT',            target,      target == null ? 'Not identified yet' : 'where the primary plan books the read'));
   lines.push(row('TREND',                 trend,       trend == null ? 'No directional read yet' : 'current trend frame on the primary timeframe'));
   if (entry == null) {
-    lines.push('| **NEUTRAL MARKET — NO BIAS / WAIT / HOLD** | Buyers and sellers balanced | wait for a confirmed break before treating any level as a buy or sell |');
+    lines.push('| **NEUTRAL MARKET — NO BUY OR SELL TARGET** | Buyers and sellers balanced | ATLAS must publish a reliable buyer or seller control level before any level can be treated as a buy or sell. |');
   }
   lines.push(row('SET STOP LOSS',         stopLoss,    stopLoss == null ? 'Not identified yet' : 'primary protection — closes here on the primary TF invalidate the read'));
   lines.push(row('EXTENDED STOP LOSS',    stopLossExt, stopLossExt == null ? (stopLoss == null ? 'Not identified yet' : 'wider alternative protection for higher-noise sessions') : 'wider alternative protection'));

@@ -21,9 +21,23 @@ function build(input) {
   lines.push('');
 
   // Calendar intel block (already richly formatted by corey_calendar).
+  // When the upcoming-events list contains a same-currency inflation
+  // cluster (≥ 2 inflation prints within 36 h), the per-event boilerplate
+  // (WHAT HAPPENED / WHY MARKETS CARE / EXPECTED MOVE / TRADER ACTION /
+  // WHEN THE IDEA IS INVALID) is suppressed here — the EVENTS / CATALYSTS
+  // section emits one cluster row + one action rule instead. This is the
+  // locked structure: events table → cluster summary → one action rule,
+  // never repeated per-print boilerplate.
   const intel = calendar?.intel;
   if (intel) {
-    lines.push(intel);
+    if (hasInflationCluster(calendar)) {
+      // Keep just the headline + sentiment context that intel may carry,
+      // but drop the per-event blocks. Concretely: render a one-liner
+      // pointer to the EVENTS / CATALYSTS section.
+      lines.push('*High-impact inflation prints are clustered in this window — see EVENTS / CATALYSTS for the cluster summary and the single action rule.*');
+    } else {
+      lines.push(intel);
+    }
   } else {
     lines.push('*No high-impact catalysts in the active window. Re-check before any new entry.*');
   }
@@ -62,6 +76,26 @@ function describeDriver(ctx) {
   if (v?.level)       parts.push(`VIX ${v.level.toLowerCase()}`);
   if (y?.regime)      parts.push(`yield curve ${y.regime.toLowerCase()}`);
   return parts.length ? parts.join(' · ') : 'macro inputs initialising';
+}
+
+// Mirrors the cluster-detection rule in macro/catalysts.js so this
+// module can decide whether per-event boilerplate is redundant.
+const INFLATION_PATTERN = /\b(CPI|Core CPI|PPI|Core PPI|Inflation Rate|HICP|PCE)\b/i;
+function hasInflationCluster(calendar) {
+  const events = (calendar && calendar.snapshot && calendar.snapshot.events) || [];
+  const upcoming = events.filter(e => e && e.scheduled_time && e.scheduled_time > Date.now());
+  if (upcoming.length < 2) return false;
+  for (let i = 0; i < upcoming.length; i++) {
+    if (!INFLATION_PATTERN.test(upcoming[i].title || '')) continue;
+    for (let j = i + 1; j < upcoming.length; j++) {
+      if (!INFLATION_PATTERN.test(upcoming[j].title || '')) continue;
+      if ((upcoming[j].currency || '') !== (upcoming[i].currency || '')) continue;
+      if (Math.abs((upcoming[j].scheduled_time || 0) - (upcoming[i].scheduled_time || 0)) <= 36 * 3600 * 1000) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function advisoryStateLine(calendar) {

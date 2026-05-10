@@ -106,7 +106,16 @@ const BANNED = [
   /\bconfirmed BOS \/ CHoCH\b/i,
   /\bRisk plan pending\b/i,
   /\bcollapsible\b/i,
-  /\bThe leading path is not strong enough to create an edge\b/i
+  /\bThe leading path is not strong enough to create an edge\b/i,
+  // Presenter QA leak set (May 2026 hotfix): if any of these reach the
+  // user channel, the harness fails hard. Internal QA reasons are
+  // logged; clean operator-safe fallback is sent instead.
+  /\bPresenter QA flagged\b/i,
+  /\bconfirmation_used_without_definition\b/i,
+  /\bMACRO_BAN_VIOLATION\b/i,
+  /\bconfirmation condition\b/i,
+  /\bNO BIAS \/ WAIT \/ HOLD\b/i,
+  /\blisted buyer\/seller control level\b/i
 ];
 const FORBIDDEN_HEADERS = [
   /\bADVISORY HEADER\b/i,
@@ -117,6 +126,25 @@ const FORBIDDEN_HEADERS = [
   /\bCOREY CLONE\b/i,
   /\bSPIDEY STRUCTURE\b/i
 ];
+
+// Hook console.log/error so the harness can detect [PRESENTER-QA] fail
+// (or any internal QA failure) leaking into the run. The user-channel
+// send is already covered by the BANNED regex sweep; this guards against
+// console-only leaks that still indicate the v3 builder produced
+// out-of-spec text the upper Presenter QA had to redact.
+const __qaConsoleHits = [];
+const __origLog = console.log.bind(console);
+const __origErr = console.error.bind(console);
+console.log = function () {
+  const s = Array.prototype.slice.call(arguments).join(' ');
+  if (/\[PRESENTER-QA\]\s+fail\b/.test(s)) __qaConsoleHits.push({ stream: 'log', line: s });
+  return __origLog.apply(null, arguments);
+};
+console.error = function () {
+  const s = Array.prototype.slice.call(arguments).join(' ');
+  if (/\[PRESENTER-QA\]\s+fail\b/.test(s)) __qaConsoleHits.push({ stream: 'err', line: s });
+  return __origErr.apply(null, arguments);
+};
 
 (async function main () {
   let mod;
@@ -197,10 +225,16 @@ const FORBIDDEN_HEADERS = [
       }
     }
   }
+  if (__qaConsoleHits.length) {
+    __origErr('[BATCH-QA] FAIL — ' + __qaConsoleHits.length + ' [PRESENTER-QA] fail line(s) seen on console:');
+    for (const h of __qaConsoleHits) __origErr('  - (' + h.stream + ') ' + h.line);
+    __origErr('Presenter QA failures must be eliminated; the v3 builder must not produce text that the contradiction checker rejects.');
+    totalHits += __qaConsoleHits.length;
+  }
   if (totalHits) {
-    console.error('[BATCH-QA] FAIL — ' + totalHits + ' violation(s) across ' + captures.length + ' Discord sends.');
+    __origErr('[BATCH-QA] FAIL — ' + totalHits + ' violation(s) across ' + captures.length + ' Discord sends.');
     process.exit(1);
   }
-  console.log('[BATCH-QA] PASS — ' + captures.length + ' Discord sends, every send is forbidden-header-free and banned-token-free.');
+  __origLog('[BATCH-QA] PASS — ' + captures.length + ' Discord sends, every send is forbidden-header-free and banned-token-free, no Presenter-QA fail logs.');
   process.exit(0);
 })();

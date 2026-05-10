@@ -3162,11 +3162,15 @@ async function deliverResult(msg, result) {
   if (qa.ok) {
     console.log(`[PRESENTER-QA] pass`);
   } else {
-    console.log(`[PRESENTER-QA] fail reason=${qa.reason}`);
-    // Hard fail: we still ship the sections rather than stay silent, but we
-    // surface the QA failure as a system warning so the contradiction is
-    // visible to the trader and the operator.
-    await msg.channel.send({ content: `⚠️ Presenter QA flagged a contradiction (\`${qa.reason}\`). Investigate before acting on this read.` });
+    // Internal QA reasons (confirmation_used_without_definition, etc.)
+    // MUST NOT reach the user surface. Log the reason for ops grep,
+    // suppress the locked v3 sections, and emit ONE clean operator-safe
+    // message in their place. The dashboard QA harness is the
+    // operator-facing escalation channel — Discord stays clean.
+    console.error(`[PRESENTER-QA] fail reason=${qa.reason} symbol=${symbol} — suppressing v3 sections, emitting fallback`);
+    await msg.channel.send({ content: 'ATLAS paused this read because the output failed validation. Re-run after the next refresh.' });
+    setCurrentCoverage(null);
+    return;
   }
 
   // 4. Send sections in locked order, chunked, with logging.
