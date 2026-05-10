@@ -28,12 +28,24 @@ const TERMS = {
 
 function lookup(tag) { return TERMS[tag] || null; }
 
+// Operator-facing glossary surface. The previous full-block footer
+// claimed it was "collapsible" but Discord cannot collapse a message
+// section, so the wording was misleading. Default behaviour: emit a
+// single short reference line pointing the reader to the dashboard
+// glossary tab / terminology command. Set ATLAS_DEBUG_AUX=1 to expand
+// the full term list inline (operator/audit only).
 function footer(tagsUsed) {
   const seen = [...new Set(tagsUsed || [])].filter(t => TERMS[t]);
   if (!seen.length) return '';
-  const lines = ['---', '**Glossary** (deeper layer — collapsible)'];
-  for (const t of seen) lines.push(`- **${t.replace(/_/g, ' ')}**: ${TERMS[t]}`);
-  return lines.join('\n');
+  if (process.env.ATLAS_DEBUG_AUX === '1') {
+    const lines = ['---', '**Glossary** (audit expansion)'];
+    for (const t of seen) lines.push(`- **${t.replace(/_/g, ' ')}**: ${TERMS[t]}`);
+    return lines.join('\n');
+  }
+  return [
+    '---',
+    'Glossary available via the dashboard glossary tab or the terminology command.'
+  ].join('\n');
 }
 
 module.exports = { TERMS, lookup, footer };

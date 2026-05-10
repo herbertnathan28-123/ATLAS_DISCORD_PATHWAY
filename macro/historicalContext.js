@@ -14,9 +14,9 @@ function build(input) {
 
   if (!history || !Array.isArray(history.recent20) || !history.recent20.length) {
     // Operator-facing fallback only. Internal diagnostic detail
-    // (cacheReader path, recent20 hint) goes to console logs.
+    // (recent20 hint) goes to console logs.
     console.log(`[HISTORICAL-CTX] history.recent20 not present for ${symbol || 'symbol'}; emitting calm placeholder.`);
-    lines.push(`*Historical context for ${symbol || 'this symbol'} will populate once the recent-bar cache is published. Charts above remain live.*`);
+    lines.push('Recent comparison data is not ready for this symbol yet. Use the live charts and Trade Status / Final Assessment as the active guide.');
     return lines.join('\n');
   }
 

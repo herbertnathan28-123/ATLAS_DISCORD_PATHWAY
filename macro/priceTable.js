@@ -52,7 +52,7 @@ function build(input) {
   lines.push('');
 
   if (entry == null || stopLoss == null) {
-    lines.push('*Risk plan pending — entry zone and invalidation are not yet defined.*');
+    lines.push('*Risk plan not ready — entry and stop-loss are not identified yet.*');
   } else if (target != null) {
     lines.push('*Entry-to-stop and entry-to-exit shown above for distance reference. R:R / RR intentionally omitted on this surface.*');
   }
