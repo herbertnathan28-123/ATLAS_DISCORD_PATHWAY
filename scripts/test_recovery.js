@@ -266,9 +266,17 @@ function ok(name, cond, info) {
   ok('(E3) eventIntelligence output banned-token-free', sweep(eiOut).ok, `hits: ${sweep(eiOut).hits.join(', ')}`);
   ok('(E3) eventIntelligence emits "Advisory state:" (no longer "Permission verdict:")', /Advisory state:/.test(eiOut) && !/Permission verdict/i.test(eiOut));
 
-  const trigText = gl.TERMS.trigger;
-  ok('(E3) glossary trigger entry banned-token-free', sweep(trigText).ok, `text: ${trigText}`);
-  ok('(E3) glossary trigger says "activates entry conditions"', /activates entry conditions/.test(trigText));
+  // The locked dashboard/macro wording standard bans the word "trigger"
+  // on the user-facing surface. The legacy glossary entry was removed in
+  // the May 2026 hotfix; the macro builders now tag `confirmation` and
+  // the glossary surfaces an operator-facing "Confirmation" entry. We
+  // assert both the absence of the banned key and the presence of the
+  // replacement.
+  ok('(E3) glossary "trigger" entry removed (banned word)', gl.TERMS.trigger == null);
+  const confText = gl.TERMS.confirmation;
+  ok('(E3) glossary confirmation entry present', typeof confText === 'string' && confText.length > 0);
+  ok('(E3) glossary confirmation entry banned-token-free', confText && sweep(confText).ok, `text: ${confText}`);
+  ok('(E3) glossary confirmation says "activates entry conditions"', /activates entry conditions/.test(confText || ''));
 
   const tmOut = tm.build({ jane: { triggerMap: { bullish: { tf: '15M', level: '94.10', close: '15M close > 94.10', invalidation: '15M close < 93.20' }, bearish: { tf: '15M', level: '90.20', close: '15M close < 90.20', invalidation: '15M close > 91.20' } } } });
   ok('(E3) triggerMap output banned-token-free', sweep(tmOut).ok, `hits: ${sweep(tmOut).hits.join(', ')}`);
