@@ -20,36 +20,32 @@ function check(text, ctx) {
   const renderedSymbol = ctx && ctx.renderedSymbol;
   const fail = function (reason) { return { ok: false, reason: reason }; };
 
-  // 1. Trade Permit available + Trade Blocked
-  if (/Trade permit is AVAILABLE/i.test(t) && /TRADE BLOCKED|DO NOT TRADE|TRADE INVALID|ENTRY NOT AUTHORISED/i.test(t)) return fail('permit_available_and_blocked');
-  // 2. Market Readiness <= 3/10 + execution unlocked
-  if (readiness != null && readiness <= 3 && /execution unlocked|TRADE PERMIT AVAILABLE|ENTRY AUTHORISED|TRADE CONFIRMED/i.test(t)) return fail('readiness_low_but_execution_unlocked');
-  // 3. Macro Alignment Strong + Corey Neutral with no explanation
-  if (/Macro Alignment Strong/i.test(t) && /Corey.{0,30}neutral/i.test(t) && !/although|however|while|despite/i.test(t)) return fail('macro_strong_corey_neutral_no_explanation');
+  // 1. Trade Status available + Stand Down stated together (contradiction)
+  if (/Trade Status[^a-zA-Z]*AVAILABLE/i.test(t) && /STAND DOWN|TRADE INVALID|ENTRY NOT AVAILABLE/i.test(t)) return fail('status_available_and_stand_down');
+  // 2. Market Readiness <= 3/10 + active entry stated
+  if (readiness != null && readiness <= 3 && /ENTRY CONFIRMED|TRADE CONFIRMED|execution unlocked/i.test(t)) return fail('readiness_low_but_active_entry');
+  // 3. Macro Alignment Strong + macro neutral with no explanation
+  if (/Macro Alignment Strong/i.test(t) && /macro engine.{0,30}neutral/i.test(t) && !/although|however|while|despite/i.test(t)) return fail('macro_strong_macro_neutral_no_explanation');
   // 4. VIX Elevated + execution normal
   if (vol === 'High' && /execution conditions are normal/i.test(t)) return fail('vix_elevated_execution_normal');
   // 5. Entry pending + risk/reward calculated
   if ((!ez || ez === 'Pending') && /Reward-to-risk on T1 — 1:|R:R\s*[0-9]|RR\s*[0-9]/i.test(t)) return fail('pending_entry_with_rr_calculated');
-  // 6. No entry + stop loss displayed as active
-  if ((!ez || ez === 'Pending') && /STOP LOSS\s*[:=]\s*[0-9]/i.test(t) && !/Not authorised|pending/i.test(t)) return fail('no_entry_with_active_stop');
+  // 6. No entry + stop loss displayed as active number
+  if ((!ez || ez === 'Pending') && /STOP LOSS\s*[:=]\s*[0-9]/i.test(t) && !/Not identified|pending|paused/i.test(t)) return fail('no_entry_with_active_stop');
   // 7. Equity output contains pips/standard lot/pair language
   if ((ac === 'equity' || ac === 'index' || ac === 'commodity') && /\bpip\b|\bpips\b|\bstandard lot\b|\bbase currency\b|\bquote currency\b/i.test(t)) return fail('equity_output_contains_fx_language');
   // 8. Neutral macro + "matches the macro direction"
   if (macroBias === 'Neutral' && /matches the macro direction/i.test(t)) return fail('neutral_macro_with_matches_macro');
-  // 9. Catalyst inside 2h + new entry permitted
-  if (catalystInside2h && /(Trade permit is AVAILABLE|ENTRY AUTHORISED|TRADE CONFIRMED|new entries permitted)/i.test(t)) return fail('catalyst_inside_2h_with_permit_available');
+  // 9. Catalyst inside 2h + active entry stated
+  if (catalystInside2h && /(ENTRY CONFIRMED|TRADE CONFIRMED|new entries available)/i.test(t)) return fail('catalyst_inside_2h_with_active_entry');
   // 10. Expired setup + active entry plan
-  if (setupExpired && /\*\*ENTRY\*\*[^\n]*[0-9]/.test(t)) return fail('expired_setup_with_active_entry');
+  if (setupExpired && /\*\*ENTRY POINT\*\*[^\n]*[0-9]/.test(t)) return fail('expired_setup_with_active_entry');
   // 11. Placeholder chart sent
   if (placeholderSent) return fail('placeholder_chart_sent');
   // 12. Blank chart sent
   if (blankChartSent) return fail('blank_chart_sent');
-  // 13. Missing exact trigger level
-  if (/TRIGGER MAP/i.test(t) && !/Level:\s*[\$0-9]/i.test(t) && !/Exact shift level unavailable/i.test(t)) return fail('trigger_map_missing_levels');
-  // 14. Missing exact timeframe
-  if (/TRIGGER MAP/i.test(t) && !/(15M|30M|1H|4H|1D)/i.test(t)) return fail('trigger_map_missing_timeframe');
-  // 15. "confirmation" used without defining confirmation
-  if (/\bconfirmation\b/i.test(t) && !/(BOS|CHoCH|candle close|structure break|body close)/i.test(t)) return fail('confirmation_used_without_definition');
+  // 13. "confirmation" used without defining confirmation
+  if (/\bconfirmation\b/i.test(t) && !/(BOS|CHoCH|candle close|body close|primary timeframe)/i.test(t)) return fail('confirmation_used_without_definition');
   // 16. Requested symbol differs from rendered symbol
   if (requestedSymbol && renderedSymbol && requestedSymbol !== renderedSymbol) return fail('symbol_requested_vs_rendered_mismatch');
   // 17. Equity symbol receives FX-scale price levels

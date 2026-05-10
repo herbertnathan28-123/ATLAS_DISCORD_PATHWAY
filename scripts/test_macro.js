@@ -3,7 +3,10 @@
 // pulls live coreyLive + coreyCalendar + FMP. Exits non-zero on any §18 acceptance violation.
 
 const path = require('path');
-const MACRO_DIR = path.join(__dirname, '..', 'macro');
+// `path/macro` would resolve to ./macro.js (the Phase-D Macro Engine
+// packet emitter) before the macro v3 directory. Require by explicit
+// file so this script always runs against the v3 builder.
+const MACRO_DIR = path.join(__dirname, '..', 'macro', 'index.js');
 
 async function main() {
   const args = process.argv.slice(2);
@@ -40,10 +43,42 @@ async function main() {
       darkHorse: null
     });
 
-    assertContains(text, ['Trade Status / Live Plan', 'Final Assessment', 'Forward Expectation', 'Trigger Map', 'Price Table', 'Roadmap', 'Event Intelligence', 'Market Overview', 'Events / Catalysts', 'Historical Context', 'Execution Logic', 'Validity']);
-    assertNotContains(text, ['light participation only', 'WAIT / LIGHT PARTICIPATION ONLY', 'if confirmed', 'signal strength', 'distance context', 'broken level', 'broken support', 'broken resistance', 'Trade permit is available', 'execution conditions are normal', 'matches the macro direction', 'Abstain (0%)']);
+    // SPEC B sections (Forward Expectation / Trigger Map / Final Verdict
+    // are deleted; Verification renamed to Validity; Event Intelligence
+    // renamed to Global / Event Intelligence; Price Table renamed to
+    // Price Table — Analysed Targets).
+    assertContains(text, [
+      'TRADE STATUS / FINAL ASSESSMENT',
+      'Final Assessment',
+      'PRICE TABLE — ANALYSED TARGETS',
+      'ROADMAP LINK',
+      'GLOBAL / EVENT INTELLIGENCE',
+      'Market Overview',
+      'Events / Catalysts',
+      'Historical Context',
+      'EXECUTION LOGIC',
+      'VALIDITY'
+    ]);
+    // Existing legacy bans (kept).
+    assertNotContains(text, [
+      'light participation only', 'WAIT / LIGHT PARTICIPATION ONLY',
+      'if confirmed', 'signal strength', 'distance context',
+      'broken level', 'broken support', 'broken resistance',
+      'Trade permit is available', 'execution conditions are normal',
+      'matches the macro direction', 'Abstain (0%)'
+    ]);
+    // Locked-spec banned tokens (May 2026 wording standard).
+    assertNotContainsRegex(text, [
+      /\btrigger\b/i, /\bauthoris(?:ed|e)\b/i, /\bauthoriz(?:ed|e)\b/i,
+      /\bpermitted\b/i, /\bpermission\b/i, /\bblocked\b/i, /\bwithheld\b/i,
+      /\bno clear edge\b/i, /\bprobability low\b/i, /\btrade probability\b/i,
+      /\btrade range\b/i, /\bexecution map\b/i, /\bnot implemented\b/i,
+      /\bunavailable\b/i, /\bincomplete\b/i,
+      /\bcorey clone\b/i, /(?<![a-z])corey(?![a-z])/i,
+      /(?<![a-z])spidey(?![a-z])/i, /(?<![a-z])jane(?![a-z])/i
+    ]);
     assertSectionOrder(text);
-    assertFinalAssessmentInsideLivePlan(text);
+    assertFinalAssessmentInsideTradeStatus(text);
     assertSourcesFooter(text);
     assertAssetClassLanguage(text, ac);
 
@@ -122,8 +157,24 @@ function assertContains(t, parts) {
 function assertNotContains(t, parts) {
   for (const p of parts) if (t.includes(p)) throw new Error('banned phrase present: ' + p);
 }
+function assertNotContainsRegex(t, regexes) {
+  for (const re of regexes) {
+    const m = t.match(re);
+    if (m) throw new Error('banned token present: ' + m[0] + ' (regex ' + re.source + ')');
+  }
+}
 function assertSectionOrder(t) {
-  const order = ['Trade Status / Live Plan', 'Price Table', 'Roadmap', 'Event Intelligence', 'Market Overview', 'Events / Catalysts', 'Historical Context', 'Execution Logic', 'Validity'];
+  const order = [
+    'TRADE STATUS / FINAL ASSESSMENT',
+    'PRICE TABLE — ANALYSED TARGETS',
+    'ROADMAP LINK',
+    'GLOBAL / EVENT INTELLIGENCE',
+    'Market Overview',
+    'Events / Catalysts',
+    'Historical Context',
+    'EXECUTION LOGIC',
+    'VALIDITY'
+  ];
   let pos = 0;
   for (const s of order) {
     const i = t.indexOf(s, pos);
@@ -131,14 +182,15 @@ function assertSectionOrder(t) {
     pos = i;
   }
 }
-function assertFinalAssessmentInsideLivePlan(t) {
-  const lp = t.indexOf('Trade Status / Live Plan');
-  const fa = t.indexOf('Final Assessment');
-  const next = t.indexOf('Price Table');
-  if (fa < 0 || fa < lp || fa > next) throw new Error('Final Assessment must live inside Live Plan/Trade Status block');
+function assertFinalAssessmentInsideTradeStatus(t) {
+  const ts = t.indexOf('TRADE STATUS / FINAL ASSESSMENT');
+  const fa = t.indexOf('Final Assessment', ts >= 0 ? ts + 1 : 0);
+  const next = t.indexOf('PRICE TABLE — ANALYSED TARGETS');
+  if (fa < 0 || fa < ts || (next >= 0 && fa > next))
+    throw new Error('Final Assessment must live inside Trade Status block');
 }
 function assertSourcesFooter(t) {
-  if (!/\*sources:.*coreyLive=/.test(t)) throw new Error('sources footer missing or malformed');
+  if (!/\*sources:.*market data=/.test(t)) throw new Error('sources footer missing or malformed');
 }
 
 main().catch(e => { console.error('FAIL:', e.message); process.exit(1); });

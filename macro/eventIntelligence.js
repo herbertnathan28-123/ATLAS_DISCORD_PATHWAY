@@ -10,7 +10,7 @@ function build(input) {
   const { calendar, fmp, symbol, ctx, tagsUsed } = input;
   if (tagsUsed) tagsUsed.push('event_risk', 'macro_driver');
 
-  const lines = ['## Event Intelligence'];
+  const lines = ['## GLOBAL / EVENT INTELLIGENCE'];
   lines.push('');
 
   // Sentiment header — derived from coreyLive macro tilt.
@@ -35,13 +35,11 @@ function build(input) {
     lines.push(`**Earnings (FMP):** ${symbol} next report ${next.date || 'date n/a'} — fiscal ${next.fiscalDateEnding || 'n/a'}.`);
   } else if (fmp && fmp.earnings && !fmp.earnings.ok && /^[A-Z]{1,5}$/.test(symbol || '')) {
     lines.push('');
-    lines.push(`*Earnings context unavailable (${fmp.earnings.reason}).*`);
+    lines.push(`*Earnings context pending (${fmp.earnings.reason || 'feed not ready'}).*`);
   }
 
-  // Advisory state from the calendar layer (clears / delays / withholds
-  // trade readiness). Renamed from "Permission verdict:" — the calendar
-  // does not grant or revoke an execution permission; it shapes the
-  // advisory state.
+  // Advisory state from the calendar layer (clears / delays / pauses
+  // trade readiness). Operator-facing — no permission/withhold language.
   lines.push('');
   lines.push(advisoryStateLine(calendar));
   return lines.join('\n');
@@ -68,13 +66,13 @@ function describeDriver(ctx) {
 
 function advisoryStateLine(calendar) {
   const intel = calendar?.intel;
-  if (!intel) return '*Advisory state:* OPEN — no calendar block on entry conditions.';
+  if (!intel) return '*Advisory state:* OPEN — calendar shows no event hold on entry conditions.';
   if (/—\s*([\d.]+)h from now/.test(intel)) {
     const h = parseFloat(intel.match(/—\s*([\d.]+)h from now/)[1]);
-    if (h <= 2) return '*Advisory state:* WITHHELD — high-impact event inside 2h; entry conditions on hold.';
+    if (h <= 2) return '*Advisory state:* PAUSED — high-impact event inside 2h; entry conditions on hold.';
     if (h <= 24) return '*Advisory state:* DELAY — high-impact event inside 24h; reduce conviction.';
   }
-  return '*Advisory state:* OPEN — calendar carries no near-term block.';
+  return '*Advisory state:* OPEN — calendar shows no near-term event hold.';
 }
 
 module.exports = { build };

@@ -4,7 +4,7 @@
 
 function build(input) {
   const { structure, calendar } = input;
-  const lines = ['## Validity'];
+  const lines = ['## VALIDITY'];
   lines.push('');
   const window = structure?.validityWindow || 'until next macro refresh or structure shift';
   const nextHi = nextHighImpact(calendar);

@@ -1,15 +1,17 @@
 'use strict';
-// §5 doctrine: decisive states only. Replaces vague "WAIT / LIGHT PARTICIPATION ONLY" / "if confirmed" language.
+// Decisive states only. Operator-facing strings — no banned tokens
+// (no AUTHORISED / TRIGGER / BLOCKED / WITHHELD / PERMITTED). Internal
+// enum keys are preserved so existing call-sites keep working.
 
 const STATES = Object.freeze({
   TRADE_CONFIRMED:           'TRADE CONFIRMED',
-  ENTRY_AUTHORISED:          'ENTRY AUTHORISED',
-  ARMED_WAITING_TRIGGER:     'ARMED — WAITING FOR TRIGGER',
-  ENTRY_NOT_AUTHORISED:      'ENTRY NOT AUTHORISED',
-  DO_NOT_TRADE:              'DO NOT TRADE',
-  HOLD_CONDITIONS_NOT_BUILT: 'HOLD — CONDITIONS NOT BUILT',
+  ENTRY_AUTHORISED:          'ENTRY CONFIRMED',
+  ARMED_WAITING_TRIGGER:     'ARMED — WAITING FOR CONFIRMATION',
+  ENTRY_NOT_AUTHORISED:      'ENTRY NOT AVAILABLE',
+  DO_NOT_TRADE:              'STAND DOWN — NO ACTIVE TRADE',
+  HOLD_CONDITIONS_NOT_BUILT: 'HOLD — NO ACTIVE TRADE',
   CONDITIONS_BUILDING:       'CONDITIONS BUILDING',
-  TRIGGER_APPROACHING:       'TRIGGER APPROACHING'
+  TRIGGER_APPROACHING:       'CONFIRMATION APPROACHING'
 });
 
 function resolve({ janeVerdict, missing, eventBlock, structureAgreement }) {

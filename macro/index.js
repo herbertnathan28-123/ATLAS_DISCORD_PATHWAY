@@ -5,8 +5,6 @@
 
 const { LOCKED_ORDER, assemble } = require('./orderedSections');
 const livePlan           = require('./livePlan');
-const forwardExpectation = require('./forwardExpectation');
-const triggerMap         = require('./triggerMap');
 const priceTable         = require('./priceTable');
 const roadmapLink        = require('./roadmapLink');
 const eventIntelligence  = require('./eventIntelligence');
@@ -23,10 +21,11 @@ const fmpAdapter         = require('./fmpAdapter');
 async function buildMacroV3(input) {
   const tagsUsed = [];
   const ctx2 = Object.assign({}, input, { tagsUsed });
+  // Forward Expectation + Trigger Map are intentionally NOT built —
+  // their useful logic now lives inside Trade Status (Live Plan) and
+  // Execution Logic per SPEC B.
   const sections = {
     livePlan:           livePlan.build(ctx2),
-    forwardExpectation: forwardExpectation.build(ctx2),
-    triggerMap:         triggerMap.build(ctx2),
     priceTable:         priceTable.build(ctx2),
     roadmapLink:        roadmapLink.build(ctx2),
     eventIntel:         eventIntelligence.build(ctx2),
@@ -63,17 +62,20 @@ async function buildMacroV3(input) {
   const assetClass = struct0.assetClass || inferClass(input.symbol);
   text = language.scrub(text, { assetClass });
 
-  // Spec Part 15 — contradiction checker on the assembled string.
+  // Spec Part 15 — contradiction checker on the assembled string. The
+  // "blocked" detection here uses presentation-layer phrases that survive
+  // the language scrub (STAND DOWN / NO ACTIVE TRADE / ENTRY NOT
+  // AVAILABLE / TRADE INVALID).
   const struct = input.structure || {};
   const qa = contradictionCheck.check(text, {
     symbol:           input.symbol,
     assetClass:       struct.assetClass || inferClass(input.symbol),
-    blocked:          /DO NOT TRADE|TRADE INVALID|ENTRY NOT AUTHORISED|WAIT — NO TRADE/i.test(text),
+    blocked:          /STAND DOWN|TRADE INVALID|ENTRY NOT AVAILABLE|HOLD — NO ACTIVE TRADE|NO VALID BUY OR SELL TARGET/i.test(text),
     readiness:        struct.readiness != null ? struct.readiness : null,
     vol:              input.ctx && input.ctx.vix && input.ctx.vix.level,
     entryZone:        struct.entry,
     macroBias:        input.ctx && input.ctx.dxy && input.ctx.dxy.bias,
-    catalystInside2h: /high-impact event in [\d.]+h.*entry blocked/i.test(text),
+    catalystInside2h: /high-impact event in [\d.]+h.*entries paused/i.test(text),
     requestedSymbol:  input.symbol,
     renderedSymbol:   input.symbol
   });

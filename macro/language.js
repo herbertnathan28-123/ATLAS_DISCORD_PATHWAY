@@ -12,7 +12,10 @@
 // behaviour applies (ban fires for everything).
 
 // Patterns banned for ALL asset classes.
+// Locked dashboard/macro wording standard — these terms must never
+// reach a user-facing surface.
 const UNIVERSAL_BAN = [
+  // Existing locked phrases (kept).
   /\bWAIT\s*\/\s*LIGHT PARTICIPATION ONLY\b/g,
   /\blight participation only\b/gi,
   /\bif confirmed\b/gi,
@@ -27,7 +30,30 @@ const UNIVERSAL_BAN = [
   /\bbroken resistance\b/gi,
   /\bhold above broken level\b/gi,
   /\bmatches the macro direction\s*\(Neutral\)/gi,
-  /\bAbstain \(0%\)/gi
+  /\bAbstain \(0%\)/gi,
+  // Newly locked banned terms (May 2026 wording standard).
+  /\btrigger\b/gi,                        // use "confirmation" instead
+  /\bauthoris(?:ed|e)\b/gi,
+  /\bauthoriz(?:ed|e)\b/gi,
+  /\bpermitted\b/gi,
+  /\bpermission\b/gi,
+  /\bblocked\b/gi,
+  /\bwithheld\b/gi,
+  /\bno clear edge\b/gi,
+  /\bprobability low\b/gi,
+  /\btrade probability\b/gi,
+  /\btrade range\b/gi,
+  /\bexecution map\b/gi,
+  /\bnot implemented\b/gi,
+  /\bunavailable\b/gi,
+  /\bincomplete\b/gi,
+  // Engine names — banned on the user-facing surface. Internal
+  // logs/audit/Source-Status text must use these via the sanitiser
+  // that bypasses scrub (call sites pass { internal: true }).
+  /\bcorey clone\b/gi,
+  /\bcorey\b/gi,
+  /\bspidey\b/gi,
+  /\bjane\b/gi
 ];
 
 // Patterns banned only for non-FX asset classes. The FX path is permitted to
@@ -39,6 +65,9 @@ const NON_FX_ONLY_BAN = [
 // Back-compat — kept for any external consumer that imports BAN_PATTERNS.
 const BAN_PATTERNS = UNIVERSAL_BAN.concat(NON_FX_ONLY_BAN);
 
+// Translations are applied BEFORE the ban scan, so they normalise legacy
+// wording into the locked operator copy. Order matters — multi-word
+// patterns first.
 const TRANSLATE = [
   [/\bUSD short\b/g,
    'The model expects the US dollar to weaken, which supports upside pressure on EURUSD / GBPUSD and downside pressure on USDJPY, depending on structure.'],
@@ -47,7 +76,58 @@ const TRANSLATE = [
   [/\bbroken support\b/gi, 'BOS confirmation level'],
   [/\bbroken resistance\b/gi, 'BOS confirmation level'],
   [/\bhold above broken level\b/gi, 'hold above the confirmed structure point'],
-  [/\bAbstain \(0%\)/gi, 'No authorised trade conviction']
+  [/\bAbstain \(0%\)/gi, 'No active read'],
+  // Hard-coded retranslation of legacy wording so old packets, log lines,
+  // and seed text still produce locked-spec output even before the
+  // ban scan runs.
+  [/\bENTRY AUTHORISED\b/gi, 'ENTRY CONFIRMED'],
+  [/\bENTRY NOT AUTHORISED\b/gi, 'ENTRY NOT AVAILABLE'],
+  [/\bENTRY AUTHORIZED\b/gi, 'ENTRY CONFIRMED'],
+  [/\bENTRY NOT AUTHORIZED\b/gi, 'ENTRY NOT AVAILABLE'],
+  [/\bDO NOT TRADE\b/g, 'STAND DOWN — NO ACTIVE TRADE'],
+  [/\bWAIT\s*[—-]\s*NO TRADE\b/g, 'HOLD — NO ACTIVE TRADE'],
+  [/\bWAITING FOR TRIGGER\b/gi, 'WAITING FOR CONFIRMATION'],
+  [/\bTRIGGER APPROACHING\b/gi, 'CONFIRMATION APPROACHING'],
+  [/\bTRIGGER MAP\b/gi, 'CONFIRMATION POINTS'],
+  [/\bTrade Permit is BLOCKED\b/gi, 'Trade entry not available'],
+  [/\bTrade Permit MUST be BLOCKED\b/gi, 'Trade entry not available'],
+  [/\bTrade Permit\b/gi, 'Trade Status'],
+  [/\bTRADE PERMIT\b/gi, 'TRADE STATUS'],
+  [/\bWITHHELD\b/g, 'PAUSED'],
+  [/\bWithheld\b/g, 'Paused'],
+  [/\bwithheld\b/gi, 'paused'],
+  [/\bAUTHORISATION\b/gi, 'CONFIRMATION'],
+  [/\bAUTHORIZATION\b/gi, 'CONFIRMATION'],
+  [/\bauthoris(ed|e)\b/gi, 'confirmed'],
+  [/\bauthoriz(ed|e)\b/gi, 'confirmed'],
+  [/\bnot authorised\b/gi, 'not available'],
+  [/\bnot authorized\b/gi, 'not available'],
+  [/\bpermitted\b/gi, 'available'],
+  [/\bpermission\b/gi, 'status'],
+  [/\bnot implemented\b/gi, 'pending'],
+  [/\b(?:is\s+)?unavailable\b/gi, 'pending'],
+  [/\bincomplete\b/gi, 'pending'],
+  [/\btrigger map\b/gi, 'confirmation points'],
+  [/\bentry trigger\b/gi, 'entry confirmation'],
+  [/(?<=^|[^A-Za-z])triggers?(?=[^A-Za-z]|$)/gi, 'confirmation'],
+  [/\btrigger\b/gi, 'confirmation'],
+  [/\bblocked\b/gi, 'paused'],
+  [/\btrade probability\b/gi, 'target status'],
+  [/\bno clear edge\b/gi, 'no leading path'],
+  [/\bprobability low\b/gi, 'setup quality low'],
+  [/\btrade range\b/gi, 'price band'],
+  [/\bexecution map\b/gi, 'analysed targets'],
+  [/\bEXECUTION MAP\b/g, 'ANALYSED TARGETS'],
+  // Engine-name scrub — only on user-facing text. Internal log paths
+  // bypass scrub by passing { internal: true }.
+  [/\bCorey Clone\b/g, 'historical engine'],
+  [/\bcorey clone\b/gi, 'historical engine'],
+  [/\bCorey\b/g, 'macro engine'],
+  [/\bcorey\b/gi, 'macro engine'],
+  [/\bSpidey\b/g, 'structure engine'],
+  [/\bspidey\b/gi, 'structure engine'],
+  [/\bJane\b/g, 'ATLAS'],
+  [/\bjane\b/gi, 'ATLAS']
 ];
 
 // Normalise an asset-class hint to one of: 'fx' | 'equity' | 'index' | 'commodity' | 'unknown'.
