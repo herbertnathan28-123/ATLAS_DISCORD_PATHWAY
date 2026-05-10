@@ -38,7 +38,7 @@ function build(input) {
   lines.push('**Why:** ' + whyParagraph(corey, spidey, evOverride));
   lines.push('');
   const readiness = readinessScoreFromComposite(jane.composite);
-  lines.push('**Market Readiness:** ' + readiness + '/10 — ' + readinessExplain(readiness));
+  lines.push('**Read Maturity:** ' + readiness + '/10 — ' + readinessExplain(readiness));
   lines.push('');
 
   // Verdict strip — five locked fields.

@@ -53,7 +53,32 @@ const UNIVERSAL_BAN = [
   /\bcorey clone\b/gi,
   /\bcorey\b/gi,
   /\bspidey\b/gi,
-  /\bjane\b/gi
+  /\bjane\b/gi,
+  // Legacy FINAL VERDICT presenter strings (May 2026 live-output
+  // regression). These appeared in production because the legacy
+  // formatMacro fell through when the macro v3 require shadow bug
+  // returned undefined for buildMacroV3. Ban them on the user surface
+  // unconditionally so they cannot resurface even if v3 throws.
+  /\bFINAL VERDICT\b/gi,
+  /\bFINAL DECISION\b/gi,
+  /\bFINAL READ\b/gi,
+  /\bWHAT CHANGES THE VIEW\b/gi,
+  /\bWHAT KEEPS IT (?:BLOCKED|paused)\b/gi,
+  // Note: "Validity window" (lowercase narrative) is allowed inside the
+  // VALIDITY section; only the legacy uppercase heading versions above
+  // are banned. CATALYST WINDOW likewise allowed as a body phrase.
+  // Internal enum / state-machine literals.
+  /\bHardConflict\b/g,
+  /\bPartialConflict\b/g,
+  /\bMarket Readiness\b/g,
+  // Operator-paraphrased engine references that survived the
+  // engine-name TRANSLATE pass (e.g. "macro engine's composite",
+  // "structure engine packet").
+  /\bmacro engine'?s?\s+composite\b/gi,
+  /\bstructure engine'?s?\s+packet\b/gi,
+  /\bmacro engine\b/gi,
+  /\bstructure engine\b/gi,
+  /\bhistorical engine\b/gi
 ];
 
 // Patterns banned only for non-FX asset classes. The FX path is permitted to
