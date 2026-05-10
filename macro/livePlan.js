@@ -95,15 +95,19 @@ function build(input) {
     lines.push('All required conditions are present for the stated action state.');
   }
 
-  // source_used footer — required logging. Sources rendered as operator
-  // labels rather than internal engine names.
+  // Source/provenance line is OFF by default on the user surface
+  // (operator wording standard). Gate behind ATLAS_DEBUG_AUX=1 for
+  // operator/audit visibility. Console always logs the digest.
   const sources = [];
   sources.push(`market data=${ctx?.status || 'unknown'}`);
   if (calendar?.snapshot?.health?.source_used) sources.push(`calendar=${calendar.snapshot.health.source_used}`);
   if (fmp && fmp.available)     sources.push('fmp=ok');
   else if (fmp)                 sources.push(`fmp=${fmp.fallback_note || 'pending'}`);
-  lines.push('');
-  lines.push(`*sources: ${sources.join(' | ')}*`);
+  console.log('[LIVEPLAN-SOURCES] ' + sources.join(' | '));
+  if (process.env.ATLAS_DEBUG_AUX === '1') {
+    lines.push('');
+    lines.push(`*sources: ${sources.join(' | ')}*`);
+  }
 
   return lines.join('\n');
 }
@@ -235,7 +239,27 @@ function executionConfidence(action, jane) {
   return 'Insufficient';
 }
 function nextReview(structure) {
-  return (structure && structure.nextReview) || 'next primary-timeframe close (or first event-window boundary, whichever comes sooner)';
+  // Allow upstream override only when the value is operator-facing (no
+  // engine narration like "primary-timeframe close"). Otherwise compute
+  // exact UTC + AWST from structure.nextReviewMinutes / structure.
+  // nextReviewExpiryUtc, defaulting to +1 hour.
+  if (structure && typeof structure.nextReview === 'string' && structure.nextReview && !/primary-timeframe close|event-window boundary|whichever comes sooner/i.test(structure.nextReview)) {
+    return structure.nextReview;
+  }
+  let d;
+  if (structure && structure.nextReviewExpiryUtc) {
+    const t = Date.parse(structure.nextReviewExpiryUtc);
+    d = Number.isFinite(t) ? new Date(t) : new Date(Date.now() + 60 * 60 * 1000);
+  } else if (structure && Number.isFinite(structure.nextReviewMinutes) && structure.nextReviewMinutes > 0) {
+    d = new Date(Date.now() + structure.nextReviewMinutes * 60 * 1000);
+  } else {
+    d = new Date(Date.now() + 60 * 60 * 1000);
+  }
+  const pad = function (n) { return n < 10 ? '0' + n : n; };
+  const utc  = pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' UTC';
+  const a    = new Date(d.getTime() + 8 * 3600 * 1000);
+  const awst = pad(a.getUTCHours()) + ':' + pad(a.getUTCMinutes()) + ' AWST';
+  return utc + ' / ' + awst + ', or earlier if buyer/seller control changes before then.';
 }
 
 // Render the Live Plan's Validity Window using exact UTC + AWST when no
@@ -269,7 +293,7 @@ function probabilityModel(corey, spidey) {
   const range = Math.max(0, 100 - cont - rev);
   const arr = [['continuation', cont], ['range', range], ['reversal', rev]].sort((a, b) => b[1] - a[1]);
   const note = (arr[0][1] - arr[1][1]) < 5
-    ? 'The leading path is not strong enough to create an edge.'
+    ? 'The leading path is not strong enough to identify a reliable buy or sell target.'
     : null;
   return { continuation: cont, range: range, reversal: rev, note: note };
 }

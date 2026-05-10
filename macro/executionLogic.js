@@ -33,11 +33,15 @@ function build(input) {
     lines.push(`| Confirmed seller control: ${structure.confirmedSellerControl} | THEN sellers are in clean control on the primary timeframe; bias entries down |`);
   }
 
-  // Confirmation row (legacy)
+  // Confirmation row.
   if (structure?.trigger) {
     lines.push(`| IF ${structure.trigger} prints on the primary timeframe | THEN take entry at ${structure.entry ?? 'the defined entry level'} |`);
   } else if (!structure?.buyerConfirm && !structure?.sellerConfirm) {
-    lines.push(`| IF no confirmation condition is defined yet | THEN do not place limit orders; wait for a confirmed BOS / CHoCH on the primary timeframe |`);
+    // Plain-English fallback. No raw "BOS / CHoCH" without operator
+    // expansion. If no buyer/seller control level is reliable yet, say
+    // so explicitly per the locked wording standard.
+    lines.push(`| IF no buy or sell level has been confirmed | THEN do not place limit orders. Wait for a full candle body close beyond the listed buyer/seller control level. That close must show one side has taken control before ATLAS can identify an entry, exit, and stop-loss. |`);
+    lines.push(`| Status now | No buyer or seller control level is currently reliable enough to publish. |`);
   }
 
   // Stop loss row

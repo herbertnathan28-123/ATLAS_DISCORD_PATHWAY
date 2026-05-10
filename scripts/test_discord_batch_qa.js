@@ -91,7 +91,22 @@ const BANNED = [
   /\bmacro engine\b/i, /\bstructure engine\b/i, /\bhistorical engine\b/i,
   /\bATLAS ADVISORY\b/i, /\bForward Watch\b/i,
   /\bsource:\s*coreyLive/i, /\bcoreyLive=/i,
-  /\bHistorical OHLCV cache not loaded\b/i
+  /\bHistorical OHLCV cache not loaded\b/i,
+  // Copy-hygiene additions surfaced by the next live-output review.
+  /\*sources:\s/i,                   // user-facing sources line in livePlan
+  /\bsource:\s+tradingview\b/i,
+  /tradingview\s+\(mode:/i,
+  /\bcalendar=tradingview\b/i,
+  /\(source:\s+live macro feed\)/i,
+  /\(source:\s+coreyLive\)/i,
+  /\bcoreyLive\b/i,
+  /\bdegraded\b/i,
+  /\bcache is published\b/i,
+  /\bnext primary-timeframe close\b/i,
+  /\bconfirmed BOS \/ CHoCH\b/i,
+  /\bRisk plan pending\b/i,
+  /\bcollapsible\b/i,
+  /\bThe leading path is not strong enough to create an edge\b/i
 ];
 const FORBIDDEN_HEADERS = [
   /\bADVISORY HEADER\b/i,
