@@ -43,6 +43,32 @@ fmpAdapter.logBootStatus();
 const MACRO_V3_ENABLED = process.env.ATLAS_MACRO_V3 !== 'off';
 console.log(`[BOOT] MACRO_V3: ${MACRO_V3_ENABLED ? 'ENABLED' : 'DISABLED (legacy formatter)'}`);
 
+// Hard startup assertion. The macro v3 path is the ONLY user-facing
+// renderer post-2026-05-10 hotfix. If buildMacroV3 cannot be loaded
+// from ./macro/index.js the bot must REFUSE to boot. The previous
+// silent fallback to the legacy FINAL VERDICT presenter is gone.
+//
+// require('./macro') is intentionally NOT used here — Node's resolver
+// returns ./macro.js (Phase-D Macro Engine packet emitter) before
+// ./macro/index.js, which is exactly the regression that caused the
+// May 2026 live-output incident.
+(function assertMacroV3Available() {
+  if (!MACRO_V3_ENABLED) {
+    // Dev override only. Production must keep this on.
+    console.warn('[BOOT] MACRO_V3 disabled — Discord macro output will fail-closed, not legacy.');
+    return;
+  }
+  let mod;
+  try { mod = require('./macro/index.js'); }
+  catch (e) {
+    throw new Error('[BOOT] ATLAS abort: cannot load ./macro/index.js — ' + (e && e.message));
+  }
+  if (!mod || typeof mod.buildMacroV3 !== 'function') {
+    throw new Error('[BOOT] ATLAS abort: ./macro/index.js did not export buildMacroV3 as a function. Refusing to start; Discord macro commands MUST NOT serve legacy output.');
+  }
+  console.log('[BOOT] MACRO_V3: buildMacroV3 verified at ./macro/index.js');
+})();
+
 // EODHD enrichment adapter — env-gated by EODHD_API_KEY. Provides realtime
 // quotes / fundamentals / historical for equities (and FOREX where useful).
 // Boot probe runs once and reports status for AAPL.US and MU.US per spec.
@@ -1320,86 +1346,88 @@ function buildExecutionLogic(sym, jane, corey) {
   ].filter(Boolean).join('\n');
 }
 
+// SPEC-B / locked wording standard. Replaces the old FINAL VERDICT
+// presenter wholesale. Renders a TRADE STATUS / FINAL ASSESSMENT block
+// with the locked five-field strip and the ANALYSED TARGETS rows. NO
+// banned tokens (FINAL VERDICT / FINAL DECISION / WHAT CHANGES THE
+// VIEW / WHAT KEEPS IT / HardConflict / Market Readiness / macro
+// engine / etc.). Used as the legacy fallback if macro v3 throws —
+// the v3 path is now the production default after the require shadow
+// fix in formatMacroV3.
 function buildValidity(sym, corey, jane) {
   const now = new Date();
-  const regime = corey.internalMacro?.regime?.regime || REGIME.NEUTRAL;
-  const risk = corey.internalMacro?.global?.riskEnv || RISK_ENV.NEUTRAL;
   const next = new Date(now.getTime() + 4 * 60 * 60 * 1000);
-  const verdict = jane ? atlasVerdict(jane) : { word: 'Wait', reason: 'Conditions are not yet resolved.' };
-  const align = macroAlignment(corey);
-  const readiness = jane ? readinessScore(jane) : 0;
 
-  const traderAction = jane
-    ? (jane.doNotTrade
-        ? 'Stand aside. The current read does not support any entry. Do not pre-position.'
-        : jane.convictionLabel === 'High'
-          ? 'Prepare the entry. Act on confirmation, size to the $ risk in the Execution tab.'
-          : jane.convictionLabel === 'Medium'
-            ? 'Prepare with caution. Act only on lower-timeframe confirmation, with reduced exposure.'
-            : 'Stand aside unless clean confirmation appears, and then only with reduced exposure.')
-    : 'Stand aside until the read resolves.';
+  // Buyer / Seller Control derived from Jane's bias if present.
+  const bias = jane && jane.finalBias ? String(jane.finalBias).toLowerCase() : 'neutral';
+  const control =
+      bias === 'bullish' ? 'Buyers in control'
+    : bias === 'bearish' ? 'Sellers in control'
+    : 'Balanced — neither side in control';
 
-  // Reconcile "what changes view" against the live alignment count so we never
-  // tell the trader the view changes when alignment "strengthens to 3/4" while
-  // the count is already 3/4. The threshold is ALWAYS one step above current.
-  const alignTarget = Math.min(align.total, Math.max(3, (align.count || 0) + 1));
-  const alignClause = align.count >= alignTarget && corey.combinedBias !== BIAS.NEUTRAL
-    ? `Macro alignment is already ${align.count}/${align.total} and Corey’s composite confirms ${corey.combinedBias.toLowerCase()} direction. The view holds while this remains true; it changes if alignment falls below ${alignTarget}/${align.total} OR Corey’s composite turns neutral or opposite.`
-    : `Macro alignment strengthens to at least ${alignTarget}/${align.total} drivers (currently ${align.count}/${align.total}) AND Corey’s composite confirms a directional bias.`;
+  const hasEntry = !!(jane && jane.entryZone && (jane.entryZone.mid != null || jane.entryZone.lower != null));
 
-  const changesBullish = [
-    `• Higher timeframe (1H or above) prints a confirmed BULLISH BOS or CHoCH AND closes beyond the break level.`,
-    `• A fresh demand zone or imbalance forms below current price after the displacement.`,
-    `• ${alignClause}`,
-    `• No Events & Catalysts threshold is set to cross inside the valid window.`
-  ].join('\n');
-  const changesBearish = [
-    `• Higher timeframe (1H or above) prints a confirmed BEARISH BOS or CHoCH AND closes beyond the break level.`,
-    `• A fresh supply zone or imbalance forms above current price after the displacement.`,
-    `• ${alignClause}`,
-    `• No Events & Catalysts threshold is set to cross inside the valid window.`
-  ].join('\n');
-  const keepsBlocked = [
-    `• Conflict between structure and macro persists (current state: ${jane ? jane.conflictState : 'unresolved'}).`,
-    `• Market Readiness remains at or below 3/10 (current: ${readiness}/10).`,
-    `• Volatility remains elevated without a clean structural break.`,
-    `• Any catalyst threshold is set to cross inside the valid window.`
-  ].join('\n');
+  // Numeric quality / confidence labels (not engine narration).
+  const conv = jane && Number.isFinite(jane.conviction) ? jane.conviction : 0;
+  const quality =
+      conv >= 0.55 ? 'A — institutional-grade'
+    : conv >= 0.35 ? 'B — actionable with discipline'
+    : conv >= 0.20 ? 'C — developing'
+    : 'D — not yet investable';
+  const confidence =
+      conv >= 0.55 ? 'High — institutional-grade'
+    : conv >= 0.35 ? 'Medium — actionable with discipline'
+    : conv >= 0.20 ? 'Low — developing'
+    : 'Insufficient';
+  const targetStatus = hasEntry ? 'Active read' : 'No valid target identified yet';
 
-  // Catalyst window — explicit. If a major event sits inside the next 2 hours,
-  // the verdict is fenced as "execution-disabled" regardless of structure.
-  const catalystWindow = `No new entries in the 2 hours ahead of a known release. No trading in the first 5 minutes after a print. After a print, wait for fresh 15M / 30M structure before acting.`;
+  // Plain-English "what would change this" wording — must include a
+  // timeframe and operator-facing description; no internal enum names.
+  const changesBuyer  = 'Buyer confirmation: full 15M candle body close above the latest short-term high. This would show buyers have broken the latest short-term high.';
+  const changesSeller = 'Seller confirmation: full 15M candle body close below the latest short-term low. This would show sellers have broken the latest short-term low.';
+  const eventLine     = 'No high-impact event is scheduled inside the active review window.';
 
-  return [
-    `✅ **FINAL VERDICT — ${sym}**`,
-    ``,
-    `**FINAL DECISION**`,
-    `${verdict.word}.`,
-    ``,
-    `**WHY**`,
-    verdict.reason,
-    ``,
-    `**TRADER ACTION**`,
-    traderAction,
-    ``,
-    `**WHAT CHANGES THE VIEW BULLISH**`,
-    changesBullish,
-    ``,
-    `**WHAT CHANGES THE VIEW BEARISH**`,
-    changesBearish,
-    ``,
-    `**WHAT KEEPS IT BLOCKED**`,
-    keepsBlocked,
-    ``,
-    `**CATALYST WINDOW**`,
-    catalystWindow,
-    ``,
-    `**VALIDITY WINDOW**`,
-    `Generated: ${fmtUtcShort(now.getTime())}`,
-    `Regime: ${regime} · Risk environment: ${risk}`,
-    `Valid until the next regime check: ${fmtUtcShort(next.getTime())}.`,
-    `This verdict terminates immediately if any Events & Catalysts threshold crosses — regardless of the time remaining in the window.`
-  ].join('\n');
+  const lines = [];
+  lines.push(`📊 **TRADE STATUS / FINAL ASSESSMENT — ${sym}**`);
+  lines.push('');
+  if (!hasEntry) {
+    lines.push(`**NO VALID BUY OR SELL TARGET IDENTIFIED**`);
+    lines.push('');
+  }
+  lines.push(`**Current read:** ${control}.`);
+  lines.push('');
+  lines.push(`**Target Status:** ${targetStatus}`);
+  lines.push(`**Buyer / Seller Control:** ${control}`);
+  lines.push(`**Setup Quality:** ${quality}`);
+  lines.push(`**Execution Confidence:** ${confidence}`);
+  lines.push(`**Next Review:** ${fmtNextReview(next)}`);
+  lines.push('');
+  lines.push(`**Analysed Targets:**`);
+  lines.push(`Entry Point: ${hasEntry && jane.entryZone.mid != null ? jane.entryZone.mid : 'Not identified yet'}`);
+  lines.push(`Entry Extended: ${hasEntry && jane.entryZone.upper != null ? jane.entryZone.upper : 'Not identified yet'}`);
+  lines.push(`Exit Point: ${hasEntry && jane.targets && jane.targets[0] != null ? jane.targets[0] : 'Not identified yet'}`);
+  lines.push(`Set Stop Loss: ${jane && jane.invalidationLevel != null ? jane.invalidationLevel : 'Not identified yet'}`);
+  lines.push(`Extended Stop Loss: Not identified yet`);
+  lines.push('Select ONE stop loss only.');
+  lines.push('');
+  lines.push(`**Why:** Structure and macro conditions are not aligned strongly enough to identify a reliable buy or sell target.`);
+  lines.push('');
+  lines.push(`**What would change this:**`);
+  lines.push(`• ${changesBuyer}`);
+  lines.push(`• ${changesSeller}`);
+  lines.push(`• ${eventLine}`);
+  return lines.join('\n');
+}
+
+// Render the next-review timestamp in AWST + UTC. AWST is UTC+8 with no
+// DST. Falls back gracefully if Intl is unavailable.
+function fmtNextReview(d) {
+  const pad = function(n){ return n < 10 ? '0' + n : n; };
+  const utc = pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' UTC';
+  // AWST = UTC+8.
+  const awst = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+  const awstStr = pad(awst.getUTCHours()) + ':' + pad(awst.getUTCMinutes()) + ' AWST';
+  return awstStr + ' / ' + utc + ', or earlier if a high-impact event changes conditions.';
 }
 
 function buildVerification(sym) {
@@ -1415,7 +1443,13 @@ function buildVerification(sym) {
 // Macro v3 wrapper — adapts existing pipeline shape into macro/index.js buildMacroV3 input.
 // Returns the same {name, text}[] shape consumed by deliverResult / chunkMessage / presenterQA.
 async function formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, _candlesByTf) {
-  const { buildMacroV3 } = require('./macro');
+  // Node resolves require('./macro') to ./macro.js (the Phase-D Macro
+  // Engine packet emitter) BEFORE ./macro/index.js. Importing by the
+  // explicit path ensures the v3 builder actually runs in production —
+  // without this fix the destructure returned undefined and every
+  // Discord macro command silently fell back to the legacy FINAL
+  // VERDICT renderer.
+  const { buildMacroV3 } = require('./macro/index.js');
   const cacheReader = require('./cacheReader');
   let history = null;
   try {
@@ -1472,46 +1506,60 @@ async function formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, _candlesByT
   }];
 }
 
+// formatMacro — fail-closed wrapper around the v3 builder.
+//
+// Production policy (post May 2026 live regression):
+//   - macro v3 (./macro/index.js) is the ONLY user-facing renderer.
+//   - If v3 throws or its module is mis-loaded, we MUST NOT fall
+//     through to the legacy FINAL VERDICT / SECTION_LIST builders.
+//     They produced banned wording in production for weeks because the
+//     `require('./macro')` shadow returned undefined and the legacy
+//     fallback ran silently.
+//   - On v3 failure we emit ONE clean operator-safe section and log
+//     the underlying error to console only. The Discord output is
+//     spec-compliant even in failure mode.
 async function formatMacro(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf) {
-  if (MACRO_V3_ENABLED) {
-    try {
-      const v3 = await formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf);
-      const stats = (v3 && v3[0] && v3[0]._stats) || {};
-      const built = stats.sectionsBuilt != null ? stats.sectionsBuilt : '?';
-      const total = stats.sectionsTotal != null ? stats.sectionsTotal : '?';
-      // Honest log: ONE concatenated wrapper containing N built sections.
-      // Previous `sections=1` was misleading — it counted wrappers.
-      console.log(`[MACRO] v3 ACTIVE — wrappers=${v3.length} sectionsBuilt=${built}/${total} symbol=${sym}`);
-      return v3;
-    } catch (err) {
-      console.error(`[MACRO] v3 FAILED for ${sym} — falling back to legacy formatter: ${err && err.message}`);
-    }
+  if (!MACRO_V3_ENABLED) {
+    console.warn(`[MACRO] v3 explicitly disabled via env. Refusing to emit legacy presenter.`);
+    return [{ name: 'ATLAS_MACRO_DISABLED', text: macroV3FailureMessage(sym, 'macro v3 disabled by env') }];
   }
-  const macroLanguage = require('./macro/language');
-  const fallbackAssetClass = (typeof inferAssetClass === 'function') ? inferAssetClass(normalizeSymbol(sym)) : 'unknown';
-  // SPEC B locked legacy section list. FORWARD EXPECTATION / TRIGGER
-  // MAP / FINAL VERDICT removed as standalone sections per the locked
-  // wording standard — useful logic folded into TRADE STATUS /
-  // EXECUTION LOGIC / VALIDITY by the macro v3 builders. The legacy
-  // path here mirrors that contract so the fallback is consistent.
-  const sections = [
-    { name: 'TRADE STATUS',                text: buildTradeStatus(sym, jane, corey, spideyHTF, spideyLTF) },
-    { name: 'PRICE TABLE — ANALYSED TARGETS', text: buildPriceTable(sym, jane, spideyHTF, spideyLTF) },
-    { name: 'ROADMAP LINK',                text: buildRoadmap() },
-    { name: 'GLOBAL / EVENT INTELLIGENCE', text: buildEventIntel(sym, corey) },
-    { name: 'MARKET OVERVIEW',             text: buildMarketOverview(sym, corey) },
-    { name: 'EVENTS & CATALYSTS',          text: buildEventsCatalysts(sym, corey) },
-    { name: 'HISTORICAL CONTEXT',          text: buildHistoricalContext(sym, corey) },
-    { name: 'EXECUTION LOGIC',             text: buildExecutionLogic(sym, jane, corey) },
-    { name: 'VALIDITY',                    text: buildValidity(sym, corey, jane) }
-  ];
-  // Legacy fallback hardening — scrubSoft so banned strings never reach Discord
-  // even when v3 has thrown and the legacy path is running. Asset-class-aware
-  // so FX symbols keep "WHAT THIS MEANS FOR THE PAIR" intact.
-  return sections.map(s => ({
-    name: s.name,
-    text: macroLanguage.scrubSoft(equityLanguageFilter(s.text, sym), { assetClass: fallbackAssetClass })
-  }));
+  try {
+    const v3 = await formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, candlesByTf);
+    const stats = (v3 && v3[0] && v3[0]._stats) || {};
+    const built = stats.sectionsBuilt != null ? stats.sectionsBuilt : '?';
+    const total = stats.sectionsTotal != null ? stats.sectionsTotal : '?';
+    console.log(`[MACRO] v3 ACTIVE — wrappers=${v3.length} sectionsBuilt=${built}/${total} symbol=${sym}`);
+    return v3;
+  } catch (err) {
+    // Fail-closed. Log the cause; emit a single operator-safe section.
+    // The legacy FINAL VERDICT / SECTION_LIST path is intentionally NOT
+    // invoked here. It must never reach Discord again.
+    console.error(`[MACRO] v3 FAILED for ${sym} — fail-closed (no legacy fallback): ${err && err.message}`);
+    return [{ name: 'ATLAS_MACRO_FAIL_CLOSED', text: macroV3FailureMessage(sym, err && err.message) }];
+  }
+}
+
+// Single operator-safe message used when v3 cannot render. Must not
+// contain any banned tokens. Internal error detail goes to logs only.
+function macroV3FailureMessage(sym /* , reason */) {
+  return [
+    `📊 **TRADE STATUS / FINAL ASSESSMENT — ${sym}**`,
+    ``,
+    `**NO VALID BUY OR SELL TARGET IDENTIFIED**`,
+    ``,
+    `**Current read:** ATLAS could not produce a complete read for this symbol on this run.`,
+    ``,
+    `**Analysed Targets:**`,
+    `Entry Point: Not identified yet`,
+    `Entry Extended: Not identified yet`,
+    `Exit Point: Not identified yet`,
+    `Set Stop Loss: Not identified yet`,
+    `Extended Stop Loss: Not identified yet`,
+    ``,
+    `**Why:** the upstream macro builder did not finish on this attempt. Charts and price data above remain live. No invented levels are shown.`,
+    ``,
+    `**What would change this:** re-run the analyse command after the next primary-timeframe close. If the issue persists, the operator will be notified via the Source Status / Audit surface.`
+  ].join('\n');
 }
 
 function chunkMessage(text, max) {
@@ -3111,4 +3159,16 @@ async function deliverResult(msg, result) {
   }
   console.log(`[PRESENTER] complete sections=${sections.length} chunks=${totalChunks}`);
 }
-client.login(TOKEN);
+// Test-route export. The live-route QA harness loads this module under a
+// stub sandbox and calls formatMacro() to verify the production presenter
+// path emits zero banned tokens. This is the same function Discord
+// commands use (`!eurusd analyse` → formatMacro → formatMacroV3).
+module.exports = { formatMacro };
+
+// Live login is suppressed when ATLAS_NO_LOGIN=1 — used by the QA
+// harness so requiring index.js does not attempt a Discord connection.
+if (process.env.ATLAS_NO_LOGIN !== '1') {
+  client.login(TOKEN);
+} else {
+  console.log('[BOOT] ATLAS_NO_LOGIN=1 — Discord login suppressed (QA harness mode).');
+}
