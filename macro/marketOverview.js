@@ -6,7 +6,7 @@ const { arrow } = require('./language');
 
 function build(input) {
   const { ctx, fmp, tagsUsed } = input;
-  if (tagsUsed) tagsUsed.push('regime', 'macro_driver', 'flow');
+  if (tagsUsed) tagsUsed.push('regime', 'market_driver', 'flow');
 
   const lines = ['## Market Overview'];
   lines.push('');

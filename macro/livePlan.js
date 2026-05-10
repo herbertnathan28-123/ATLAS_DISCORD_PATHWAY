@@ -24,7 +24,7 @@ function build(input) {
     structureAgreement: jane.agreement
   });
 
-  if (tagsUsed) tagsUsed.push('execution_authority', 'confirmation', 'stop_loss', 'event_risk', 'validity_window', 'flow');
+  if (tagsUsed) tagsUsed.push('execution_confidence', 'confirmation', 'stop_loss', 'event_risk', 'validity_window', 'flow');
 
   const hasEntry = structure?.entry != null;
 
