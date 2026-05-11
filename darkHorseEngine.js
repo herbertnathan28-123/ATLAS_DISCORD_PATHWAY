@@ -117,6 +117,23 @@ function isMarketOpen() {
 // ── STATE ─────────────────────────────────────────────────────
 const DH_INTERNAL_STORE = new Map();
 let _lastMovementDigestAt = 0;   // FOMO control — cooldown tracker
+
+// WATCH dedupe state — keyed by symbol.
+// Value: { stateHash, postedAt }. Pruned when entries exceed 7 days.
+const _lastWatchByEcho = new Map();
+
+// Identical-state suppression window. Inside this window, the same
+// symbol/direction/score/trendPhase/transitionRisk/confirmationLevel
+// combination is suppressed with reason=identical_state.
+const DH_WATCH_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6h
+
+// Per-symbol hard floor. Even on a legitimate state change, a symbol
+// cannot re-post inside this window. Reason=cooldown_hard_floor.
+const DH_WATCH_HARD_FLOOR_MS = 6 * 60 * 60 * 1000;   // 6h
+
+// 7-day prune horizon for the watch-echo map.
+const DH_WATCH_ECHO_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 const dhLog = (level, msg, ...a) =>
   console.log(`[${new Date().toISOString()}] [DH-${level}] ${msg}`, ...a);
 
@@ -417,23 +434,405 @@ function dhSendWebhook(webhookUrl, payload) {
   });
 }
 
-// ── OUTPUT FORMAT (per Astro work order) ──────────────────────
-// 🐎 DARK HORSE
-// [SYMBOL] ↑ or ↓
-// Short reason describing trend strength
-// Confidence: X/10
-// + FOMO control: caution line + advisory trailer appended.
-function buildDHPayload(candidate) {
-  const arrow = candidate.direction === 'Bullish' ? '↑' : candidate.direction === 'Bearish' ? '↓' : '→';
+// ============================================================
+// WATCH PAYLOAD HELPERS — trend age, phase, exhaustion risk,
+// confirmation/cancellation levels, next-review formatting.
+// All derived from the HTF/LTF candle arrays already fetched
+// during scoreInstrument. No new fetches.
+// ============================================================
+
+// 3-bar fractal swing detection. Returns array of {idx, price, time}.
+function findSwingLows(candles) {
+  if (!Array.isArray(candles) || candles.length < 3) return [];
+  const out = [];
+  for (let i = 1; i < candles.length - 1; i++) {
+    if (candles[i].low < candles[i - 1].low && candles[i].low <= candles[i + 1].low) {
+      out.push({ idx: i, price: candles[i].low, time: candles[i].time || null });
+    }
+  }
+  return out;
+}
+function findSwingHighs(candles) {
+  if (!Array.isArray(candles) || candles.length < 3) return [];
+  const out = [];
+  for (let i = 1; i < candles.length - 1; i++) {
+    if (candles[i].high > candles[i - 1].high && candles[i].high >= candles[i + 1].high) {
+      out.push({ idx: i, price: candles[i].high, time: candles[i].time || null });
+    }
+  }
+  return out;
+}
+
+// Walk swing series backward; return the most recent confirmed HL/LH
+// (a swing that's above/below its prior swing of the same kind).
+function lastConfirmedHigherLow(candles) {
+  const sl = findSwingLows(candles);
+  for (let i = sl.length - 1; i >= 1; i--) {
+    if (sl[i].price > sl[i - 1].price) return sl[i];
+  }
+  return null;
+}
+function lastConfirmedLowerHigh(candles) {
+  const sh = findSwingHighs(candles);
+  for (let i = sh.length - 1; i >= 1; i--) {
+    if (sh[i].price < sh[i - 1].price) return sh[i];
+  }
+  return null;
+}
+
+// Format a Unix-second candle timestamp as YYYY-MM-DD (UTC) for display.
+function fmtSwingDate(unixSec) {
+  if (!Number.isFinite(unixSec)) return null;
+  const d = new Date(unixSec * 1000);
+  const pad = n => (n < 10 ? '0' + n : '' + n);
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+// Compute average body size of an arbitrary candle slice.
+function avgBody(candles) {
+  if (!candles || !candles.length) return 0;
+  return candles.reduce((s, c) => s + Math.abs(c.close - c.open), 0) / candles.length;
+}
+
+// Round a price to a sensible display precision based on magnitude.
+function priceDp(price) {
+  const p = Math.abs(Number(price) || 0);
+  if (p === 0) return 2;
+  if (p < 1) return 5;
+  if (p < 10) return 4;
+  if (p < 100) return 3;
+  return 2;
+}
+function fmtPrice(price) {
+  if (!Number.isFinite(price)) return null;
+  return Number(price).toFixed(priceDp(price));
+}
+
+// Classify trend phase from age + momentum decay.
+// Early       : age ≤ 25% of typical (≤ 5 candles)
+// Mid-trend   : age 26-60%           (6-12 candles)
+// Mature      : age 61-90%           (13-18 candles)
+// Late-stage  : age > 90% AND momentum decay
+// "Typical" baseline is 20 HTF candles on the 1D timeframe.
+function classifyTrendPhase(trendAgeCandles, momentumDecay) {
+  const a = Number(trendAgeCandles) || 0;
+  if (a <= 5)  return 'Early trend';
+  if (a <= 12) return 'Mid-trend continuation';
+  if (a <= 18) return 'Mature trend';
+  if (momentumDecay) return 'Late-stage / exhaustion risk building';
+  return 'Mature trend';
+}
+
+// Bearish-transition (or bullish-transition for short candidates) risk
+// label from phase + momentum decay + distance-to-cancel-level.
+function classifyTransitionRisk(phase, momentumDecay, ageCandles) {
+  if (phase === 'Late-stage / exhaustion risk building') return 'Rising';
+  if (phase === 'Mature trend' && momentumDecay)         return 'Rising';
+  if (phase === 'Mature trend')                          return 'Moderate';
+  if (phase === 'Mid-trend continuation' && momentumDecay) return 'Moderate';
+  if (phase === 'Mid-trend continuation')                return 'Low';
+  if (ageCandles <= 3)                                   return 'Low';
+  return 'Low';
+}
+
+// Expected continuation window — probabilistic phrasing keyed on phase.
+function continuationWindowText(phase, direction, confirmationLevel) {
+  const dir = direction === 'Bullish' ? 'Bullish' : direction === 'Bearish' ? 'Bearish' : 'Directional';
+  const pressureWord = dir === 'Bullish' ? 'upside' : dir === 'Bearish' ? 'downside' : 'directional';
+  const verb = dir === 'Bullish' ? 'above' : 'below';
+  const lvl = confirmationLevel != null ? fmtPrice(confirmationLevel) : null;
+  const lvlClause = lvl ? ` if price keeps closing ${verb} ${lvl}` : '';
+  if (phase === 'Early trend')                              return `${dir} pressure may continue for the next 2–4 sessions${lvlClause}.`;
+  if (phase === 'Mid-trend continuation')                   return `${dir} pressure may continue for the next 1–3 sessions${lvlClause}.`;
+  if (phase === 'Mature trend')                             return `${dir} pressure may continue for the next 0–2 sessions${lvlClause}. Late-buyer / late-seller chase risk is rising.`;
+  if (phase === 'Late-stage / exhaustion risk building')    return `${dir} pressure is in its late stage. Continuation is possible but unreliable; reversion risk is elevated.`;
+  return `${dir} ${pressureWord} pressure observed${lvlClause}.`;
+}
+
+// Build a sentence about transition risk increase conditions.
+function transitionRiskReason(direction, cancellationLevel, levelTimeframe) {
+  const oppositeDir = direction === 'Bullish' ? 'bearish' : 'bullish';
+  const closeWord = direction === 'Bullish' ? 'below' : 'above';
+  const swingWord = direction === 'Bullish' ? 'higher low' : 'lower high';
+  const lvl = cancellationLevel != null ? fmtPrice(cancellationLevel) : null;
+  const tf = levelTimeframe || '1D';
+  if (lvl) {
+    return `Risk increases if price closes ${closeWord} ${lvl} on ${tf}, fails to make a fresh ${direction === 'Bullish' ? 'high' : 'low'}, or breaks the last confirmed ${swingWord} at ${lvl}.`;
+  }
+  return `Risk increases if price loses the last confirmed ${swingWord} on ${tf} or momentum into the opposite (${oppositeDir}) direction expands.`;
+}
+
+// Layman-first VIX label per the locked wording rule. Local to Dark
+// Horse output; PR B will replace this with a shared macro helper.
+function laymanVixLabel(level) {
+  if (!level) return null;
+  return `market fear / volatility gauge (VIX) is ${String(level).toLowerCase()}`;
+}
+
+// Format the next-review timestamp in both UTC and AWST (UTC+8).
+// Rounds up to the next scan-interval boundary so the user sees a
+// scheduling-aligned wall-clock target rather than "now + 15m".
+function nextReviewLine(nowMs, intervalMs) {
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const step = Number.isFinite(intervalMs) && intervalMs > 0 ? intervalMs : 15 * 60 * 1000;
+  const next = new Date(Math.ceil((now + 1) / step) * step);
+  const pad = n => (n < 10 ? '0' + n : '' + n);
+  const utcH = pad(next.getUTCHours());
+  const utcM = pad(next.getUTCMinutes());
+  const awst = new Date(next.getTime() + 8 * 60 * 60 * 1000);
+  const awstH = pad(awst.getUTCHours());
+  const awstM = pad(awst.getUTCMinutes());
+  return `${utcH}:${utcM} UTC / ${awstH}:${awstM} AWST`;
+}
+
+// ============================================================
+// ENRICH WATCH CANDIDATE — adds trend-age / phase / continuation /
+// transition / level fields. Returns the original candidate with
+// new fields merged in (does not mutate input).
+// ============================================================
+function enrichWatchCandidate(candidate, htfCandles, ltfCandles) {
+  if (!candidate || !candidate.direction) {
+    return Object.assign({}, candidate || {}, { dataReliable: false });
+  }
+  const htf = Array.isArray(htfCandles) ? htfCandles : [];
+  const ltf = Array.isArray(ltfCandles) ? ltfCandles : [];
+
+  // Require ≥ 30 HTF candles for a reliable HL/LH walk-back.
+  if (htf.length < 30) {
+    return Object.assign({}, candidate, { dataReliable: false, reliabilityReason: 'htf_lt_30_candles' });
+  }
+
+  const isBull = candidate.direction === 'Bullish';
+  const lastConfirmedSwing = isBull
+    ? lastConfirmedHigherLow(htf)
+    : lastConfirmedLowerHigh(htf);
+
+  if (!lastConfirmedSwing) {
+    return Object.assign({}, candidate, { dataReliable: false, reliabilityReason: 'no_confirmed_swing' });
+  }
+
+  // Trend age = HTF candles between the confirmed swing and current bar.
+  const trendAgeCandles = (htf.length - 1) - lastConfirmedSwing.idx;
+  const trendAgeSessions = trendAgeCandles; // HTF is 1D — candles ≡ sessions.
+
+  // Confirmation level — recent consolidation high (bullish) / low (bearish)
+  // from the same window scoreBreakout uses. Falls back to most recent
+  // swing high/low if the consolidation band is too wide to publish.
+  const consolidation = htf.slice(-20, -5);
+  const lastClose = htf[htf.length - 1].close;
+  let confirmationLevel = null;
+  if (consolidation.length >= 10) {
+    const consHigh = Math.max(...consolidation.map(c => c.high));
+    const consLow  = Math.min(...consolidation.map(c => c.low));
+    const consRange = consHigh - consLow;
+    if (lastClose > 0 && consRange / lastClose < 0.10) {
+      confirmationLevel = isBull ? consHigh : consLow;
+    }
+  }
+  if (!Number.isFinite(confirmationLevel)) {
+    const swings = isBull ? findSwingHighs(htf) : findSwingLows(htf);
+    const last = swings.length ? swings[swings.length - 1] : null;
+    if (last) confirmationLevel = last.price;
+  }
+
+  const cancellationLevel = lastConfirmedSwing.price;
+  if (!Number.isFinite(confirmationLevel) || !Number.isFinite(cancellationLevel)) {
+    return Object.assign({}, candidate, { dataReliable: false, reliabilityReason: 'level_unresolvable' });
+  }
+
+  // Momentum decay — recent 3 vs prior 7 LTF candle bodies. Falls back
+  // to HTF window when LTF is thin.
+  const decayWindow = ltf.length >= 10 ? ltf : htf;
+  const recent3 = decayWindow.slice(-3);
+  const prior7  = decayWindow.slice(-10, -3);
+  const recentBody = avgBody(recent3);
+  const priorBody  = avgBody(prior7);
+  const momentumDecay = priorBody > 0 && recentBody / priorBody < 0.85;
+
+  const trendPhase = classifyTrendPhase(trendAgeCandles, momentumDecay);
+  const transitionRisk = classifyTransitionRisk(trendPhase, momentumDecay, trendAgeCandles);
+
+  return Object.assign({}, candidate, {
+    trendAgeCandles,
+    trendAgeSessions,
+    lastSwingPrice: lastConfirmedSwing.price,
+    lastSwingTimestamp: lastConfirmedSwing.time,
+    lastSwingDate: fmtSwingDate(lastConfirmedSwing.time),
+    trendPhase,
+    transitionRisk,
+    momentumDecay,
+    confirmationLevel,
+    cancellationLevel,
+    levelTimeframe: '1D',
+    dataReliable: true,
+  });
+}
+
+// ============================================================
+// WATCH DEDUPE — pure decision function.
+// Inputs: enriched candidate, state Map<symbol, {stateHash, postedAt}>.
+// Returns: { post, reason, stateHash, prior, nextEligibleAt }
+// Rules:
+//   1. Hard floor (DH_WATCH_HARD_FLOOR_MS): no re-post regardless of
+//      state change. Reason='cooldown_hard_floor'.
+//   2. Inside DH_WATCH_MIN_INTERVAL_MS with identical stateHash:
+//      Reason='identical_state'.
+//   3. Otherwise post.
+// ============================================================
+function computeWatchStateHash(candidate) {
+  const c = candidate || {};
+  const lvl = Number.isFinite(c.confirmationLevel)
+    ? Number(c.confirmationLevel).toFixed(priceDp(c.confirmationLevel))
+    : 'none';
+  return [
+    String(c.symbol || ''),
+    String(c.direction || ''),
+    String(c.score != null ? c.score : ''),
+    String(c.trendPhase || ''),
+    String(c.transitionRisk || ''),
+    lvl,
+  ].join('|');
+}
+
+function evaluateWatchPostDecision(candidate, state, options) {
+  const opts = options || {};
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+  const minIntervalMs = Number.isFinite(opts.minIntervalMs)
+    ? opts.minIntervalMs : DH_WATCH_MIN_INTERVAL_MS;
+  const hardFloorMs = Number.isFinite(opts.hardFloorMs)
+    ? opts.hardFloorMs : DH_WATCH_HARD_FLOOR_MS;
+  const stateHash = computeWatchStateHash(candidate);
+  const prior = (state && typeof state.get === 'function')
+    ? state.get(candidate.symbol)
+    : null;
+  if (prior) {
+    const elapsed = now - Number(prior.postedAt || 0);
+    if (elapsed < hardFloorMs) {
+      return {
+        post: false, reason: 'cooldown_hard_floor',
+        stateHash, prior, nextEligibleAt: Number(prior.postedAt || 0) + hardFloorMs,
+      };
+    }
+    if (elapsed < minIntervalMs && prior.stateHash === stateHash) {
+      return {
+        post: false, reason: 'identical_state',
+        stateHash, prior, nextEligibleAt: Number(prior.postedAt || 0) + minIntervalMs,
+      };
+    }
+  }
+  return { post: true, reason: 'new_or_state_change', stateHash };
+}
+
+// Prune watch-echo entries older than DH_WATCH_ECHO_TTL_MS.
+function pruneWatchEcho(state, nowMs) {
+  if (!state || typeof state.entries !== 'function') return 0;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  let removed = 0;
+  for (const [sym, entry] of state.entries()) {
+    if (now - Number(entry.postedAt || 0) > DH_WATCH_ECHO_TTL_MS) {
+      state.delete(sym);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+// Build the user-facing "Why it is flagged" sentence. Plain English.
+function whyFlaggedSentence(candidate) {
+  const sym = candidate.symbol || 'this instrument';
+  if (candidate.direction === 'Bullish') {
+    return `${sym} is showing sustained upside pressure and repeated higher highs.`;
+  }
+  if (candidate.direction === 'Bearish') {
+    return `${sym} is showing sustained downside pressure and repeated lower lows.`;
+  }
+  return `${sym} cleared the WATCH threshold with directional pressure.`;
+}
+
+// Move-quality label — direction-explicit, derived from score band.
+function moveQualityLabel(candidate) {
+  const dir = candidate.direction === 'Bullish'
+    ? 'bullish'
+    : candidate.direction === 'Bearish'
+    ? 'bearish'
+    : 'directional';
+  const s = Number(candidate.score) || 0;
+  if (s >= 9) return `Strong ${dir} acceleration`;
+  if (s === 8) return `Sustained ${dir} pressure`;
+  return `Developing ${dir} momentum`;
+}
+
+// ============================================================
+// BUILD WATCH PAYLOAD
+// New locked structure (per 2026-05 cleanup spec):
+//   DARK HORSE WATCH — SYM
+//   Status / Move Quality / Confidence
+//   Trend age | Trend phase | Continuation window | Transition risk
+//   Why flagged | Trader action | What confirms | What cancels
+//   Next review (UTC / AWST)
+// Fallback when dataReliable=false drops the trend block and
+// states "Trend duration not reliable enough to publish yet."
+// No "Corey / Spidey / Jane / confirmation path / trade alert /
+// confirmed structure" wording anywhere in either shape.
+// ============================================================
+function buildDHPayload(candidate, options) {
+  const opts = options || {};
+  const c = candidate || {};
+  const sym = c.symbol || 'UNKNOWN';
+  const moveQ = moveQualityLabel(c);
+  const score = Number.isFinite(c.score) ? c.score : '—';
+  const reviewLine = nextReviewLine(opts.now, opts.intervalMs);
+  const whyFlagged = whyFlaggedSentence(c);
+  const traderAction = 'Do not chase the move. This is a watch candidate only.';
+
+  const head =
+    `🐎 **DARK HORSE WATCH — ${sym}**\n` +
+    `**Status:** Watch candidate only\n` +
+    `**Move Quality:** ${moveQ}\n` +
+    `**Confidence:** ${score}/10\n\n`;
+
+  if (!c.dataReliable) {
+    const content =
+      head +
+      `Trend duration not reliable enough to publish yet. Treat this as a watch candidate only.\n\n` +
+      `**Why it is flagged:**\n${whyFlagged}\n\n` +
+      `**Trader action:**\n${traderAction}\n\n` +
+      `No reliable confirmation level is available yet. Keep this as a watch candidate only.\n\n` +
+      `**Next review:**\n${reviewLine}`;
+    return { content, kind: 'watch_fallback' };
+  }
+
+  const dirWord = c.direction === 'Bullish' ? 'Bullish' : 'Bearish';
+  const swingWord = c.direction === 'Bullish' ? 'higher low' : 'lower high';
+  const dateClause = c.lastSwingDate ? ` on ${c.lastSwingDate}` : '';
+  const trendAge =
+    `${dirWord} sequence has been active for ${c.trendAgeCandles} candle${c.trendAgeCandles === 1 ? '' : 's'} / ` +
+    `${c.trendAgeSessions} session${c.trendAgeSessions === 1 ? '' : 's'} since the last confirmed ${swingWord}${dateClause}.`;
+
+  const continuation = continuationWindowText(c.trendPhase, c.direction, c.confirmationLevel);
+  const transitionLine = transitionRiskReason(c.direction, c.cancellationLevel, c.levelTimeframe);
+
+  const confLvl = fmtPrice(c.confirmationLevel);
+  const cancLvl = fmtPrice(c.cancellationLevel);
+  const tf = c.levelTimeframe || '1D';
+  const closeAbove = c.direction === 'Bullish' ? 'above' : 'below';
+  const closeOpposite = c.direction === 'Bullish' ? 'below' : 'above';
+  const whatConfirms = `A full candle body close ${closeAbove} ${confLvl} on ${tf}, followed by a controlled pullback that holds ${closeAbove} ${cancLvl}.`;
+  const whatCancels  = `A full candle body close ${closeOpposite} ${cancLvl} on ${tf}, or momentum fading before a valid pullback forms.`;
 
   const content =
-    `🐎 **DARK HORSE — WATCH CANDIDATE (advisory only)**\n` +
-    `**${candidate.symbol}** ${arrow}\n` +
-    `${candidate.summary}\n` +
-    `Confidence: ${candidate.score}/10\n\n` +
-    `Scan flag only — full ATLAS confirmation path remains: Corey → Spidey → Jane.`;
+    head +
+    `**Trend age:**\n${trendAge}\n\n` +
+    `**Trend phase:**\n${c.trendPhase}\n\n` +
+    `**Expected continuation window:**\n${continuation}\n\n` +
+    `**${c.direction === 'Bullish' ? 'Bearish' : 'Bullish'}-transition risk:**\n${c.transitionRisk}\n${transitionLine}\n\n` +
+    `**Why it is flagged:**\n${whyFlagged}\n\n` +
+    `**Trader action:**\n${traderAction}\n\n` +
+    `**What would confirm the watch:**\n${whatConfirms}\n\n` +
+    `**What cancels the watch:**\n${whatCancels}\n\n` +
+    `**Next review:**\n${reviewLine}`;
 
-  return { content };
+  return { content, kind: 'watch' };
 }
 
 function buildAstraPayload(candidate) {
@@ -584,28 +983,53 @@ async function runDarkHorseScan(universeOrOpts) {
   dhLog('INFO', `[MOVEMENT-DIGEST] env_key=${DH_WEBHOOK_ENV_KEY}`);
 
   // WATCH — post SINGLE STRONGEST only (highest score)
-  // Rule: must be specific tradable symbol, correct output format
+  // Rule: must be specific tradable symbol, correct output format,
+  // gated by per-symbol dedupe (identical_state + 6h hard floor).
   if (watch.length > 0) {
-    const best = watch[0]; // Already sorted by score desc
-    dhLog('INFO', `[WATCH] Best: ${best.symbol} ${best.score}/10 ${best.direction}`);
+    const raw = watch[0]; // Already sorted by score desc
+    dhLog('INFO', `[WATCH] Best: ${raw.symbol} ${raw.score}/10 ${raw.direction}`);
 
-    if (DH_WEBHOOK_URL) {
+    // Enrich with trend age / phase / continuation / transition risk
+    // / confirmation+cancellation levels. Uses the cached HTF/LTF
+    // candles from scoreInstrument via _safeOHLC (no double-fetch).
+    let enriched = raw;
+    try {
+      const [htf, ltf] = await Promise.all([
+        dhFetchCandles(raw.symbol, '1D', 100),
+        dhFetchCandles(raw.symbol, '60', 50),
+      ]);
+      enriched = enrichWatchCandidate(raw, htf || [], ltf || []);
+    } catch (e) {
+      dhLog('WARN', `[WATCH] enrich failed for ${raw.symbol}: ${e.message} — using fallback payload shape`);
+      enriched = Object.assign({}, raw, { dataReliable: false, reliabilityReason: 'enrich_threw' });
+    }
+
+    pruneWatchEcho(_lastWatchByEcho);
+    const decision = evaluateWatchPostDecision(enriched, _lastWatchByEcho);
+
+    if (!decision.post) {
+      const prior = decision.prior || {};
+      const lastPosted = prior.postedAt ? new Date(prior.postedAt).toISOString() : 'n/a';
+      const nextElig = decision.nextEligibleAt ? new Date(decision.nextEligibleAt).toISOString() : 'n/a';
+      dhLog('INFO', `[DH-WATCH] dedupe skip symbol=${enriched.symbol} reason=${decision.reason} stateHash=${decision.stateHash} last_posted=${lastPosted} next_eligible=${nextElig}`);
+    } else if (DH_WEBHOOK_URL) {
       try {
-        const payload = fomo.sanitize(fomo.withFomoCaution(buildDHPayload(best)));
+        const payload = fomo.sanitize(buildDHPayload(enriched));
         await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
-        dhLog('INFO', `[WEBHOOK] Dark Horse posted — ${best.symbol}` +
-                       (payload.replaced ? ' (sanitized)' : ''));
-        dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=watch symbol=${best.symbol}`);
+        _lastWatchByEcho.set(enriched.symbol, { stateHash: decision.stateHash, postedAt: Date.now() });
+        dhLog('INFO', `[DH-WATCH] post symbol=${enriched.symbol} stateHash=${decision.stateHash} kind=${payload.kind || 'watch'}` +
+                       (payload.replaced ? ' sanitized=true' : ''));
+        dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=watch symbol=${enriched.symbol}`);
       } catch (e) {
-        dhLog('ERROR', `[WEBHOOK] Failed — ${best.symbol}: ${e.message}`);
-        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=watch symbol=${best.symbol} reason=${e.message}`);
+        dhLog('ERROR', `[WEBHOOK] Failed — ${enriched.symbol}: ${e.message}`);
+        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=watch symbol=${enriched.symbol} reason=${e.message}`);
       }
     } else {
       dhLog('WARN', 'WEEKLY_DARKHORSES (preferred) and DARKHORSE_STOCK (legacy) both unset — webhook skipped');
       dhLog('WARN', `[DH-CHANNEL] env_key=missing target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=watch reason=env_unset`);
     }
 
-    await triggerPipeline(best);
+    await triggerPipeline(enriched);
   }
   // ── MOVEMENT DIGEST — finalFire already accounts for cooldown,
   // threshold, watch_present, and webhook_missing. The skip-path
@@ -666,6 +1090,16 @@ function getDHCandidate(symbol) { return DH_INTERNAL_STORE.get(symbol) || null; 
 // ============================================================
 // EXPORTS
 // ============================================================
+// Test hook: reset the watch-echo dedupe map. Used by
+// scripts/test_dark_horse_watch.js. NOT for runtime use.
+function __resetWatchEchoForTests() { _lastWatchByEcho.clear(); }
+// Test hook: read-only snapshot of the watch-echo map.
+function __getWatchEchoForTests() {
+  const out = {};
+  for (const [k, v] of _lastWatchByEcho.entries()) out[k] = { stateHash: v.stateHash, postedAt: v.postedAt };
+  return out;
+}
+
 module.exports = {
   dhInit,
   dhSetPipelineTrigger,
@@ -673,4 +1107,16 @@ module.exports = {
   getDHInternalStore,
   getDHCandidate,
   DH_UNIVERSE,
+  // Watch payload + dedupe surface — exported for tests + downstream consumers.
+  buildDHPayload,
+  enrichWatchCandidate,
+  computeWatchStateHash,
+  evaluateWatchPostDecision,
+  pruneWatchEcho,
+  laymanVixLabel,
+  DH_WATCH_MIN_INTERVAL_MS,
+  DH_WATCH_HARD_FLOOR_MS,
+  DH_WATCH_ECHO_TTL_MS,
+  __resetWatchEchoForTests,
+  __getWatchEchoForTests,
 };

@@ -363,23 +363,24 @@ function buildRankedMovementDigestPayload(ranking, volatility) {
     ? ranking.sectionsScanned.map(s => SECTION_LABEL[s] || s).join(' · ')
     : 'unavailable';
 
+  // Layman-first VIX wording — Dark Horse-local until the shared
+  // macro labels helper lands (PR B).
   const vixLine = volatility && volatility.vixLevel
-    ? `VIX ${volatility.vixLevel}`
-    : 'VIX unavailable';
+    ? `market fear / volatility gauge (VIX) is ${String(volatility.vixLevel).toLowerCase()}`
+    : 'market fear / volatility gauge (VIX) unavailable';
 
   const content =
     `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
-    `**State:** MONITORING ONLY · NO CONFIRMED DARK HORSE WATCH CANDIDATE\n` +
+    `**State:** Monitoring only · no confirmed watch candidate this cycle.\n` +
     `**Volatility:** ${volatility ? volatility.level : 'unavailable'} · ${vixLine}\n` +
     `**Sections scanned:** ${sectionsLine}\n` +
     `**Top movers:** ${ranking.top10.length} (section caps: ${ranking.sectionCapsApplied.length ? ranking.sectionCapsApplied.join(',') : 'none'})\n\n` +
     `### Top 3 — expanded reasoning\n\n${expandedBlock}\n\n` +
     `### Candidates 4–10\n${restBlock}\n\n` +
-    `CONDITIONS MOVING, BUT ENTRY QUALITY NOT CONFIRMED.\n` +
-    `LATE ENTRY RISK varies by phase per candidate. DO NOT CHASE THE MOVE.\n` +
+    `Conditions are moving, but entry quality is not confirmed. ` +
+    `Late-entry risk varies by phase per candidate. Do not chase the move. ` +
     `Per-candidate confirmation requirements (specific timeframe, what confirms, what invalidates) are listed under each candidate above.\n\n` +
-    `${fomo.FOMO_CAUTION}\n\n` +
-    `Full ATLAS confirmation path remains: Corey → Spidey → Jane.`;
+    `${fomo.FOMO_CAUTION}`;
 
   return { content, kind: 'movement_digest_v1_1' };
 }
