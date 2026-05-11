@@ -17,6 +17,7 @@
     "qa:macro": "node scripts/test_macro_qa.js",
     "qa:live-route": "ATLAS_NO_LOGIN=1 DISCORD_BOT_TOKEN=qa-stub TWELVE_DATA_API_KEY=qa-stub SYSTEM_STATE=BUILD_MODE node scripts/test_live_route_qa.js",
     "qa:discord-batch": "ATLAS_NO_LOGIN=1 DISCORD_BOT_TOKEN=qa-stub TWELVE_DATA_API_KEY=qa-stub SYSTEM_STATE=BUILD_MODE node scripts/test_discord_batch_qa.js",
+    "qa:darkhorse": "node scripts/test_dark_horse_watch.js",
     "prebuild": "npm run doctrine:foundation"
   },
   "dependencies": {

@@ -26,39 +26,55 @@ const ALLOWED_PHRASES = [
   'No trade alert / monitoring only',
 ];
 
-// ── BANNED HYPE / IMMEDIATE-ACTION / PERMISSION WORDING ─────
-// Word boundaries used so technical Corey/Spidey vocabulary
-// elsewhere in the codebase is not affected — this sanitizer
-// only runs on Dark Horse payloads.
+// ── BANNED HYPE / IMMEDIATE-ACTION / INTERNAL-NAMES WORDING ──
+// Word boundaries used so technical references elsewhere in the
+// codebase are not affected — this sanitizer only runs on Dark
+// Horse payloads. The internal-engine-name patterns (Corey /
+// Spidey / Jane) catch any future template drift that leaks an
+// engine identifier into the user-facing channel.
 const BANNED_PATTERNS = [
-  { name: 'buy_now',           pattern: /\bbuy\s+now\b/i },
-  { name: 'sell_now',          pattern: /\bsell\s+now\b/i },
-  { name: 'urgent_entry',      pattern: /\burgent\s+entry\b/i },
-  { name: 'get_in',            pattern: /\bget\s+in\b/i },
-  { name: 'dont_miss',         pattern: /\b(?:do\s+not|don[’']?t)\s+miss\b/i },
-  { name: 'rocket',            pattern: /\brocket(?:s|ed|ing)?\b/i },
-  { name: 'moon',              pattern: /\bmoon(?:shot|ing)?\b/i },
-  { name: 'crash',             pattern: /\bcrash(?:ing|ed|es)?\b/i },
-  { name: 'guaranteed',        pattern: /\bguarante(?:e|ed|es|eing)\b/i },
-  { name: 'authorised',        pattern: /\bauthori[sz]ed?\b/i },
-  { name: 'authorisation',     pattern: /\bauthori[sz]ation\b/i },
-  { name: 'permission',        pattern: /\bpermissions?\b/i },
-  { name: 'must_act',          pattern: /\bmust\s+(?:buy|sell|enter|act|trade|take)\b/i },
-  { name: 'act_now',           pattern: /\bact\s+now\b/i },
-  { name: 'dont_wait',         pattern: /\b(?:do\s+not|don[’']?t)\s+wait\b/i },
-  { name: 'now_or_never',      pattern: /\bnow\s+or\s+never\b/i },
-  { name: 'send_it',           pattern: /\bsend\s+it\b/i },
-  { name: 'go_go_go',          pattern: /\bgo\s+go\s+go\b/i },
-  { name: 'last_chance',       pattern: /\blast\s+chance\b/i },
+  { name: 'buy_now',                 pattern: /\bbuy\s+now\b/i },
+  { name: 'sell_now',                pattern: /\bsell\s+now\b/i },
+  { name: 'urgent_entry',            pattern: /\burgent\s+entry\b/i },
+  { name: 'get_in',                  pattern: /\bget\s+in\b/i },
+  { name: 'dont_miss',               pattern: /\b(?:do\s+not|don[’']?t)\s+miss\b/i },
+  { name: 'rocket',                  pattern: /\brocket(?:s|ed|ing)?\b/i },
+  { name: 'moon',                    pattern: /\bmoon(?:shot|ing)?\b/i },
+  { name: 'crash',                   pattern: /\bcrash(?:ing|ed|es)?\b/i },
+  { name: 'guaranteed',              pattern: /\bguarante(?:e|ed|es|eing)\b/i },
+  { name: 'authorised',              pattern: /\bauthori[sz]ed?\b/i },
+  { name: 'authorisation',           pattern: /\bauthori[sz]ation\b/i },
+  { name: 'permission',              pattern: /\bpermissions?\b/i },
+  { name: 'must_act',                pattern: /\bmust\s+(?:buy|sell|enter|act|trade|take)\b/i },
+  { name: 'act_now',                 pattern: /\bact\s+now\b/i },
+  { name: 'dont_wait',               pattern: /\b(?:do\s+not|don[’']?t)\s+wait\b/i },
+  { name: 'now_or_never',            pattern: /\bnow\s+or\s+never\b/i },
+  { name: 'send_it',                 pattern: /\bsend\s+it\b/i },
+  { name: 'go_go_go',                pattern: /\bgo\s+go\s+go\b/i },
+  { name: 'last_chance',             pattern: /\blast\s+chance\b/i },
+  { name: 'internal_engine_corey',   pattern: /\bCorey(?:\s+Clone)?\b/ },
+  { name: 'internal_engine_spidey',  pattern: /\bSpidey\b/ },
+  { name: 'internal_engine_jane',    pattern: /\bJane\b/ },
+  { name: 'confirmation_path',       pattern: /\bconfirmation\s+path\b/i },
+  { name: 'trade_alert',             pattern: /\btrade\s+alert\b/i },
+  // "confirmed structure" is only allowed when followed by a level
+  // direction word (above / below / at). The negative-lookahead lets
+  // "confirmed structure break above 178.40" pass while catching the
+  // bare "wait for confirmed structure" leakage in the old template.
+  { name: 'confirmed_structure_bare', pattern: /\bconfirmed\s+structure\b(?!\s+(?:break\s+)?(?:above|below|at)\b)/i },
 ];
 
-// ── EXACT CAUTION LINE (verbatim per spec) ──────────────────
+// ── CAUTION LINE — level-aware, no internal engine names ────
+// Old text contained "trade alert" and a bare "confirmed structure",
+// both of which now violate the locked Dark Horse wording rule.
 const FOMO_CAUTION =
-  '⚠️ Movement is active, but this is not a trade alert. Do not chase late moves. Wait for confirmed structure.';
+  '⚠️ Movement is active. Treat this as a watch candidate only and wait for a stated price + timeframe before acting.';
 
-// ── ADVISORY TRAILER (used on WATCH payloads) ───────────────
+// ── ADVISORY TRAILER — kept for legacy fomo paths; the new WATCH
+// payload (buildDHPayload) is self-contained and does NOT call
+// withFomoCaution, so this trailer no longer reaches the user.
 const WATCH_ADVISORY_TRAILER =
-  'Advisory only — wait for structure confirmation. Movement is not entry. Full ATLAS confirmation path remains: Corey → Spidey → Jane.';
+  'Advisory only — wait for structure confirmation at a stated level. Movement alone is not entry.';
 
 // ── VOLATILITY THRESHOLDS (derived from scan + optional VIX) ─
 const VOL_INTERNAL_ELEVATED = 3;   // ≥3 INTERNAL candidates → elevated
@@ -104,7 +120,7 @@ function assessVolatility(results, externalVixLevel) {
     level = 'elevated';
     if (internal.length >= VOL_INTERNAL_ELEVATED) reasons.push(`${internal.length} internal candidates`);
     if (avgInternalScore >= VOL_AVG_ELEVATED)     reasons.push(`avg internal score ${avgInternalScore.toFixed(1)}/10`);
-    if (vixHigh)                                   reasons.push(`VIX ${vixLevel}`);
+    if (vixHigh)                                   reasons.push(`market fear / volatility gauge (VIX) ${String(vixLevel).toLowerCase()}`);
   }
 
   return {
@@ -189,20 +205,23 @@ function buildMovementDigestPayload(volatility, internalResults) {
       }).join('\n')
     : '_No specific instruments cleared the internal threshold this cycle._';
 
-  const vixSuffix = volatility.vixLevel ? ` (VIX ${volatility.vixLevel})` : '';
-  const volLine = `**VOLATILITY ELEVATED — TRADE CONFIRMATION NOT PRESENT**${vixSuffix}`;
+  // Layman-first VIX wording — Dark Horse-local until the shared
+  // macro labels helper lands (PR B).
+  const vixSuffix = volatility.vixLevel
+    ? ` — market fear / volatility gauge (VIX) is ${String(volatility.vixLevel).toLowerCase()}`
+    : '';
+  const volLine = `**Conditions are moving but entry quality is not confirmed.**${vixSuffix}`;
 
   const content =
     `🐎 **DARK HORSE — GLOBAL MOVEMENT ACTIVE**\n\n` +
-    `**State:** MONITORING ONLY · NO CONFIRMED DARK HORSE WATCH CANDIDATE\n` +
+    `**State:** Monitoring only · no confirmed watch candidate this cycle.\n` +
     `${volLine}\n` +
     `**Internal watchlist:** ${volatility.internalCount} instrument${volatility.internalCount === 1 ? '' : 's'} ` +
       `(${volatility.reason})\n\n` +
     `**Top movers (internal watchlist · monitoring only):**\n${moversBlock}\n\n` +
-    `CONDITIONS MOVING, BUT ENTRY QUALITY NOT CONFIRMED.\n` +
-    `LATE ENTRY RISK HIGH. DO NOT CHASE THE MOVE. WAIT FOR STRUCTURE CONFIRMATION.\n\n` +
-    `${FOMO_CAUTION}\n\n` +
-    `Full ATLAS confirmation path remains: Corey → Spidey → Jane.`;
+    `Conditions are moving, but entry quality is not confirmed. ` +
+    `Late-entry risk is elevated. Do not chase the move; wait for structure confirmation at a stated price and timeframe.\n\n` +
+    `${FOMO_CAUTION}`;
 
   return { content, kind: 'movement_digest' };
 }
