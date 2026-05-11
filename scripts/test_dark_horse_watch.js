@@ -17,6 +17,9 @@
 const dh = require('../darkHorseEngine');
 
 // ── locked banned-wording list per the Dark Horse rule ──────────
+// `\btrigger\b` is on the broader CLAUDE.md user-surface ban list and
+// MUST stay in this sweep. The DH digest builder used to leak it via
+// "Promotion trigger:" / "Invalidation trigger:" row labels.
 const BANNED = [
   /\bCorey(?:\s+Clone)?\b/,
   /\bSpidey\b/,
@@ -355,7 +358,105 @@ console.log('\n[T9] FOMO sanitiser strips banned tokens injected into a payload'
      !allowed.replaced && /confirmed structure break above 184\.20/.test(allowed.content), allowed);
 }
 
-console.log(`\n==========================`);
-console.log(`Passed: ${passed}   Failed: ${failed}`);
-if (failed > 0) process.exit(1);
-console.log('[DH-WATCH-QA] PASS — Dark Horse cleanup acceptance suite green.');
+// ============================================================
+// T10: Movement digest v1.1 reproduction — banned-token sweep
+// (incl. \btrigger\b), label rename, level-availability rule,
+// single-tail advisory.
+// ============================================================
+console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation');
+{
+  const rank = require('../darkHorseRanking');
+  const fomo = require('../darkHorseFomoControl');
+
+  const candidates = [
+    { symbol: 'AMD',    score: 5, direction: 'Bullish',
+      summary: 'Strong bullish structure with HH/HL sequence confirmed',
+      reasons: ['HH/HL structure confirmed (60% bullish bars)'] },
+    { symbol: 'GOOGL',  score: 5, direction: 'Bullish',
+      summary: 'Strong bullish structure with HH/HL sequence confirmed',
+      reasons: ['HH/HL structure confirmed (60% bullish bars)'] },
+    { symbol: 'XAGUSD', score: 5, direction: 'Bullish',
+      summary: 'Strong trend acceleration with sustained higher highs',
+      reasons: ['Strong trend acceleration with sustained higher highs'] },
+  ];
+  function bullCandles(n, base) {
+    const out = []; let p = base;
+    for (let i = 0; i < n; i++) {
+      const open = p, close = p + 1.0;
+      out.push({ open, high: close + 0.2, low: open - 0.2, close, time: 1700000000 + i * 86400 });
+      p = close;
+    }
+    return out;
+  }
+  const candles = { AMD: bullCandles(20, 180), GOOGL: bullCandles(20, 150), XAGUSD: bullCandles(20, 35) };
+
+  (async () => {
+    const ranking = await rank.buildRanking(candidates, async sym => candles[sym] || null, {
+      topN: 10, sectionCap: 2, sectionCapMax: 3, watchThreshold: 8,
+    });
+    const payload = fomo.sanitize(rank.buildRankedMovementDigestPayload(ranking, {
+      level: 'elevated', vixLevel: 'Elevated', watchCount: 0, internalCount: 3,
+      avgInternalScore: 5.0, reason: '3 internal candidates',
+    }));
+    const c = payload.content;
+
+    bannedSweep('T10 v1.1 digest', c);
+
+    ok('row label "Promotion criteria:" present',
+       /\bPromotion criteria:\s/.test(c), c);
+    ok('row label "Promotion trigger:" REMOVED',
+       !/\bPromotion trigger:/.test(c));
+    ok('row label "Invalidation trigger:" REMOVED',
+       !/\bInvalidation trigger:/.test(c));
+
+    // Current invalidation template carries no numeric price → must
+    // emit "Invalidation condition:" + the "Reference level not
+    // published in this digest yet." sub-row.
+    const condCount = (c.match(/Invalidation condition:/g) || []).length;
+    const refCount  = (c.match(/Reference level not published in this digest yet\./g) || []).length;
+    const lvlCount  = (c.match(/Invalidation level:/g) || []).length;
+    ok('Invalidation condition: appears once per top-3 candidate',
+       condCount === 3, { condCount });
+    ok('Reference level not published in this digest yet. appears once per top-3',
+       refCount === 3, { refCount });
+    ok('Invalidation level: NOT used when no numeric price in source',
+       lvlCount === 0, { lvlCount });
+
+    // No doubled tail: the digest must end with a single advisory
+    // line. The old FOMO_CAUTION trailer must not be appended.
+    ok('digest does NOT contain the old FOMO_CAUTION trailer',
+       !c.includes(fomo.FOMO_CAUTION),
+       'FOMO_CAUTION found at digest tail');
+    ok('single advisory tail present',
+       /Conditions are moving but entry quality is not confirmed/.test(c) &&
+       /Do not chase — wait for the per-candidate confirmation criteria/.test(c), c);
+
+    // Numeric-level branch: feed a synthetic invalidation text that
+    // includes a price. The renderer must switch to "Invalidation level:"
+    // and OMIT the "Reference level not published" helper.
+    const withLevel = rank.buildExpandedDetail({
+      symbol: 'TEST', section: 'equities', sectionLabel: 'Major Equities / Momentum',
+      safeHavenOverlay: false, direction: 'Bullish', score: 8,
+      scoreBreakdown: ['mock'], moveStrength: 8, moveSpeed: 1.4, moveAge: 4,
+      movePhase: 'mid', relativeStrength: 1.2,
+      structureState: 'ok', confirmationRequirement: 'mock',
+      promotionTrigger: 'mock', invalidationTrigger: 'Close below 178.40 on 1D voids the setup.',
+      continuationWindow: 'mock', lateEntryRisk: 'low',
+      whyFlagged: 'mock', macroEventLink: 'mock',
+      whyNotWatch: 'mock', atlasState: 'mock',
+    }, 0);
+    ok('numeric-bearing invalidation switches to "Invalidation level:"',
+       /Invalidation level:\s+Close below 178\.40/.test(withLevel), withLevel);
+    ok('numeric-bearing invalidation OMITS "Reference level not published"',
+       !/Reference level not published/.test(withLevel));
+
+    // Sweep rendered prose for any rogue "trigger" word leftover.
+    ok('no bare "trigger" anywhere in digest text',
+       !/\btrigger\b/i.test(c), c);
+
+    console.log(`\n==========================`);
+    console.log(`Passed: ${passed}   Failed: ${failed}`);
+    if (failed > 0) process.exit(1);
+    console.log('[DH-WATCH-QA] PASS — Dark Horse cleanup acceptance suite green.');
+  })();
+}
