@@ -315,24 +315,41 @@ function arrowFor(direction) {
   return '→';
 }
 
+// Translate engine-shorthand structural vocabulary into plain English
+// before any field reaches the user surface. The Dark Horse engine's
+// scoring layer emits "HH/HL sequence confirmed" style strings; per the
+// CLAUDE.md user-surface ban these must be expanded into layman copy
+// at the presentation layer. Engine internals are untouched.
+function humaniseEngineShorthand(text) {
+  if (text == null) return text;
+  let t = String(text);
+  t = t.replace(/\bHH\/HL\s+sequence\b/g, 'higher-highs and higher-lows sequence');
+  t = t.replace(/\bLH\/LL\s+sequence\b/g, 'lower-highs and lower-lows sequence');
+  t = t.replace(/\bHH\/HL\s+structure\b/g, 'higher-highs and higher-lows structure');
+  t = t.replace(/\bLH\/LL\s+structure\b/g, 'lower-highs and lower-lows structure');
+  t = t.replace(/\bHH\/HL\b/g, 'higher-highs and higher-lows');
+  t = t.replace(/\bLH\/LL\b/g, 'lower-highs and lower-lows');
+  return t;
+}
+
 function buildExpandedDetail(rank, idx) {
   const r = rank;
   const speedStr = r.moveSpeed != null ? `${r.moveSpeed}× baseline` : 'speed unavailable';
   const rsStr = r.relativeStrength != null ? `${r.relativeStrength}× section avg` : 'relative strength unavailable';
-  const breakdownLine = r.scoreBreakdown && r.scoreBreakdown.length
-    ? r.scoreBreakdown.map(x => `   • ${x}`).join('\n')
-    : '   • composite criteria met';
+  const breakdownLines = r.scoreBreakdown && r.scoreBreakdown.length
+    ? r.scoreBreakdown.map(x => `   • ${humaniseEngineShorthand(x)}`)
+    : ['   • composite criteria met'];
 
   return [
     `**#${idx + 1} — ${r.symbol} ${arrowFor(r.direction)}**  ·  Section: ${r.sectionLabel}${r.safeHavenOverlay ? ' · safe-haven overlay' : ''}`,
     `Direction: ${r.direction || 'neutral'}  ·  Score: ${r.score}/10`,
-    `Score breakdown:\n${breakdownLine}`,
+    `Score breakdown:\n${breakdownLines.join('\n')}`,
     `Move strength: ${r.moveStrength}/10  ·  Move speed: ${speedStr}`,
     `Move age: ${r.moveAge} bar(s) (HTF, same-direction)  ·  Move phase: ${r.movePhase}`,
     `Relative strength vs section: ${rsStr}`,
-    `Why flagged: ${r.whyFlagged}`,
+    `Why flagged: ${humaniseEngineShorthand(r.whyFlagged)}`,
     `Macro / event link: ${r.macroEventLink}`,
-    `Structure state: ${r.structureState}`,
+    `Structure state: ${humaniseEngineShorthand(r.structureState)}`,
     `Confirmation requirement: ${r.confirmationRequirement}`,
     `Continuation window: ${r.continuationWindow}`,
     `Late-entry risk: ${r.lateEntryRisk}`,
@@ -364,7 +381,7 @@ function renderInvalidationRow(invalidationText) {
 }
 
 function buildCompactDetail(rank, idx) {
-  return `${idx + 1}. **${rank.symbol}** ${arrowFor(rank.direction)} — ${rank.sectionLabel} · ${rank.score}/10 · ${rank.whyFlagged} · ${rank.whyNotWatch}`;
+  return `${idx + 1}. **${rank.symbol}** ${arrowFor(rank.direction)} — ${rank.sectionLabel} · ${rank.score}/10 · ${humaniseEngineShorthand(rank.whyFlagged)} · ${rank.whyNotWatch}`;
 }
 
 function buildRankedMovementDigestPayload(ranking, volatility) {

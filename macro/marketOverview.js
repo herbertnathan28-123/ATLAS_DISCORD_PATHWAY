@@ -2,6 +2,11 @@
 // §6 Market Overview. Dense; every paragraph closes with ⬆️ or ⬇️ arrow per spec.
 // Operator-facing copy only — no source/provenance tags on the user
 // surface. Provenance details go to console logs / audit collapsibles.
+//
+// May 2026 hardening: lead every paragraph with the full layman label
+// of the macro driver (US Dollar Index, market fear / volatility gauge,
+// yield-curve spread). ETF-proxy mentions (UUP / VXX) are operator
+// telemetry and never reach the user surface.
 
 const { arrow } = require('./language');
 
@@ -12,26 +17,28 @@ function build(input) {
   const lines = ['## Market Overview'];
   lines.push('');
 
-  // USD tilt paragraph
+  // US Dollar Index paragraph
   const dxyScore = ctx?.dxy?.score ?? 0;
   const dxyBias  = ctx?.dxy?.bias  || 'Neutral';
   const fmpDxy   = fmp?.quotes?.dxy?.ok ? fmp.quotes.dxy.data?.[0] : null;
-  lines.push(`**USD tilt:** UUP proxy quote ${fmpDxy?.price != null ? '$' + fmpDxy.price : ctx?.dxy?.price != null ? '$' + ctx.dxy.price.toFixed(2) : 'n/a'}, score ${score(dxyScore)}, bias ${dxyBias}. The lower the USD pushes, the more upside fuel for non-USD majors and metals; the higher it pushes, the heavier the squeeze on EURUSD / GBPUSD and the bid in USDJPY. ${arrow(-dxyScore)}`);
+  const dxyQuote = fmpDxy?.price != null ? '$' + fmpDxy.price : ctx?.dxy?.price != null ? '$' + ctx.dxy.price.toFixed(2) : 'n/a';
+  lines.push(`**US Dollar Index (DXY):** quote ${dxyQuote}, score ${score(dxyScore)}, bias ${dxyBias}. The lower the dollar pushes, the more upside fuel for non-USD majors and metals; the higher it pushes, the heavier the squeeze on EURUSD / GBPUSD and the bid in USDJPY. ${arrow(-dxyScore)}`);
   lines.push('');
 
-  // Risk environment paragraph
+  // Market fear / volatility gauge paragraph
   const vixScore = ctx?.vix?.score ?? 0;
   const vixLevel = ctx?.vix?.level || 'Normal';
   const fmpVix   = fmp?.quotes?.vix?.ok ? fmp.quotes.vix.data?.[0] : null;
-  lines.push(`**Risk environment:** VXX proxy ${fmpVix?.price != null ? '$' + fmpVix.price : ctx?.vix?.price != null ? '$' + ctx.vix.price.toFixed(2) : 'n/a'}, regime ${vixLevel}. Elevated readings widen spreads, accelerate liquidity sweeps, and bias flow into safe havens (USD, JPY, gold). Compressed readings let trends carry without the safe-haven drag. ${arrow(-vixScore)}`);
+  const vixQuote = fmpVix?.price != null ? '$' + fmpVix.price : ctx?.vix?.price != null ? '$' + ctx.vix.price.toFixed(2) : 'n/a';
+  lines.push(`**Market fear / volatility gauge (VIX):** quote ${vixQuote}, regime ${vixLevel}. Elevated readings widen spreads, accelerate liquidity sweeps, and bias flow into safe havens (US dollar, Japanese yen, gold). Compressed readings let trends carry without the safe-haven drag. ${arrow(-vixScore)}`);
   lines.push('');
 
-  // Yield curve paragraph
+  // Yield-curve paragraph (10-year minus 2-year Treasury spread)
   const yScore = ctx?.yield?.score ?? 0;
   const yReg   = ctx?.yield?.regime || 'Normal';
   const ySpr   = ctx?.yield?.spread;
   const ySpread = ySpr != null ? ySpr.toFixed(2) + ' pp' : 'pending';
-  lines.push(`**Yield curve:** 10Y-2Y spread ${ySpread}, regime ${yReg}. An inverted or flattening curve telegraphs growth doubt, supports duration / safe havens, and historically precedes risk-off rotations. A steepening curve telegraphs reflation and supports risk assets and high-beta currencies. ${arrow(yScore)}`);
+  lines.push(`**Yield curve (10-year minus 2-year Treasury spread):** ${ySpread}, regime ${yReg}. An inverted or flattening curve telegraphs growth doubt, supports duration / safe havens, and historically precedes risk-off rotations. A steepening curve telegraphs reflation and supports risk assets and high-beta currencies. ${arrow(yScore)}`);
   lines.push('');
 
   // Commodity / inflation paragraph (FMP-fed when available)

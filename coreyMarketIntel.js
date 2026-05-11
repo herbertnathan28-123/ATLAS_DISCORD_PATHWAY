@@ -28,6 +28,9 @@
 
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl'); // reuse banned-phrase sanitiser
+// Layman-first macro label helper — single source of truth for the
+// full-name-first abbreviation rule (May 2026 hardening pass).
+const { formatMacroLabel } = require('./presentation/marketLabels');
 
 // ── ENUMS ────────────────────────────────────────────────────
 const RELEVANCE = { HIGH: 'High', MODERATE: 'Moderate', LOW: 'Low' };
@@ -143,7 +146,7 @@ function mechanismTemplate(title) {
   if (/\b(pmi|ism)\b/.test(t))
     return 'Activity surprise repositions growth/rate expectations; sub-50 prints typically pressure the home currency and support defensives.';
   if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
-    return 'Geopolitical shock triggers safe-haven rotation: DXY / CHF / JPY / XAU typically bid; equities and credit typically offered.';
+    return 'Geopolitical shock triggers safe-haven rotation: the US Dollar Index (DXY), Swiss franc, Japanese yen and gold (XAUUSD) typically bid; equities and credit typically offered.';
   return 'Surprise vs forecast repositions short-term rate expectations and risk appetite; direction flows through the home currency and correlated risk assets.';
 }
 
@@ -157,7 +160,7 @@ function buildCoreyView(rawEvent) {
   if (/\b(fed|fomc|ecb|boe|boj|rba|boc|policy decision|press conference|rate decision)\b/.test(t))
     return `This is a central-bank communication event. A hawkish lean supports ${ccy}; a dovish lean pressures ${ccy}. Tone versus current market pricing matters more than the headline decision itself.`;
   if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
-    return `This is a geopolitical shock. Safe-haven rotation is the dominant mechanism: DXY / CHF / JPY / XAU typically bid, equities and credit typically offered.`;
+    return `This is a geopolitical shock. Safe-haven rotation is the dominant mechanism: the US Dollar Index (DXY), Swiss franc, Japanese yen and gold (XAUUSD) typically bid; equities and credit typically offered.`;
   if (/\b(pmi|ism)\b/.test(t))
     return `This is a ${ccy} activity release. Sub-50 typically signals contraction and pressures ${ccy}; above-50 supports ${ccy} and risk indices.`;
   if (/\bretail sales\b/.test(t))
@@ -323,18 +326,23 @@ function humanizeTitle(raw) {
 }
 
 // ── AFFECTED-MARKET BUCKETING ────────────────────────────────
+// Bucket keys are user-facing on every Market Intel alert. The "DXY"
+// key used to render as the literal "• DXY: DXY" when the affected list
+// itself included "DXY" — fixed by renaming the key to the layman-first
+// label and suppressing the redundant symbol list when the only symbol
+// IS the index proxy itself (see renderAffectedBucket below).
 const SYM_BUCKET_RULES = [
-  { key: 'DXY',          match: s => s === 'DXY' },
-  { key: 'USD pairs',    match: s => /^USD|USD$/.test(s) && !/^XAU|^XAG|^DXY$/.test(s) },
-  { key: 'EUR pairs',    match: s => /^EUR/.test(s) },
-  { key: 'GBP pairs',    match: s => /^GBP/.test(s) },
-  { key: 'JPY crosses',  match: s => /JPY$/.test(s) },
-  { key: 'AUD/NZD pairs',match: s => /^AUD|^NZD/.test(s) },
-  { key: 'Metals',       match: s => /^XAU|^XAG/.test(s) },
-  { key: 'US indices',   match: s => /^(NAS100|US500|US30|SPX|NDX|IXIC|GSPC|DJI)$/.test(s) },
-  { key: 'EU indices',   match: s => /^(GER40|UK100)$/.test(s) },
-  { key: 'Asia indices', match: s => /^(JPN225|HK50)$/.test(s) },
-  { key: 'Energy',       match: s => /^(USOIL|WTI|BRENT|NATGAS)$/.test(s) },
+  { key: 'US Dollar Index (DXY)', match: s => s === 'DXY' },
+  { key: 'USD pairs',             match: s => /^USD|USD$/.test(s) && !/^XAU|^XAG|^DXY$/.test(s) },
+  { key: 'EUR pairs',             match: s => /^EUR/.test(s) },
+  { key: 'GBP pairs',             match: s => /^GBP/.test(s) },
+  { key: 'JPY crosses',           match: s => /JPY$/.test(s) },
+  { key: 'AUD/NZD pairs',         match: s => /^AUD|^NZD/.test(s) },
+  { key: 'Metals',                match: s => /^XAU|^XAG/.test(s) },
+  { key: 'US indices',            match: s => /^(NAS100|US500|US30|SPX|NDX|IXIC|GSPC|DJI)$/.test(s) },
+  { key: 'EU indices',            match: s => /^(GER40|UK100)$/.test(s) },
+  { key: 'Asia indices',          match: s => /^(JPN225|HK50)$/.test(s) },
+  { key: 'Energy',                match: s => /^(USOIL|WTI|BRENT|NATGAS)$/.test(s) },
 ];
 function bucketAffected(symbols) {
   const out = {};
@@ -350,7 +358,22 @@ function bucketAffected(symbols) {
   }
   return out;
 }
-const BUCKET_ORDER = ['DXY','USD pairs','EUR pairs','GBP pairs','JPY crosses','AUD/NZD pairs','Metals','US indices','EU indices','Asia indices','Energy'];
+const BUCKET_ORDER = ['US Dollar Index (DXY)','USD pairs','EUR pairs','GBP pairs','JPY crosses','AUD/NZD pairs','Metals','US indices','EU indices','Asia indices','Energy'];
+
+// Render an affected-market bucket as a Discord bullet line. When the
+// bucket label IS the layman-first form of the symbol it contains
+// (e.g. label "US Dollar Index (DXY)" and symbols ["DXY"]), suppress
+// the redundant ":DXY" suffix — that's what caused the original
+// "• DXY: DXY" leak. Idempotent.
+function renderAffectedBucket(label, symbols) {
+  const list = Array.isArray(symbols) ? symbols.slice(0, 6) : [];
+  if (!list.length) return `• ${label}`;
+  // If every symbol in the list is already represented inside the
+  // bracketed code at the end of the label, suppress the list.
+  const m = String(label).match(/\(([A-Z0-9]+)\)\s*$/);
+  if (m && list.length === 1 && list[0] === m[1]) return `• ${label}`;
+  return `• ${label}: ${list.join(', ')}`;
+}
 
 // ── DRIVER + RISK-TONE INFERENCE ─────────────────────────────
 const DRIVER_PATTERNS = [
@@ -417,7 +440,7 @@ function riskScoreEmoji(score) {
 // ── DAY THEME ────────────────────────────────────────────────
 function buildDayTheme(highEvents, driverLabels, primaryAffected) {
   if (!highEvents.length) {
-    return 'No scheduled high-impact catalyst today. The tape is driver-led — direction will be set by the live VIX, DXY, and yields read rather than the calendar.';
+    return 'No scheduled high-impact catalyst today. The tape is driver-led — direction will be set by the live CBOE Volatility Index (VIX), US Dollar Index (DXY) and US Treasury yields read rather than the calendar.';
   }
   // Find the dominant currency by frequency
   const ccyCounts = {};
@@ -444,7 +467,7 @@ function mechanismChainFor(rawEvent) {
     ].join(' → ');
   }
   if (c.short === 'inflation') {
-    return `cause: ${ccy} inflation surprise vs forecast → expectation: rate-path repricing in the front end → market reaction: ${ccy} and yields move first → asset impact: DXY direction sets gold and US-index reaction`;
+    return `cause: ${ccy} inflation surprise vs forecast → expectation: rate-path repricing in the front end → market reaction: ${ccy} and yields move first → asset impact: US Dollar Index (DXY) direction sets gold (XAUUSD) and US-index reaction`;
   }
   if (c.short === 'labour') {
     return `cause: ${ccy} labour surprise vs forecast → expectation: central-bank reaction-function pricing → market reaction: short-end rates and ${ccy} reposition → asset impact: rate-sensitive assets (gold, indices) follow on first HTF close`;
@@ -462,7 +485,7 @@ function mechanismChainFor(rawEvent) {
     return `cause: activity reading vs 50 expansion line → expectation: growth/rate path repricing → market reaction: ${ccy} responds on directional surprise → asset impact: defensive vs cyclical rotation in equities`;
   }
   if (c.short === 'geopolitical') {
-    return `cause: geopolitical shock event → expectation: safe-haven rotation → market reaction: DXY/CHF/JPY/XAU bid → asset impact: equities and credit offered, vol indices lift`;
+    return `cause: geopolitical shock event → expectation: safe-haven rotation → market reaction: the US Dollar Index (DXY), Swiss franc, Japanese yen and gold (XAUUSD) bid → asset impact: equities and credit offered; the CBOE Volatility Index (VIX) lifts`;
   }
   return `cause: surprise vs forecast → expectation: short-term rate-path repricing → market reaction: ${ccy} moves first → asset impact: correlated risk follows on first HTF close`;
 }
@@ -470,7 +493,7 @@ function mechanismChainFor(rawEvent) {
 // ── PER-CURRENCY/ASSET NARRATIVES ────────────────────────────
 const NARRATIVE_TEMPLATES = {
   USD: (drivers) => ({
-    label: 'USD / DXY',
+    label: 'USD / US Dollar Index (DXY)',
     body: drivers.includes('inflation')
       ? 'Hot CPI lifts USD via rate-path repricing; soft CPI eases it. Watching first close above/below the pre-print VWAP.'
       : drivers.includes('labour')
@@ -489,7 +512,7 @@ const NARRATIVE_TEMPLATES = {
   }),
   JPY: () => ({
     label: 'JPY',
-    body: 'Yen reacts to safe-haven flow and BOJ policy gap vs G10. Watching USDJPY vs DXY for confirmation of risk tone.',
+    body: 'Yen reacts to safe-haven flow and BOJ policy gap vs G10. Watching USDJPY against the US Dollar Index (DXY) for confirmation of risk tone.',
   }),
   AUD: () => ({
     label: 'AUD / NZD',
@@ -520,7 +543,7 @@ function buildCurrencyNarratives(highEvents, affectedBuckets) {
   }
   const drivers = inferDriverShorts(highEvents);
   const narratives = [];
-  if (ccyHits.has('USD') || affectedBuckets['DXY'] || affectedBuckets['USD pairs']) {
+  if (ccyHits.has('USD') || affectedBuckets['US Dollar Index (DXY)'] || affectedBuckets['USD pairs']) {
     narratives.push(NARRATIVE_TEMPLATES.USD(drivers));
   }
   if (ccyHits.has('EUR') || affectedBuckets['EUR pairs']) narratives.push(NARRATIVE_TEMPLATES.EUR());
@@ -581,7 +604,7 @@ function buildAtlasResponseWindows(highEvents) {
   if (!highEvents.length) {
     return [
       'No scheduled no-trade windows today.',
-      'Reassessment: read live VIX / DXY / yields; size only with confirmed structure.',
+      'Reassessment: read live CBOE Volatility Index (VIX), US Dollar Index (DXY) and US Treasury yields; size only after a confirmed body close beyond the level on the primary timeframe.',
       'Wait for liquidity sweep + 5m/15m close before treating any directional move as continuation.',
       'Pre-position only with confirmed structure already live; no blind directional bets.',
     ];
@@ -629,7 +652,7 @@ function coreyWatchingFor(rawEvent) {
   if (/\b(gdp|retail sales|pmi|ism)\b/.test(t))
     return 'whether the surprise reprices the rate path and how risk indices respond on the first close';
   if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
-    return 'safe-haven rotation depth — DXY / CHF / JPY / XAU bid alongside equity offer';
+    return 'safe-haven rotation depth — the US Dollar Index (DXY), Swiss franc, Japanese yen and gold (XAUUSD) bid alongside equity offer';
   return 'the first higher-timeframe close after the print and whether structure forms either side';
 }
 
@@ -647,7 +670,7 @@ function buildPreEventAlertPayload(rawEvent, minutesOut) {
     'T-1H':  'Approach window. Execution becomes time-sensitive — avoid late entries.',
     'T-30M': 'Final lead-in. Liquidity thins, spreads widen — do not chase.',
     'T-15M': 'Imminent. Stand down unless a confirmed pre-event setup is already live.',
-    'T-RELEASE': 'Release window. The first move is rarely the move — wait for liquidity sweep + reclaim.',
+    'T-RELEASE': 'Release window. The first move is rarely the move — wait for price to sweep a visible high or low, then close back in favour on the 5M or 15M chart before treating the move as continuation.',
   };
 
   const lines = [];
@@ -660,18 +683,18 @@ function buildPreEventAlertPayload(rawEvent, minutesOut) {
   lines.push('');
   lines.push(`**Affected markets**`);
   for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) lines.push(`• ${k}: ${buckets[k].slice(0, 6).join(', ')}`);
+    if (buckets[k] && buckets[k].length) lines.push(renderAffectedBucket(k, buckets[k]));
   }
   lines.push('');
   lines.push(`**Mechanism chain**`);
   lines.push(mechanismChainFor(rawEvent));
   lines.push('');
-  lines.push(`**Corey read**`);
+  lines.push(`**Market read**`);
   lines.push(a.coreyView);
   lines.push('');
   lines.push(`**Trader guidance**`);
   lines.push(`• ${cautionByStage[stage] || cautionByStage['T-1H']}`);
-  lines.push(`• Wait for liquidity sweep + 5m/15m candle-close confirmation before treating any move as continuation.`);
+  lines.push(`• Wait for price to sweep a visible high or low, then close back in favour on the 5M or 15M chart before treating the move as continuation. If the sweep candle does not close back in the original direction, the move is not confirmed.`);
   lines.push(`• Trade smaller around the print; reassess once structure has formed.`);
   lines.push('');
   lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
@@ -708,13 +731,13 @@ function buildReleasedEventAlertPayload(rawEvent) {
   lines.push('');
   lines.push(`**Likely affected markets**`);
   for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) lines.push(`• ${k}: ${buckets[k].slice(0, 6).join(', ')}`);
+    if (buckets[k] && buckets[k].length) lines.push(renderAffectedBucket(k, buckets[k]));
   }
   lines.push('');
   lines.push(`**Mechanism chain**`);
   lines.push(mechanismChainFor(rawEvent));
   lines.push('');
-  lines.push(`**Corey read**`);
+  lines.push(`**Market read**`);
   lines.push(a.coreyView);
   lines.push('');
   lines.push(`**First-reaction caution**`);
@@ -800,7 +823,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   // Build the THEME's "main volatility window for X, Y, Z" phrase from
   // whichever buckets actually have symbols today. Preserves bucket case.
   const themeAssets = [];
-  if (buckets['DXY'] || buckets['USD pairs']) themeAssets.push('USD pairs');
+  if (buckets['US Dollar Index (DXY)'] || buckets['USD pairs']) themeAssets.push('USD pairs');
   if (buckets['Metals']) themeAssets.push('gold');
   if (buckets['US indices']) themeAssets.push('US indices');
   if (!themeAssets.length) {
@@ -854,7 +877,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
         : c.short === 'growth'    ? 'Stronger reading → home currency + indices supported. Weaker → both pressured.'
         : c.short === 'consumer demand' ? 'Strong → home currency + consumer cyclicals supported. Weak → both pressured.'
         : c.short === 'activity'  ? 'Above 50 → home currency supported. Sub-50 → home currency pressured, defensives bid.'
-        : c.short === 'geopolitical' ? 'DXY/CHF/JPY/XAU bid; equities and credit offered; vol indices lift.'
+        : c.short === 'geopolitical' ? 'US Dollar Index (DXY), Swiss franc, Japanese yen and gold (XAUUSD) bid; equities and credit offered; the CBOE Volatility Index (VIX) lifts.'
         : 'Direction depends on print vs forecast.')
       : 'Direction depends on print vs forecast.';
     lines.push(`• **Main event:** ${ht}`);
@@ -863,7 +886,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
     lines.push(`• **Possible market behaviour:** ${reaction}`);
   } else {
     lines.push(`• No scheduled high-impact catalyst today.`);
-    lines.push(`• Tape is driver-led — direction set by live VIX / DXY / yields.`);
+    lines.push(`• Tape is driver-led — direction set by the live CBOE Volatility Index (VIX), US Dollar Index (DXY) and US Treasury yields.`);
   }
   lines.push('');
 
@@ -901,7 +924,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
     lines.push(`**Trader note:** Stand down through the release. Re-engage only after liquidity sweep + 5m/15m confirmation. Sizing should be reduced into the print.`);
     lines.push(`**Affected:** ${affectedShort || 'unavailable'}`);
   } else {
-    lines.push(`No scheduled headline event today. Watch live VIX / DXY / yields for regime change. Mechanism: driver moves first, calendar second.`);
+    lines.push(`No scheduled headline event today. Watch the live CBOE Volatility Index (VIX), US Dollar Index (DXY) and US Treasury yields for regime change. Mechanism: driver moves first, calendar second.`);
   }
   lines.push('');
 
@@ -937,7 +960,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
       lines.push(`• ${n.body}`);
     }
   } else {
-    lines.push(`No specific currency/asset narratives — driver-led tape. Watch DXY, gold, and US indices vs live VIX/yields read.`);
+    lines.push(`No specific currency/asset narratives — driver-led tape. Watch the US Dollar Index (DXY), gold (XAUUSD) and US indices against the live CBOE Volatility Index (VIX) and US Treasury yields read.`);
   }
   lines.push('');
 
@@ -970,7 +993,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
     lines.push(`• **Watching for:** ${coreyWatchingFor(next)}`);
   } else {
     lines.push(`• No high-impact event scheduled in the next 48 hours.`);
-    lines.push(`• Watching for: regime change in live drivers (VIX 20, DXY 100, 10y-2y zero).`);
+    lines.push(`• Watching for: regime change in live drivers — CBOE Volatility Index (VIX) breaching 20, US Dollar Index (DXY) breaching 100, and the 10-year-minus-2-year yield-curve spread approaching zero.`);
   }
   lines.push('');
   lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
@@ -1009,7 +1032,7 @@ function inferGeopoliticalContext(coreyLiveCtx) {
   const reasons = [];
   if (/^(High|Elevated|Extreme)$/i.test(vixLevel)) {
     level = GEO_RISK.MODERATE;
-    reasons.push(`VIX ${vixLevel}`);
+    reasons.push(`CBOE Volatility Index (VIX) ${vixLevel.toLowerCase()}`);
   }
   if (/^(High|Extreme)$/i.test(vixLevel) && /Inverted|Stress/i.test(yieldRegime)) {
     level = GEO_RISK.HIGH;
@@ -1017,7 +1040,7 @@ function inferGeopoliticalContext(coreyLiveCtx) {
   }
   if (/Bullish/i.test(dxyBias) && /^(High|Elevated|Extreme)$/i.test(vixLevel)) {
     if (level !== GEO_RISK.HIGH) level = GEO_RISK.MODERATE;
-    reasons.push('safe-haven DXY bid alongside elevated VIX');
+    reasons.push('safe-haven US Dollar Index (DXY) bid alongside elevated CBOE Volatility Index (VIX)');
   }
   return {
     level,
@@ -1034,8 +1057,8 @@ function buildGeopoliticalStatusPayload(geoCtx) {
     `**Breaking headline feed:** ${(geoCtx && geoCtx.breakingNewsStatus) || 'unavailable'}\n` +
     `Geopolitical risk inferred from market drivers only — no live headline monitoring is connected to ATLAS.\n\n` +
     `**Inferred drivers:**\n` +
-    `• VIX level: ${drivers.vixLevel || 'unavailable'}\n` +
-    `• DXY bias: ${drivers.dxyBias || 'unavailable'}\n` +
+    `• CBOE Volatility Index (VIX) level: ${drivers.vixLevel || 'unavailable'}\n` +
+    `• US Dollar Index (DXY) bias: ${drivers.dxyBias || 'unavailable'}\n` +
     `• Yield regime: ${drivers.yieldRegime || 'unavailable'}\n\n` +
     `**Inferred risk level:** ${(geoCtx && geoCtx.level) || GEO_RISK.LOW}\n` +
     `**Reasoning:** ${(geoCtx && geoCtx.summary) || 'unavailable'}\n\n` +

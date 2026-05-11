@@ -5,6 +5,7 @@
 // This module wraps it with the v3 sentiment header + mixed-direction arrows + FMP earnings context.
 
 const { arrow } = require('./language');
+const { formatMacroLabel } = require('../presentation/marketLabels');
 
 function build(input) {
   const { calendar, fmp, symbol, ctx, tagsUsed } = input;
@@ -29,7 +30,11 @@ function build(input) {
   // locked structure: events table → cluster summary → one action rule,
   // never repeated per-print boilerplate.
   const intel = calendar?.intel;
-  if (intel) {
+  // Type guard — the calendar.intel surface may be a richly-formatted
+  // string, a function on the calendar module, or absent. Without this
+  // guard a non-string value rendered as the literal "[object Object]"
+  // inside the user surface (live regression observed pre-hardening).
+  if (typeof intel === 'string' && intel.trim().length > 0) {
     if (hasInflationCluster(calendar)) {
       // Keep just the headline + sentiment context that intel may carry,
       // but drop the per-event blocks. Concretely: render a one-liner
@@ -72,11 +77,17 @@ function sentimentFromTilt(t) {
 function describeDriver(ctx) {
   const d = ctx?.dxy, v = ctx?.vix, y = ctx?.yield;
   const parts = [];
-  if (d?.bias)        parts.push(`USD ${d.bias.toLowerCase()}`);
-  if (v?.level)       parts.push(`VIX ${v.level.toLowerCase()}`);
-  if (y?.regime)      parts.push(`yield curve ${y.regime.toLowerCase()}`);
+  // Layman-first labels — full name leads, code lives only in brackets.
+  if (d?.bias)        parts.push(`US dollar strength is ${d.bias.toLowerCase()} (${codeFor('DXY')})`);
+  if (v?.level)       parts.push(`market fear is ${v.level.toLowerCase()} (${codeFor('VIX')})`);
+  if (y?.regime)      parts.push(`yield curve is ${y.regime.toLowerCase()}`);
   return parts.length ? parts.join(' · ') : 'macro inputs initialising';
 }
+
+// Helper — return just the bracketed code for an inline reference. We
+// keep the layman label as the leading prose, with the code appearing
+// only in the parenthesised tail.
+function codeFor(code) { return code; }
 
 // Mirrors the cluster-detection rule in macro/catalysts.js so this
 // module can decide whether per-event boilerplate is redundant.

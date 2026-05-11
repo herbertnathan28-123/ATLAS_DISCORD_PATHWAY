@@ -74,6 +74,9 @@ Module.prototype.require = function (req) {
   return realRequire.call(this, req);
 };
 
+// Centralised banned-token fixture (May 2026 hardening pass) — single
+// source of truth for the user-surface ban list. See scripts/qa_banned_strings.js.
+const fixture = require('./qa_banned_strings');
 const BANNED = [
   // Locked dashboard/macro wording standard.
   /\btrigger\b/i, /\bauthoris(?:ed|e)\b/i, /\bauthoriz(?:ed|e)\b/i,
@@ -115,7 +118,24 @@ const BANNED = [
   /\bMACRO_BAN_VIOLATION\b/i,
   /\bconfirmation condition\b/i,
   /\bNO BIAS \/ WAIT \/ HOLD\b/i,
-  /\blisted buyer\/seller control level\b/i
+  /\blisted buyer\/seller control level\b/i,
+  // May 2026 production hardening additions — guard against the live
+  // regressions that prompted the hardening pass.
+  /\[REDACTED-FOMO\]/,
+  /\[REDACTED-[A-Z-]*\]/,
+  /\bDXY\s*:\s*DXY\b/,
+  /\bVIX\s*:\s*VIX\b/,
+  /\bUUP proxy\b/i,
+  /\bVXX proxy\b/i,
+  /\b10Y-2Y\b/,
+  /\[object Object\]/,
+  /\bdirectionanjhl\b/i,
+  /\bDark Horse flag:/,
+  /\bHH\/HL\b/,
+  // Bare macro-driver abbreviations outside the layman parenthesised form.
+  /(?<!\()\bDXY\b(?!\))/, /(?<!\()\bVIX\b(?!\))/,
+  /(?<!\()\bUS10Y\b(?!\))/, /(?<!\()\bUS2Y\b(?!\))/,
+  /(?<!\()\bUUP\b(?!\))/,  /(?<!\()\bVXX\b(?!\))/,
 ];
 const FORBIDDEN_HEADERS = [
   /\bADVISORY HEADER\b/i,

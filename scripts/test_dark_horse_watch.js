@@ -15,11 +15,14 @@
 // builder and / or the dedupe decision function, then asserts.
 
 const dh = require('../darkHorseEngine');
+const fixture = require('./qa_banned_strings');
 
 // ── locked banned-wording list per the Dark Horse rule ──────────
 // `\btrigger\b` is on the broader CLAUDE.md user-surface ban list and
 // MUST stay in this sweep. The DH digest builder used to leak it via
-// "Promotion trigger:" / "Invalidation trigger:" row labels.
+// "Promotion trigger:" / "Invalidation trigger:" row labels. The
+// centralised qa_banned_strings fixture (G1) is the source of truth;
+// the per-test list below is kept as a fast inline subset.
 const BANNED = [
   /\bCorey(?:\s+Clone)?\b/,
   /\bSpidey\b/,
@@ -339,12 +342,16 @@ console.log('\n[T8] Watch-echo prune drops entries older than TTL');
 // FOMO sanitiser (defence in depth — even if a template drifts
 // and includes a banned token, the sanitiser strips it).
 // ============================================================
-console.log('\n[T9] FOMO sanitiser strips banned tokens injected into a payload');
+console.log('\n[T9] FOMO sanitiser strips banned tokens — SILENT (no marker leaks to user)');
 {
   const fomo = require('../darkHorseFomoControl');
   const dirty = { content: 'Wait for confirmed structure. Full ATLAS confirmation path remains: Corey → Spidey → Jane. This is not a trade alert.' };
   const cleaned = fomo.sanitize(dirty);
   ok('replaced=true', cleaned.replaced === true);
+  // May 2026 hardening: NO redaction marker is allowed on the user
+  // surface. The sanitiser now strips silently and audit-logs to console.
+  ok('content does NOT contain [REDACTED-FOMO]', !/\[REDACTED-FOMO\]/.test(cleaned.content));
+  ok('content does NOT contain any [REDACTED-...] marker', !/\[REDACTED-[A-Z-]*\]/.test(cleaned.content));
   ok('Corey stripped', !/\bCorey\b/.test(cleaned.content));
   ok('Spidey stripped', !/\bSpidey\b/.test(cleaned.content));
   ok('Jane stripped', !/\bJane\b/.test(cleaned.content));
@@ -352,6 +359,8 @@ console.log('\n[T9] FOMO sanitiser strips banned tokens injected into a payload'
   ok('trade alert stripped', !/\btrade\s+alert\b/i.test(cleaned.content));
   ok('bare confirmed structure stripped',
      !/\bconfirmed\s+structure\b(?!\s+(?:break\s+)?(?:above|below|at)\b)/i.test(cleaned.content));
+  // Whitespace must not blow up either.
+  ok('no double-space runs after strip', !/  +/.test(cleaned.content), JSON.stringify(cleaned.content));
   // A level-aware "confirmed structure break above X" must survive.
   const allowed = fomo.sanitize({ content: 'Look for a confirmed structure break above 184.20 on 1D.' });
   ok('"confirmed structure break above N" preserved',
@@ -453,6 +462,42 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
     // Sweep rendered prose for any rogue "trigger" word leftover.
     ok('no bare "trigger" anywhere in digest text',
        !/\btrigger\b/i.test(c), c);
+
+    // Global banned-string fixture (G1) over the v1.1 digest body.
+    try {
+      fixture.assertClean(c, 'T10 v1.1 digest — global fixture');
+      ok('global banned-string fixture clean', true);
+    } catch (e) {
+      ok('global banned-string fixture clean', false, e.message);
+    }
+
+    // ── T11 — Global banned-string sweep over a freshly-built WATCH
+    //  payload (both reliable and fallback shapes). Belt-and-braces.
+    {
+      const htf = makeBullishHtf(40, 180);
+      const enriched = dh.enrichWatchCandidate(
+        { symbol: 'AMD', score: 8, direction: 'Bullish', summary: 'x', reasons: [] },
+        htf, htf
+      );
+      const reliable = dh.buildDHPayload(enriched);
+      const fallbackEnriched = dh.enrichWatchCandidate(
+        { symbol: 'TSLA', score: 8, direction: 'Bullish', summary: 'x', reasons: [] },
+        makeFlatHtf(10), []
+      );
+      const fallback = dh.buildDHPayload(fallbackEnriched);
+      try {
+        fixture.assertClean(reliable.content, 'T11 WATCH reliable shape — global fixture');
+        ok('global banned-string fixture clean over WATCH reliable shape', true);
+      } catch (e) {
+        ok('global banned-string fixture clean over WATCH reliable shape', false, e.message);
+      }
+      try {
+        fixture.assertClean(fallback.content, 'T11 WATCH fallback shape — global fixture');
+        ok('global banned-string fixture clean over WATCH fallback shape', true);
+      } catch (e) {
+        ok('global banned-string fixture clean over WATCH fallback shape', false, e.message);
+      }
+    }
 
     console.log(`\n==========================`);
     console.log(`Passed: ${passed}   Failed: ${failed}`);

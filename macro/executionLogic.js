@@ -67,10 +67,10 @@ function build(input) {
 
   // Macro override rows
   if (ctx?.vix?.level === 'High' || ctx?.vix?.level === 'Extreme') {
-    lines.push(`| IF VIX regime is High / Extreme | THEN halve position size and tighten stops |`);
+    lines.push(`| IF the market fear / volatility gauge (VIX) regime is High or Extreme | THEN halve position size and tighten stops |`);
   }
   if (ctx?.dxy?.bias === 'Bullish' && (input.symbol || '').endsWith('USD')) {
-    lines.push(`| IF the USD bias is Bullish AND the pair quotes vs USD | THEN bias entries with the USD direction unless structure clearly disagrees |`);
+    lines.push(`| IF the US Dollar Index (DXY) bias is bullish AND the pair quotes against the US dollar | THEN bias entries with the dollar direction unless structure clearly disagrees |`);
   }
 
   return lines.join('\n');

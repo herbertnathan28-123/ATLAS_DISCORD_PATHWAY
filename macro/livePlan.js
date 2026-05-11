@@ -60,12 +60,15 @@ function build(input) {
   lines.push('### Live Plan');
   lines.push('**Direction (plain):** ' + directionPlain(corey, spidey));
   if (!hasEntry) {
+    // Neutral state — collapse the eight "Not identified yet" rows into
+    // a single hero sentence per the May 2026 hardening spec. The user
+    // does not need to see the same placeholder repeated for entry,
+    // extended entry, exit, stop, extended stop, and invalidation when
+    // the read is "stand aside". The Price Table section still carries
+    // the structured table for traders who want it; this block stays
+    // tight and human.
     lines.push('**ANALYSED TARGETS:** NO VALID BUY OR SELL TARGET IDENTIFIED');
-    lines.push('**Entry Point:** Not identified yet');
-    lines.push('**Exit Point:** Not identified yet');
-    lines.push('**Set Stop Loss:** Not identified yet');
-    lines.push('**Extended Stop Loss:** Not identified yet');
-    lines.push('**Invalidation:** Not defined until entry structure forms');
+    lines.push('**Levels:** Stand aside. ' + (symbol || 'this instrument') + ' does not currently have a reliable buy or sell setup. ATLAS needs a clean body close beyond a meaningful structure level, or a pullback into a control area followed by a clean reaction candle, before publishing entry, exit, and stop-loss levels.');
   } else {
     lines.push('**Entry Point:** ' + formatLevel(structure.entry, structure.entryExtended));
     lines.push('**Set Stop Loss:** ' + (structure?.stopLoss != null ? formatLevel(structure.stopLoss, structure.stopLossExtended) : 'Not identified yet'));
@@ -78,9 +81,14 @@ function build(input) {
   if (structure?.cancellation?.length) lines.push('**Cancellation Conditions:** ' + structure.cancellation.join('; '));
   lines.push('**Event Risk:** ' + (evOverride.label || 'no high-impact event in active window'));
   lines.push('**What Needs to Happen Next:** ' + nextStep(action, evOverride));
-  if (darkHorse) {
+  // Wider momentum signal — translate the Dark Horse scoring vocabulary
+  // into plain English so the macro v3 surface stays free of engine
+  // shorthand like "Dark Horse flag" / "HH/HL sequence" / raw x/10 score.
+  // Score < 5 → omit entirely; the line adds noise at low conviction.
+  const dhLine = describeDarkHorseFlag(darkHorse);
+  if (dhLine) {
     lines.push('');
-    lines.push(`*Dark Horse flag:* ${darkHorse.score}/10 ${darkHorse.direction || 'Neutral'} — ${darkHorse.summary || 'composite threshold met'}`);
+    lines.push(dhLine);
   }
 
   // §5 Final Assessment merged INSIDE Trade Status.
@@ -285,6 +293,22 @@ function planValidityWindow(structure) {
   const awst = pad(a.getUTCHours()) + ':' + pad(a.getUTCMinutes()) + ' AWST';
   return 'Valid until ' + utc + ' / ' + awst + ', or earlier if buyer/seller control changes before then.';
 }
+// Translate the Dark Horse engine flag into plain English. Returns null
+// when the score is too low to be worth surfacing, or when the input is
+// missing/malformed. Never leaks engine vocabulary (no "Dark Horse flag",
+// no "HH/HL", no raw x/10 strings, no internal direction enums).
+function describeDarkHorseFlag(dh) {
+  if (!dh || dh.score == null) return null;
+  const score = Number(dh.score) || 0;
+  if (score < 5) return null;
+  const dir = String(dh.direction || '').toLowerCase();
+  const arrow = dir.startsWith('bull') ? 'upside' : dir.startsWith('bear') ? 'downside' : 'directional';
+  if (score >= 8) {
+    return `*Wider momentum signal:* a separate ATLAS scan has flagged sustained ${arrow} pressure on this symbol. Still pending the structure confirmation listed above before any entry plan publishes here.`;
+  }
+  return `*Wider momentum signal:* developing ${arrow} pressure observed on a separate ATLAS scan; not yet at the level that would qualify as a watch candidate.`;
+}
+
 function probabilityModel(corey, spidey) {
   // Composite-driven probabilities; deliberately conservative so close
   // splits (<5pp) trigger the "no edge" note per spec Part 4.

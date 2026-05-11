@@ -30,6 +30,8 @@ if (typeof buildMacroV3 !== 'function'){
   process.exit(2);
 }
 
+// Centralised banned fixture from scripts/qa_banned_strings.js (G1).
+const sharedFixture = require('./qa_banned_strings');
 const BANNED = [
   /\btrigger\b/i,
   /\bauthoris(?:ed|e)\b/i,
@@ -49,7 +51,26 @@ const BANNED = [
   /\bcorey clone\b/i,
   /(?<![a-z])corey(?![a-z])/i,
   /(?<![a-z])spidey(?![a-z])/i,
-  /(?<![a-z])jane(?![a-z])/i
+  /(?<![a-z])jane(?![a-z])/i,
+  // May 2026 hardening additions
+  /\[REDACTED-FOMO\]/,
+  /\[REDACTED-[A-Z-]*\]/,
+  /\[object Object\]/,
+  /\bDXY\s*:\s*DXY\b/,
+  /\bVIX\s*:\s*VIX\b/,
+  /\bDark Horse flag:/,
+  /\bHH\/HL\b/,
+  /\bUUP proxy\b/i,
+  /\bVXX proxy\b/i,
+  /\b10Y-2Y\b/,
+  /\bdirectionanjhl\b/i,
+  // Bare macro-driver abbreviations outside the layman parenthesised form.
+  /(?<!\()\bDXY\b(?!\))/,
+  /(?<!\()\bVIX\b(?!\))/,
+  /(?<!\()\bUS10Y\b(?!\))/,
+  /(?<!\()\bUS2Y\b(?!\))/,
+  /(?<!\()\bUUP\b(?!\))/,
+  /(?<!\()\bVXX\b(?!\))/,
 ];
 
 const SCENARIOS = {
@@ -123,6 +144,23 @@ const SCENARIOS = {
       intel: 'EVENT — high impact — 1.5h from now'
     },
     fmp: { available: false }
+  },
+  // May 2026 hardening — Dark Horse signal must NOT leak its engine
+  // shorthand into the macro v3 body. Verifies the livePlan.js B5 fix
+  // (Dark Horse flag → plain English translation) plus neutral-state
+  // collapse (no >1 "Not identified yet" rows).
+  dark_horse_active_neutral: {
+    symbol: 'EURUSD',
+    ctx: {
+      status: 'live',
+      dxy:    { score: 0,    bias: 'Neutral' },
+      vix:    { score: 0,    level: 'Calm' },
+      yield:  { score: 0,    regime: 'Normal' }
+    },
+    structure: null,
+    calendar: { snapshot: { events: [] }, intel: null },
+    fmp: { available: false },
+    darkHorse: { symbol: 'EURUSD', score: 8, direction: 'Bullish', summary: 'Strong bullish structure with HH/HL sequence confirmed' }
   }
 };
 
@@ -155,6 +193,24 @@ const SCENARIOS = {
       totalHits += hits.length;
     } else {
       console.log('[MACRO-QA] scenario=' + name + ' clean — ' + text.length + ' chars');
+    }
+
+    // Centralised G1 fixture (defence in depth — keeps the source of
+    // truth in one place even as the inline BANNED list grows).
+    const sharedHits = sharedFixture.scan(text);
+    if (sharedHits.length){
+      console.error('[MACRO-QA] scenario=' + name + ' SHARED-FIXTURE HITS=' + sharedHits.length);
+      for (const h of sharedHits.slice(0, 8)){
+        console.error('  - "' + h.match + '" (rule: ' + h.name + ')');
+      }
+      totalHits += sharedHits.length;
+    }
+
+    // Neutral-state collapse — at most one "Not identified yet" row.
+    const notIdentifiedCount = (text.match(/Not identified yet/g) || []).length;
+    if (notIdentifiedCount > 1){
+      console.error('[MACRO-QA] scenario=' + name + ' NEUTRAL-STATE FAIL — found ' + notIdentifiedCount + ' "Not identified yet" rows; expected ≤ 1.');
+      totalHits++;
     }
   }
   if (totalHits){

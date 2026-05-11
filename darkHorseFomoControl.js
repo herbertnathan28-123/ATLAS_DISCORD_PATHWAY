@@ -228,8 +228,16 @@ function buildMovementDigestPayload(volatility, internalResults) {
 
 // ============================================================
 // SANITIZE — defensive last-mile gate.
-// Replaces any banned phrase with [REDACTED-FOMO] and logs.
-// Returns { content, foundBanned: [string], replaced: bool }.
+//
+// May 2026 hardening: the user surface MUST NEVER carry a redaction
+// marker. Earlier versions replaced banned tokens with the literal
+// `[REDACTED-FOMO]`, which leaked to MARKET_INTEL as
+// `[REDACTED-FOMO] read`. The replacement is now an empty string with
+// adjacent-whitespace collapse, and the full strike list is logged to
+// console (operator-only) so regressions remain visible without
+// surfacing dev-shaped markers to Discord.
+//
+// Returns { content, foundBanned: [string], replaced: bool, stripped: bool }.
 // ============================================================
 function sanitize(payload) {
   const original = (payload && payload.content) || '';
@@ -239,16 +247,33 @@ function sanitize(payload) {
   for (const { name, pattern } of BANNED_PATTERNS) {
     if (pattern.test(content)) {
       foundBanned.push(name);
-      content = content.replace(new RegExp(pattern.source, pattern.flags + (pattern.flags.includes('g') ? '' : 'g')), '[REDACTED-FOMO]');
+      content = content.replace(
+        new RegExp(pattern.source, pattern.flags + (pattern.flags.includes('g') ? '' : 'g')),
+        ''
+      );
     }
   }
 
+  // Collapse the whitespace gaps left behind by the empty-string strip
+  // so the user surface stays readable. Trim trailing whitespace on
+  // each line and collapse 3+ blank lines into 2.
   if (foundBanned.length) {
+    content = content
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]+([·:,.!?])/g, '$1');
     const ts = new Date().toISOString();
-    console.warn(`[${ts}] [FOMO-GUARD] banned phrases stripped: ${foundBanned.join(',')}`);
+    console.warn(`[${ts}] [FOMO-GUARD] banned phrases stripped (silent): ${foundBanned.join(',')}`);
+    console.warn(`[${ts}] [FOMO-GUARD] original chunk follows (operator audit only — never sent to Discord):\n${original}`);
   }
 
-  return Object.assign({}, payload, { content, foundBanned, replaced: foundBanned.length > 0 });
+  return Object.assign({}, payload, {
+    content,
+    foundBanned,
+    replaced: foundBanned.length > 0,
+    stripped: foundBanned.length > 0,
+  });
 }
 
 // ============================================================

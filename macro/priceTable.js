@@ -20,26 +20,27 @@ function build(input) {
   const lines = ['## PRICE TABLE — ANALYSED TARGETS — ' + (symbol || '')];
   lines.push('');
 
+  // Neutral state — collapse the seven "Not identified yet" rows into a
+  // single hero block per the May 2026 hardening spec. Repetition was
+  // burying the actual read in placeholder noise. Reference levels
+  // remain so traders still see the orientation band.
   if (entry == null) {
     lines.push('**NO VALID BUY OR SELL TARGET IDENTIFIED**');
     lines.push('');
-    lines.push('Buyers and sellers are not yet on a confirmed path. ATLAS has not identified a valid buy or sell target on this symbol yet.');
+    lines.push('Stand aside. ' + (symbol || 'This instrument') + ' does not currently have a reliable buy or sell setup. ATLAS needs a clean body close beyond a meaningful structure level, or a pullback into a control area followed by a clean reaction candle, before publishing entry, exit, and stop-loss levels.');
+    lines.push('');
+  } else {
+    lines.push('| Row | Level | Note |');
+    lines.push('|---|---|---|');
+    lines.push(row('ENTRY POINT',           entry,       'primary entry — execute on confirmation here'));
+    lines.push(row('ENTRY EXTENDED',        entryExt,    entryExt == null ? 'wider primary-zone fill if price retraces deeper' : 'wider entry zone for deeper retraces'));
+    lines.push(row('EXIT POINT',            target,      target == null ? 'Not identified yet' : 'where the primary plan books the read'));
+    lines.push(row('TREND',                 trend,       trend == null ? 'No directional read yet' : 'current trend frame on the primary timeframe'));
+    lines.push(row('SET STOP LOSS',         stopLoss,    stopLoss == null ? 'Not identified yet' : 'primary protection — closes here on the primary TF invalidate the read'));
+    lines.push(row('EXTENDED STOP LOSS',    stopLossExt, stopLossExt == null ? (stopLoss == null ? 'Not identified yet' : 'wider alternative protection for higher-noise sessions') : 'wider alternative protection'));
+    lines.push('| **SELECT ONE STOP LOSS ONLY** | — | use ONE stop, not both. Holding both at once is conflicting risk and will be rejected. |');
     lines.push('');
   }
-
-  lines.push('| Row | Level | Note |');
-  lines.push('|---|---|---|');
-  lines.push(row('ENTRY POINT',           entry,       entry == null ? 'Not identified yet' : 'primary entry — pull the trigger here'));
-  lines.push(row('ENTRY EXTENDED',        entryExt,    entryExt == null ? (entry == null ? 'Not identified yet' : 'wider primary-zone fill if price retraces deeper') : 'wider entry zone for deeper retraces'));
-  lines.push(row('EXIT POINT',            target,      target == null ? 'Not identified yet' : 'where the primary plan books the read'));
-  lines.push(row('TREND',                 trend,       trend == null ? 'No directional read yet' : 'current trend frame on the primary timeframe'));
-  if (entry == null) {
-    lines.push('| **NEUTRAL MARKET — NO BUY OR SELL TARGET** | Buyers and sellers balanced | ATLAS must publish a reliable buyer or seller control level before any level can be treated as a buy or sell. |');
-  }
-  lines.push(row('SET STOP LOSS',         stopLoss,    stopLoss == null ? 'Not identified yet' : 'primary protection — closes here on the primary TF invalidate the read'));
-  lines.push(row('EXTENDED STOP LOSS',    stopLossExt, stopLossExt == null ? (stopLoss == null ? 'Not identified yet' : 'wider alternative protection for higher-noise sessions') : 'wider alternative protection'));
-  lines.push('| **SELECT ONE STOP LOSS ONLY** | — | use ONE stop, not both. Holding both at once is conflicting risk and will be rejected. |');
-  lines.push('');
 
   // Reference rows (HIGH / CURRENT / LOW for orientation; NEVER labelled
   // "ENTRY" — entry only appears in the rows above).

@@ -18,6 +18,8 @@
     "qa:live-route": "ATLAS_NO_LOGIN=1 DISCORD_BOT_TOKEN=qa-stub TWELVE_DATA_API_KEY=qa-stub SYSTEM_STATE=BUILD_MODE node scripts/test_live_route_qa.js",
     "qa:discord-batch": "ATLAS_NO_LOGIN=1 DISCORD_BOT_TOKEN=qa-stub TWELVE_DATA_API_KEY=qa-stub SYSTEM_STATE=BUILD_MODE node scripts/test_discord_batch_qa.js",
     "qa:darkhorse": "node scripts/test_dark_horse_watch.js",
+    "qa:market-intel": "node scripts/test_market_intel_qa.js",
+    "qa:all": "npm run qa:macro && npm run qa:live-route && npm run qa:discord-batch && npm run qa:darkhorse && npm run qa:market-intel",
     "prebuild": "npm run doctrine:foundation"
   },
   "dependencies": {
