@@ -337,10 +337,30 @@ function buildExpandedDetail(rank, idx) {
     `Continuation window: ${r.continuationWindow}`,
     `Late-entry risk: ${r.lateEntryRisk}`,
     `Why not WATCH: ${r.whyNotWatch}`,
-    `Promotion trigger: ${r.promotionTrigger}`,
-    `Invalidation trigger: ${r.invalidationTrigger}`,
+    `Promotion criteria: ${r.promotionTrigger}`,
+    ...renderInvalidationRow(r.invalidationTrigger),
     `ATLAS state: ${r.atlasState}`,
   ].join('\n');
+}
+
+// "Invalidation level:" when the source text carries a numeric price,
+// "Invalidation condition:" + a "Reference level not published in this
+// digest yet." sub-row otherwise. The v1.1 digest currently emits prose
+// templates without numeric levels, so the condition branch is the
+// expected path; do NOT invent or paraphrase a number when none exists.
+function renderInvalidationRow(invalidationText) {
+  const text = String(invalidationText || '').trim();
+  // Detect a price-like number that is not a parenthesised timeframe
+  // such as "(5m/15m)" or "0.6%".
+  const priceLikeRe = /(?<![\d.\/(])\b\d{1,7}(?:\.\d{1,8})\b(?![%\dm\)])/;
+  const hasNumericLevel = priceLikeRe.test(text);
+  if (hasNumericLevel) {
+    return [`Invalidation level: ${text}`];
+  }
+  return [
+    `Invalidation condition: ${text}`,
+    `Reference level not published in this digest yet.`,
+  ];
 }
 
 function buildCompactDetail(rank, idx) {
@@ -377,10 +397,8 @@ function buildRankedMovementDigestPayload(ranking, volatility) {
     `**Top movers:** ${ranking.top10.length} (section caps: ${ranking.sectionCapsApplied.length ? ranking.sectionCapsApplied.join(',') : 'none'})\n\n` +
     `### Top 3 — expanded reasoning\n\n${expandedBlock}\n\n` +
     `### Candidates 4–10\n${restBlock}\n\n` +
-    `Conditions are moving, but entry quality is not confirmed. ` +
-    `Late-entry risk varies by phase per candidate. Do not chase the move. ` +
-    `Per-candidate confirmation requirements (specific timeframe, what confirms, what invalidates) are listed under each candidate above.\n\n` +
-    `${fomo.FOMO_CAUTION}`;
+    `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. ` +
+    `Do not chase — wait for the per-candidate confirmation criteria (timeframe + level) listed above before acting.`;
 
   return { content, kind: 'movement_digest_v1_1' };
 }
