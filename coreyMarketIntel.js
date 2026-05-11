@@ -143,7 +143,7 @@ function mechanismTemplate(title) {
   if (/\b(pmi|ism)\b/.test(t))
     return 'Activity surprise repositions growth/rate expectations; sub-50 prints typically pressure the home currency and support defensives.';
   if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
-    return 'Geopolitical shock triggers safe-haven rotation: DXY / CHF / JPY / XAU typically bid; equities and credit typically offered.';
+    return 'Geopolitical shock triggers safe-haven rotation: US Dollar Index (DXY) / CHF / JPY / XAU typically bid; equities and credit typically offered.';
   return 'Surprise vs forecast repositions short-term rate expectations and risk appetite; direction flows through the home currency and correlated risk assets.';
 }
 
@@ -157,7 +157,7 @@ function buildCoreyView(rawEvent) {
   if (/\b(fed|fomc|ecb|boe|boj|rba|boc|policy decision|press conference|rate decision)\b/.test(t))
     return `This is a central-bank communication event. A hawkish lean supports ${ccy}; a dovish lean pressures ${ccy}. Tone versus current market pricing matters more than the headline decision itself.`;
   if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
-    return `This is a geopolitical shock. Safe-haven rotation is the dominant mechanism: DXY / CHF / JPY / XAU typically bid, equities and credit typically offered.`;
+    return `This is a geopolitical shock. Safe-haven rotation is the dominant mechanism: US Dollar Index (DXY) / CHF / JPY / XAU typically bid, equities and credit typically offered.`;
   if (/\b(pmi|ism)\b/.test(t))
     return `This is a ${ccy} activity release. Sub-50 typically signals contraction and pressures ${ccy}; above-50 supports ${ccy} and risk indices.`;
   if (/\bretail sales\b/.test(t))
@@ -352,6 +352,44 @@ function bucketAffected(symbols) {
 }
 const BUCKET_ORDER = ['DXY','USD pairs','EUR pairs','GBP pairs','JPY crosses','AUD/NZD pairs','Metals','US indices','EU indices','Asia indices','Energy'];
 
+// ── MACRO ABBREVIATION DISPLAY MAP ──────────────────────────
+// User-facing market-intel text must NEVER surface a bare abbreviation
+// (DXY / VIX / US10Y / US2Y) without its expanded name. The rule is:
+// expanded name first, abbreviation in brackets, e.g.
+//     US Dollar Index (DXY)
+//     CBOE Volatility Index (VIX)
+//     US 10-Year Treasury Yield (US10Y)
+//     US 2-Year Treasury Yield (US2Y)
+// macroLabel(abbrev) returns the expanded form for any registered key;
+// it returns the input untouched for tickers that are already full
+// instrument names (EURUSD, USDJPY, NAS100, XAUUSD, etc.).
+const MACRO_LABELS = Object.freeze({
+  DXY:   'US Dollar Index (DXY)',
+  VIX:   'CBOE Volatility Index (VIX)',
+  US10Y: 'US 10-Year Treasury Yield (US10Y)',
+  US2Y:  'US 2-Year Treasury Yield (US2Y)',
+});
+function macroLabel(abbrev) {
+  if (!abbrev) return abbrev;
+  const key = String(abbrev).toUpperCase();
+  return MACRO_LABELS[key] || abbrev;
+}
+// Bucket-header display map. The bucket KEYS (BUCKET_ORDER) are
+// internal grouping handles; the bucket DISPLAY LABEL is what reaches
+// the user surface. "DXY" alone is a banned bare abbreviation, so the
+// DXY bucket renders its header as the expanded macro label instead.
+function bucketHeaderLabel(bucketKey) {
+  if (bucketKey === 'DXY') return MACRO_LABELS.DXY;
+  return bucketKey;
+}
+// Symbol-cell display map. Same rule for the comma-joined symbol list
+// inside each bucket row: bare DXY in the list becomes the expanded
+// label, others are left as-is (they are full instrument names like
+// EURUSD / USDJPY / NAS100).
+function symbolDisplay(sym) {
+  return macroLabel(sym);
+}
+
 // ── DRIVER + RISK-TONE INFERENCE ─────────────────────────────
 const DRIVER_PATTERNS = [
   { test: /\b(cpi|pce|inflation)\b/i,                                  label: 'inflation print',          short: 'inflation' },
@@ -417,7 +455,7 @@ function riskScoreEmoji(score) {
 // ── DAY THEME ────────────────────────────────────────────────
 function buildDayTheme(highEvents, driverLabels, primaryAffected) {
   if (!highEvents.length) {
-    return 'No scheduled high-impact catalyst today. The tape is driver-led — direction will be set by the live VIX, DXY, and yields read rather than the calendar.';
+    return 'No scheduled high-impact catalyst today. The tape is driver-led — direction will be set by the live CBOE Volatility Index (VIX), US Dollar Index (DXY), and yields read rather than the calendar.';
   }
   // Find the dominant currency by frequency
   const ccyCounts = {};
@@ -444,7 +482,7 @@ function mechanismChainFor(rawEvent) {
     ].join(' → ');
   }
   if (c.short === 'inflation') {
-    return `cause: ${ccy} inflation surprise vs forecast → expectation: rate-path repricing in the front end → market reaction: ${ccy} and yields move first → asset impact: DXY direction sets gold and US-index reaction`;
+    return `cause: ${ccy} inflation surprise vs forecast → expectation: rate-path repricing in the front end → market reaction: ${ccy} and yields move first → asset impact: US Dollar Index (DXY) direction sets gold and US-index reaction`;
   }
   if (c.short === 'labour') {
     return `cause: ${ccy} labour surprise vs forecast → expectation: central-bank reaction-function pricing → market reaction: short-end rates and ${ccy} reposition → asset impact: rate-sensitive assets (gold, indices) follow on first HTF close`;
@@ -462,7 +500,7 @@ function mechanismChainFor(rawEvent) {
     return `cause: activity reading vs 50 expansion line → expectation: growth/rate path repricing → market reaction: ${ccy} responds on directional surprise → asset impact: defensive vs cyclical rotation in equities`;
   }
   if (c.short === 'geopolitical') {
-    return `cause: geopolitical shock event → expectation: safe-haven rotation → market reaction: DXY/CHF/JPY/XAU bid → asset impact: equities and credit offered, vol indices lift`;
+    return `cause: geopolitical shock event → expectation: safe-haven rotation → market reaction: US Dollar Index (DXY)/CHF/JPY/XAU bid → asset impact: equities and credit offered, vol indices lift`;
   }
   return `cause: surprise vs forecast → expectation: short-term rate-path repricing → market reaction: ${ccy} moves first → asset impact: correlated risk follows on first HTF close`;
 }
@@ -581,7 +619,7 @@ function buildAtlasResponseWindows(highEvents) {
   if (!highEvents.length) {
     return [
       'No scheduled no-trade windows today.',
-      'Reassessment: read live VIX / DXY / yields; size only with confirmed structure.',
+      'Reassessment: read live CBOE Volatility Index (VIX) / US Dollar Index (DXY) / yields; size only with confirmed structure.',
       'Wait for liquidity sweep + 5m/15m close before treating any directional move as continuation.',
       'Pre-position only with confirmed structure already live; no blind directional bets.',
     ];
@@ -629,7 +667,7 @@ function coreyWatchingFor(rawEvent) {
   if (/\b(gdp|retail sales|pmi|ism)\b/.test(t))
     return 'whether the surprise reprices the rate path and how risk indices respond on the first close';
   if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
-    return 'safe-haven rotation depth — DXY / CHF / JPY / XAU bid alongside equity offer';
+    return 'safe-haven rotation depth — US Dollar Index (DXY) / CHF / JPY / XAU bid alongside equity offer';
   return 'the first higher-timeframe close after the print and whether structure forms either side';
 }
 
@@ -660,18 +698,26 @@ function buildPreEventAlertPayload(rawEvent, minutesOut) {
   lines.push('');
   lines.push(`**Affected markets**`);
   for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) lines.push(`• ${k}: ${buckets[k].slice(0, 6).join(', ')}`);
+    if (buckets[k] && buckets[k].length) {
+      const header = bucketHeaderLabel(k);
+      const cells = buckets[k].slice(0, 6).map(symbolDisplay).join(', ');
+      // Suppress redundant "Header: Header" rows (e.g. when the DXY
+      // bucket contains only the DXY ticker — the header already
+      // carries the expanded label).
+      const row = (cells === header) ? `• ${header}` : `• ${header}: ${cells}`;
+      lines.push(row);
+    }
   }
   lines.push('');
   lines.push(`**Mechanism chain**`);
   lines.push(mechanismChainFor(rawEvent));
   lines.push('');
-  lines.push(`**Corey read**`);
+  lines.push(`**Market read**`);
   lines.push(a.coreyView);
   lines.push('');
   lines.push(`**Trader guidance**`);
   lines.push(`• ${cautionByStage[stage] || cautionByStage['T-1H']}`);
-  lines.push(`• Wait for liquidity sweep + 5m/15m candle-close confirmation before treating any move as continuation.`);
+  lines.push(`• Wait for price to sweep a visible high or low, then close back in favour on the 5M or 15M chart before treating the move as continuation.`);
   lines.push(`• Trade smaller around the print; reassess once structure has formed.`);
   lines.push('');
   lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
@@ -708,18 +754,22 @@ function buildReleasedEventAlertPayload(rawEvent) {
   lines.push('');
   lines.push(`**Likely affected markets**`);
   for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) lines.push(`• ${k}: ${buckets[k].slice(0, 6).join(', ')}`);
+    if (buckets[k] && buckets[k].length) {
+      const header = bucketHeaderLabel(k);
+      const cells = buckets[k].slice(0, 6).map(symbolDisplay).join(', ');
+      lines.push((cells === header) ? `• ${header}` : `• ${header}: ${cells}`);
+    }
   }
   lines.push('');
   lines.push(`**Mechanism chain**`);
   lines.push(mechanismChainFor(rawEvent));
   lines.push('');
-  lines.push(`**Corey read**`);
+  lines.push(`**Market read**`);
   lines.push(a.coreyView);
   lines.push('');
   lines.push(`**First-reaction caution**`);
   lines.push(`• Immediate volatility is high — do not chase the first spike.`);
-  lines.push(`• Wait for liquidity sweep, rejection, and a 5m/15m candle close before treating the move as continuation.`);
+  lines.push(`• Wait for price to sweep a visible high or low, then close back in favour on the 5M or 15M chart before treating the move as continuation.`);
   lines.push(`• Reassess bias only after the first higher-timeframe close has formed.`);
   lines.push('');
   lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
@@ -854,7 +904,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
         : c.short === 'growth'    ? 'Stronger reading → home currency + indices supported. Weaker → both pressured.'
         : c.short === 'consumer demand' ? 'Strong → home currency + consumer cyclicals supported. Weak → both pressured.'
         : c.short === 'activity'  ? 'Above 50 → home currency supported. Sub-50 → home currency pressured, defensives bid.'
-        : c.short === 'geopolitical' ? 'DXY/CHF/JPY/XAU bid; equities and credit offered; vol indices lift.'
+        : c.short === 'geopolitical' ? 'US Dollar Index (DXY)/CHF/JPY/XAU bid; equities and credit offered; vol indices lift.'
         : 'Direction depends on print vs forecast.')
       : 'Direction depends on print vs forecast.';
     lines.push(`• **Main event:** ${ht}`);
@@ -863,7 +913,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
     lines.push(`• **Possible market behaviour:** ${reaction}`);
   } else {
     lines.push(`• No scheduled high-impact catalyst today.`);
-    lines.push(`• Tape is driver-led — direction set by live VIX / DXY / yields.`);
+    lines.push(`• Tape is driver-led — direction set by live CBOE Volatility Index (VIX) / US Dollar Index (DXY) / yields.`);
   }
   lines.push('');
 
@@ -901,7 +951,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
     lines.push(`**Trader note:** Stand down through the release. Re-engage only after liquidity sweep + 5m/15m confirmation. Sizing should be reduced into the print.`);
     lines.push(`**Affected:** ${affectedShort || 'unavailable'}`);
   } else {
-    lines.push(`No scheduled headline event today. Watch live VIX / DXY / yields for regime change. Mechanism: driver moves first, calendar second.`);
+    lines.push(`No scheduled headline event today. Watch live CBOE Volatility Index (VIX) / US Dollar Index (DXY) / yields for regime change. Mechanism: driver moves first, calendar second.`);
   }
   lines.push('');
 
@@ -937,7 +987,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
       lines.push(`• ${n.body}`);
     }
   } else {
-    lines.push(`No specific currency/asset narratives — driver-led tape. Watch DXY, gold, and US indices vs live VIX/yields read.`);
+    lines.push(`No specific currency/asset narratives — driver-led tape. Watch US Dollar Index (DXY), gold, and US indices vs live CBOE Volatility Index (VIX) / yields read.`);
   }
   lines.push('');
 
@@ -970,7 +1020,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
     lines.push(`• **Watching for:** ${coreyWatchingFor(next)}`);
   } else {
     lines.push(`• No high-impact event scheduled in the next 48 hours.`);
-    lines.push(`• Watching for: regime change in live drivers (VIX 20, DXY 100, 10y-2y zero).`);
+    lines.push(`• Watching for: regime change in live drivers (CBOE Volatility Index (VIX) 20, US Dollar Index (DXY) 100, 10y-2y zero).`);
   }
   lines.push('');
   lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
@@ -1115,6 +1165,17 @@ function sanitize(payload) {
   const result = fomo.sanitize(payload);
   if (result.replaced) {
     console.warn(`[${ts()}] [MARKET-INTEL-GUARD] banned phrases stripped: ${result.foundBanned.join(',')}`);
+  }
+  // Defensive: the upstream FOMO sanitiser inserts "[REDACTED-FOMO]"
+  // where it removes a banned phrase. That marker MUST NOT reach the
+  // Discord user surface for MARKET_INTEL output. Replace any
+  // remaining occurrences with a clean operator-facing fallback
+  // ("Market read pending") and log a warning so ops can grep the
+  // root-cause banned phrase from the log line above.
+  if (result.content && /\[REDACTED-FOMO\]/.test(result.content)) {
+    const count = (result.content.match(/\[REDACTED-FOMO\]/g) || []).length;
+    console.warn(`[${ts()}] [MARKET-INTEL-GUARD] stripped ${count} [REDACTED-FOMO] marker(s) from user surface — root cause banned phrase logged above`);
+    result.content = result.content.replace(/\s*\[REDACTED-FOMO\]\s*/g, ' Market read pending. ');
   }
   return result;
 }
