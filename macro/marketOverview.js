@@ -38,7 +38,12 @@ function build(input) {
   const fmpOil = fmp?.quotes?.oil?.ok ? fmp.quotes.oil.data?.[0] : null;
   const fmpAu  = fmp?.quotes?.gold?.ok ? fmp.quotes.gold.data?.[0] : null;
   if (fmpOil || fmpAu) {
-    lines.push(`**Commodities:** Crude ${fmpOil?.price != null ? '$' + fmpOil.price : 'n/a'}; gold ${fmpAu?.price != null ? '$' + fmpAu.price : 'n/a'}. Crude strength compounds inflation impulse and drags risk assets when sustained; gold strength typically rides USD weakness and rising real-yield concern. ${arrow(0.05)}⬇️`);
+    // Commodity directional bias derived from the inverse of USD strength:
+    // crude / gold tend to rise when the dollar eases and fall when it
+    // firms. dxyScore is already computed for the USD tilt paragraph; we
+    // reuse it here so the arrow tracks live data instead of the previous
+    // hard-coded `arrow(0.05)⬇️` that always rendered ⬆️⬇️.
+    lines.push(`**Commodities:** Crude ${fmpOil?.price != null ? '$' + fmpOil.price : 'n/a'}; gold ${fmpAu?.price != null ? '$' + fmpAu.price : 'n/a'}. Crude strength compounds inflation impulse and drags risk assets when sustained; gold strength typically rides USD weakness and rising real-yield concern. ${arrow(-dxyScore)}`);
     lines.push('');
   }
 
