@@ -548,6 +548,105 @@ function _dhExcerptResponse(result) {
 }
 
 // ============================================================
+// DIGEST CHUNKER — Discord-safe transport
+//
+// Discord webhook content is hard-capped at 2000 chars per POST.
+// The v1.1 movement digest can run 4–6k chars on a busy scan. We
+// chunk before sending so the digest is delivered in ordered
+// parts rather than 400'd by Discord. The split priority is:
+//   1. \n\n──\n\n   (between expanded candidates — never broken)
+//   2. \n\n         (paragraph)
+//   3. \n           (line)
+//   4. char         (last-resort hard split)
+// Each chunk is wrapped with its own labelled header so a reader
+// scrolling Discord sees Part X/Y on every message.
+//
+// The original 🐎 header in the body is stripped before chunking
+// so it isn't duplicated alongside the part label on Part 1.
+//
+// DH_CHUNK_MAX_DEFAULT is 1800 chars total (label + body) — 200
+// chars of headroom below Discord's 2000-char limit so any unicode
+// width quirks cannot push a chunk over.
+// ============================================================
+const DH_CHUNK_MAX_DEFAULT = 1800;
+const DH_CHUNK_DISCORD_HARD_LIMIT = 2000;
+const _DH_DIGEST_HEADER_RE = /^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\*[ \t]*\n+/;
+
+// Split `text` on `re`, keeping the separator attached to the
+// PRECEDING piece. Re-joining the result reproduces the input
+// exactly. Used so candidate / paragraph boundaries stay paired
+// with their content during greedy packing.
+function _dhSplitKeepSep(text, re) {
+  const out = [];
+  const flags = re.flags.includes('g') ? re.flags : re.flags + 'g';
+  const r = new RegExp(re.source, flags);
+  let lastEnd = 0;
+  let m;
+  while ((m = r.exec(text)) !== null) {
+    out.push(text.slice(lastEnd, m.index) + m[0]);
+    lastEnd = m.index + m[0].length;
+    if (m[0].length === 0) r.lastIndex++;
+  }
+  if (lastEnd < text.length) out.push(text.slice(lastEnd));
+  return out;
+}
+
+function _dhChunkDigest(content, opts) {
+  opts = opts || {};
+  const max = Number.isFinite(opts.max) && opts.max > 200
+    ? opts.max
+    : DH_CHUNK_MAX_DEFAULT;
+  const headerTemplate = opts.headerTemplate ||
+    '🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)** — Part {x}/{y}\n\n';
+
+  const body = String(content == null ? '' : content)
+    .replace(_DH_DIGEST_HEADER_RE, '');
+
+  // Budget the body under the worst-case label size so even a 99/99
+  // chunk still fits under `max`.
+  const sampleLabel = headerTemplate.replace('{x}', '99').replace('{y}', '99');
+  const bodyMax = Math.max(200, max - sampleLabel.length);
+
+  // Progressive split — candidate > paragraph > line > char.
+  const blocks = [];
+  for (const piece1 of _dhSplitKeepSep(body, /\n\n──\n\n/)) {
+    if (piece1.length <= bodyMax) { blocks.push(piece1); continue; }
+    for (const piece2 of _dhSplitKeepSep(piece1, /\n\n+/)) {
+      if (piece2.length <= bodyMax) { blocks.push(piece2); continue; }
+      for (const piece3 of _dhSplitKeepSep(piece2, /\n/)) {
+        if (piece3.length <= bodyMax) { blocks.push(piece3); continue; }
+        let rem = piece3;
+        while (rem.length > bodyMax) {
+          blocks.push(rem.slice(0, bodyMax));
+          rem = rem.slice(bodyMax);
+        }
+        if (rem.length) blocks.push(rem);
+      }
+    }
+  }
+
+  // Greedy-pack blocks into bodies of at most bodyMax chars.
+  const bodies = [];
+  let cur = '';
+  for (const b of blocks) {
+    if (cur.length === 0) { cur = b; continue; }
+    if ((cur + b).length <= bodyMax) { cur += b; continue; }
+    bodies.push(cur);
+    cur = b;
+  }
+  if (cur.length) bodies.push(cur);
+  if (bodies.length === 0) bodies.push('');
+
+  const y = bodies.length;
+  return bodies.map((b, i) => {
+    const label = headerTemplate
+      .replace('{x}', String(i + 1))
+      .replace('{y}', String(y));
+    return label + b.replace(/^[\n]+|[\n]+$/g, '');
+  });
+}
+
+// ============================================================
 // WATCH PAYLOAD HELPERS — trend age, phase, exhaustion risk,
 // confirmation/cancellation levels, next-review formatting.
 // All derived from the HTF/LTF candle arrays already fetched
@@ -1219,36 +1318,80 @@ async function runDarkHorseScan(universeOrOpts) {
         payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
       }
 
-      const contentLen = (payload.content || '').length;
-      // Movement digest is the primary delivery-verification target.
-      // wait=true asks Discord to return the message body so we can
-      // capture the message ID for end-to-end delivery proof. This
-      // is also where the 02:11:09Z / 02:40:56Z "send_result=ok but
-      // no visible Discord post" discrepancy is observable: if the
-      // payload exceeds Discord's 2000-char webhook content limit,
-      // status will be 4xx with discord_code=50035 / Form-body error.
-      dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${kind} contentLen=${contentLen} ` +
-                     `wait=true sanitized=${payload.replaced ? 'true' : 'false'}`);
-      const send = await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content }, { wait: true });
-      if (send && send.ok) {
-        _markDigestPosted({
-          set_by: 'movement_digest_send_ok',
-          reason: 'discord_2xx_ack',
-          discord_message_id: send.messageId || null,
-          status: send.status,
-          kind,
-        });
-        dhLog('INFO', `[WEBHOOK] Movement digest posted` +
-                       (payload.replaced ? ' (sanitized)' : ''));
-        dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${kind} ` +
-                       `status=${send.status} discord_msg_id=${send.messageId || 'n/a'} contentLen=${contentLen} bodyLen=${send.bodyLen} durationMs=${send.durationMs} ` +
-                       `level=${volatility.level} internal=${volatility.internalCount}`);
+      const totalContentLen = (payload.content || '').length;
+      // Stable identifier for this digest. Lets the operator group
+      // every chunk's send_result line in Render logs back to a
+      // single scan output.
+      const digestId = 'dh' + Date.now().toString(36);
+
+      // Build the ordered chunk list. The chunker preserves
+      // section/candidate boundaries and labels each chunk
+      // "Part X/Y". A digest that fits under DH_CHUNK_MAX_DEFAULT
+      // is returned as a single chunk so single-message delivery
+      // is fully backwards compatible.
+      const chunks = _dhChunkDigest(payload.content, { max: DH_CHUNK_MAX_DEFAULT });
+      const chunkCount = chunks.length;
+
+      // Preflight log — emitted BEFORE any send so the operator
+      // can see total content length + chunk count even if zero
+      // chunks reach Discord.
+      dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${kind} digest_id=${digestId} ` +
+                     `totalContentLen=${totalContentLen} chunkCount=${chunkCount} ` +
+                     `chunkMax=${DH_CHUNK_MAX_DEFAULT} wait=true ` +
+                     `sanitized=${payload.replaced ? 'true' : 'false'}`);
+
+      // Hard guard: refuse to even attempt a send if any chunk
+      // would exceed Discord's 2000-char absolute limit. Cooldown
+      // is NOT armed; the next scan retries.
+      const oversizeIdx = chunks.findIndex(c => c.length > DH_CHUNK_DISCORD_HARD_LIMIT);
+      if (oversizeIdx >= 0) {
+        dhLog('ERROR', `[WEBHOOK] Movement digest aborted — chunk ${oversizeIdx + 1}/${chunkCount} length=${chunks[oversizeIdx].length} exceeds Discord ${DH_CHUNK_DISCORD_HARD_LIMIT}-char limit. Cooldown NOT armed.`);
+        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${kind} digest_id=${digestId} part=${oversizeIdx + 1}/${chunkCount} contentLen=${chunks[oversizeIdx].length} reason=chunk_exceeds_hard_limit level=${volatility.level} internal=${volatility.internalCount}`);
       } else {
-        // Discord rejected the payload OR webhook URL unset. NOT marked
-        // posted — _lastMovementDigestAt is NOT updated, so the next
-        // scheduled scan retries instead of cooling down on a failure.
-        dhLog('ERROR', `[WEBHOOK] Movement digest NOT delivered — Discord rejected the payload`);
-        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${kind} contentLen=${contentLen} ${_dhExcerptResponse(send)} level=${volatility.level} internal=${volatility.internalCount}`);
+        // Sequential delivery. Each chunk awaits the previous
+        // result. The chain aborts on the first non-ok send so
+        // we never publish a partially delivered digest.
+        const sends = [];
+        let aborted = false;
+        let failedAt = -1;
+        for (let i = 0; i < chunkCount; i++) {
+          const partLabel = `${i + 1}/${chunkCount}`;
+          const chunkContent = chunks[i];
+          const chunkLen = chunkContent.length;
+          dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${kind} digest_id=${digestId} part=${partLabel} chunkLen=${chunkLen} wait=true`);
+          const send = await dhSendWebhook(DH_WEBHOOK_URL, { content: chunkContent }, { wait: true });
+          sends.push(send);
+          if (send && send.ok) {
+            dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${kind} digest_id=${digestId} part=${partLabel} ` +
+                           `status=${send.status} discord_msg_id=${send.messageId || 'n/a'} contentLen=${chunkLen} bodyLen=${send.bodyLen} durationMs=${send.durationMs}`);
+          } else {
+            failedAt = i;
+            aborted = true;
+            dhLog('ERROR', `[WEBHOOK] Movement digest aborted at part ${partLabel} — Discord rejected the chunk. Cooldown NOT armed.`);
+            dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${kind} digest_id=${digestId} part=${partLabel} contentLen=${chunkLen} ${_dhExcerptResponse(send)} level=${volatility.level} internal=${volatility.internalCount}`);
+            break;
+          }
+        }
+        if (!aborted) {
+          // Every chunk delivered. Anchor cooldown to the FIRST
+          // chunk's message ID so the operator can match the
+          // cooldown line back to the visible Discord post that
+          // started the digest.
+          const anchorSend = sends[0];
+          _markDigestPosted({
+            set_by: 'movement_digest_send_ok',
+            reason: chunkCount > 1
+              ? `discord_2xx_ack_chunked_${chunkCount}`
+              : 'discord_2xx_ack',
+            discord_message_id: anchorSend.messageId || null,
+            status: anchorSend.status,
+            kind,
+          });
+          dhLog('INFO', `[WEBHOOK] Movement digest posted (${chunkCount} chunk${chunkCount > 1 ? 's' : ''})` +
+                         (payload.replaced ? ' (sanitized)' : ''));
+        } else {
+          dhLog('ERROR', `[WEBHOOK] Movement digest NOT delivered — failed at chunk ${failedAt + 1}/${chunkCount}. ${failedAt} prior chunk${failedAt === 1 ? '' : 's'} were posted but the digest is incomplete.`);
+        }
       }
     } catch (e) {
       dhLog('ERROR', `[WEBHOOK] Movement digest failed: ${_dhRedactWebhook(e.message)}`);
@@ -1315,6 +1458,12 @@ module.exports = {
   dhSendWebhook,
   _dhRedactWebhook,
   _dhExcerptResponse,
+  // Transport-chunking surface — exported for the qa:dh-chunking
+  // harness. _dhChunkDigest splits a v1.1 digest into Part X/Y
+  // ordered chunks that each fit under Discord's webhook limit.
+  _dhChunkDigest,
+  DH_CHUNK_MAX_DEFAULT,
+  DH_CHUNK_DISCORD_HARD_LIMIT,
   // Cooldown provenance surface — exported for the qa:dh-cooldown
   // harness. _markDigestPosted is the SINGLE write site for the
   // movement-digest cooldown; the test hooks let the harness reset

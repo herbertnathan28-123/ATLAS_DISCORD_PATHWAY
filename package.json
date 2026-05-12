@@ -21,6 +21,7 @@
     "qa:market-intel": "node scripts/test_market_intel_qa.js",
     "qa:dh-delivery": "node scripts/test_dh_delivery_qa.js",
     "qa:dh-cooldown": "node scripts/test_dh_cooldown_qa.js",
+    "qa:dh-chunking": "node scripts/test_dh_chunking_qa.js",
     "prebuild": "npm run doctrine:foundation"
   },
   "dependencies": {
