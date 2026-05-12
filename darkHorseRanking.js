@@ -574,6 +574,57 @@ const DH_CHART_GLOSSARY = [
   '**Continuation window:** the typical number of sessions during which the read can develop, given the move phase. The session definition is asset-class-specific (NY equity days for stocks; Sydney/Tokyo/London/NY for FX/metals).',
 ].join('\n');
 
+// ── LEARNING LINKS — top-of-digest terminology row ────────────
+// Doctrine (operator directive 2026-05-12): a single compact
+// Learning Links row sits IMMEDIATELY below the digest heading,
+// before the criteria paragraph. Body text stays clean — NO inline
+// hyperlinks are scattered through paragraphs. When URLs are
+// eventually wired, they replace the plain-term entries in this
+// row only; the body never carries inline links.
+//
+// Plain-term form is the current default since per-term URL
+// routing is not yet wired (operator rule 5: do not invent fake
+// URLs). When URLs land, pass a urlMap = { 'Calm retest': 'https://…' }
+// to buildLearningLinksBlock(urlMap) and the row renders as Markdown
+// links automatically.
+const DH_LEARNING_LINKS_TERMS = [
+  'Dark Horse candidate',
+  'WATCH candidate',
+  'Higher high / higher low',
+  'Breakout',
+  'Calm retest',
+  'Invalidation',
+  'Continuation window',
+  'Session',
+  'Relative strength',
+];
+
+function buildLearningLinksBlock(urlMap) {
+  // urlMap: optional { term: 'https://…' } map. When absent or
+  // empty, every term renders plain (rule 5). When present, terms
+  // with a wired URL render as Markdown links; terms without stay
+  // plain (rule 6 — never invent a URL).
+  const map = urlMap && typeof urlMap === 'object' ? urlMap : {};
+  const rendered = DH_LEARNING_LINKS_TERMS.map(term => {
+    const url = map[term];
+    return (typeof url === 'string' && /^https?:\/\//.test(url))
+      ? `[${term}](${url})`
+      : term;
+  }).join(' · ');
+  const anyWired = DH_LEARNING_LINKS_TERMS.some(t => {
+    const u = map[t];
+    return typeof u === 'string' && /^https?:\/\//.test(u);
+  });
+  // Internal pending note when no URLs are wired — operator-only,
+  // not shown to users. The visible row is just "Learning links: …"
+  // with the term list. Definitions live in the footer glossary
+  // (and behind URLs once wired).
+  return {
+    text: `**Learning links:** ${rendered}`,
+    linkRoutingStatus: anyWired ? 'partial' : 'pending',
+  };
+}
+
 // Backwards-compat alias retained so existing test fixtures and
 // downstream consumers that pulled DH_PATTERN_GLOSSARY still resolve.
 const DH_PATTERN_GLOSSARY = DH_CHART_GLOSSARY;
@@ -818,8 +869,17 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     ? sectionBlocks.join('\n\n') + '\n\n'
     : '_No section data this scan._\n\n';
 
+  // Learning Links row — operator directive 2026-05-12: sits
+  // IMMEDIATELY under the heading, before the criteria paragraph.
+  // Plain terms until per-term URLs are wired (rule 5). Pass
+  // opts.learningLinkUrls = { 'Calm retest': 'https://…' } to enable
+  // Markdown links for specific terms. Body text MUST stay clean —
+  // no inline hyperlinks scattered through paragraphs.
+  const learningLinks = buildLearningLinksBlock(opts.learningLinkUrls);
+
   const content =
     `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
+    `${learningLinks.text}\n\n` +
     `${DH_CRITERIA_PARAGRAPH}\n\n` +
     `**State:** Monitoring only · no confirmed watch candidate this cycle.\n` +
     `**Volatility:** ${volatility ? volatility.level : 'unavailable'} · ${vixLine}\n` +
@@ -831,7 +891,7 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     `⏭️ Next review: ${nextReview}.\n` +
     `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. Wait for the per-candidate confirmation criteria (timeframe + level) listed above before acting.`;
 
-  return { content, kind: 'movement_digest_v1_1' };
+  return { content, kind: 'movement_digest_v1_1', linkRoutingStatus: learningLinks.linkRoutingStatus };
 }
 
 // ── LOG EMITTERS ─────────────────────────────────────────────
@@ -927,5 +987,10 @@ module.exports = {
   buildChartEvidenceBlock,
   visualPatternProse,
   DH_CHART_GLOSSARY,
+  // Learning Links row — doctrine correction 2026-05-12. Plain
+  // terms now; per-term URL wiring follows. Exported for the
+  // qa:dh-education harness assertions on position + content.
+  DH_LEARNING_LINKS_TERMS,
+  buildLearningLinksBlock,
   SECTION_DISPLAY_ORDER,
 };

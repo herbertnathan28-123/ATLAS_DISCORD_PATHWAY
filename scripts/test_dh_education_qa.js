@@ -273,10 +273,124 @@ console.log('\n[T9] Chunker passes on the longer education-layer digest output')
 }
 
 // ============================================================
+// T10 — Learning Links doctrine (operator directive 2026-05-12)
+//   Row sits IMMEDIATELY under heading, BEFORE criteria paragraph.
+//   Plain-term form when URL map absent (rule 5). No fake URLs
+//   (rule 6). Body text MUST stay clean — no inline hyperlinks
+//   scattered through paragraphs (rule 1, 2, 3).
+// ============================================================
+console.log('\n[T10] Learning Links row — position, content, plain-term default, clean body');
+{
+  // Use the full 8-candidate fixture from T9 so we exercise a
+  // realistic digest output, not a single-card render.
+  function daily(n, base) {
+    const out = []; let p = base;
+    const startTs = Math.floor(Date.parse('2026-05-01T00:00:00Z') / 1000);
+    for (let i = 0; i < n; i++) {
+      const o = p, c = p + 0.6, h = c + 0.4, l = o - 0.3;
+      out.push({ open: o, high: h, low: l, close: c, time: startTs + i * 86400 });
+      p = c;
+    }
+    return out;
+  }
+  function mkRow(symbol, score, direction, sectionKey) {
+    const sectionLabel = rank.SECTION_LABEL[sectionKey];
+    return Object.assign(
+      rank.enrichCandidate(
+        { symbol, score, direction, summary: 'higher-highs sequence intact', reasons: ['structure 2/2'] },
+        daily(25, score * 12 + 1),
+        6, { watchThreshold: 8 }
+      ),
+      { section: sectionKey, sectionLabel }
+    );
+  }
+  const top10 = [
+    mkRow('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS),
+    mkRow('NDX',    8, 'Bullish', rank.SECTIONS.INDICES),
+    mkRow('NVDA',   8, 'Bullish', rank.SECTIONS.EQUITIES),
+    mkRow('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES),
+  ];
+  const ranking = {
+    top10, sectionsScanned: ['fx_majors','indices','equities','commodities'],
+    sectionCapsApplied: [], allCount: 4,
+  };
+
+  // 10a — Plain-term default (URL map not provided)
+  const payloadPlain = rank.buildRankedMovementDigestPayload(ranking, { level: 'elevated', vixLevel: 'Elevated' }, { now: Date.parse('2026-05-12T04:00:00Z') });
+  const c = payloadPlain.content;
+  ok('Learning Links row present', /\*\*Learning links:\*\*/.test(c), c.slice(0, 400));
+  // Position check: between the 🐎 header and the criteria paragraph.
+  const idxHeader   = c.indexOf('🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**');
+  const idxLinks    = c.indexOf('**Learning links:**');
+  const idxCriteria = c.indexOf('**Dark Horse criteria:**');
+  ok('header found',   idxHeader   >= 0);
+  ok('links found',    idxLinks    >  0);
+  ok('criteria found', idxCriteria >  0);
+  ok('Learning Links sits BETWEEN header and criteria paragraph',
+     idxHeader < idxLinks && idxLinks < idxCriteria,
+     { idxHeader, idxLinks, idxCriteria });
+  // Content: all 9 user-specified terms present in the row.
+  for (const term of rank.DH_LEARNING_LINKS_TERMS) {
+    ok('learning row carries term "' + term + '"',
+       c.includes(term),
+       { sample: c.slice(idxLinks, idxLinks + 400) });
+  }
+  ok('plain-term default — no Markdown link syntax in the row when URL map absent',
+     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(c.slice(idxLinks, idxLinks + 400)),
+     'a [text](url) pattern appears in the Learning Links row');
+  ok('linkRoutingStatus reported as pending',
+     payloadPlain.linkRoutingStatus === 'pending');
+
+  // 10b — Body text stays clean: no INLINE markdown hyperlinks
+  // scattered through the paragraph text below the Learning Links
+  // row. We sample everything between the criteria paragraph and
+  // the footer glossary and assert zero [text](http…) patterns.
+  const idxGlossary = c.indexOf('### Glossary');
+  ok('glossary anchor found',  idxGlossary > idxCriteria);
+  const body = c.slice(idxCriteria, idxGlossary);
+  ok('no inline [text](url) patterns in body paragraphs',
+     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(body),
+     'an inline link appears in the body');
+
+  // 10c — partial-URL form: rule 4 says use Markdown links only when
+  // URLs exist; rule 6 says do not invent fakes. Pass a partial
+  // urlMap and confirm only the keyed terms get linkified.
+  const payloadPartial = rank.buildRankedMovementDigestPayload(
+    ranking,
+    { level: 'elevated', vixLevel: 'Elevated' },
+    {
+      now: Date.parse('2026-05-12T04:00:00Z'),
+      learningLinkUrls: { 'Calm retest': 'https://example.com/calm-retest' },
+    }
+  );
+  ok('partial-URL form linkifies only the wired term',
+     /\[Calm retest\]\(https:\/\/example\.com\/calm-retest\)/.test(payloadPartial.content),
+     payloadPartial.content.slice(payloadPartial.content.indexOf('**Learning links:**'), payloadPartial.content.indexOf('**Learning links:**') + 400));
+  ok('partial-URL form leaves un-wired terms plain (no fake URLs)',
+     // "Breakout" is in the term list but no URL was provided →
+     // must render as plain text, not "[Breakout](…)".
+     /·\s*Breakout\s*·/.test(payloadPartial.content)
+     && !/\[Breakout\]\(https?/.test(payloadPartial.content),
+     'Breakout was either linkified with a fake URL or stripped');
+  ok('partial-URL form reports linkRoutingStatus = partial',
+     payloadPartial.linkRoutingStatus === 'partial');
+
+  // 10d — buildLearningLinksBlock unit checks (URL routing edge cases)
+  const blockEmpty = rank.buildLearningLinksBlock();
+  ok('empty call returns plain-term row',
+     /\*\*Learning links:\*\* Dark Horse candidate · WATCH candidate · /.test(blockEmpty.text));
+  const blockFake = rank.buildLearningLinksBlock({ 'Calm retest': 'not-a-real-url' });
+  ok('non-https URL is rejected (term stays plain)',
+     /·\s*Calm retest\s*·/.test(blockFake.text)
+     && !/\[Calm retest\]\(not-a-real-url\)/.test(blockFake.text),
+     'a non-https url was accepted');
+}
+
+// ============================================================
 // summary
 // ============================================================
 console.log('\n==========================');
 console.log('Passed: ' + passed + '   Failed: ' + failed);
 if (failed > 0) process.exit(1);
-console.log('[DH-EDUCATION-QA] PASS — chart-evidence anchors + glossary + visual pattern + asset-class continuation wording in place; honest pending fallback when data absent; chunker preserved.');
+console.log('[DH-EDUCATION-QA] PASS — chart-evidence anchors + glossary + visual pattern + asset-class continuation wording in place; honest pending fallback when data absent; chunker preserved; Learning Links row in position with clean body.');
 process.exit(0);
