@@ -387,10 +387,221 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
 }
 
 // ============================================================
+// T11 — Live-leak regression guard (operator directive 2026-05-12)
+//   The post-deploy live Discord output flagged a specific list
+//   of wording leaks. This test asserts every listed phrase /
+//   substring is ABSENT from the rendered digest. Each item ties
+//   back to a specific fix in this PR.
+// ============================================================
+console.log('\n[T11] Live-leak regression guard — every named substring absent from rendered digest');
+{
+  // Build the full multi-section digest the operator sees in
+  // production. Use unavailable macroEventLink + non-numeric
+  // invalidation templates so both suppression paths fire.
+  function daily(n, base) {
+    const out = []; let p = base;
+    const t = Math.floor(Date.parse('2026-05-01T00:00:00Z')/1000);
+    for (let i=0;i<n;i++) { const o=p, c=p+0.6, h=c+0.4, l=o-0.3; out.push({open:o,high:h,low:l,close:c,time:t+i*86400}); p=c; }
+    return out;
+  }
+  function mkRow(symbol, score, dir, sec) {
+    return Object.assign(
+      rank.enrichCandidate(
+        { symbol, score, direction: dir,
+          summary: 'HH/HL structure confirmed (76% bullish bars)',
+          reasons: ['HH/HL structure confirmed','Momentum expanding'] },
+        daily(25, score * 4 + 1),
+        6, { watchThreshold: 8 }
+      ),
+      { section: sec, sectionLabel: rank.SECTION_LABEL[sec] }
+    );
+  }
+  const top10 = [
+    mkRow('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS),
+    mkRow('NDX',    8, 'Bullish', rank.SECTIONS.INDICES),
+    mkRow('NVDA',   8, 'Bullish', rank.SECTIONS.EQUITIES),
+    mkRow('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES),
+  ];
+  const ranking = {
+    top10,
+    sectionsScanned: ['fx_majors','indices','equities','commodities'],
+    sectionCapsApplied: [], allCount: 4,
+  };
+  const payload = rank.buildRankedMovementDigestPayload(
+    ranking, { level: 'elevated', vixLevel: 'Elevated' },
+    { now: Date.parse('2026-05-12T04:00:00Z') }
+  );
+  const content = payload.content;
+
+  // Operator-supplied list of live leaks (verbatim substrings the
+  // user spotted in the post-deploy Discord output).
+  const LIVE_LEAKS = [
+    // Wording leaks
+    [/\bidentify symbols\b/i,                  '"identify symbols" in criteria paragraph (operator: should be markets and instruments)'],
+    [/\bTop movers:\b/,                        '"Top movers:" label (operator: should be Displayed candidates:)'],
+    [/section caps:\s*none/i,                  '"section caps: none" filler suffix'],
+    [/because\s+(?:early|mid|late|exhaustion)\s+stage\s*·\s*score/i,
+                                               '"because <phase> · score" generic standout reason (operator: needs evidence)'],
+    // Raw jargon
+    [/\bHH\/HL\b/,                             'raw "HH/HL" abbreviation in user-facing text'],
+    [/\bLH\/LL\b/,                             'raw "LH/LL" abbreviation in user-facing text'],
+    [/\bHTF\b/,                                'raw "HTF" abbreviation in user-facing text'],
+    [/\bLTF\b/,                                'raw "LTF" abbreviation in user-facing text'],
+    [/×\s*baseline\b/,                         '"× baseline" without expanded form'],
+    [/\bsame[-\s]direction\s+higher[-\s]timeframe\s+bar\s+yet\b/i,
+                                               '"same-direction higher-timeframe bar yet" awkward phrasing'],
+    [/\bVWAP\b(?![^\(]*\))/,                   'raw "VWAP" abbreviation outside of an inline expansion'],
+    [/\bsection\s+avg\b/i,                     '"section avg" abbreviation'],
+    // Suppressions
+    [/Macro\s*\/\s*event link:\s*unavailable/i,'"Macro / event link: unavailable" filler line'],
+    [/Reference level not published\b/,        '"Reference level not published in this digest yet" filler'],
+    // Footer / advisory wording
+    [/\bbefore acting\b/i,                     'footer "before acting" wording (operator: should reassess at next review)'],
+    [/Operator can read the live chart\b/i,    '"Operator can read the live chart" instruction (operator: should say chart confirmation pending)'],
+  ];
+  for (const [re, label] of LIVE_LEAKS) {
+    const m = content.match(re);
+    ok(`leak absent — ${label}`,
+       !m,
+       m ? { hit: m[0], context: content.slice(Math.max(0, content.indexOf(m[0]) - 30), content.indexOf(m[0]) + m[0].length + 60) } : undefined);
+  }
+
+  // Positive checks — the replacement wording IS present.
+  ok('criteria paragraph uses "markets and instruments"',
+     /identify markets and instruments/.test(content));
+  ok('"Displayed candidates:" header present',
+     /\*\*Displayed candidates:\*\* \d+/.test(content));
+  ok('footer ends with "Reassess against the per-candidate confirmation criteria at the next review."',
+     /Reassess against the per-candidate confirmation criteria at the next review\./.test(content));
+  ok('chart-evidence pending note uses "Chart confirmation remains pending until 15m/5m anchor wiring is added"',
+     /Chart confirmation remains pending until 15m\/5m anchor wiring is added/.test(content));
+  ok('jargon translated: "higher highs and higher lows" appears',
+     /higher highs and higher lows/.test(content));
+  ok('jargon translated: "× the prior-bar average" appears',
+     /×\s*the prior-bar average/.test(content));
+  ok('jargon translated: "section average" appears',
+     /section average\b/.test(content));
+  // Standout reason now includes structure read + sequence detail.
+  ok('standout reason carries enriched evidence, not generic phase line',
+     /because\s+\w+\s+stage,\s*score\s+\d+\/10;\s+structure read:/.test(content));
+}
+
+// ============================================================
+// T12 — Chunk-boundary atomicity (operator directive 2026-05-12)
+//   - No Part header lands inside a fenced visual / code block.
+//   - Each visual-pattern code fence stays whole in one chunk.
+//   - Glossary heading + body stay in the same chunk.
+//   - Candidate cards keep their header with their Chart evidence
+//     where bodyMax allows.
+// ============================================================
+console.log('\n[T12] Chunk-boundary atomicity — no fence splits / glossary atomic');
+{
+  function daily(n, base) {
+    const out = []; let p = base;
+    const t = Math.floor(Date.parse('2026-05-01T00:00:00Z')/1000);
+    for (let i=0;i<n;i++) { const o=p, c=p+0.6, h=c+0.4, l=o-0.3; out.push({open:o,high:h,low:l,close:c,time:t+i*86400}); p=c; }
+    return out;
+  }
+  function mkRow(symbol, score, dir, sec) {
+    return Object.assign(
+      rank.enrichCandidate(
+        { symbol, score, direction: dir, summary: 'higher highs and higher lows', reasons: ['structure 2/2'] },
+        daily(25, score * 4 + 1),
+        6, { watchThreshold: 8 }
+      ),
+      { section: sec, sectionLabel: rank.SECTION_LABEL[sec] }
+    );
+  }
+  const top10 = [
+    mkRow('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS),
+    mkRow('GBPUSD', 7, 'Bearish', rank.SECTIONS.FX_MAJORS),
+    mkRow('NDX',    8, 'Bullish', rank.SECTIONS.INDICES),
+    mkRow('SPX',    7, 'Bullish', rank.SECTIONS.INDICES),
+    mkRow('NVDA',   8, 'Bullish', rank.SECTIONS.EQUITIES),
+    mkRow('AMD',    7, 'Bullish', rank.SECTIONS.EQUITIES),
+    mkRow('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES),
+    mkRow('WTI',    7, 'Bearish', rank.SECTIONS.COMMODITIES),
+  ];
+  const ranking = {
+    top10,
+    sectionsScanned: ['fx_majors','indices','equities','commodities'],
+    sectionCapsApplied: [], allCount: 8,
+  };
+  const payload = rank.buildRankedMovementDigestPayload(
+    ranking, { level: 'elevated', vixLevel: 'Elevated' },
+    { now: Date.parse('2026-05-12T04:00:00Z') }
+  );
+  const chunks = engine._dhChunkDigest(payload.content);
+
+  // T12a — every code fence in every chunk is matched (no split
+  // inside a ``` … ``` block).
+  const TF = String.fromCharCode(96, 96, 96); // triple-backtick literal
+  for (let i = 0; i < chunks.length; i++) {
+    const fenceCount = (chunks[i].match(new RegExp(TF, 'g')) || []).length;
+    ok('chunk ' + (i + 1) + '/' + chunks.length + ' — triple-backtick count is even (no split inside fence)',
+       fenceCount % 2 === 0,
+       { fenceCount, head: chunks[i].slice(0, 100) });
+  }
+
+  // T12b — Part header lands at the top of every chunk, never
+  // mid-fence. We verify by confirming each chunk STARTS with the
+  // `🐎 **DARK HORSE … — Part X/N\n\n` template (no ``` before it).
+  for (let i = 0; i < chunks.length; i++) {
+    const head = chunks[i].slice(0, 100);
+    ok(`chunk ${i + 1}/${chunks.length} — Part header at chunk start (not inside a fence)`,
+       /^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+\n\n/.test(chunks[i])
+       && !/```[\s\S]*?🐎 \*\*DARK HORSE/.test(chunks[i]),
+       { head });
+  }
+
+  // T12c — every visual-pattern code fence (the 5-line breakout
+  // diagram) is whole in a single chunk. We count occurrences of
+  // the diagram's signature first line ("Old high:" or "Old low:")
+  // and the matching closing ``` after it.
+  const totalDiagrams = (payload.content.match(/Old (?:high|low):\s+─/g) || []).length;
+  let diagramsWhole = 0;
+  for (const c of chunks) {
+    const m = c.match(/```\nOld (?:high|low):[\s\S]*?\n```/g) || [];
+    diagramsWhole += m.length;
+  }
+  ok(`all ${totalDiagrams} visual-pattern diagrams render whole inside a single chunk`,
+     diagramsWhole === totalDiagrams,
+     { totalDiagrams, diagramsWhole });
+
+  // T12d — glossary section stays whole: the heading and all 7
+  // entries appear in the same chunk.
+  const glossaryChunkIdx = chunks.findIndex(c => /### Glossary — chart-pattern terms used above/.test(c));
+  ok('glossary heading lives in exactly one chunk', glossaryChunkIdx >= 0);
+  if (glossaryChunkIdx >= 0) {
+    const c = chunks[glossaryChunkIdx];
+    for (const entry of [
+      '**Recent intraday high area:**',
+      '**Recent intraday low area:**',
+      '**Breakout:**',
+      '**Calm retest:**',
+      '**Retest holds:**',
+      '**Invalidation:**',
+      '**Continuation window:**',
+    ]) {
+      ok(`glossary entry "${entry}" stays in the same chunk as the heading`,
+         c.includes(entry),
+         { glossaryChunk: glossaryChunkIdx, sample: c.slice(0, 200) });
+    }
+  }
+
+  // T12e — every chunk is still within the Discord hard limit.
+  for (let i = 0; i < chunks.length; i++) {
+    ok(`chunk ${i + 1}/${chunks.length} ≤ Discord 2000-char hard limit`,
+       chunks[i].length <= engine.DH_CHUNK_DISCORD_HARD_LIMIT,
+       { len: chunks[i].length });
+  }
+}
+
+// ============================================================
 // summary
 // ============================================================
 console.log('\n==========================');
 console.log('Passed: ' + passed + '   Failed: ' + failed);
 if (failed > 0) process.exit(1);
-console.log('[DH-EDUCATION-QA] PASS — chart-evidence anchors + glossary + visual pattern + asset-class continuation wording in place; honest pending fallback when data absent; chunker preserved; Learning Links row in position with clean body.');
+console.log('[DH-EDUCATION-QA] PASS — chart-evidence anchors + glossary + visual pattern + asset-class continuation wording in place; honest pending fallback when data absent; chunker preserved; Learning Links row in position with clean body; live-leak regression guard green; chunk-boundary atomicity verified.');
 process.exit(0);

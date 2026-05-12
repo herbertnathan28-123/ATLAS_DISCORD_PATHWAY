@@ -591,6 +591,26 @@ function _dhSplitKeepSep(text, re) {
   return out;
 }
 
+// Code-fence atomicity (operator directive 2026-05-12).
+// Replace internal newlines inside ``` … ``` blocks with U+0001 so
+// the progressive splitter sees each fence as a single "line" and
+// never breaks inside the ASCII visual diagram. Restore on output.
+// Safe: U+0001 cannot appear in legitimate user-facing text.
+const _DH_CODE_FENCE_TOKEN = '';
+// `### Glossary — chart-pattern terms used above` block stays whole
+// in a single chunk so the reader sees the full definition set in
+// one place. Same token + restore mechanism as code fences.
+const _DH_GLOSSARY_BLOCK_RE = /### Glossary — chart-pattern terms used above[\s\S]*?(?=\n\n⏭️|\n\n⚠️|$)/;
+function _dhProtectCodeFences(text) {
+  return String(text).replace(/```[\s\S]*?```/g, m => m.replace(/\n/g, _DH_CODE_FENCE_TOKEN));
+}
+function _dhProtectGlossary(text) {
+  return String(text).replace(_DH_GLOSSARY_BLOCK_RE, m => m.replace(/\n/g, _DH_CODE_FENCE_TOKEN));
+}
+function _dhRestoreCodeFences(text) {
+  return String(text).replace(new RegExp(_DH_CODE_FENCE_TOKEN, 'g'), '\n');
+}
+
 function _dhChunkDigest(content, opts) {
   opts = opts || {};
   const max = Number.isFinite(opts.max) && opts.max > 200
@@ -599,8 +619,16 @@ function _dhChunkDigest(content, opts) {
   const headerTemplate = opts.headerTemplate ||
     '🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)** — Part {x}/{y}\n\n';
 
-  const body = String(content == null ? '' : content)
+  // Strip the outer header, then protect any ``` code fences from
+  // mid-block splits. The fence-token substitution preserves byte
+  // counts (one `\n` becomes one ``), so the budget math is
+  // unchanged.
+  const bodyRaw = String(content == null ? '' : content)
     .replace(_DH_DIGEST_HEADER_RE, '');
+  // Order: code-fence protection first (so any code fence INSIDE
+  // the glossary block — there is none today, but the regex is
+  // future-proof — is preserved verbatim), then glossary block.
+  const body = _dhProtectGlossary(_dhProtectCodeFences(bodyRaw));
 
   // Budget the body under the worst-case label size so even a 99/99
   // chunk still fits under `max`.
@@ -642,7 +670,10 @@ function _dhChunkDigest(content, opts) {
     const label = headerTemplate
       .replace('{x}', String(i + 1))
       .replace('{y}', String(y));
-    return label + b.replace(/^[\n]+|[\n]+$/g, '');
+    // Restore code-fence newlines on the final chunk text, then
+    // trim leading/trailing blank lines as before.
+    const restored = _dhRestoreCodeFences(b).replace(/^[\n]+|[\n]+$/g, '');
+    return label + restored;
   });
 }
 

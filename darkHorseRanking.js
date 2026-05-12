@@ -152,7 +152,7 @@ function structureConfirmTemplate(direction, section) {
     return `1H close ${above} the recent intraday ${high}; ATR-respecting retest that holds.`;
   }
   if (section === SECTIONS.EQUITIES) {
-    return `5m/15m close ${above} the recent VWAP-anchored ${high}, with retest holding above the prior session VWAP.`;
+    return `5m/15m close ${above} the recent intraday ${high}, with the retest holding ${above} the prior-session reference level.`;
   }
   return `Higher-timeframe close ${above} recent ${high} with retest that holds the level.`;
 }
@@ -537,10 +537,62 @@ function patternReferenceFor(rank) {
   return 'pattern reference unavailable';
 }
 
+// ── CHART-JARGON TRANSLATOR ─────────────────────────────────
+// Doctrine (operator directive 2026-05-12): the user-facing body
+// must NOT carry raw chart-analyst abbreviations. Engine-produced
+// reasons can name HH/HL, HTF/LTF, VWAP etc. (they're internally
+// useful); we translate them at presentation time so a Level-1
+// reader sees plain English. Internal logs / engine state stay
+// untouched.
+function _translateChartJargon(input) {
+  if (input == null) return input;
+  let s = String(input);
+  // Multi-word and abbreviation expansions. Order matters: longer
+  // patterns first so "HH/HL" is caught before isolated "HL".
+  s = s.replace(/\bHH\/HL\b/g, 'higher highs and higher lows');
+  s = s.replace(/\bLH\/LL\b/g, 'lower highs and lower lows');
+  s = s.replace(/\bHTF\b/g,    'higher timeframe');
+  s = s.replace(/\bLTF\b/g,    'lower timeframe');
+  s = s.replace(/\bVWAP\b/g,   'session volume-weighted average price (VWAP)');
+  s = s.replace(/×\s*baseline\b/g, '× the prior-bar average');
+  s = s.replace(/\bsection\s+avg\b/gi, 'section average');
+  s = s.replace(/\bsame[-\s]direction\s+higher[-\s]timeframe\s+bar\s+yet\b/gi,
+                'confirmed bar in that direction on the higher timeframe yet');
+  return s;
+}
+
+// Standout reason — operator directive 2026-05-12: enrich with
+// actual evidence, not "early stage · score · bullish". Anchor
+// to the structure read + move age + speed + recent level when
+// available so a Level-1 reader can see WHY this candidate stood
+// out, not just a generic phase label.
 function _standoutReason(s) {
   const phaseHead = plainTrendPhase(s.movePhase).split(' — ')[0];
   const dir = s.direction ? s.direction.toLowerCase() : 'neutral';
-  return `${phaseHead} · score ${s.score}/10 · ${dir} · ${s.sectionLabel}`;
+  const structureTxt = _translateChartJargon(s.structureState || '').trim();
+  const ageTxt = (s.moveAge && s.moveAge > 0)
+    ? `${dir} sequence active for ${s.moveAge} ${s.moveAge === 1 ? 'candle' : 'candles'}`
+    : `${dir} move just confirming`;
+  const speedTxt = (s.moveSpeed != null && Number.isFinite(s.moveSpeed))
+    ? `momentum ${s.moveSpeed}× the prior-bar average`
+    : null;
+  const evidenceParts = [
+    `${phaseHead}, score ${s.score}/10`,
+    structureTxt && structureTxt.length ? `structure read: ${structureTxt}` : null,
+    ageTxt,
+    speedTxt,
+    `section: ${s.sectionLabel}`,
+  ].filter(Boolean);
+  // Anchor level (if the partial-availability 1D extreme is wired)
+  // gives the reader a concrete number to look up on the chart.
+  const ev = s.evidenceAnchors;
+  if (ev && ev.availability !== 'pending') {
+    const anchor = s.direction === 'Bearish' ? ev.recentLow : ev.recentHigh;
+    if (anchor && anchor.priceText) {
+      evidenceParts.push(`recent ${s.direction === 'Bearish' ? 'low' : 'high'} reference ${anchor.priceText}`);
+    }
+  }
+  return evidenceParts.join('; ');
 }
 
 // Format the next-review timestamp. Default cadence is 15 minutes,
@@ -555,7 +607,7 @@ function nextReviewLine(nowMs, intervalMs) {
 
 // User-facing constants. Reused by the digest builder + harness.
 const DH_CRITERIA_PARAGRAPH =
-  '**Dark Horse criteria:** ATLAS FX regularly scans the global markets every 15 minutes to identify symbols showing unusually strong or improving movement, clean structure, strong momentum, or early signs of a developing trend. The list highlights candidates worth closer review at that scan time. ⭐ marks the strongest standouts from the current group.';
+  '**Dark Horse criteria:** ATLAS FX regularly scans the global markets every 15 minutes to identify markets and instruments showing unusually strong or improving movement, clean structure, strong momentum, or early signs of a developing trend. The list highlights candidates worth closer review at that scan time. ⭐ marks the strongest standouts from the current group.';
 
 // Full chart-pattern glossary (ATLAS education-layer doctrine
 // 2026-05-12). Every technical phrase used in a candidate card
@@ -682,8 +734,8 @@ function buildChartEvidenceBlock(rank) {
   // Breakout / retest / hold timestamps require 15m/5m data — staged.
   lines.push(
     '- Breakout evidence: 15m/5m intraday close timestamp pending — anchor wiring required ' +
-    'before a candle-close time can be published. Operator can read the live chart to verify ' +
-    'the candle body close against the level above.'
+    'before a candle-close time can be published. Chart confirmation remains pending ' +
+    'until 15m/5m anchor wiring is added.'
   );
   lines.push(
     '- Retest evidence: 15m/5m retest-touch timestamp pending — anchor wiring required ' +
@@ -737,10 +789,19 @@ const SECTION_DISPLAY_ORDER = [
 function buildExpandedDetail(rank, idx, isStandout) {
   const r = rank;
   const star = isStandout ? '⭐ ' : '';
-  const speedStr = r.moveSpeed != null ? `${r.moveSpeed}× baseline` : 'speed unavailable';
-  const rsStr = r.relativeStrength != null ? `${r.relativeStrength}× section avg` : 'relative strength unavailable';
+  // Translate raw chart-analyst abbreviations / jargon at the
+  // presentation layer (HH/HL → plain English, × baseline → "× the
+  // prior-bar average", section avg → "section average", etc.) so
+  // the user surface stays beginner-readable while internal engine
+  // outputs keep their concise form.
+  const speedStr = r.moveSpeed != null
+    ? _translateChartJargon(`${r.moveSpeed}× baseline`)
+    : 'speed unavailable';
+  const rsStr = r.relativeStrength != null
+    ? _translateChartJargon(`${r.relativeStrength}× section avg`)
+    : 'relative strength unavailable';
   const breakdownLine = r.scoreBreakdown && r.scoreBreakdown.length
-    ? r.scoreBreakdown.map(x => `   • ${x}`).join('\n')
+    ? r.scoreBreakdown.map(x => `   • ${_translateChartJargon(x)}`).join('\n')
     : '   • composite criteria met';
 
   // Continuation window — combine the phase-derived plain-English
@@ -751,20 +812,29 @@ function buildExpandedDetail(rank, idx, isStandout) {
   const sessionText = r.continuationSessionText || continuationWindowSessionsText(r.section);
   const continuationLine = `Continuation window: ${plainContinuationWindow(r.movePhase)} (sessions = ${sessionText})`;
 
-  return [
+  // Conditional rows — suppress "Macro / event link: unavailable"
+  // (operator directive 2026-05-12 — useless line, just noise).
+  // Surface it ONLY when a real link is wired.
+  const macroEventLine = (r.macroEventLink
+    && !/^unavailable\b/i.test(r.macroEventLink)
+    && r.macroEventLink !== '')
+    ? `Macro / event link: ${r.macroEventLink}`
+    : null;
+
+  const lines = [
     `**${star}#${idx + 1} — ${r.symbol} ${arrowFor(r.direction)}**  ·  Section: ${r.sectionLabel}${r.safeHavenOverlay ? ' · safe-haven overlay' : ''}`,
     `Direction: ${r.direction || 'neutral'}  ·  Score: ${r.score}/10`,
     `Score breakdown:\n${breakdownLine}`,
     `Move strength: ${r.moveStrength}/10  ·  Move speed: ${speedStr}`,
-    `Trend age: ${plainTrendAge(r.moveAge, r.direction)}`,
+    `Trend age: ${_translateChartJargon(plainTrendAge(r.moveAge, r.direction))}`,
     `Trend phase: ${plainTrendPhase(r.movePhase)}`,
     continuationLine,
     `Late-entry risk: ${r.lateEntryRisk}`,
     `Relative strength vs section: ${rsStr}`,
-    `Why flagged: ${r.whyFlagged}`,
-    `Macro / event link: ${r.macroEventLink}`,
-    `Structure state: ${r.structureState}`,
-    `Confirmation requirement: ${r.confirmationRequirement}`,
+    `Why flagged: ${_translateChartJargon(r.whyFlagged)}`,
+    macroEventLine,
+    `Structure state: ${_translateChartJargon(r.structureState)}`,
+    `Confirmation requirement: ${_translateChartJargon(r.confirmationRequirement)}`,
     // Chart evidence block — per-candidate price + date stamp where
     // data is wired, honest "pending" + follow-up note otherwise.
     ...buildChartEvidenceBlock(r),
@@ -775,10 +845,11 @@ function buildExpandedDetail(rank, idx, isStandout) {
     ...visualPatternProse(r.direction),
     compactVisualDiagram(r.direction),
     `Why not WATCH: ${r.whyNotWatch}`,
-    `Promotion criteria: ${r.promotionTrigger}`,
+    `Promotion criteria: ${_translateChartJargon(r.promotionTrigger)}`,
     ...renderInvalidationRow(r.invalidationTrigger),
     `ATLAS state: ${r.atlasState}`,
-  ].join('\n');
+  ];
+  return lines.filter(l => l != null).join('\n');
 }
 
 // "Invalidation level:" when the source text carries a numeric price,
@@ -787,7 +858,7 @@ function buildExpandedDetail(rank, idx, isStandout) {
 // templates without numeric levels, so the condition branch is the
 // expected path; do NOT invent or paraphrase a number when none exists.
 function renderInvalidationRow(invalidationText) {
-  const text = String(invalidationText || '').trim();
+  const text = _translateChartJargon(String(invalidationText || '').trim());
   // Detect a price-like number that is not a parenthesised timeframe
   // such as "(5m/15m)" or "0.6%".
   const priceLikeRe = /(?<![\d.\/(])\b\d{1,7}(?:\.\d{1,8})\b(?![%\dm\)])/;
@@ -795,9 +866,13 @@ function renderInvalidationRow(invalidationText) {
   if (hasNumericLevel) {
     return [`Invalidation level: ${text}`];
   }
+  // No numeric level in the source template. Operator directive
+  // 2026-05-12: suppress the "Reference level not published"
+  // sub-row entirely — the Chart evidence block above already
+  // surfaces a price-stamped invalidation level (or an honest
+  // "pending" note) so a duplicate placeholder is just noise.
   return [
     `Invalidation condition: ${text}`,
-    `Reference level not published in this digest yet.`,
   ];
 }
 
@@ -861,7 +936,15 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
 
   const capsApplied = (ranking && ranking.sectionCapsApplied && ranking.sectionCapsApplied.length)
     ? ranking.sectionCapsApplied.join(',')
-    : 'none';
+    : null;
+  // "Displayed candidates:" header — operator directive 2026-05-12.
+  // Replaces "Top movers: X (section caps: none)". The section-caps
+  // suffix is OMITTED entirely when no cap fired (no 'section caps:
+  // none' filler). When a cap did fire, the suffix surfaces it
+  // because that's actually informative.
+  const displayedCandidatesLine = capsApplied
+    ? `**Displayed candidates:** ${top.length} (section caps applied to: ${capsApplied})`
+    : `**Displayed candidates:** ${top.length}`;
 
   const nextReview = nextReviewLine(opts.now, opts.intervalMs);
 
@@ -884,12 +967,12 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     `**State:** Monitoring only · no confirmed watch candidate this cycle.\n` +
     `**Volatility:** ${volatility ? volatility.level : 'unavailable'} · ${vixLine}\n` +
     `**Sections scanned:** ${sectionsLine}\n` +
-    `**Top movers:** ${top.length} (section caps: ${capsApplied})\n\n` +
+    `${displayedCandidatesLine}\n\n` +
     `### ⭐ Current standouts\n${standoutLines}\n\n` +
     sectionsBody +
     `${DH_PATTERN_GLOSSARY}\n\n` +
     `⏭️ Next review: ${nextReview}.\n` +
-    `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. Wait for the per-candidate confirmation criteria (timeframe + level) listed above before acting.`;
+    `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. Reassess against the per-candidate confirmation criteria at the next review.`;
 
   return { content, kind: 'movement_digest_v1_1', linkRoutingStatus: learningLinks.linkRoutingStatus };
 }

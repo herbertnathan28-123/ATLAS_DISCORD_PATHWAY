@@ -417,8 +417,14 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
     const lvlCount  = (c.match(/Invalidation level:/g) || []).length;
     ok('Invalidation condition: appears once per top-3 candidate',
        condCount === 3, { condCount });
-    ok('Reference level not published in this digest yet. appears once per top-3',
-       refCount === 3, { refCount });
+    // Operator directive 2026-05-12 — the "Reference level not
+    // published in this digest yet." sub-row is now SUPPRESSED.
+    // The Chart evidence block above already publishes a
+    // price-stamped invalidation level (or an honest pending
+    // note), so the duplicate placeholder is dropped from the
+    // user-facing surface.
+    ok('Reference level not published — SUPPRESSED per education-layer doctrine',
+       refCount === 0, { refCount });
     ok('Invalidation level: NOT used when no numeric price in source',
        lvlCount === 0, { lvlCount });
 
@@ -427,9 +433,12 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
     ok('digest does NOT contain the old FOMO_CAUTION trailer',
        !c.includes(fomo.FOMO_CAUTION),
        'FOMO_CAUTION found at digest tail');
+    // Operator directive 2026-05-12 — footer rewritten to ask the
+    // reader to reassess at the next review window rather than the
+    // older "wait … before acting" wording.
     ok('single advisory tail present',
        /Conditions are moving but entry quality is not confirmed/.test(c) &&
-       /Wait for the per-candidate confirmation criteria \(timeframe \+ level\) listed above before acting/.test(c), c);
+       /Reassess against the per-candidate confirmation criteria at the next review\./.test(c), c);
 
     // Numeric-level branch: feed a synthetic invalidation text that
     // includes a price. The renderer must switch to "Invalidation level:"
