@@ -673,7 +673,15 @@ function _dhChunkDigest(content, opts) {
     // Restore code-fence newlines on the final chunk text, then
     // trim leading/trailing blank lines as before.
     const restored = _dhRestoreCodeFences(b).replace(/^[\n]+|[\n]+$/g, '');
-    return label + restored;
+    // First-chunk prefix — operator directive 2026-05-12. Renders
+    // above the Part 1/N label ONCE per digest (chunk 0 only) so
+    // consecutive Dark Horse scans in the Discord channel are
+    // visually distinct. Parts 2..N never carry this block;
+    // their Part X/N label is enough to identify the continuation.
+    const firstChunkPrefix = (i === 0 && typeof opts.firstChunkPrefix === 'string' && opts.firstChunkPrefix.length)
+      ? opts.firstChunkPrefix + '\n\n'
+      : '';
+    return firstChunkPrefix + label + restored;
   });
 }
 
@@ -1372,7 +1380,14 @@ async function runDarkHorseScan(universeOrOpts) {
       // "Part X/Y". A digest that fits under DH_CHUNK_MAX_DEFAULT
       // is returned as a single chunk so single-message delivery
       // is fully backwards compatible.
-      const chunks = _dhChunkDigest(payload.content, { max: DH_CHUNK_MAX_DEFAULT });
+      const chunks = _dhChunkDigest(payload.content, {
+        max: DH_CHUNK_MAX_DEFAULT,
+        // Operator directive 2026-05-12 — pass the "NEW DARK HORSE
+        // SCAN" boundary block returned by buildRankedMovementDigestPayload
+        // through to the chunker so it renders ONCE at the top of
+        // Part 1, never on Parts 2..N.
+        firstChunkPrefix: payload.firstChunkPrefix,
+      });
       const chunkCount = chunks.length;
 
       // Preflight log — emitted BEFORE any send so the operator

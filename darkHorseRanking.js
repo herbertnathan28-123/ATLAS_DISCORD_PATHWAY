@@ -125,7 +125,7 @@ function continuationWindowFromPhase(phase) {
   if (phase === 'mid')        return 'window open — trend developing, watch for first higher-timeframe confirmation';
   if (phase === 'late')       return 'window narrowing — risk of mean reversion rising; require structure confirmation';
   if (phase === 'exhaustion') return 'window closed — late-entry risk high; do not chase';
-  return 'window unavailable';
+  return 'window reading pending';
 }
 
 // ── SECTION RELATIVE STRENGTH ────────────────────────────────
@@ -194,7 +194,7 @@ function enrichCandidate(candidate, htfCandles, sectionAvgScore, opts) {
     moveAge:         moveAge,                              // bars, 0..30
     movePhase:       movePhase,                            // early|mid|late|exhaustion
     relativeStrength: relStr,                              // capped ratio or null
-    structureState:  candidate.summary || 'unavailable',
+    structureState:  candidate.summary || 'reading pending',
     confirmationRequirement: structureConfirmTemplate(candidate.direction, section),
     invalidationTrigger:     invalidationTemplate(candidate.direction, section),
     promotionTrigger:        promotionTriggerTemplate(candidate.direction),
@@ -507,7 +507,7 @@ function plainTrendPhase(phase) {
   if (phase === 'mid')        return 'mid stage — trend developing, confirmation still required';
   if (phase === 'late')       return 'late stage — extension efficiency dropping, pullback risk rising';
   if (phase === 'exhaustion') return 'exhaustion stage — already overextended, late-entry risk high';
-  return 'phase unavailable';
+  return 'phase reading pending';
 }
 
 function plainContinuationWindow(phase) {
@@ -515,7 +515,7 @@ function plainContinuationWindow(phase) {
   if (phase === 'mid')        return 'mid-stage move; follow-through still possible, but confirmation is required before confidence improves';
   if (phase === 'late')       return 'late-stage move; upside/downside extension is becoming less efficient and pullback risk is rising';
   if (phase === 'exhaustion') return 'window closed — late-entry risk high; price is already extended versus the prior structure';
-  return 'window unavailable';
+  return 'window reading pending';
 }
 
 function patternReferenceFor(rank) {
@@ -534,7 +534,7 @@ function patternReferenceFor(rank) {
   if (phase === 'exhaustion') {
     return 'late extension → mean-reversion risk → fresh structure cycle required';
   }
-  return 'pattern reference unavailable';
+  return 'pattern reference pending';
 }
 
 // ── CHART-JARGON TRANSLATOR ─────────────────────────────────
@@ -608,6 +608,33 @@ function nextReviewLine(nowMs, intervalMs) {
 // User-facing constants. Reused by the digest builder + harness.
 const DH_CRITERIA_PARAGRAPH =
   '**Dark Horse criteria:** ATLAS FX regularly scans the global markets every 15 minutes to identify markets and instruments showing unusually strong or improving movement, clean structure, strong momentum, or early signs of a developing trend. The list highlights candidates worth closer review at that scan time. ⭐ marks the strongest standouts from the current group.';
+
+// ── NEW-SCAN BOUNDARY ─────────────────────────────────────────
+// Operator directive 2026-05-12. A 4-line boundary block sits at
+// the very top of every new digest so the Discord channel reader
+// can clearly see where the previous scan ends and the next scan
+// begins. Renders on Part 1 only; the chunker's per-chunk Part
+// header (🐎 … — Part X/N) sits BELOW this boundary on Part 1
+// and replaces it on Parts 2..N.
+function _fmtScanTimeBoundary(nowMs) {
+  const t = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const pad = n => (n < 10 ? '0' : '') + n;
+  const utc = new Date(t);
+  const utcText  = `${utc.getUTCFullYear()}-${pad(utc.getUTCMonth() + 1)}-${pad(utc.getUTCDate())} ${pad(utc.getUTCHours())}:${pad(utc.getUTCMinutes())} UTC`;
+  // AWST = UTC+8, fixed offset, no DST.
+  const awst = new Date(t + 8 * 3600 * 1000);
+  const awstText = `${awst.getUTCFullYear()}-${pad(awst.getUTCMonth() + 1)}-${pad(awst.getUTCDate())} ${pad(awst.getUTCHours())}:${pad(awst.getUTCMinutes())} AWST`;
+  return { utc: utcText, awst: awstText };
+}
+function buildNewScanBoundary(nowMs) {
+  const t = _fmtScanTimeBoundary(nowMs);
+  return [
+    '━━━━━━━━━━━━━━━━━━━━',
+    '🐎 **NEW DARK HORSE SCAN**',
+    `Scan time: ${t.utc} / ${t.awst}`,
+    '━━━━━━━━━━━━━━━━━━━━',
+  ].join('\n');
+}
 
 // Full chart-pattern glossary (ATLAS education-layer doctrine
 // 2026-05-12). Every technical phrase used in a candidate card
@@ -1027,10 +1054,10 @@ function buildExpandedDetail(rank, idx, isStandout) {
   // outputs keep their concise form.
   const speedStr = r.moveSpeed != null
     ? _translateChartJargon(`${r.moveSpeed}× baseline`)
-    : 'speed unavailable';
+    : 'speed reading pending';
   const rsStr = r.relativeStrength != null
     ? _translateChartJargon(`${r.relativeStrength}× section avg`)
-    : 'relative strength unavailable';
+    : 'relative strength reading pending';
   const breakdownLine = r.scoreBreakdown && r.scoreBreakdown.length
     ? r.scoreBreakdown.map(x => `   • ${_translateChartJargon(x)}`).join('\n')
     : '   • composite criteria met';
@@ -1155,15 +1182,21 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
   }
 
   // ── Header / state / footer ──
+  // Operator directive 2026-05-12 (live-evidence iteration): when
+  // no sections meet publication thresholds, SUPPRESS the
+  // "Sections scanned:" line entirely (no "unavailable" filler).
+  // The Universe Coverage block below carries the per-section
+  // accounting in that case.
   const sectionsLine = ranking.sectionsScanned && ranking.sectionsScanned.length
     ? ranking.sectionsScanned.map(s => SECTION_LABEL[s] || s).join(' · ')
-    : 'unavailable';
+    : null;
 
-  // Layman-first VIX wording — Dark Horse-local until the shared
-  // macro labels helper lands.
+  // Layman-first VIX wording. Operator directive 2026-05-12:
+  // bare "unavailable" is banned from the user-facing surface —
+  // use "reading pending" so the absence reads as intentional.
   const vixLine = volatility && volatility.vixLevel
     ? `market fear / volatility gauge (VIX) is ${String(volatility.vixLevel).toLowerCase()}`
-    : 'market fear / volatility gauge (VIX) unavailable';
+    : 'market fear / volatility gauge (VIX) reading pending';
 
   const capsApplied = (ranking && ranking.sectionCapsApplied && ranking.sectionCapsApplied.length)
     ? ranking.sectionCapsApplied.join(',')
@@ -1228,13 +1261,35 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     ? ''
     : sectionsBody;
 
+  // Operator directive 2026-05-12 (live-evidence iteration): the
+  // 4-line "NEW DARK HORSE SCAN" boundary must render ABOVE the
+  // per-chunk Part X/Y header on Part 1 only. We emit it as a
+  // separate `firstChunkPrefix` field so the chunker can splice
+  // it in front of chunk 0's Part label. Keeping it OUT of the
+  // body means the chunker's existing header strip + Part-label
+  // injection logic stays clean.
+  const firstChunkPrefix = buildNewScanBoundary(opts.now);
+
+  // Volatility level fallback — "unavailable" is banned from
+  // user-facing output. Use "reading pending" instead so the
+  // missing reading reads as intentional.
+  const volatilityLevel = (volatility && volatility.level)
+    ? volatility.level
+    : 'reading pending';
+
+  // Conditionally render the Sections-scanned line — suppress
+  // entirely when sectionsLine is null per the operator directive.
+  const sectionsLineRendered = sectionsLine
+    ? `**Sections scanned:** ${sectionsLine}\n`
+    : '';
+
   const content =
     `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
     `${learningLinks.text}\n\n` +
     `${DH_CRITERIA_PARAGRAPH}\n\n` +
     `**State:** Monitoring only · no confirmed watch candidate this cycle.\n` +
-    `**Volatility:** ${volatility ? volatility.level : 'unavailable'} · ${vixLine}\n` +
-    `**Sections scanned:** ${sectionsLine}\n` +
+    `**Volatility:** ${volatilityLevel} · ${vixLine}\n` +
+    sectionsLineRendered +
     `${displayedCandidatesLine}\n\n` +
     renderedStandoutsBlock +
     renderedSectionsBody +
@@ -1243,7 +1298,12 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     `⏭️ Next review: ${nextReview}.\n` +
     `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. Reassess against the per-candidate confirmation criteria at the next review.`;
 
-  return { content, kind: 'movement_digest_v1_1', linkRoutingStatus: learningLinks.linkRoutingStatus };
+  return {
+    content,
+    kind: 'movement_digest_v1_1',
+    linkRoutingStatus: learningLinks.linkRoutingStatus,
+    firstChunkPrefix,  // rendered before the Part 1/N label on Part 1 only
+  };
 }
 
 // ── LOG EMITTERS ─────────────────────────────────────────────
