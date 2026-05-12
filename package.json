@@ -24,6 +24,7 @@
     "qa:dh-chunking": "node scripts/test_dh_chunking_qa.js",
     "qa:dh-radar": "node scripts/test_dh_radar_qa.js",
     "qa:wording-directives": "node scripts/test_directive_wording_qa.js",
+    "qa:dashboard-separation": "node scripts/test_dashboard_separation_qa.js",
     "prebuild": "npm run doctrine:foundation"
   },
   "dependencies": {

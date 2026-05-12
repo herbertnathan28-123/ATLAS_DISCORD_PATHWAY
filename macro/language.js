@@ -144,15 +144,20 @@ const TRANSLATE = [
   [/\bexecution map\b/gi, 'analysed targets'],
   [/\bEXECUTION MAP\b/g, 'ANALYSED TARGETS'],
   // Engine-name scrub — only on user-facing text. Internal log paths
-  // bypass scrub by passing { internal: true }.
-  [/\bCorey Clone\b/g, 'historical engine'],
-  [/\bcorey clone\b/gi, 'historical engine'],
-  [/\bCorey\b/g, 'macro engine'],
-  [/\bcorey\b/gi, 'macro engine'],
-  [/\bSpidey\b/g, 'structure engine'],
-  [/\bspidey\b/gi, 'structure engine'],
-  [/\bJane\b/g, 'ATLAS'],
-  [/\bjane\b/gi, 'ATLAS']
+  // bypass scrub by passing { internal: true }. Approved public labels
+  // (2026-05-12 dashboard surface separation lane):
+  //   Corey       → Macro context
+  //   Corey Clone → Secondary macro model
+  //   Spidey      → Market structure
+  //   Jane        → Final assessment
+  [/\bCorey Clone\b/g, 'Secondary macro model'],
+  [/\bcorey clone\b/gi, 'secondary macro model'],
+  [/\bCorey\b/g, 'Macro context'],
+  [/\bcorey\b/gi, 'macro context'],
+  [/\bSpidey\b/g, 'Market structure'],
+  [/\bspidey\b/gi, 'market structure'],
+  [/\bJane\b/g, 'Final assessment'],
+  [/\bjane\b/gi, 'final assessment']
 ];
 
 // Normalise an asset-class hint to one of: 'fx' | 'equity' | 'index' | 'commodity' | 'unknown'.

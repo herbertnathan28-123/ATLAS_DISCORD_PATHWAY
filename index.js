@@ -554,7 +554,7 @@ function buildTradeStatus(sym, jane, corey, htf, ltf) {
   if (htf.dominantBias !== BIAS.NEUTRAL && ltf.dominantBias !== BIAS.NEUTRAL && htf.dominantBias !== ltf.dominantBias) {
     whyParts.push(`Higher timeframe is ${htf.dominantBias.toLowerCase()} but lower timeframe is ${ltf.dominantBias.toLowerCase()} — the two layers disagree.`);
   }
-  if (corey.combinedBias === BIAS.NEUTRAL) whyParts.push('Corey’s macro composite is neutral — no policy or cross-asset edge to lean on.');
+  if (corey.combinedBias === BIAS.NEUTRAL) whyParts.push('The macro composite is neutral — no policy or cross-asset edge to lean on.');
   if (regime === REGIME.TRANSITION) whyParts.push('Regime is in transition — failed breaks and one-session reversals are common until structure resolves.');
   if (closeCall) whyParts.push(`Top two scenarios (${sortedPaths[0].name} ${sortedPaths[0].value}% vs ${sortedPaths[1].name} ${sortedPaths[1].value}%) are within 5 percentage points — the leading path is not strong enough to create an edge.`);
   if (jane.doNotTrade) whyParts.push(`Specific block: ${jane.doNotTradeReason || 'do-not-trade conditions are active.'}`);
@@ -593,7 +593,7 @@ function buildTradeStatus(sym, jane, corey, htf, ltf) {
     `**STRUCTURE SNAPSHOT**`,
     `Higher timeframe: ${htf.dominantBias} ${biasArrow(htf.dominantBias)} at ${pctLabel(htf.dominantConviction)} conviction.`,
     `Lower timeframe: ${ltf.dominantBias} ${biasArrow(ltf.dominantBias)} at ${pctLabel(ltf.dominantConviction)} conviction — ${jane.ltfAligned ? 'agrees with the higher timeframe' : 'disagrees with the higher timeframe, which weakens the plan'}.`,
-    `Macro (Corey): ${corey.combinedBias} ${biasArrow(corey.combinedBias)} at composite score ${fmtNum(corey.combinedScore, 2)}.`,
+    `Macro context: ${corey.combinedBias} ${biasArrow(corey.combinedBias)} at composite score ${fmtNum(corey.combinedScore, 2)}.`,
     `Regime: ${regime}. Risk environment: ${risk}.`,
     ``,
     `**WHAT TO DO**`,
@@ -973,13 +973,13 @@ function buildEventIntel(sym, corey) {
     `${meta.headline} — ${biasFormatted} for ${sym}.`,
     ``,
     `**TIMESTAMP**`,
-    `${fmtUtcShort(Date.now())} — live Corey snapshot.`,
+    `${fmtUtcShort(Date.now())} — live macro context snapshot.`,
     ``,
     `**WHAT IS HAPPENING**`,
     `${meta.summary} Live cross-asset read: ${dxyTxt}; ${vixTxt}; ${yldTxt}. The regime is currently classified as ${regime} at ${pctLabel(corey.internalMacro?.regime?.confidence || 0)} confidence; the risk environment is ${g.riskEnv}.`,
     ``,
     `**WHY IT MATTERS (AI COMMENTARY)**`,
-    `${driverLabel} is the single biggest contributor to today's macro read (composite score ${fmtNum(corey.combinedScore, 2)}). Other channels — growth data, equity breadth, real yields — are smaller and can be overridden by this driver. Expect ${sym} to track prints from ${driverLabel} more tightly than usual until the regime rotates. TrendSpider confirmation: ${corey.alignment ? 'agrees with Corey' : (corey.contradiction ? 'disagrees with Corey — treat the read as contested' : 'not available')}.`,
+    `${driverLabel} is the single biggest contributor to today's macro read (composite score ${fmtNum(corey.combinedScore, 2)}). Other channels — growth data, equity breadth, real yields — are smaller and can be overridden by this driver. Expect ${sym} to track prints from ${driverLabel} more tightly than usual until the regime rotates. TrendSpider confirmation: ${corey.alignment ? 'agrees with the macro composite' : (corey.contradiction ? 'disagrees with the macro composite — treat the read as contested' : 'not available')}.`,
     ``,
     `**MECHANISM CHAIN (HOW THIS REACHES PRICE)**`,
     `${meta.chain}`,
@@ -1635,15 +1635,15 @@ function dashboardUrl(symbol, user) {
 function buildForwardBlock(jane, sourceMissing) {
   const j = (jane && (jane.forwardExpectation || jane.forward)) || {};
   const reason = (sourceMissing && sourceMissing.missingSpidey)
-    ? 'Forward expectation withheld because the structure / trigger source (Spidey) is unavailable. Reassess after the Spidey structure packet is restored.'
+    ? 'Forward expectation paused because the market structure source is unavailable. Reassess after the market structure source is restored.'
     : (sourceMissing && sourceMissing.missingCorey)
-      ? 'Forward expectation withheld because the macro / catalyst source (Corey) is unavailable. No timing window beyond candle-close schedule can be trusted.'
-      : 'Forward expectation withheld — Jane has not synthesised the forward block for this symbol yet.';
+      ? 'Forward expectation paused because the macro context source is unavailable. No timing window beyond candle-close schedule can be trusted.'
+      : 'Forward expectation paused — the final assessment has not synthesised the forward block for this symbol yet.';
   const realValue = !!(j && (j.expectedBehaviour || j.expectedTiming || j.dailyMovementContext || j.remainingMovementAbsorption));
   return {
     expectedBehaviour:           j.expectedBehaviour           || 'Wait — no authorised directional read until lower-timeframe structure rebuilds.',
     expectedTiming:              j.expectedTiming              || 'Until structure or event resets the read; reassess on the next regime check (≤4h).',
-    dailyMovementContext:        j.dailyMovementContext        || 'Withheld — daily movement context cannot be assigned without Spidey ATR / range data.',
+    dailyMovementContext:        j.dailyMovementContext        || 'Paused — daily movement context cannot be assigned without market-structure range data.',
     remainingMovementAbsorption: j.remainingMovementAbsorption || 'Withheld — direction not assignable. Expect sideways absorption inside the current intraday range.',
     whatTraderIsWaitingFor:      j.whatTraderIsWaitingFor      || 'A confirmed BOS / CHoCH on at least the 1H, candle-close beyond the break level, and a fresh demand / supply zone created by the displacement.',
     realValue,
@@ -1660,8 +1660,8 @@ function buildForwardBlock(jane, sourceMissing) {
 function buildTriggerBlock(jane, sourceMissing) {
   const t = (jane && (jane.triggerMap || jane.triggers)) || {};
   const reason = (sourceMissing && sourceMissing.missingSpidey)
-    ? 'Trigger map withheld — Spidey structure / trigger packet unavailable. No bullish or bearish trigger can be printed safely.'
-    : 'Trigger map withheld — no qualifying structural break has formed yet on the tracked timeframes.';
+    ? 'Confirmation points paused — market structure source unavailable. No bullish or bearish confirmation point can be printed safely.'
+    : 'Confirmation points paused — no qualifying structural break has formed yet on the tracked timeframes.';
   const sideBlock = (side) => {
     const s = t[side] || null;
     if (s && (s.level || s.tf)) {
@@ -1740,12 +1740,12 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       const symU = String(symbol).toUpperCase();
       if (cacheReader && typeof cacheReader.SYMBOL_GROUP_MAP === 'object' && cacheReader.SYMBOL_GROUP_MAP[symU]) {
         // Cache is 15Y daily — honest label, not 30Y.
-        historicalStatus = 'partial: 15Y-cache';
+        historicalStatus = 'partial: historical reference cache';
       } else {
         historicalStatus = 'no-match';
       }
     } catch (_) { historicalStatus = 'unavailable'; }
-    const coreyCloneStatus = 'unavailable: not implemented';
+    const coreyCloneStatus = 'not active in this release';
 
     // Jane-status semantics — REAL engine state, never 'final' if the
     // underlying source chain is too thin to issue a real decision.
@@ -1784,7 +1784,7 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       const bear = jane?.bearishCandidate || null;
       if (bull || bear) return { bullish: bull, bearish: bear };
       const reason = sourceMissingEarly.missingSpidey
-        ? 'Candidates withheld — Spidey structure / trigger packet unavailable.'
+        ? 'Candidates paused — market structure source unavailable.'
         : 'No candidate found above conviction threshold.';
       return {
         bullish: { withheld: true, reason },
@@ -1847,7 +1847,7 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
               || (Number.isFinite(jane?.validityMinutes) ? `${jane.validityMinutes}min` : null)
               || '15min';
         case 'sourceFooter':
-          return `corey=${coreyStatus} · spidey=${spideyStatus} · historical=${historicalStatus}`;
+          return `Macro context=${coreyStatus} · Market structure=${spideyStatus} · Historical reference=${historicalStatus}`;
         case 'entry':
           return (jane?.entryZone?.mid ?? jane?.entry) || 'Pending';
         case 'stopLoss':
@@ -1908,28 +1908,38 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     const DECISION_FIELDS = SPEC_DECISION_FIELDS;
     const missingDecisionFields = absentDecisionFields;
 
+    // Final assessment status — public label only. The dashboard
+    // renders this directly; internal enum encodings (final:no_trade,
+    // withheld:source_incomplete, etc.) leak architecture and have
+    // been replaced with the approved public phrasings per the
+    // dashboard surface separation lane (2026-05-12).
     let janeStatus;
     if (!janeIsObject || janeKeys.length === 0) {
-      janeStatus = 'unavailable:no_packet';
+      janeStatus = 'final assessment unavailable';
     } else if (presentDecisionFields.length === 0) {
-      janeStatus = 'withheld:empty_decision_packet';
+      janeStatus = 'final assessment incomplete';
     } else if (coreyStatus !== 'ok' || spideyStatus === 'unavailable') {
-      janeStatus = 'withheld:source_incomplete';
+      janeStatus = 'source data incomplete — awaiting refresh';
     } else {
       const action = String(jane.actionState || jane.combinedBias || jane.permitLabel || jane.verdict || '').toUpperCase();
-      janeStatus = action.includes('TRADE CONFIRMED')   ? 'final:trade_confirmed'
-                 : action.includes('ENTRY AUTHORISED')  ? 'final:entry_authorised'  // legacy code path; advisory wording now sets ENTRY TRIGGERED
-                 : action.includes('ARMED')             ? 'final:armed'
-                 : 'final:no_trade';
+      janeStatus = action.includes('TRADE CONFIRMED')   ? 'trade confirmed'
+                 : action.includes('ENTRY AUTHORISED')  ? 'entry triggered'  // legacy code path; advisory wording now sets ENTRY TRIGGERED
+                 : action.includes('ARMED')             ? 'armed — waiting for confirmation'
+                 : 'no active trade signal';
     }
 
+    // Public-facing source labels. Internal engine names (corey, coreyClone,
+    // spidey, jane) are replaced with neutral keys per the dashboard surface
+    // separation lane (2026-05-12). The dashboard frontend should consume
+    // the neutral keys; the legacy keys are NOT included so a frontend
+    // regression can't silently leak engine names.
     const sources = {
-      marketData: 'pending',         // dashboard fills this from /twelvedata results
-      corey:      coreyStatus,
-      coreyClone: coreyCloneStatus,
-      spidey:     spideyStatus,
-      jane:       janeStatus,
-      historical: historicalStatus
+      marketData:          'pending',          // dashboard fills this from /twelvedata results
+      macroContext:        coreyStatus,
+      secondaryMacroModel: coreyCloneStatus,
+      marketStructure:     spideyStatus,
+      finalAssessment:     janeStatus,
+      historicalReference: historicalStatus
     };
 
     // sourceMissing is the same object as sourceMissingEarly (computed before
@@ -2060,24 +2070,24 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       decisionFieldsWithheld:   withheldDecisionFields,
       decisionWithheldReasons:  decisionWithheldReasons,
       withholdNotes: {
-        forwardExpectation: sourceMissing.missingSpidey ? 'Forward expectation withheld because the structure / trigger source (Spidey) is unavailable. Reassess after Spidey structure packet is restored.'
-                          : sourceMissing.missingCorey  ? 'Macro timing and catalyst context unavailable. No timing window beyond candle-close schedule can be trusted.'
+        forwardExpectation: sourceMissing.missingSpidey ? 'Forward expectation paused because the market structure source is unavailable. Reassess after the market structure source is restored.'
+                          : sourceMissing.missingCorey  ? 'Macro timing and catalyst context not available for this session. No timing window beyond candle-close schedule can be trusted.'
                           : null,
-        triggerMap:         sourceMissing.missingSpidey ? 'Trigger Map withheld — Spidey structure / trigger packet unavailable. No bullish/bearish trigger can be printed safely.'
+        triggerMap:         sourceMissing.missingSpidey ? 'Confirmation points paused — market structure source unavailable. No bullish or bearish confirmation point can be printed safely.'
                           : null,
-        historical:         sourceMissing.missingHistorical ? 'Historical unavailable / no cache match — no historical edge used.'
+        historical:         sourceMissing.missingHistorical ? 'Historical reference not available for this symbol/session — no historical edge used.'
                           : null
       }
     };
 
     // (Note: previous override that null'd packet.triggers / packet.forward
-    // when Spidey was missing has been removed — buildTriggerBlock /
-    // buildForwardBlock above already emit structured withheld payloads
-    // that carry the explicit reason. Nulling them again would erase the
-    // structured no-trade copy that the dashboard depends on.)
+    // when the market structure source was missing has been removed —
+    // buildTriggerBlock / buildForwardBlock above already emit structured
+    // withheld payloads that carry the explicit reason. Nulling them again
+    // would erase the structured no-trade copy that the dashboard depends on.)
     if (sourceMissing.missingSpidey) {
-      packet.bullishCandidate = packet.bullishCandidate || { withheld: true, reason: 'Spidey structure / trigger packet unavailable.' };
-      packet.bearishCandidate = packet.bearishCandidate || { withheld: true, reason: 'Spidey structure / trigger packet unavailable.' };
+      packet.bullishCandidate = packet.bullishCandidate || { withheld: true, reason: 'Market structure source unavailable.' };
+      packet.bearishCandidate = packet.bearishCandidate || { withheld: true, reason: 'Market structure source unavailable.' };
     }
     // Structured-payload-aware status: 'present' = real value, 'withheld'
     // = structured no-trade payload with explicit reason, 'absent' = null.
@@ -2471,7 +2481,7 @@ function logDataSource(symbol, opts = {}) {
     const symU = String(symbol).toUpperCase();
     cacheHit = !!(cacheReader && cacheReader.SYMBOL_GROUP_MAP && cacheReader.SYMBOL_GROUP_MAP[symU]);
   } catch (_e) {}
-  const historical = cacheHit ? '15Y-cache' : (eodhdOn ? 'eodhd' : 'unavailable');
+  const historical = cacheHit ? 'historical reference cache' : (eodhdOn ? 'eodhd' : 'unavailable');
 
   // OHLC coverage — if we have an ambient coverage object from this analyse
   // run, render the truthful per-resolution line. Otherwise emit a fallback
@@ -2492,7 +2502,7 @@ function logDataSource(symbol, opts = {}) {
 
   // Corey / clone tags
   const coreyTag      = opts.corey      || 'eligible';
-  const coreyCloneTag = opts.coreyClone || 'unavailable: not implemented';
+  const coreyCloneTag = opts.coreyClone || 'not active in this release';
   const janeTag       = opts.jane       || 'pending';
   spideyTag           = spideyTag       || 'pending';
 
