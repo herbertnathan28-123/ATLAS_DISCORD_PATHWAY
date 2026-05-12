@@ -454,6 +454,44 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
     ok('no bare "trigger" anywhere in digest text',
        !/\btrigger\b/i.test(c), c);
 
+    // QA-closure additions (2026-05-12) — make the two checklist items
+    // previously verified by manual rendered-body inspection enforceable
+    // by the harness itself. Both assertions run against the rendered
+    // digest body `c`, NOT against internal log keys.
+
+    // 1. No bare VIX / DXY. Allowed only when wrapped as the locked
+    //    expanded form, e.g. "market fear / volatility gauge (VIX)" or
+    //    "(DXY)" inside the parenthesised abbreviation slot. Any other
+    //    occurrence is a bare-abbreviation leak.
+    function bareAbbrevHits(text, abbrev) {
+      const re = new RegExp('\\b' + abbrev + '\\b', 'g');
+      const hits = [];
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        const before = text.charAt(m.index - 1);
+        const after  = text.charAt(m.index + abbrev.length);
+        // Allowed iff "<...>(<ABBR>)" — i.e. immediately wrapped in parens.
+        if (before === '(' && after === ')') continue;
+        const ctx = text.slice(Math.max(0, m.index - 35), m.index + abbrev.length + 35).replace(/\s+/g, ' ').trim();
+        hits.push({ abbrev, context: ctx });
+      }
+      return hits;
+    }
+    const vixBareHits = bareAbbrevHits(c, 'VIX');
+    const dxyBareHits = bareAbbrevHits(c, 'DXY');
+    ok('no bare VIX in digest body (must be wrapped, e.g. "… (VIX)")',
+       vixBareHits.length === 0,
+       vixBareHits.map(h => '"' + h.abbrev + '" near …' + h.context + '…').join(' | '));
+    ok('no bare DXY in digest body (must be wrapped, e.g. "… (DXY)")',
+       dxyBareHits.length === 0,
+       dxyBareHits.map(h => '"' + h.abbrev + '" near …' + h.context + '…').join(' | '));
+
+    // 2. No vague "wait for structure" wording. The advisory tail must
+    //    reference the per-candidate confirmation criteria (timeframe +
+    //    level) explicitly, never an undefined "wait for structure".
+    ok('no vague "wait for structure" wording in digest body',
+       !/\bwait for structure\b/i.test(c), c);
+
     console.log(`\n==========================`);
     console.log(`Passed: ${passed}   Failed: ${failed}`);
     if (failed > 0) process.exit(1);
