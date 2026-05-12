@@ -490,7 +490,7 @@ function selectStandouts(candidates, n) {
 }
 
 // ── PLAIN-ENGLISH TREND DESCRIPTIONS ─────────────────────────
-function plainTrendAge(moveAge, direction) {
+function plainTrendAge(moveAge, direction, opts) {
   const dir = direction === 'Bullish' ? 'bullish' :
               direction === 'Bearish' ? 'bearish' : 'directional';
   if (!Number.isFinite(moveAge) || moveAge <= 0) {
@@ -500,7 +500,20 @@ function plainTrendAge(moveAge, direction) {
     // another "confirmed" — producing the "no confirmed confirmed
     // bar" duplicate the operator caught. Direct plain-English form
     // here side-steps the translator.
-    return `no confirmed higher-timeframe ${dir} bar yet`;
+    //
+    // Lane 2 prototype — when a firstDetectionSnapshot is supplied
+    // (engine-side bookkeeping; opts.firstDetectionSnapshot +
+    // opts.now), append a scaffolding fragment so the fallback line
+    // carries actionable context instead of just an absence.
+    const base = `no confirmed higher-timeframe ${dir} bar yet`;
+    if (opts && opts.firstDetectionSnapshot) {
+      try {
+        const fd = require('./darkHorseFirstDetection');
+        const tail = fd.formatFirstDetectionFragment(opts.firstDetectionSnapshot, opts.now);
+        if (tail) return `${base} · ${tail}`;
+      } catch (_e) { /* presentation-only enrichment; ignore */ }
+    }
+    return base;
   }
   if (moveAge === 1) return `early move — first confirmed higher-timeframe ${dir} bar`;
   if (moveAge <= 3)  return `${dir} sequence active for ${moveAge} candles`;
@@ -637,14 +650,69 @@ function _fmtScanTimeBoundary(nowMs) {
   const awstText = `${awst.getUTCFullYear()}-${pad(awst.getUTCMonth() + 1)}-${pad(awst.getUTCDate())} ${pad(awst.getUTCHours())}:${pad(awst.getUTCMinutes())} AWST`;
   return { utc: utcText, awst: awstText };
 }
+// Scan boundary — operator directive 2026-05-12 (Lane 2 visual
+// learning prototype): replace the thin double-line boundary with a
+// stronger 🔴 red-bordered separator and add a 🆕 NEW badge in front
+// of the header. The existing 🐎 prefix + "**NEW DARK HORSE SCAN**"
+// string stays so downstream log scrapes and chunker boundary-checks
+// continue to fire.
 function buildNewScanBoundary(nowMs) {
   const t = _fmtScanTimeBoundary(nowMs);
   return [
-    '━━━━━━━━━━━━━━━━━━━━',
-    '🐎 **NEW DARK HORSE SCAN**',
+    '🔴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━🔴',
+    '🆕 🐎 **NEW DARK HORSE SCAN**',
     `Scan time: ${t.utc} / ${t.awst}`,
-    '━━━━━━━━━━━━━━━━━━━━',
+    '🔴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━🔴',
   ].join('\n');
+}
+
+// Visual-learning top-of-output links row (Lane 2 prototype). Sits
+// in firstChunkPrefix between the scan boundary and the v1.1 header
+// when any candidate in the digest set carries Bearish direction —
+// the prototype target is the bearish LH/LL route per the operator
+// brief. Pulls the link patterns from the Visual Pattern Library
+// (#63 doctrine-complete foundation) and resolves URLs via the
+// library's pluggable deep-link builder; defaults to anchor-slug
+// form when no destination is registered, which keeps the surface
+// useful even before the dashboard glossary is wired.
+function _digestHasBearish(ranking, opts) {
+  const r = (ranking && ranking.top10) || [];
+  const internal = (opts && Array.isArray(opts.internal)) ? opts.internal : [];
+  const hasInTop = r.some(c => c && c.direction === 'Bearish');
+  const hasInInternal = internal.some(c => c && c.direction === 'Bearish');
+  return hasInTop || hasInInternal;
+}
+
+function _digestHasBullish(ranking, opts) {
+  const r = (ranking && ranking.top10) || [];
+  const internal = (opts && Array.isArray(opts.internal)) ? opts.internal : [];
+  const hasInTop = r.some(c => c && c.direction === 'Bullish');
+  const hasInInternal = internal.some(c => c && c.direction === 'Bullish');
+  return hasInTop || hasInInternal;
+}
+
+function buildVisualLearningLinksRow(ranking, opts) {
+  // Lane 2 scope: prototype targets bearish LH/LL routes. We surface
+  // the LH/LL → BOS → Liquidity Sweep → Failed Retest learning path
+  // (every entry exists in the Lane 1 catalogue). When the digest
+  // carries no Bearish candidates we suppress the row entirely so
+  // monitoring-only / bullish-only scans aren't padded with an
+  // unrelated education row.
+  if (!_digestHasBearish(ranking, opts)) return '';
+  let vpl;
+  try {
+    vpl = require('./visualPatternLibrary');
+  } catch (_e) {
+    return '';
+  }
+  if (!vpl || typeof vpl.renderLearningLinksRow !== 'function') return '';
+  // The link builder is intentionally NOT registered globally here.
+  // Default builder emits `#<slug>` anchor form, which renders as a
+  // clean Discord-safe plain term once Discord strips the fragment.
+  // The dashboard / docs surface will call setDeepLinkBuilder() at
+  // boot once its URL is wired. Until then we DO surface the row
+  // (with anchor form) so the learning-path is visible immediately.
+  return vpl.renderLearningLinksRow(['lh_ll', 'bos', 'liquidity_sweep', 'failed_retest']);
 }
 
 // Full chart-pattern glossary (ATLAS education-layer doctrine
@@ -1101,7 +1169,7 @@ function buildExpandedDetail(rank, idx, isStandout) {
     `Direction: ${r.direction || 'neutral'}  ·  Score: ${r.score}/10`,
     `Score breakdown:\n${breakdownLine}`,
     `Move strength: ${r.moveStrength}/10  ·  Move speed: ${speedStr}`,
-    `Trend age: ${_translateChartJargon(plainTrendAge(r.moveAge, r.direction))}`,
+    `Trend age: ${_translateChartJargon(plainTrendAge(r.moveAge, r.direction, { firstDetectionSnapshot: r.firstDetectionSnapshot, now: r.firstDetectionNow }))}`,
     `Trend phase: ${plainTrendPhase(r.movePhase)}`,
     continuationLine,
     `Late-entry risk: ${r.lateEntryRisk}`,
@@ -1285,7 +1353,21 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
   // it in front of chunk 0's Part label. Keeping it OUT of the
   // body means the chunker's existing header strip + Part-label
   // injection logic stays clean.
-  const firstChunkPrefix = buildNewScanBoundary(opts.now);
+  //
+  // Lane 2 (operator directive 2026-05-12 — visual learning
+  // prototype): when the digest carries any Bearish candidate,
+  // append a one-line "Learn:" links row routing the reader to
+  // the bearish LH/LL learning path (LH/LL → BOS → Liquidity
+  // Sweep → Failed Retest). The row sits BETWEEN the scan
+  // boundary and the v1.1 header; chunker still places the whole
+  // block on Part 1 only. When no Bearish candidates exist the
+  // row is suppressed so monitoring-only / bullish-only scans
+  // aren't padded with an unrelated education row.
+  let firstChunkPrefix = buildNewScanBoundary(opts.now);
+  const visualLearningRow = buildVisualLearningLinksRow(ranking, opts);
+  if (visualLearningRow) {
+    firstChunkPrefix = firstChunkPrefix + '\n' + visualLearningRow;
+  }
 
   // Volatility level fallback — "unavailable" is banned from
   // user-facing output. Use "reading pending" instead so the
@@ -1446,4 +1528,12 @@ module.exports = {
   buildWaitingForBlock,
   buildUniverseCoverageBlock,
   SECTION_DISPLAY_ORDER,
+  // Lane 2 — visual learning prototype helpers. Exported for the
+  // qa:dh-visual-learning-prototype harness. buildNewScanBoundary
+  // and buildVisualLearningLinksRow are pure presentation helpers;
+  // _digestHasBearish / _digestHasBullish are simple predicates.
+  buildNewScanBoundary,
+  buildVisualLearningLinksRow,
+  _digestHasBearish,
+  _digestHasBullish,
 };

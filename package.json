@@ -29,6 +29,7 @@
     "qa:dh-pre-radar": "node scripts/test_dh_pre_radar_qa.js",
     "qa:dh-polish-mi-validator": "node scripts/test_dh_polish_mi_validator_qa.js",
     "qa:visual-pattern-library": "node scripts/test_visual_pattern_library_qa.js",
+    "qa:dh-visual-learning-prototype": "node scripts/test_dh_visual_learning_prototype_qa.js",
     "prebuild": "npm run doctrine:foundation"
   },
   "dependencies": {

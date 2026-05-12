@@ -1358,6 +1358,37 @@ async function runDarkHorseScan(universeOrOpts) {
           watchThreshold: DH_SCORE_WATCH,
         });
         rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
+        // Lane 2 (operator directive 2026-05-12 — visual learning
+        // prototype): tick the first-detection tracker for each
+        // top-10 candidate so plainTrendAge's moveAge=0 fallback can
+        // append "first detected … (Xm ago, tracked across N scan
+        // cycles)" scaffolding. Tracker is in-memory + presentation-
+        // only; it does NOT influence scoring, thresholds, scheduler,
+        // transport, or ranking order. The internal pool (Pre-Radar
+        // / Near-Miss universe) is tracked too so promoted candidates
+        // carry continuity once they cross into top-10.
+        try {
+          const fd = require('./darkHorseFirstDetection');
+          const fdNow = Date.now();
+          fd.trackMany(ranking.top10, fdNow);
+          fd.trackMany(internal, fdNow);
+          // Attach snapshot + tick-time onto each top-10 record so
+          // buildExpandedDetail can surface it from r.firstDetectionSnapshot.
+          if (Array.isArray(ranking.top10)) {
+            ranking.top10.forEach((r) => {
+              if (!r || !r.symbol || !r.direction) return;
+              const snap = fd.getSnapshot(r.symbol, r.direction);
+              if (snap) {
+                r.firstDetectionSnapshot = snap;
+                r.firstDetectionNow = fdNow;
+              }
+            });
+          }
+          // Opportunistic GC so the tracker doesn't grow unbounded.
+          fd.pruneStale(fdNow);
+        } catch (fdErr) {
+          dhLog('WARN', `[DH-FIRST-DETECTION] tracker step failed: ${fdErr.message}`);
+        }
         // Pre-Radar / Near-Miss lane (operator directive 2026-05-12).
         // The digest builder consumes the FULL scan output (internal +
         // ignored counts + universe size) so it can render the

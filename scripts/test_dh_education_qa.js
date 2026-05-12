@@ -636,12 +636,27 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
   );
   ok('payload carries firstChunkPrefix field',
      typeof payload.firstChunkPrefix === 'string' && payload.firstChunkPrefix.length > 0);
-  ok('boundary uses ━ horizontal-bar separator',
+  // Lane 2 visual-learning-prototype boundary: stronger 🔴-bordered
+  // separator + 🆕 NEW badge. The legacy "━━━" horizontal-bar string
+  // is still embedded inside the new separator so chunker boundary
+  // checks that grep for "━━━" keep firing.
+  ok('boundary uses 🔴 red-bordered separator',
+     /🔴━━━+🔴/.test(payload.firstChunkPrefix));
+  ok('boundary still carries ━ horizontal-bar embed',
      /━━━━━━━━━━━━━━━━━━━━/.test(payload.firstChunkPrefix));
-  ok('boundary header reads "NEW DARK HORSE SCAN"',
+  ok('boundary header reads "🆕 🐎 **NEW DARK HORSE SCAN**"',
+     /🆕 🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(payload.firstChunkPrefix));
+  ok('boundary header still matches legacy NEW DARK HORSE SCAN regex',
      /🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(payload.firstChunkPrefix));
   ok('boundary includes UTC + AWST timestamps',
      /Scan time: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC \/ \d{4}-\d{2}-\d{2} \d{2}:\d{2} AWST/.test(payload.firstChunkPrefix));
+  // Bearish presence (XAUUSD in this fixture) triggers the visual-
+  // learning-prototype top-of-output links row. Routes to the
+  // bearish LH/LL learning path (Lane 1 catalogue).
+  ok('Lane 2 — bearish present → visual learning links row appended',
+     /📘 Learn: /.test(payload.firstChunkPrefix));
+  ok('Lane 2 — learning row links to Lower High \/ Lower Low',
+     /\[Lower High \/ Lower Low\]\(#lh-ll\)/.test(payload.firstChunkPrefix));
 
   // Chunker pass-through: Part 1 gets the boundary, Parts 2..N do not.
   const chunks = engine._dhChunkDigest(payload.content, {
@@ -649,11 +664,18 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
     firstChunkPrefix: payload.firstChunkPrefix,
   });
   ok('chunker produces at least 1 chunk', chunks.length >= 1);
-  ok('Part 1 starts with the boundary block',
-     chunks[0].startsWith('━━━━━━━━━━━━━━━━━━━━\n🐎 **NEW DARK HORSE SCAN**'),
-     { head: chunks[0].slice(0, 120) });
-  ok('Part 1 has the v1.1 header BELOW the boundary',
-     /━━━━━━━━━━━━━━━━━━━━\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part 1\/\d+/.test(chunks[0]));
+  ok('Part 1 starts with the 🔴 boundary block',
+     chunks[0].startsWith('🔴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━🔴\n🆕 🐎 **NEW DARK HORSE SCAN**'),
+     { head: chunks[0].slice(0, 160) });
+  // Lane 2: the visual learning row sits between the boundary and
+  // the v1.1 header on bearish digests, so the v1.1 header is no
+  // longer adjacent to the boundary. We assert the v1.1 header
+  // sits BELOW the boundary (allowing for the 📘 Learn row in
+  // between).
+  ok('Part 1 has the v1.1 header BELOW the boundary + learning row',
+     /🔴━━━+🔴[\s\S]*?\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part 1\/\d+/.test(chunks[0]));
+  ok('Part 1 has the 📘 Learn row BETWEEN the boundary and the v1.1 header',
+     /🔴━━━+🔴\n📘 Learn: [\s\S]*?\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\*/.test(chunks[0]));
   for (let i = 1; i < chunks.length; i++) {
     ok(`Part ${i + 1}/${chunks.length} does NOT carry the new-scan boundary`,
        !/NEW DARK HORSE SCAN/.test(chunks[i]),
