@@ -494,9 +494,15 @@ function plainTrendAge(moveAge, direction) {
   const dir = direction === 'Bullish' ? 'bullish' :
               direction === 'Bearish' ? 'bearish' : 'directional';
   if (!Number.isFinite(moveAge) || moveAge <= 0) {
-    return 'no confirmed same-direction higher-timeframe bar yet';
+    // Direction-aware fallback (operator directive 2026-05-12 — Lane 3):
+    // the previous "no confirmed same-direction higher-timeframe bar
+    // yet" form was rewritten by _translateChartJargon to insert
+    // another "confirmed" — producing the "no confirmed confirmed
+    // bar" duplicate the operator caught. Direct plain-English form
+    // here side-steps the translator.
+    return `no confirmed higher-timeframe ${dir} bar yet`;
   }
-  if (moveAge === 1) return `early move — first confirmed same-direction ${dir} higher-timeframe bar`;
+  if (moveAge === 1) return `early move — first confirmed higher-timeframe ${dir} bar`;
   if (moveAge <= 3)  return `${dir} sequence active for ${moveAge} candles`;
   if (moveAge <= 6)  return `mature move — ${dir} sequence active for ${moveAge} candles`;
   return `extended move — ${dir} sequence active for ${moveAge} candles (late-stage)`;
@@ -556,8 +562,13 @@ function _translateChartJargon(input) {
   s = s.replace(/\bVWAP\b/g,   'session volume-weighted average price (VWAP)');
   s = s.replace(/×\s*baseline\b/g, '× the prior-bar average');
   s = s.replace(/\bsection\s+avg\b/gi, 'section average');
-  s = s.replace(/\bsame[-\s]direction\s+higher[-\s]timeframe\s+bar\s+yet\b/gi,
-                'confirmed bar in that direction on the higher timeframe yet');
+  // (Lane 3 cleanup 2026-05-12) The "same-direction higher-timeframe
+  // bar yet" → "confirmed bar in that direction on the higher
+  // timeframe yet" rule has been removed. plainTrendAge() now emits
+  // the direction-aware plain-English form directly, side-stepping
+  // the previous "no confirmed confirmed bar" duplicate that arose
+  // when the prefix "no confirmed" + the replacement's leading
+  // "confirmed" collided.
   return s;
 }
 
@@ -730,9 +741,15 @@ function buildPreRadarBlock(preRadar) {
   lines.push('_Below the publication threshold but showing early developmental signals. Not promoted — pressure visible but incomplete._');
   lines.push('');
   for (const r of preRadar) {
-    const speed = r.moveSpeed != null ? `${r.moveSpeed}× the prior-bar average` : 'speed pending';
+    // Operator directive 2026-05-12 (Lane 3): label and value were
+    // both prepended → "momentum speed pending" duplicate. Strip
+    // the redundant "speed" — the surrounding label already names
+    // the field.
+    const speed = r.moveSpeed != null ? `${r.moveSpeed}× the prior-bar average` : 'reading pending';
     const dir   = r.direction === 'Bullish' ? '↑' : r.direction === 'Bearish' ? '↓' : '→';
-    const phase = r.movePhase || 'phase pending';
+    // Same fix as the speed label above — "phase phase pending"
+    // duplicate. Strip the redundant "phase".
+    const phase = r.movePhase || 'reading pending';
     const why   = _translateChartJargon((r.summary || 'composite criteria met').toString());
     lines.push(`- **${r.symbol}** ${dir}  ·  ${r.sectionLabel}  ·  score ${r.score}/10  ·  phase ${phase}  ·  momentum ${speed}`);
     lines.push(`  Building: ${why}. Confirmation pending — one structure step away from promotion.`);

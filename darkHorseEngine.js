@@ -435,12 +435,20 @@ async function scoreInstrument(symbol) {
 
 // Build one concise summary line for output
 function buildSummaryLine(struct, mom, brk, clean, cont, direction) {
+  // Direction-aware HH/HL vs LH/LL phrasing (operator directive
+  // 2026-05-12 — Lane 3): for Bearish candidates the structure
+  // sequence is LH/LL, not HH/HL. Previously hardcoded "HH/HL
+  // sequence confirmed" regardless of direction, producing the
+  // contradictory "Strong bearish structure with HH/HL sequence
+  // confirmed" → "Strong bearish structure with higher highs and
+  // higher lows sequence confirmed" after the jargon translator.
+  const seq = direction === 'Bullish' ? 'HH/HL' : 'LH/LL';
   if (brk.score === 2 && mom.score === 2) return `Clean breakout continuation with strong momentum`;
   if (brk.score === 2 && struct.score === 2) return `Clean breakout from ${direction === 'Bullish' ? 'bullish' : 'bearish'} structure`;
   if (struct.score === 2 && cont.score === 2) return `Strong trend acceleration with sustained ${direction === 'Bullish' ? 'higher highs' : 'lower lows'}`;
   if (clean.score === 2 && mom.score >= 1) return `High-efficiency directional move with expanding momentum`;
   if (cont.score === 2) return `Multi-timeframe ${direction === 'Bullish' ? 'bullish' : 'bearish'} alignment with acceleration`;
-  if (struct.score === 2) return `Strong ${direction === 'Bullish' ? 'bullish' : 'bearish'} structure with HH/HL sequence confirmed`;
+  if (struct.score === 2) return `Strong ${direction === 'Bullish' ? 'bullish' : 'bearish'} structure with ${seq} sequence confirmed`;
   if (mom.score === 2) return `Momentum expansion — ${direction === 'Bullish' ? 'bullish' : 'bearish'} continuation developing`;
   if (brk.score >= 1) return `Breakout setup forming — ${direction === 'Bullish' ? 'bullish' : 'bearish'} continuation likely`;
   return `Composite score threshold met — ${direction === 'Bullish' ? 'bullish' : 'bearish'} trend developing`;
@@ -1367,6 +1375,40 @@ async function runDarkHorseScan(universeOrOpts) {
       } catch (rankErr) {
         dhLog('WARN', `[DH-RANKING] v1.1 build failed, falling back to v0.1: ${rankErr.message}`);
         payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
+      }
+
+      // Post-sanitisation polish (operator directive 2026-05-12 — Lane 3).
+      // fomo.sanitize replaces banned phrases with the literal
+      // marker "[REDACTED-FOMO]". The marker must never reach the
+      // user-facing surface — scrub it here, then clean up the
+      // sentence shape (orphan spaces / stray trailing commas /
+      // collapsed blank lines) so the redacted text still reads
+      // naturally.
+      if (payload && payload.content) {
+        const before = payload.content;
+        let s = payload.content;
+        // Strip the redaction markers entirely. Surrounding spacing
+        // collapses to a single space.
+        s = s.replace(/\[REDACTED-FOMO\]/g, '');
+        // Collapse triple+ blank lines that the marker removal may
+        // have left behind.
+        s = s.replace(/\n{3,}/g, '\n\n');
+        // Strip orphan trailing commas at the end of a line (the
+        // operator caught "### Heading,\n" and "paragraph,\n"
+        // patterns after sanitisation).
+        s = s.replace(/,(\s*\n)/g, '$1');
+        // Collapse repeated whitespace within a line (excluding
+        // newlines) — guards against "word  word" gaps where the
+        // marker sat between two words.
+        s = s.replace(/[ \t]{2,}/g, ' ');
+        // Tidy " ." / " ," / " ;" leftovers from marker removal.
+        s = s.replace(/\s+([.,;:])/g, '$1');
+        // Tidy trailing spaces left at end-of-line by earlier passes.
+        s = s.replace(/[ \t]+\n/g, '\n');
+        if (s !== before) {
+          dhLog('INFO', '[DH-POLISH] post-sanitisation cleanup applied (redaction-marker / trailing-comma / whitespace polish)');
+        }
+        payload.content = s;
       }
 
       const totalContentLen = (payload.content || '').length;

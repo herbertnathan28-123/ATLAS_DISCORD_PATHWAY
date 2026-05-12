@@ -1180,6 +1180,129 @@ function sanitize(payload) {
   return result;
 }
 
+// ============================================================
+// FINAL OUTBOUND PAYLOAD VALIDATOR (operator directive 2026-05-12 — Lane 3)
+//
+// Runs AFTER sanitise() / redaction has finished and BEFORE the
+// Discord webhook send. Catches the failure mode that produced the
+// observed `webhook_status_400` regression: sanitiser-driven content
+// collapse, post-redaction whitespace artefacts, oversize content,
+// empty embed fields, malformed markdown, orphan separators.
+//
+// Returns { ok, payload, diagnostics, failureReason? }.
+//   diagnostics carries the structured counters operators grep on:
+//     original_len           — content length before sanitise()
+//     sanitized_len          — content length after sanitise()
+//     final_payload_len      — content length after this validator's
+//                              cleanup pass (post-truncation if needed)
+//     embed_field_count      — number of embed fields (0 for plain
+//                              content-only payloads, which is the
+//                              shape Market Intel uses today)
+//     final_send_allowed     — true / false
+//     failure_reason         — concise tag when final_send_allowed
+//                              is false; absent on success
+//
+// Discord webhook content hard limit: 2000 chars. The validator
+// truncates to a safe cap of 1900 chars (100-char headroom) when
+// possible, then appends "…" to signal truncation rather than
+// returning a 400 from Discord. If the post-redaction content
+// collapses to fewer than 40 chars OR is empty / whitespace-only,
+// the send is blocked.
+// ============================================================
+const MARKET_INTEL_DISCORD_HARD_LIMIT = 2000;
+const MARKET_INTEL_SAFE_CAP           = 1900;
+const MARKET_INTEL_MIN_LEN            = 40;
+
+function validateMarketIntelPayload(sanitizedPayload, originalContent) {
+  // Coerce inputs defensively — never throw out of the validator.
+  const originalLen = (typeof originalContent === 'string') ? originalContent.length : 0;
+  const sanitizedContent = (sanitizedPayload && typeof sanitizedPayload.content === 'string')
+    ? sanitizedPayload.content
+    : '';
+  const sanitizedLen = sanitizedContent.length;
+
+  // Post-redaction cleanup — same family of fixes used in the Dark
+  // Horse post-sanitise polish, applied here to catch any remaining
+  // sanitisation artefacts before the wire.
+  let cleaned = sanitizedContent
+    // Stray marker — should already be stripped by sanitize() but
+    // double-check belt-and-braces.
+    .replace(/\[REDACTED-FOMO\]/g, '')
+    // Collapse triple+ blank lines.
+    .replace(/\n{3,}/g, '\n\n')
+    // Strip orphan trailing commas at end-of-line.
+    .replace(/,(\s*\n)/g, '$1')
+    // Tidy "word  word" double spaces (newlines untouched).
+    .replace(/[ \t]{2,}/g, ' ')
+    // Tidy " ." / " ," / " ;" leftovers.
+    .replace(/\s+([.,;:])/g, '$1')
+    // Collapse orphan separators like " · · " or " - - " left by
+    // mid-sentence redaction.
+    .replace(/(·|-|\|)\s*\1+/g, '$1')
+    // Tidy any trailing spaces left dangling at end-of-line by
+    // the previous passes (e.g. after a comma got stripped).
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+
+  // Embed-field count — for content-only payloads (Market Intel's
+  // current shape) this is always 0. The diagnostic is surfaced for
+  // future-proofing in case embed payloads land here later.
+  let embedFieldCount = 0;
+  if (sanitizedPayload && Array.isArray(sanitizedPayload.embeds)) {
+    for (const embed of sanitizedPayload.embeds) {
+      if (embed && Array.isArray(embed.fields)) embedFieldCount += embed.fields.length;
+    }
+  }
+
+  // Truncation: if cleaned content exceeds the safe cap, truncate
+  // to the cap minus the ellipsis room and append "…".
+  if (cleaned.length > MARKET_INTEL_SAFE_CAP) {
+    cleaned = cleaned.slice(0, MARKET_INTEL_SAFE_CAP - 1).replace(/\s+\S*$/, '') + '…';
+  }
+
+  const finalLen = cleaned.length;
+  const diagnostics = {
+    original_len:        originalLen,
+    sanitized_len:       sanitizedLen,
+    final_payload_len:   finalLen,
+    embed_field_count:   embedFieldCount,
+    final_send_allowed:  true,
+  };
+
+  // Block cases — set final_send_allowed=false + failure_reason.
+  let failureReason = null;
+  if (finalLen === 0) {
+    failureReason = 'empty_after_redaction';
+  } else if (finalLen < MARKET_INTEL_MIN_LEN && originalLen >= MARKET_INTEL_MIN_LEN) {
+    // Content collapsed below a meaningful read-length AFTER
+    // sanitisation removed most of it — likely cascade-redaction.
+    failureReason = 'content_collapsed_after_redaction';
+  } else if (finalLen > MARKET_INTEL_DISCORD_HARD_LIMIT) {
+    // Truncation above should prevent this, but guard explicitly.
+    failureReason = 'exceeds_discord_hard_limit';
+  }
+
+  if (failureReason) {
+    diagnostics.final_send_allowed = false;
+    diagnostics.failure_reason     = failureReason;
+  }
+
+  // Single structured log line — operators grep this.
+  console.log(
+    `[${ts()}] [MARKET-INTEL-VALIDATE] ` +
+    `original_len=${diagnostics.original_len} ` +
+    `sanitized_len=${diagnostics.sanitized_len} ` +
+    `final_payload_len=${diagnostics.final_payload_len} ` +
+    `embed_field_count=${diagnostics.embed_field_count} ` +
+    `final_send_allowed=${diagnostics.final_send_allowed}` +
+    (diagnostics.failure_reason ? ` failure_reason=${diagnostics.failure_reason}` : '')
+  );
+
+  // Return a new payload object so callers can ship it directly.
+  const validatedPayload = Object.assign({}, sanitizedPayload, { content: cleaned });
+  return { ok: diagnostics.final_send_allowed, payload: validatedPayload, diagnostics, failureReason };
+}
+
 function sendWebhook(url, payload) {
   return new Promise((resolve, reject) => {
     if (!url) { resolve({ skipped: true, reason: 'webhook_missing' }); return; }
@@ -1211,7 +1334,17 @@ function sendWebhook(url, payload) {
 async function dispatch(messageType, payloadObj, extra) {
   extra = extra || {};
   const webhookConfig = _webhookUrl ? 'present' : 'missing';
+  // Capture original content length BEFORE sanitise() runs so the
+  // validator can report the original→sanitised→final size trail.
+  const originalContent = (payloadObj && typeof payloadObj.content === 'string') ? payloadObj.content : '';
   const sanitized = sanitize(payloadObj);
+  // Final outbound validator (Lane 3): catches the regression where
+  // sanitisation/redaction changes the payload AFTER earlier sizing
+  // checks and Discord returns webhook_status_400. Validator emits
+  // a [MARKET-INTEL-VALIDATE] log line and either returns the
+  // cleaned payload or blocks the send with a structured reason.
+  const validation = validateMarketIntelPayload(sanitized, originalContent);
+  const validated = validation.payload;
   const eventLabel = extra.event || messageType;
   const affectedLabel = (extra.affected_symbols && extra.affected_symbols.length)
     ? extra.affected_symbols.join('|') : 'n/a';
@@ -1229,21 +1362,29 @@ async function dispatch(messageType, payloadObj, extra) {
   if (webhookConfig === 'missing') {
     log(`[COREY-MARKET-INTEL] send_result=skipped`);
     log(`[COREY-MARKET-INTEL] skipped_reason=webhook_missing`);
-    return { sent: false, reason: 'webhook_missing', payload: sanitized };
+    return { sent: false, reason: 'webhook_missing', payload: validated, diagnostics: validation.diagnostics };
+  }
+  if (!validation.ok) {
+    // Validator blocked the send — surface the structured reason
+    // so the next-scan retry has actionable diagnostics. NOT a
+    // Discord call, so no 400 from upstream.
+    log(`[COREY-MARKET-INTEL] send_result=blocked`);
+    log(`[COREY-MARKET-INTEL] skipped_reason=validator_${validation.failureReason}`);
+    return { sent: false, reason: `validator_${validation.failureReason}`, payload: validated, diagnostics: validation.diagnostics };
   }
   try {
-    const res = await sendWebhook(_webhookUrl, { content: sanitized.content });
+    const res = await sendWebhook(_webhookUrl, { content: validated.content });
     if (res && res.status >= 200 && res.status < 300) {
       log(`[COREY-MARKET-INTEL] send_result=ok`);
-      return { sent: true, status: res.status, payload: sanitized };
+      return { sent: true, status: res.status, payload: validated, diagnostics: validation.diagnostics };
     }
     log(`[COREY-MARKET-INTEL] send_result=fail`);
     log(`[COREY-MARKET-INTEL] skipped_reason=webhook_status_${res ? res.status : 'unknown'}`);
-    return { sent: false, reason: `webhook_status_${res ? res.status : 'unknown'}`, payload: sanitized };
+    return { sent: false, reason: `webhook_status_${res ? res.status : 'unknown'}`, payload: validated, diagnostics: validation.diagnostics };
   } catch (e) {
     logErr(`[COREY-MARKET-INTEL] send_result=fail`);
     logErr(`[COREY-MARKET-INTEL] skipped_reason=webhook_error:${e.message}`);
-    return { sent: false, reason: `webhook_error:${e.message}`, payload: sanitized };
+    return { sent: false, reason: `webhook_error:${e.message}`, payload: validated, diagnostics: validation.diagnostics };
   }
 }
 
@@ -1435,8 +1576,12 @@ module.exports = {
 
   // sanitiser + delivery
   sanitize,
+  validateMarketIntelPayload,
   sendWebhook,
   dispatch,
+  MARKET_INTEL_DISCORD_HARD_LIMIT,
+  MARKET_INTEL_SAFE_CAP,
+  MARKET_INTEL_MIN_LEN,
 
   // scheduler + context
   init, start, stop, tick,
