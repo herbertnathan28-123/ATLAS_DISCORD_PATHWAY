@@ -410,28 +410,102 @@ function buildSummaryLine(struct, mom, brk, clean, cont, direction) {
 // ============================================================
 // WEBHOOK DELIVERY
 // ============================================================
-function dhSendWebhook(webhookUrl, payload) {
+// ============================================================
+// WEBHOOK DELIVERY
+//
+// dhSendWebhook(webhookUrl, payload, opts?) -> Promise<{
+//   ok, status, body, bodyLen, messageId, durationMs
+// } | null>
+//
+// Resolves with a structured delivery report for every Discord
+// response — including 4xx / 5xx error bodies — so the caller can
+// log a verifiable send_result instead of treating any non-thrown
+// HTTP exchange as success. Network-layer errors (DNS, TLS,
+// connection reset, timeout) still reject().
+//
+// opts.wait — when true, append `wait=true` to the webhook URL so
+// Discord returns the message body (and message ID) on success
+// instead of 204 No Content. Required for delivery proof.
+// ============================================================
+function dhSendWebhook(webhookUrl, payload, opts) {
+  opts = opts || {};
   return new Promise((resolve, reject) => {
     if (!webhookUrl) { resolve(null); return; }
     const body = JSON.stringify(payload);
-    const url  = new URL(webhookUrl);
-    const opts = {
+    let urlStr = webhookUrl;
+    if (opts.wait) {
+      urlStr += (urlStr.indexOf('?') >= 0) ? '&wait=true' : '?wait=true';
+    }
+    const url  = new URL(urlStr);
+    const httpOpts = {
       hostname: url.hostname,
       path:     url.pathname + url.search,
       method:   'POST',
       headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'User-Agent': 'ATLAS-FX-DarkHorse/2.0' },
       timeout:  10000,
     };
-    const req = https.request(opts, res => {
+    const startedAt = Date.now();
+    const req = https.request(httpOpts, res => {
       let data = '';
       res.on('data', c => { data += c; });
-      res.on('end', () => resolve({ status: res.statusCode, body: data }));
+      res.on('end', () => {
+        const status = res.statusCode || 0;
+        const okHttp = status >= 200 && status < 300;
+        let messageId = null;
+        if (okHttp && data && data.length) {
+          // Discord returns JSON on 200 (when wait=true) containing
+          // { id, type, content, channel_id, ... }. 204 has no body.
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed && typeof parsed.id === 'string' && /^\d+$/.test(parsed.id)) {
+              messageId = parsed.id;
+            }
+          } catch (_e) { /* non-JSON 2xx body — leave messageId null */ }
+        }
+        resolve({
+          ok: okHttp,
+          status,
+          body: data,
+          bodyLen: data.length,
+          messageId,
+          durationMs: Date.now() - startedAt
+        });
+      });
     });
     req.on('error',   reject);
-    req.on('timeout', () => reject(new Error('Webhook timeout')));
+    req.on('timeout', () => { req.destroy(); reject(new Error('Webhook timeout')); });
     req.write(body);
     req.end();
   });
+}
+
+// Scrub anything that looks like a Discord webhook URL or token out
+// of an arbitrary string. Used when serialising error excerpts for
+// log lines so the webhook URL / token can never leak through an
+// unexpected error path.
+function _dhRedactWebhook(s) {
+  return String(s == null ? '' : s)
+    .replace(/https?:\/\/[a-zA-Z0-9./_\-]*?webhooks\/\d+\/[A-Za-z0-9_\-]+/g, '<webhook-url-redacted>')
+    .replace(/webhooks\/\d+\/[A-Za-z0-9_\-]+/g, 'webhooks/<id>/<token-redacted>');
+}
+
+// Compress Discord's JSON error body to a short safe excerpt for
+// logs (status + Discord error code + message). Discord 4xx bodies
+// look like {"code":50035,"message":"Invalid Form Body",...}.
+function _dhExcerptResponse(result) {
+  if (!result) return 'no_result';
+  const parts = ['status=' + (result.status == null ? '?' : result.status), 'bodyLen=' + (result.bodyLen || 0)];
+  if (result.body && result.body.length) {
+    try {
+      const parsed = JSON.parse(result.body);
+      if (parsed && parsed.code != null) parts.push('discord_code=' + parsed.code);
+      if (parsed && typeof parsed.message === 'string') parts.push('discord_msg="' + parsed.message.slice(0, 120).replace(/[\r\n]+/g, ' ') + '"');
+    } catch (_e) {
+      // Non-JSON body — log first 120 chars, scrubbed.
+      parts.push('body_head="' + _dhRedactWebhook(result.body.slice(0, 120)).replace(/[\r\n]+/g, ' ') + '"');
+    }
+  }
+  return parts.join(' ');
 }
 
 // ============================================================
@@ -1015,14 +1089,23 @@ async function runDarkHorseScan(universeOrOpts) {
     } else if (DH_WEBHOOK_URL) {
       try {
         const payload = fomo.sanitize(buildDHPayload(enriched));
-        await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
-        _lastWatchByEcho.set(enriched.symbol, { stateHash: decision.stateHash, postedAt: Date.now() });
-        dhLog('INFO', `[DH-WATCH] post symbol=${enriched.symbol} stateHash=${decision.stateHash} kind=${payload.kind || 'watch'}` +
-                       (payload.replaced ? ' sanitized=true' : ''));
-        dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=watch symbol=${enriched.symbol}`);
+        const contentLen = (payload.content || '').length;
+        // Watch payloads are single-symbol and well under the 2000-char
+        // Discord webhook limit, but we request `wait=true` so the same
+        // delivery-proof path (status + message ID) covers both kinds.
+        const send = await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content }, { wait: true });
+        if (send && send.ok) {
+          _lastWatchByEcho.set(enriched.symbol, { stateHash: decision.stateHash, postedAt: Date.now() });
+          dhLog('INFO', `[DH-WATCH] post symbol=${enriched.symbol} stateHash=${decision.stateHash} kind=${payload.kind || 'watch'}` +
+                         (payload.replaced ? ' sanitized=true' : ''));
+          dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=watch symbol=${enriched.symbol} ` +
+                         `status=${send.status} discord_msg_id=${send.messageId || 'n/a'} contentLen=${contentLen} durationMs=${send.durationMs}`);
+        } else {
+          dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=watch symbol=${enriched.symbol} contentLen=${contentLen} ${_dhExcerptResponse(send)}`);
+        }
       } catch (e) {
-        dhLog('ERROR', `[WEBHOOK] Failed — ${enriched.symbol}: ${e.message}`);
-        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=watch symbol=${enriched.symbol} reason=${e.message}`);
+        dhLog('ERROR', `[WEBHOOK] Failed — ${enriched.symbol}: ${_dhRedactWebhook(e.message)}`);
+        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=watch symbol=${enriched.symbol} reason=${_dhRedactWebhook(e.message)}`);
       }
     } else {
       dhLog('WARN', 'WEEKLY_DARKHORSES (preferred) and DARKHORSE_STOCK (legacy) both unset — webhook skipped');
@@ -1067,14 +1150,34 @@ async function runDarkHorseScan(universeOrOpts) {
         payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
       }
 
-      await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content });
-      _lastMovementDigestAt = Date.now();
-      dhLog('INFO', `[WEBHOOK] Movement digest posted` +
-                     (payload.replaced ? ' (sanitized)' : ''));
-      dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${kind} level=${volatility.level} internal=${volatility.internalCount}`);
+      const contentLen = (payload.content || '').length;
+      // Movement digest is the primary delivery-verification target.
+      // wait=true asks Discord to return the message body so we can
+      // capture the message ID for end-to-end delivery proof. This
+      // is also where the 02:11:09Z / 02:40:56Z "send_result=ok but
+      // no visible Discord post" discrepancy is observable: if the
+      // payload exceeds Discord's 2000-char webhook content limit,
+      // status will be 4xx with discord_code=50035 / Form-body error.
+      dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${kind} contentLen=${contentLen} ` +
+                     `wait=true sanitized=${payload.replaced ? 'true' : 'false'}`);
+      const send = await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content }, { wait: true });
+      if (send && send.ok) {
+        _lastMovementDigestAt = Date.now();
+        dhLog('INFO', `[WEBHOOK] Movement digest posted` +
+                       (payload.replaced ? ' (sanitized)' : ''));
+        dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${kind} ` +
+                       `status=${send.status} discord_msg_id=${send.messageId || 'n/a'} contentLen=${contentLen} bodyLen=${send.bodyLen} durationMs=${send.durationMs} ` +
+                       `level=${volatility.level} internal=${volatility.internalCount}`);
+      } else {
+        // Discord rejected the payload OR webhook URL unset. NOT marked
+        // posted — _lastMovementDigestAt is NOT updated, so the next
+        // scheduled scan retries instead of cooling down on a failure.
+        dhLog('ERROR', `[WEBHOOK] Movement digest NOT delivered — Discord rejected the payload`);
+        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${kind} contentLen=${contentLen} ${_dhExcerptResponse(send)} level=${volatility.level} internal=${volatility.internalCount}`);
+      }
     } catch (e) {
-      dhLog('ERROR', `[WEBHOOK] Movement digest failed: ${e.message}`);
-      dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=${e.message}`);
+      dhLog('ERROR', `[WEBHOOK] Movement digest failed: ${_dhRedactWebhook(e.message)}`);
+      dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=${_dhRedactWebhook(e.message)}`);
     }
   }
 
@@ -1119,4 +1222,11 @@ module.exports = {
   DH_WATCH_ECHO_TTL_MS,
   __resetWatchEchoForTests,
   __getWatchEchoForTests,
+  // Delivery-verification surface — exported for the qa:dh-delivery
+  // harness. dhSendWebhook returns the structured delivery report;
+  // the redact + excerpt helpers are exposed so the harness can
+  // verify webhook URLs never leak into log lines.
+  dhSendWebhook,
+  _dhRedactWebhook,
+  _dhExcerptResponse,
 };
