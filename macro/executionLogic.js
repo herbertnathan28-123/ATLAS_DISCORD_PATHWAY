@@ -40,7 +40,7 @@ function build(input) {
     // No buyer or seller control level has been published yet. The
     // copy must NOT reference a "listed level" because none exists.
     // Operator-facing per the locked wording standard.
-    lines.push(`| IF no buy or sell level is reliable enough to publish | THEN do not place limit orders. ATLAS must first identify a reliable buyer-control level or seller-control level before it can publish an entry, exit, and stop-loss. |`);
+    lines.push(`| IF no buy or sell level is reliable enough to publish | THEN limit orders are not supported yet — ATLAS must first identify a reliable buyer-control level or seller-control level before an entry, exit, and stop-loss can be published. |`);
     lines.push(`| Status now | No buyer or seller control level is currently reliable enough to publish. |`);
   }
 
@@ -48,7 +48,7 @@ function build(input) {
   if (structure?.stopLoss != null) {
     lines.push(`| IF price closes through ${structure.stopLoss} on the primary timeframe | THEN exit at market — the read is invalidated |`);
   } else {
-    lines.push(`| IF stop loss is not yet defined | THEN do not enter — undefined risk fails the operational standard |`);
+    lines.push(`| IF stop loss is not yet defined | THEN entry is not yet supported — the operational risk standard requires a defined stop-loss before risk can be priced. |`);
   }
 
   // Targets row
@@ -61,8 +61,8 @@ function build(input) {
   const intel = calendar?.intel;
   const blockMatch = intel && intel.match(/—\s*([\d.]+)h from now/);
   if (blockMatch && parseFloat(blockMatch[1]) <= 2) {
-    lines.push(`| IF inside the 2h pre-event window | THEN do not open new positions; trail or reduce existing |`);
-    lines.push(`| IF inside the first 5 minutes after release | THEN do not trade — wait for primary-timeframe structure to reform |`);
+    lines.push(`| IF inside the 2h pre-event window | THEN new positions are not supported inside the pre-event window; existing setups should be trailed or reduced. |`);
+    lines.push(`| IF inside the first 5 minutes after release | THEN trading is not supported inside the first 5 minutes after release — wait for primary-timeframe structure to reform before reassessing. |`);
   }
 
   // Macro override rows

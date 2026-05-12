@@ -27,6 +27,23 @@ const BANNED_PATTERNS = [
   // ORDER MATTERS — multi-word phrases must be checked BEFORE single-word
   // remaps so "ENTRY NOT AUTHORISED" doesn't get partially rewritten to
   // "ENTRY Not yet defined" by the generic "Not authorised" rule.
+  //
+  // Directive command family — "do not <verb>" is a trade-command tone
+  // that violates the locked advisory standard. The rewrites convert
+  // command-style imperatives into state-of-the-market wording while
+  // preserving the operational meaning. These rules are defence-in-
+  // depth — the source modules (executionLogic.js, corey_calendar.js,
+  // index.js REGIME ANALOG block) have already been rewritten so the
+  // raw strings no longer leak; these rules catch any future regression
+  // before it reaches users.
+  [/\bdo\s+not\s+enter\b/gi,         'entry is not supported'],
+  [/\bdon[’']?t\s+enter\b/gi,        'entry is not supported'],
+  [/\bdo\s+not\s+trade\b/gi,         'trading is not supported'],
+  [/\bdon[’']?t\s+trade\b/gi,        'trading is not supported'],
+  [/\bdo\s+not\s+place\s+limit\s+orders\b/gi, 'limit orders are not supported yet'],
+  [/\bdon[’']?t\s+place\s+limit\s+orders\b/gi, 'limit orders are not supported yet'],
+  [/\bdo\s+not\s+open\s+new\s+positions\b/gi, 'new positions are not supported'],
+  [/\bdon[’']?t\s+open\s+new\s+positions\b/gi, 'new positions are not supported'],
   [/(?:WAIT)\s*[—\-]\s*NO\s+TRADE/gi,           'HOLD — BIAS STILL FORMING'],
   [/ENTRY\s+NOT\s+AUTHORISED/gi,                'ENTRY NOT ADVISED'],
   [/No\s+entry\s+authorised/gi,                 'No active trade signal yet'],

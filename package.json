@@ -23,6 +23,7 @@
     "qa:dh-cooldown": "node scripts/test_dh_cooldown_qa.js",
     "qa:dh-chunking": "node scripts/test_dh_chunking_qa.js",
     "qa:dh-radar": "node scripts/test_dh_radar_qa.js",
+    "qa:wording-directives": "node scripts/test_directive_wording_qa.js",
     "prebuild": "npm run doctrine:foundation"
   },
   "dependencies": {
