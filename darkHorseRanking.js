@@ -199,11 +199,17 @@ function enrichCandidate(candidate, htfCandles, sectionAvgScore, opts) {
     invalidationTrigger:     invalidationTemplate(candidate.direction, section),
     promotionTrigger:        promotionTriggerTemplate(candidate.direction),
     continuationWindow:      continuationWindowFromPhase(movePhase),
+    continuationSessionText: continuationWindowSessionsText(section),
     lateEntryRisk:           lateEntryRiskFromPhase(movePhase),
     whyFlagged:              candidate.summary || 'composite scoring threshold met',
     macroEventLink:          opts.macroEventLink || 'unavailable — no anchor event mapped to this symbol',
     whyNotWatch:             whyNotWatch(candidate.score, opts.watchThreshold || 8),
     atlasState:              atlasStateFromPhase(movePhase),
+    // Education-layer evidence anchors. partial when only 1D data
+    // is wired (current state); pending when no candles arrived.
+    // Follow-up: wire 15m/5m OHLC into the ranking pipeline so the
+    // breakout/retest/hold timestamps can be published.
+    evidenceAnchors: buildEvidenceAnchors(candidate, htfCandles),
   };
 }
 
@@ -306,6 +312,132 @@ function perSectionAvgScores(candidates) {
     out[sec] = b.count ? b.total / b.count : 0;
   }
   return out;
+}
+
+// ── EVIDENCE ANCHORS (price + timestamp + timeframe) ─────────
+// Doctrine: a Level-1 trader must be able to open the chart and
+// find what ATLAS is talking about. Every technical phrase
+// (recent intraday high, breakout, calm retest, hold, invalidation)
+// must be paired with either (a) an actual price + timestamp +
+// timeframe trio OR (b) an honest "pending — follow-up wiring
+// required" note. Never invent levels.
+//
+// Current OHLC data availability in the Dark Horse ranking
+// pipeline:
+//   1D HTF  — passed via candleProvider; we can extract the
+//             daily-bar extreme + date stamp.
+//   1H LTF  — fetched only on the WATCH path, not the ranking
+//             enrichment, so unavailable here.
+//   15m/5m  — NOT wired into the ranking pipeline. Required for
+//             the user-preferred breakout / retest / hold
+//             timestamp trail. Staged as a follow-up requirement.
+//
+// _formatPrice handles instrument-class precision; AWST = UTC+8.
+function _fmtPriceForLevel(v) {
+  if (!Number.isFinite(v)) return null;
+  if (Math.abs(v) >= 1000) return v.toFixed(2);
+  if (Math.abs(v) >= 10)   return v.toFixed(2);
+  if (Math.abs(v) >= 1)    return v.toFixed(4);
+  return v.toFixed(5);
+}
+function _fmtUtcDate(unixSec) {
+  if (!Number.isFinite(unixSec)) return null;
+  const d = new Date(unixSec * 1000);
+  const pad = n => (n < 10 ? '0' : '') + n;
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+function _fmtAwstDate(unixSec) {
+  if (!Number.isFinite(unixSec)) return null;
+  // AWST = UTC+8, fixed offset (no DST).
+  const d = new Date(unixSec * 1000 + 8 * 3600 * 1000);
+  const pad = n => (n < 10 ? '0' : '') + n;
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+// buildEvidenceAnchors(candidate, htfCandles)
+// Returns a structured anchor record with explicit availability flags.
+// availability='partial' when only daily-level data is wired (current
+// state); 'pending' when no candles at all; 'full' when intraday
+// timestamp/price trail can be published (NOT yet — requires 15m/5m
+// wiring as a follow-up lane).
+function buildEvidenceAnchors(candidate, htfCandles) {
+  const direction = candidate && candidate.direction;
+  const out = {
+    availability: 'pending',
+    timeframeAvailable: null,
+    followUp: '15m/5m OHLC anchor extraction not yet wired into the ranking pipeline. ' +
+              'Once wired, the recent-high, breakout-close, retest-touch, hold-close, ' +
+              'and invalidation timestamps will be published here per the education-layer doctrine.',
+    recentHigh:     null,
+    recentLow:      null,
+    breakoutClose:  null,
+    retest:         null,
+    holdClose:      null,
+    invalidation:   null,
+  };
+  if (!Array.isArray(htfCandles) || htfCandles.length === 0) return out;
+  const last = htfCandles[htfCandles.length - 1];
+  if (!last) return out;
+  const high = Number.isFinite(last.high) ? last.high : null;
+  const low  = Number.isFinite(last.low)  ? last.low  : null;
+  const t    = Number.isFinite(last.time) ? last.time : null;
+  if (high == null || low == null || t == null) return out;
+  out.availability = 'partial';
+  out.timeframeAvailable = '1D';
+
+  // Daily-level recent extremes — honest about the source
+  // (the high/low printed somewhere during the current 1D bar;
+  // exact intraday time of the print is NOT available without
+  // 15m/5m data, which is the follow-up requirement above).
+  out.recentHigh = {
+    price: high,
+    priceText: _fmtPriceForLevel(high),
+    dateUtc: _fmtUtcDate(t),
+    dateAwst: _fmtAwstDate(t),
+    source: 'current 1D candle extreme',
+    note: 'exact intraday timestamp pending 15m/5m anchor wiring',
+  };
+  out.recentLow = {
+    price: low,
+    priceText: _fmtPriceForLevel(low),
+    dateUtc: _fmtUtcDate(t),
+    dateAwst: _fmtAwstDate(t),
+    source: 'current 1D candle extreme',
+    note: 'exact intraday timestamp pending 15m/5m anchor wiring',
+  };
+  // Invalidation level — for longs, a close back below the daily high
+  // (the breakout area) weakens the read. For shorts, mirror.
+  const invLevel = direction === 'Bearish' ? high : low;
+  out.invalidation = {
+    price: invLevel,
+    priceText: _fmtPriceForLevel(invLevel),
+    timeframe: '15m (pending wiring) / 1D (current)',
+    rule: direction === 'Bearish'
+      ? 'A full 15m or 1D candle close back ABOVE this level weakens the read because price would have failed back over the prior session ' + (direction === 'Bearish' ? 'high' : 'low') + ' area.'
+      : 'A full 15m or 1D candle close back BELOW this level weakens the read because price would have failed back under the prior session ' + (direction === 'Bearish' ? 'high' : 'low') + ' area.',
+  };
+  return out;
+}
+
+// ── CONTINUATION WINDOW — asset-class-aware session phrasing ──
+// Equities: New York trading session days. FX / metals / commodities:
+// Sydney / Tokyo / London / New York session cycles. Indices: tracks
+// regional exchange hours when possible; defaults to the symbol's
+// listing region's session.
+function continuationWindowSessionsText(section) {
+  if (section === SECTIONS.EQUITIES) {
+    return 'New York equity-session days (the next regular US cash-equity trading sessions).';
+  }
+  if (section === SECTIONS.FX_MAJORS || section === SECTIONS.FX_CROSSES) {
+    return 'major FX session cycles (Sydney / Tokyo / London / New York rolling 24-hour sequence).';
+  }
+  if (section === SECTIONS.COMMODITIES) {
+    return 'major commodity sessions (London PM fix / New York Globex cycle).';
+  }
+  if (section === SECTIONS.INDICES) {
+    return 'regional exchange sessions covering the index (e.g. NY for US500/NAS100, Frankfurt for GER40, London for UK100).';
+  }
+  return 'rolling 24-hour FX-style session sequence.';
 }
 
 // ── PAYLOAD BUILDERS ─────────────────────────────────────────
@@ -425,8 +557,119 @@ function nextReviewLine(nowMs, intervalMs) {
 const DH_CRITERIA_PARAGRAPH =
   '**Dark Horse criteria:** ATLAS FX regularly scans the global markets every 15 minutes to identify symbols showing unusually strong or improving movement, clean structure, strong momentum, or early signs of a developing trend. The list highlights candidates worth closer review at that scan time. ⭐ marks the strongest standouts from the current group.';
 
-const DH_PATTERN_GLOSSARY =
-  '_Calm retest_: price eases back toward the prior breakout or demand/supply area without sharp rejection, heavy momentum loss, or a full close back through the invalidation level.';
+// Full chart-pattern glossary (ATLAS education-layer doctrine
+// 2026-05-12). Every technical phrase used in a candidate card
+// must appear in this glossary OR be paired with an inline
+// chart-level + visual reference per the doctrine. Footer-rendered
+// once per digest; chunker preserves it intact.
+const DH_CHART_GLOSSARY = [
+  '### Glossary — chart-pattern terms used above',
+  '',
+  '**Recent intraday high area:** the highest price reached earlier in the current session before price pulled back. For longs, this is the level price must break and hold above.',
+  '**Recent intraday low area:** the lowest price reached earlier in the current session before price bounced. For shorts, this is the level price must break and hold below.',
+  '**Breakout:** a candle on the named timeframe (e.g. 15m) CLOSES on the directional side of the level — body close, not just a wick. A wick alone does not count.',
+  '**Calm retest:** price comes back toward the breakout level without sharp opposite-direction pressure and without a full body close back through the level.',
+  '**Retest holds:** price stays on the breakout side and the next candle\'s body close confirms it.',
+  '**Invalidation:** a full candle body close back through the breakout / retest area on the named timeframe — the read weakens, not "stops out".',
+  '**Continuation window:** the typical number of sessions during which the read can develop, given the move phase. The session definition is asset-class-specific (NY equity days for stocks; Sydney/Tokyo/London/NY for FX/metals).',
+].join('\n');
+
+// Backwards-compat alias retained so existing test fixtures and
+// downstream consumers that pulled DH_PATTERN_GLOSSARY still resolve.
+const DH_PATTERN_GLOSSARY = DH_CHART_GLOSSARY;
+
+// Compact visual diagram (ASCII inside a code fence) — one per
+// candidate, keyed to direction. The diagram shows the 5-event
+// breakout / retest sequence the user must look for on the chart.
+function compactVisualDiagram(direction) {
+  if (direction === 'Bearish') {
+    return [
+      '```',
+      'Old low:        ─────────────',
+      'Breakout candle: body CLOSES below the old low',
+      'Retest:          price rallies back to the old low',
+      'Hold:            next candle body stays BELOW the old low',
+      'Failure:         a candle body CLOSES back ABOVE the old low',
+      '```',
+    ].join('\n');
+  }
+  return [
+    '```',
+    'Old high:        ─────────────',
+    'Breakout candle: body CLOSES above the old high',
+    'Retest:          price pulls back to the old high',
+    'Hold:            next candle body stays ABOVE the old high',
+    'Failure:         a candle body CLOSES back BELOW the old high',
+    '```',
+  ].join('\n');
+}
+
+// Build the per-candidate Chart evidence block. Uses real levels
+// + dates when evidenceAnchors.availability is 'partial' or 'full';
+// honest "pending" + follow-up note otherwise.
+function buildChartEvidenceBlock(rank) {
+  const ev = rank && rank.evidenceAnchors;
+  if (!ev || ev.availability === 'pending') {
+    return [
+      'Chart evidence: exact intraday level pending — the current data packet does not include enough 5m/15m anchor detail to publish a timestamped level.',
+      'Required follow-up: wire 5m/15m OHLC anchor extraction for recent high, breakout close, retest touch, hold close, and invalidation level.',
+    ];
+  }
+  const isShort = rank.direction === 'Bearish';
+  const anchor  = isShort ? ev.recentLow : ev.recentHigh;
+  const inv     = ev.invalidation;
+  const lines = [];
+  lines.push('Chart evidence:');
+  if (anchor && anchor.priceText) {
+    lines.push(
+      `- Recent intraday ${isShort ? 'low' : 'high'} area: ${anchor.priceText} ` +
+      `(${anchor.source}; ` +
+      `date ${anchor.dateUtc} UTC / ${anchor.dateAwst} AWST).`
+    );
+    lines.push(`  Note: ${anchor.note}.`);
+  }
+  // Breakout / retest / hold timestamps require 15m/5m data — staged.
+  lines.push(
+    '- Breakout evidence: 15m/5m intraday close timestamp pending — anchor wiring required ' +
+    'before a candle-close time can be published. Operator can read the live chart to verify ' +
+    'the candle body close against the level above.'
+  );
+  lines.push(
+    '- Retest evidence: 15m/5m retest-touch timestamp pending — anchor wiring required ' +
+    'before the retest hold can be confirmed by the system.'
+  );
+  lines.push(
+    '- Hold evidence: 15m/5m hold-close timestamp pending — anchor wiring required ' +
+    'before the system can confirm a body-close hold.'
+  );
+  if (inv && inv.priceText) {
+    lines.push(
+      `- Invalidation: a candle body close back ${isShort ? 'above' : 'below'} ` +
+      `${inv.priceText} on the ${inv.timeframe} weakens the read.`
+    );
+    lines.push(`  Rule: ${inv.rule}`);
+  }
+  return lines;
+}
+
+// Visual-pattern prose paired with the ASCII diagram. Keyed to
+// direction so the wording mirrors what the operator must see.
+function visualPatternProse(direction) {
+  if (direction === 'Bearish') {
+    return [
+      'Visual pattern: intraday low → candle close below low → calm rally back to the level → ' +
+      'body stays below → continuation attempt.',
+      'Meaning: price breaks below a prior low, returns to check that area, then sellers defend it. ' +
+      'That is what "retest holds" means on a short.',
+    ];
+  }
+  return [
+    'Visual pattern: intraday high → candle close above high → calm pullback to the level → ' +
+    'body stays above → continuation attempt.',
+    'Meaning: price breaks above a prior high, returns to check that area, then buyers defend it. ' +
+    'That is what "retest holds" means on a long.',
+  ];
+}
 
 // Canonical display order — kept stable across scans so the
 // reader's eye lands on the same section position each cycle.
@@ -449,6 +692,14 @@ function buildExpandedDetail(rank, idx, isStandout) {
     ? r.scoreBreakdown.map(x => `   • ${x}`).join('\n')
     : '   • composite criteria met';
 
+  // Continuation window — combine the phase-derived plain-English
+  // sentence with the asset-class-specific session text so the user
+  // knows what "the next 1-3 sessions" actually means for THIS
+  // section. continuationSessionText defaults if the field wasn't
+  // set on the rank record (older fixtures).
+  const sessionText = r.continuationSessionText || continuationWindowSessionsText(r.section);
+  const continuationLine = `Continuation window: ${plainContinuationWindow(r.movePhase)} (sessions = ${sessionText})`;
+
   return [
     `**${star}#${idx + 1} — ${r.symbol} ${arrowFor(r.direction)}**  ·  Section: ${r.sectionLabel}${r.safeHavenOverlay ? ' · safe-haven overlay' : ''}`,
     `Direction: ${r.direction || 'neutral'}  ·  Score: ${r.score}/10`,
@@ -456,14 +707,22 @@ function buildExpandedDetail(rank, idx, isStandout) {
     `Move strength: ${r.moveStrength}/10  ·  Move speed: ${speedStr}`,
     `Trend age: ${plainTrendAge(r.moveAge, r.direction)}`,
     `Trend phase: ${plainTrendPhase(r.movePhase)}`,
-    `Continuation window: ${plainContinuationWindow(r.movePhase)}`,
+    continuationLine,
     `Late-entry risk: ${r.lateEntryRisk}`,
     `Relative strength vs section: ${rsStr}`,
     `Why flagged: ${r.whyFlagged}`,
     `Macro / event link: ${r.macroEventLink}`,
     `Structure state: ${r.structureState}`,
     `Confirmation requirement: ${r.confirmationRequirement}`,
+    // Chart evidence block — per-candidate price + date stamp where
+    // data is wired, honest "pending" + follow-up note otherwise.
+    ...buildChartEvidenceBlock(r),
+    // Visual pattern — abstract pattern reference, then prose, then
+    // ASCII diagram. Three forms so a beginner reader has both the
+    // shape (diagram) and the meaning (prose).
     `Pattern reference: ${patternReferenceFor(r)}`,
+    ...visualPatternProse(r.direction),
+    compactVisualDiagram(r.direction),
     `Why not WATCH: ${r.whyNotWatch}`,
     `Promotion criteria: ${r.promotionTrigger}`,
     ...renderInvalidationRow(r.invalidationTrigger),
@@ -657,5 +916,16 @@ module.exports = {
   plainTrendAge, plainTrendPhase, plainContinuationWindow,
   patternReferenceFor, nextReviewLine,
   DH_CRITERIA_PARAGRAPH, DH_PATTERN_GLOSSARY,
+  // Education layer + evidence anchors (2026-05-12) — exported for
+  // the qa:dh-education harness. buildEvidenceAnchors is the
+  // partial-availability extractor over 1D HTF candles; the
+  // remaining helpers render the per-candidate visual + glossary
+  // surface.
+  buildEvidenceAnchors,
+  continuationWindowSessionsText,
+  compactVisualDiagram,
+  buildChartEvidenceBlock,
+  visualPatternProse,
+  DH_CHART_GLOSSARY,
   SECTION_DISPLAY_ORDER,
 };
