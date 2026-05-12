@@ -26,6 +26,7 @@
     "qa:wording-directives": "node scripts/test_directive_wording_qa.js",
     "qa:dashboard-separation": "node scripts/test_dashboard_separation_qa.js",
     "qa:dh-education": "node scripts/test_dh_education_qa.js",
+    "qa:dh-pre-radar": "node scripts/test_dh_pre_radar_qa.js",
     "prebuild": "npm run doctrine:foundation"
   },
   "dependencies": {

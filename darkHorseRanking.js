@@ -626,6 +626,237 @@ const DH_CHART_GLOSSARY = [
   '**Continuation window:** the typical number of sessions during which the read can develop, given the move phase. The session definition is asset-class-specific (NY equity days for stocks; Sydney/Tokyo/London/NY for FX/metals).',
 ].join('\n');
 
+// ── PRE-RADAR / NEAR-MISS / SUPPORTING INTELLIGENCE ──────────
+// Doctrine (operator directive 2026-05-12): quiet scans should
+// not feel empty. Below the main section radar we render five
+// supporting-intelligence blocks: Pre-Radar (early/mid-phase
+// developmental signals), Near-Miss (score 6–7 close to WATCH),
+// Quiet Market Reason, What ATLAS Is Waiting For, Universe
+// Coverage Summary. PRESENTATION LAYER ONLY — does NOT alter
+// scoring, thresholds, scheduler, transport, cooldown, or the
+// ranking foundation. No forced candidates; no lowered bars.
+//
+// Selection rules (disjoint by score band):
+//   Pre-Radar  = score === 5 AND movePhase ∈ {early, mid}
+//   Near-Miss  = score ∈ {6, 7}
+// A candidate appears in at most one section.
+//
+// Sort + cap:
+//   Pre-Radar — sorted by moveSpeed desc (most-developing first);
+//                cap 3.
+//   Near-Miss — sorted by score desc, then moveSpeed desc; cap 3.
+
+function _shapeInternalRecord(c) {
+  // Internal candidates arrive from runDarkHorseScan as raw scan
+  // results: { symbol, score, direction, status, summary, reasons,
+  //   moveSpeed?, moveAge?, movePhase? }. We project a tiny
+  //   presentation record so the section builders don't reach into
+  //   engine-shape details.
+  return {
+    symbol: c && c.symbol,
+    score:  Number.isFinite(c && c.score) ? c.score : 0,
+    direction: (c && c.direction) || 'neutral',
+    sectionLabel: SECTION_LABEL[classifyToSection(c && c.symbol)] || 'Other',
+    section: classifyToSection(c && c.symbol),
+    summary: (c && c.summary) || '',
+    reasons: (c && c.reasons) || [],
+    moveSpeed: Number.isFinite(c && c.moveSpeed) ? c.moveSpeed : null,
+    moveAge:   Number.isFinite(c && c.moveAge) ? c.moveAge : null,
+    movePhase: (c && c.movePhase) || null,
+  };
+}
+
+function selectPreRadarCandidates(internalArr) {
+  // Pre-Radar = score 5 AND phase early/mid. Disjoint from Near-Miss.
+  if (!Array.isArray(internalArr)) return [];
+  const filtered = internalArr
+    .map(_shapeInternalRecord)
+    .filter(r => r.score === 5);
+  // If movePhase was enriched (1D candles available during ranking),
+  // restrict to early/mid. If movePhase wasn't computed for the
+  // raw internal records (engine sometimes hasn't enriched yet at
+  // this layer), keep them all — score === 5 is sufficient floor.
+  const phaseFiltered = filtered.filter(r =>
+    r.movePhase == null
+    || r.movePhase === 'early'
+    || r.movePhase === 'mid'
+  );
+  return phaseFiltered
+    .sort((a, b) => (b.moveSpeed || 0) - (a.moveSpeed || 0))
+    .slice(0, 3);
+}
+
+function selectNearMissCandidates(internalArr) {
+  // Near-Miss = score 6 or 7. Disjoint from Pre-Radar.
+  if (!Array.isArray(internalArr)) return [];
+  return internalArr
+    .map(_shapeInternalRecord)
+    .filter(r => r.score === 6 || r.score === 7)
+    .sort((a, b) => (b.score - a.score) || ((b.moveSpeed || 0) - (a.moveSpeed || 0)))
+    .slice(0, 3);
+}
+
+function buildPreRadarBlock(preRadar) {
+  if (!preRadar || preRadar.length === 0) return null;
+  const lines = ['### 🛰️ Pre-Radar / Building pressure'];
+  lines.push('');
+  lines.push('_Below the publication threshold but showing early developmental signals. Not promoted — pressure visible but incomplete._');
+  lines.push('');
+  for (const r of preRadar) {
+    const speed = r.moveSpeed != null ? `${r.moveSpeed}× the prior-bar average` : 'speed pending';
+    const dir   = r.direction === 'Bullish' ? '↑' : r.direction === 'Bearish' ? '↓' : '→';
+    const phase = r.movePhase || 'phase pending';
+    const why   = _translateChartJargon((r.summary || 'composite criteria met').toString());
+    lines.push(`- **${r.symbol}** ${dir}  ·  ${r.sectionLabel}  ·  score ${r.score}/10  ·  phase ${phase}  ·  momentum ${speed}`);
+    lines.push(`  Building: ${why}. Confirmation pending — one structure step away from promotion.`);
+  }
+  return lines.join('\n');
+}
+
+function buildNearMissBlock(nearMiss) {
+  if (!nearMiss || nearMiss.length === 0) return null;
+  const lines = ['### 🎯 Near-Miss — below WATCH threshold'];
+  lines.push('');
+  lines.push('_Worth monitoring. Not promoted yet. Awaiting confirmation._');
+  lines.push('');
+  for (const r of nearMiss) {
+    const dir = r.direction === 'Bullish' ? '↑' : r.direction === 'Bearish' ? '↓' : '→';
+    const why = _translateChartJargon((r.summary || 'composite criteria met').toString());
+    const gap = 8 - r.score; // WATCH threshold = 8
+    const gapText = gap === 1 ? 'one point' : `${gap} points`;
+    lines.push(`- **${r.symbol}** ${dir}  ·  ${r.sectionLabel}  ·  score ${r.score}/10 (${gapText} below the WATCH threshold of 8/10)`);
+    lines.push(`  Reading: ${why}. Confirmation pending before promotion.`);
+  }
+  return lines.join('\n');
+}
+
+function buildQuietMarketReason(volatility, internalArr, ignoredArr) {
+  // Synthesize a 1–2 sentence diagnostic explaining WHY no
+  // standout published. Uses only existing engine data — no
+  // scoring change, no threshold change.
+  const internalCount = Array.isArray(internalArr) ? internalArr.length : 0;
+  const ignoredCount  = Array.isArray(ignoredArr)  ? ignoredArr.length  : 0;
+  const volLevel = (volatility && volatility.level) || 'quiet';
+  const reasons = [];
+  if (volLevel === 'quiet')   reasons.push('volatility is quiet across the universe');
+  if (volLevel === 'elevated') reasons.push('volatility is elevated but structure has not aligned');
+  if (volLevel === 'extreme')  reasons.push('volatility is extreme — structure expanding too fast for clean confirmation');
+  if (internalCount === 0 && ignoredCount > 0) {
+    reasons.push('no candidate cleared the near-threshold score (5/10)');
+  } else if (internalCount > 0 && internalCount < 3) {
+    reasons.push(`${internalCount} ${internalCount === 1 ? 'candidate is' : 'candidates are'} building near the threshold but none have confirmed clean structure`);
+  } else if (internalCount >= 3) {
+    reasons.push(`${internalCount} candidates are building near the threshold but momentum/structure alignment is mixed`);
+  }
+  if (ignoredCount > 0 && internalCount === 0) {
+    reasons.push('the rest of the universe is showing weak or contracting movement');
+  }
+  if (reasons.length === 0) {
+    reasons.push('conditions remain below the publication threshold this cycle');
+  }
+  const lines = ['### 🤫 Why no standout published'];
+  lines.push('');
+  lines.push(reasons.map(r => '_' + r.charAt(0).toUpperCase() + r.slice(1) + '._').join(' '));
+  return lines.join('\n');
+}
+
+function buildWaitingForBlock(internalArr) {
+  // What ATLAS is waiting for — synthesize the single most-common
+  // required confirmation pattern across the internal universe.
+  const lines = ['### ⏳ What ATLAS is waiting for'];
+  lines.push('');
+  if (!Array.isArray(internalArr) || internalArr.length === 0) {
+    lines.push('_Awaiting a candidate that crosses the near-threshold score (5/10) with clean directional structure._');
+    return lines.join('\n');
+  }
+  // Asset-class concentration tells us which timeframe matters
+  // most. Count internals per section, pick the dominant section,
+  // surface its confirmation timeframe.
+  const sectionCounts = {};
+  for (const c of internalArr) {
+    const sec = classifyToSection(c.symbol);
+    sectionCounts[sec] = (sectionCounts[sec] || 0) + 1;
+  }
+  const dominant = Object.entries(sectionCounts)
+    .sort((a, b) => b[1] - a[1])[0];
+  const domSec = dominant ? dominant[0] : null;
+  const conditions = [];
+  if (domSec === SECTIONS.FX_MAJORS || domSec === SECTIONS.FX_CROSSES) {
+    conditions.push('A clean 5m or 15m body close above the recent intraday high (longs) or below the intraday low (shorts), followed by a calm retest that holds.');
+  } else if (domSec === SECTIONS.INDICES) {
+    conditions.push('A 15m or 1H body close above the recent session high (longs) or below the session low (shorts), with the retest holding and volume not collapsing.');
+  } else if (domSec === SECTIONS.COMMODITIES) {
+    conditions.push('A 1H body close above the recent intraday high (longs) or below the intraday low (shorts), with an ATR-respecting retest that holds.');
+  } else if (domSec === SECTIONS.EQUITIES) {
+    conditions.push('A 5m or 15m body close above the recent intraday high (longs) or below the intraday low (shorts), with the retest holding above (or below) the prior-session reference level.');
+  } else {
+    conditions.push('A higher-timeframe body close above the recent significant high (longs) or below the significant low (shorts), with a retest that holds.');
+  }
+  conditions.push('Higher-timeframe and lower-timeframe direction should agree before any near-threshold candidate is promoted.');
+  conditions.push('Momentum should expand (rather than contract) into the breakout candle — confirmation, not exhaustion.');
+  for (const c of conditions) lines.push('- ' + c);
+  return lines.join('\n');
+}
+
+function buildUniverseCoverageBlock(opts, ranking) {
+  // Universe Coverage Summary. Counts only — no scoring, no
+  // threshold change. opts carries internal + ignored + universeSize
+  // from the engine via the digest call site.
+  const internalArr = (opts && Array.isArray(opts.internal)) ? opts.internal : [];
+  const ignoredArr  = (opts && Array.isArray(opts.ignored))  ? opts.ignored  : [];
+  const universeSize = Number.isFinite(opts && opts.universeSize)
+    ? opts.universeSize
+    : (internalArr.length + ignoredArr.length);
+  const top = Array.isArray(ranking && ranking.top10) ? ranking.top10 : [];
+
+  // Per-section health from the top10 (already enriched). For the
+  // ignored / internal arrays we use lighter section classification.
+  const sectionAvg = {};
+  function bump(sec, score) {
+    if (!sectionAvg[sec]) sectionAvg[sec] = { sum: 0, n: 0 };
+    sectionAvg[sec].sum += score;
+    sectionAvg[sec].n += 1;
+  }
+  for (const r of top) bump(r.section, r.score);
+  for (const c of internalArr) bump(classifyToSection(c.symbol), c.score);
+  // Find strongest + weakest section (only among sections that
+  // had at least one candidate ≥ 5/10).
+  const sectionsRanked = Object.entries(sectionAvg)
+    .filter(([, v]) => v.n > 0)
+    .map(([sec, v]) => ({ section: sec, avg: v.sum / v.n, count: v.n }))
+    .sort((a, b) => b.avg - a.avg);
+  const strongest = sectionsRanked[0] || null;
+  const weakest   = sectionsRanked.length > 1 ? sectionsRanked[sectionsRanked.length - 1] : null;
+
+  // Concentration: if a single section accounts for ≥60% of
+  // internal+top10 candidates, it's concentrated; otherwise broad.
+  const totalActive = top.length + internalArr.length;
+  let concentration = 'broad across sections';
+  if (strongest && totalActive >= 3) {
+    const dominantShare = strongest.count / totalActive;
+    if (dominantShare >= 0.6) {
+      concentration = `concentrated in ${SECTION_LABEL[strongest.section] || strongest.section} (${Math.round(dominantShare * 100)}% of active candidates)`;
+    }
+  }
+
+  const lines = ['### 📊 Universe coverage'];
+  lines.push('');
+  lines.push(`- **Symbols scanned:** ${universeSize}`);
+  lines.push(`- **Below near-threshold (score < 5/10):** ${ignoredArr.length}`);
+  lines.push(`- **Near-threshold (score 5–7/10):** ${internalArr.length}`);
+  lines.push(`- **At publication threshold (score ≥ 8/10):** ${top.filter(r => r.score >= 8).length}`);
+  if (strongest) {
+    lines.push(`- **Strongest section:** ${SECTION_LABEL[strongest.section] || strongest.section} (avg score ${strongest.avg.toFixed(1)}/10 across ${strongest.count} candidate${strongest.count === 1 ? '' : 's'})`);
+  } else {
+    lines.push('- **Strongest section:** none currently meet near-threshold criteria');
+  }
+  if (weakest && weakest.section !== (strongest && strongest.section)) {
+    lines.push(`- **Weakest section with activity:** ${SECTION_LABEL[weakest.section] || weakest.section} (avg score ${weakest.avg.toFixed(1)}/10)`);
+  }
+  lines.push(`- **Volatility concentration:** ${concentration}`);
+  return lines.join('\n');
+}
+
 // ── LEARNING LINKS — top-of-digest terminology row ────────────
 // Doctrine (operator directive 2026-05-12): a single compact
 // Learning Links row sits IMMEDIATELY below the digest heading,
@@ -960,6 +1191,43 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
   // no inline hyperlinks scattered through paragraphs.
   const learningLinks = buildLearningLinksBlock(opts.learningLinkUrls);
 
+  // ── Pre-Radar / Near-Miss supporting-intelligence layer ─────
+  // Operator directive 2026-05-12. Renders below the main section
+  // radar when standouts exist; becomes the primary useful content
+  // when monitoring-only (no top10). Uses ONLY data that already
+  // exists in the engine scan output (`opts.internal`, `opts.ignored`,
+  // `opts.universeSize`). No threshold / scoring / cooldown change.
+  const internalArr = (opts && Array.isArray(opts.internal)) ? opts.internal : [];
+  const ignoredArr  = (opts && Array.isArray(opts.ignored))  ? opts.ignored  : [];
+  const preRadar  = selectPreRadarCandidates(internalArr);
+  const nearMiss  = selectNearMissCandidates(internalArr);
+  const supportingBlocks = [
+    buildPreRadarBlock(preRadar),
+    buildNearMissBlock(nearMiss),
+    buildQuietMarketReason(volatility, internalArr, ignoredArr),
+    buildWaitingForBlock(internalArr),
+    buildUniverseCoverageBlock(opts, ranking),
+  ].filter(b => b != null && b !== '');
+  const supportingBody = supportingBlocks.length
+    ? supportingBlocks.join('\n\n') + '\n\n'
+    : '';
+
+  // Monitoring-only mode (top10 empty): the supporting-intelligence
+  // layer IS the primary useful content per the operator directive
+  // ("If no standouts exist, make Pre-Radar/Near-Miss the main
+  // useful content."). We suppress the empty Current-standouts /
+  // section-data placeholders so the digest reads as intentional
+  // institutional behaviour, not a wall of "_No X this scan._"
+  // filler. The supporting blocks still render in their natural
+  // position below the state header.
+  const isMonitoringOnly = top.length === 0;
+  const renderedStandoutsBlock = isMonitoringOnly && supportingBlocks.length > 0
+    ? ''
+    : `### ⭐ Current standouts\n${standoutLines}\n\n`;
+  const renderedSectionsBody = isMonitoringOnly && supportingBlocks.length > 0
+    ? ''
+    : sectionsBody;
+
   const content =
     `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
     `${learningLinks.text}\n\n` +
@@ -968,8 +1236,9 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     `**Volatility:** ${volatility ? volatility.level : 'unavailable'} · ${vixLine}\n` +
     `**Sections scanned:** ${sectionsLine}\n` +
     `${displayedCandidatesLine}\n\n` +
-    `### ⭐ Current standouts\n${standoutLines}\n\n` +
-    sectionsBody +
+    renderedStandoutsBlock +
+    renderedSectionsBody +
+    supportingBody +
     `${DH_PATTERN_GLOSSARY}\n\n` +
     `⏭️ Next review: ${nextReview}.\n` +
     `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. Reassess against the per-candidate confirmation criteria at the next review.`;
@@ -1075,5 +1344,15 @@ module.exports = {
   // qa:dh-education harness assertions on position + content.
   DH_LEARNING_LINKS_TERMS,
   buildLearningLinksBlock,
+  // Pre-Radar / Near-Miss supporting-intelligence layer
+  // (operator directive 2026-05-12). Exported for the
+  // qa:dh-pre-radar harness.
+  selectPreRadarCandidates,
+  selectNearMissCandidates,
+  buildPreRadarBlock,
+  buildNearMissBlock,
+  buildQuietMarketReason,
+  buildWaitingForBlock,
+  buildUniverseCoverageBlock,
   SECTION_DISPLAY_ORDER,
 };

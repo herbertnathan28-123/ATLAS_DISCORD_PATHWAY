@@ -1342,7 +1342,19 @@ async function runDarkHorseScan(universeOrOpts) {
           watchThreshold: DH_SCORE_WATCH,
         });
         rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
-        payload = fomo.sanitize(rank.buildRankedMovementDigestPayload(ranking, volatility));
+        // Pre-Radar / Near-Miss lane (operator directive 2026-05-12).
+        // The digest builder consumes the FULL scan output (internal +
+        // ignored counts + universe size) so it can render the
+        // pre-radar / near-miss / quiet-market-reason / waiting-for /
+        // universe-coverage supporting-intelligence layer below the
+        // main section radar. PRESENTATION LAYER ONLY — does not
+        // alter scoring, thresholds, scheduler, transport, or
+        // ranking foundation.
+        payload = fomo.sanitize(rank.buildRankedMovementDigestPayload(ranking, volatility, {
+          internal,                          // 5–7 score band (Pre-Radar + Near-Miss universe)
+          ignored,                           // <5 score (Universe Coverage counts only)
+          universeSize: DH_UNIVERSE.length,  // total symbols actually scanned this cycle
+        }));
         kind = 'movement_digest_v1_1';
       } catch (rankErr) {
         dhLog('WARN', `[DH-RANKING] v1.1 build failed, falling back to v0.1: ${rankErr.message}`);
