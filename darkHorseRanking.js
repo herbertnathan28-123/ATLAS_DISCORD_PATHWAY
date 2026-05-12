@@ -315,8 +315,134 @@ function arrowFor(direction) {
   return '→';
 }
 
-function buildExpandedDetail(rank, idx) {
+// ── STANDOUT SELECTION ───────────────────────────────────────
+// Picks the top N overall standouts from the ranking. Score is
+// the primary key; ties broken by phase priority (early > mid >
+// late > exhaustion), then lateEntryRisk (lower better), then
+// moveSpeed (higher better), then structureState completeness,
+// then relativeStrength (higher better). PRESENTATION LAYER ONLY
+// — does not touch underlying score values.
+const _PHASE_RANK = { early: 4, mid: 3, late: 2, exhaustion: 1 };
+const _LATE_RISK_RANK = {
+  'low': 5,
+  'low-to-moderate': 4,
+  'moderate': 3,
+  'moderate-to-high': 2,
+  'high': 1,
+  'unknown': 0,
+};
+
+function _compareForStandout(a, b) {
+  if (b.score !== a.score) return b.score - a.score;
+  const pa = _PHASE_RANK[a.movePhase] || 0;
+  const pb = _PHASE_RANK[b.movePhase] || 0;
+  if (pb !== pa) return pb - pa;
+  const ra = _LATE_RISK_RANK[a.lateEntryRisk] || 0;
+  const rb = _LATE_RISK_RANK[b.lateEntryRisk] || 0;
+  if (rb !== ra) return rb - ra;
+  const sa = a.moveSpeed || 0;
+  const sb = b.moveSpeed || 0;
+  if (sb !== sa) return sb - sa;
+  const ca = (a.structureState || '').length;
+  const cb = (b.structureState || '').length;
+  if (cb !== ca) return cb - ca;
+  const ya = a.relativeStrength || 0;
+  const yb = b.relativeStrength || 0;
+  return yb - ya;
+}
+
+function selectStandouts(candidates, n) {
+  const limit = Number.isFinite(n) && n > 0 ? n : 2;
+  if (!Array.isArray(candidates) || candidates.length === 0) return [];
+  return candidates.slice().sort(_compareForStandout).slice(0, limit);
+}
+
+// ── PLAIN-ENGLISH TREND DESCRIPTIONS ─────────────────────────
+function plainTrendAge(moveAge, direction) {
+  const dir = direction === 'Bullish' ? 'bullish' :
+              direction === 'Bearish' ? 'bearish' : 'directional';
+  if (!Number.isFinite(moveAge) || moveAge <= 0) {
+    return 'no confirmed same-direction higher-timeframe bar yet';
+  }
+  if (moveAge === 1) return `early move — first confirmed same-direction ${dir} higher-timeframe bar`;
+  if (moveAge <= 3)  return `${dir} sequence active for ${moveAge} candles`;
+  if (moveAge <= 6)  return `mature move — ${dir} sequence active for ${moveAge} candles`;
+  return `extended move — ${dir} sequence active for ${moveAge} candles (late-stage)`;
+}
+
+function plainTrendPhase(phase) {
+  if (phase === 'early')      return 'early stage — move just confirmed, room to develop';
+  if (phase === 'mid')        return 'mid stage — trend developing, confirmation still required';
+  if (phase === 'late')       return 'late stage — extension efficiency dropping, pullback risk rising';
+  if (phase === 'exhaustion') return 'exhaustion stage — already overextended, late-entry risk high';
+  return 'phase unavailable';
+}
+
+function plainContinuationWindow(phase) {
+  if (phase === 'early')      return 'early-stage move; conditions may continue developing over the next 1–3 sessions if structure holds';
+  if (phase === 'mid')        return 'mid-stage move; follow-through still possible, but confirmation is required before confidence improves';
+  if (phase === 'late')       return 'late-stage move; upside/downside extension is becoming less efficient and pullback risk is rising';
+  if (phase === 'exhaustion') return 'window closed — late-entry risk high; price is already extended versus the prior structure';
+  return 'window unavailable';
+}
+
+function patternReferenceFor(rank) {
+  const phase = rank && rank.movePhase;
+  if (phase === 'early') {
+    return 'breakout → calm retest → hold → continuation';
+  }
+  if (phase === 'mid') {
+    return rank.direction === 'Bullish'
+      ? 'higher high → shallow pullback → higher low → next push'
+      : 'lower low → shallow bounce → lower high → next push down';
+  }
+  if (phase === 'late') {
+    return 'extension → narrow consolidation → final push (low-quality entry zone)';
+  }
+  if (phase === 'exhaustion') {
+    return 'late extension → mean-reversion risk → fresh structure cycle required';
+  }
+  return 'pattern reference unavailable';
+}
+
+function _standoutReason(s) {
+  const phaseHead = plainTrendPhase(s.movePhase).split(' — ')[0];
+  const dir = s.direction ? s.direction.toLowerCase() : 'neutral';
+  return `${phaseHead} · score ${s.score}/10 · ${dir} · ${s.sectionLabel}`;
+}
+
+// Format the next-review timestamp. Default cadence is 15 minutes,
+// matching the Dark Horse scheduler.
+function nextReviewLine(nowMs, intervalMs) {
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const interval = Number.isFinite(intervalMs) ? intervalMs : 15 * 60 * 1000;
+  const nextAt = new Date(now + interval);
+  const iso = nextAt.toISOString().replace('T', ' ');
+  return iso.slice(0, 16) + ' UTC';
+}
+
+// User-facing constants. Reused by the digest builder + harness.
+const DH_CRITERIA_PARAGRAPH =
+  '**Dark Horse criteria:** ATLAS FX regularly scans the global markets every 15 minutes to identify symbols showing unusually strong or improving movement, clean structure, strong momentum, or early signs of a developing trend. The list highlights candidates worth closer review at that scan time. ⭐ marks the strongest standouts from the current group.';
+
+const DH_PATTERN_GLOSSARY =
+  '_Calm retest_: price eases back toward the prior breakout or demand/supply area without sharp rejection, heavy momentum loss, or a full close back through the invalidation level.';
+
+// Canonical display order — kept stable across scans so the
+// reader's eye lands on the same section position each cycle.
+const SECTION_DISPLAY_ORDER = [
+  SECTIONS.FX_MAJORS,
+  SECTIONS.FX_CROSSES,
+  SECTIONS.INDICES,
+  SECTIONS.EQUITIES,
+  SECTIONS.COMMODITIES,
+  SECTIONS.SAFE_HAVENS,
+  SECTIONS.OTHER,
+];
+
+function buildExpandedDetail(rank, idx, isStandout) {
   const r = rank;
+  const star = isStandout ? '⭐ ' : '';
   const speedStr = r.moveSpeed != null ? `${r.moveSpeed}× baseline` : 'speed unavailable';
   const rsStr = r.relativeStrength != null ? `${r.relativeStrength}× section avg` : 'relative strength unavailable';
   const breakdownLine = r.scoreBreakdown && r.scoreBreakdown.length
@@ -324,18 +450,20 @@ function buildExpandedDetail(rank, idx) {
     : '   • composite criteria met';
 
   return [
-    `**#${idx + 1} — ${r.symbol} ${arrowFor(r.direction)}**  ·  Section: ${r.sectionLabel}${r.safeHavenOverlay ? ' · safe-haven overlay' : ''}`,
+    `**${star}#${idx + 1} — ${r.symbol} ${arrowFor(r.direction)}**  ·  Section: ${r.sectionLabel}${r.safeHavenOverlay ? ' · safe-haven overlay' : ''}`,
     `Direction: ${r.direction || 'neutral'}  ·  Score: ${r.score}/10`,
     `Score breakdown:\n${breakdownLine}`,
     `Move strength: ${r.moveStrength}/10  ·  Move speed: ${speedStr}`,
-    `Move age: ${r.moveAge} bar(s) (HTF, same-direction)  ·  Move phase: ${r.movePhase}`,
+    `Trend age: ${plainTrendAge(r.moveAge, r.direction)}`,
+    `Trend phase: ${plainTrendPhase(r.movePhase)}`,
+    `Continuation window: ${plainContinuationWindow(r.movePhase)}`,
+    `Late-entry risk: ${r.lateEntryRisk}`,
     `Relative strength vs section: ${rsStr}`,
     `Why flagged: ${r.whyFlagged}`,
     `Macro / event link: ${r.macroEventLink}`,
     `Structure state: ${r.structureState}`,
     `Confirmation requirement: ${r.confirmationRequirement}`,
-    `Continuation window: ${r.continuationWindow}`,
-    `Late-entry risk: ${r.lateEntryRisk}`,
+    `Pattern reference: ${patternReferenceFor(r)}`,
     `Why not WATCH: ${r.whyNotWatch}`,
     `Promotion criteria: ${r.promotionTrigger}`,
     ...renderInvalidationRow(r.invalidationTrigger),
@@ -367,38 +495,82 @@ function buildCompactDetail(rank, idx) {
   return `${idx + 1}. **${rank.symbol}** ${arrowFor(rank.direction)} — ${rank.sectionLabel} · ${rank.score}/10 · ${rank.whyFlagged} · ${rank.whyNotWatch}`;
 }
 
-function buildRankedMovementDigestPayload(ranking, volatility) {
-  const top3 = ranking.top10.slice(0, 3);
-  const rest = ranking.top10.slice(3);
+function buildRankedMovementDigestPayload(ranking, volatility, opts) {
+  opts = opts || {};
+  const top = Array.isArray(ranking && ranking.top10) ? ranking.top10 : [];
 
-  const expandedBlock = top3.length
-    ? top3.map((r, i) => buildExpandedDetail(r, i)).join('\n\n──\n\n')
-    : '_No qualifying candidates this scan._';
+  // ── Standouts (top 2 overall) ──
+  // Selection uses _compareForStandout: score primary, then phase
+  // (early > mid > late > exhaustion), then late-entry risk, then
+  // move speed, then structure-state completeness, then relative
+  // strength. PRESENTATION LAYER ONLY — does not touch scores.
+  const standouts = selectStandouts(top, 2);
+  const standoutSet = new Set(standouts.map(s => s.symbol));
+  const standoutLines = standouts.length
+    ? standouts.map((s, i) => {
+        const rank = i === 0 ? 'strongest' : i === 1 ? 'second strongest' : `#${i + 1}`;
+        return `- ⭐ #${i + 1} ${s.symbol} — ${rank} current Dark Horse reading because ${_standoutReason(s)}`;
+      }).join('\n')
+    : '_No qualifying standouts this scan._';
 
-  const restBlock = rest.length
-    ? rest.map((r, i) => buildCompactDetail(r, i + 3)).join('\n')
-    : '_No additional candidates._';
+  // ── Section grouping (up to 2 per section) ──
+  // rankCandidates already enforces sectionCap: 2 by default. We
+  // re-clip here defensively so any future sectionCapMax override
+  // cannot bleed into the digest display.
+  const bySection = {};
+  for (const r of top) {
+    if (!bySection[r.section]) bySection[r.section] = [];
+    bySection[r.section].push(r);
+  }
+  for (const sec of Object.keys(bySection)) {
+    bySection[sec] = bySection[sec].slice(0, 2);
+  }
 
-  const sectionsLine = ranking.sectionsScanned.length
+  const sectionBlocks = [];
+  let displayIdx = 0;
+  for (const sec of SECTION_DISPLAY_ORDER) {
+    const rows = bySection[sec] || [];
+    if (!rows.length) continue;
+    const rendered = rows.map(r => {
+      const idx = displayIdx++;
+      return buildExpandedDetail(r, idx, standoutSet.has(r.symbol));
+    }).join('\n\n──\n\n');
+    sectionBlocks.push(`### ${SECTION_LABEL[sec]}\n\n${rendered}`);
+  }
+
+  // ── Header / state / footer ──
+  const sectionsLine = ranking.sectionsScanned && ranking.sectionsScanned.length
     ? ranking.sectionsScanned.map(s => SECTION_LABEL[s] || s).join(' · ')
     : 'unavailable';
 
   // Layman-first VIX wording — Dark Horse-local until the shared
-  // macro labels helper lands (PR B).
+  // macro labels helper lands.
   const vixLine = volatility && volatility.vixLevel
     ? `market fear / volatility gauge (VIX) is ${String(volatility.vixLevel).toLowerCase()}`
     : 'market fear / volatility gauge (VIX) unavailable';
 
+  const capsApplied = (ranking && ranking.sectionCapsApplied && ranking.sectionCapsApplied.length)
+    ? ranking.sectionCapsApplied.join(',')
+    : 'none';
+
+  const nextReview = nextReviewLine(opts.now, opts.intervalMs);
+
+  const sectionsBody = sectionBlocks.length
+    ? sectionBlocks.join('\n\n') + '\n\n'
+    : '_No section data this scan._\n\n';
+
   const content =
     `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
+    `${DH_CRITERIA_PARAGRAPH}\n\n` +
     `**State:** Monitoring only · no confirmed watch candidate this cycle.\n` +
     `**Volatility:** ${volatility ? volatility.level : 'unavailable'} · ${vixLine}\n` +
     `**Sections scanned:** ${sectionsLine}\n` +
-    `**Top movers:** ${ranking.top10.length} (section caps: ${ranking.sectionCapsApplied.length ? ranking.sectionCapsApplied.join(',') : 'none'})\n\n` +
-    `### Top 3 — expanded reasoning\n\n${expandedBlock}\n\n` +
-    `### Candidates 4–10\n${restBlock}\n\n` +
-    `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. ` +
-    `Do not chase — wait for the per-candidate confirmation criteria (timeframe + level) listed above before acting.`;
+    `**Top movers:** ${top.length} (section caps: ${capsApplied})\n\n` +
+    `### ⭐ Current standouts\n${standoutLines}\n\n` +
+    sectionsBody +
+    `${DH_PATTERN_GLOSSARY}\n\n` +
+    `⏭️ Next review: ${nextReview}.\n` +
+    `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. Wait for the per-candidate confirmation criteria (timeframe + level) listed above before acting.`;
 
   return { content, kind: 'movement_digest_v1_1' };
 }
@@ -475,4 +647,15 @@ module.exports = {
   enrichCandidate, rankCandidates, buildRanking,
   buildExpandedDetail, buildCompactDetail, buildRankedMovementDigestPayload,
   emitRankingLogs,
+
+  // Section radar + standouts surface — exported for the
+  // qa:dh-radar harness. selectStandouts and plain* helpers are
+  // pure functions over a rank record; they can be unit-tested
+  // without driving a full scan. SECTION_DISPLAY_ORDER is the
+  // canonical render order used by the digest builder.
+  selectStandouts, _compareForStandout,
+  plainTrendAge, plainTrendPhase, plainContinuationWindow,
+  patternReferenceFor, nextReviewLine,
+  DH_CRITERIA_PARAGRAPH, DH_PATTERN_GLOSSARY,
+  SECTION_DISPLAY_ORDER,
 };
