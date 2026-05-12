@@ -117,6 +117,12 @@ function isMarketOpen() {
 // ── STATE ─────────────────────────────────────────────────────
 const DH_INTERNAL_STORE = new Map();
 let _lastMovementDigestAt = 0;   // FOMO control — cooldown tracker
+// Provenance for the cooldown timestamp. Set in lock-step with
+// _lastMovementDigestAt via _markDigestPosted() so every cooldown
+// arming carries the originating event. On in-memory only — a
+// process restart clears both back to 0 / null. There is NO
+// persistence layer for this cooldown; it cannot survive a deploy.
+let _lastMovementDigestMeta = null;
 
 // WATCH dedupe state — keyed by symbol.
 // Value: { stateHash, postedAt }. Pruned when entries exceed 7 days.
@@ -140,6 +146,39 @@ const dhLog = (level, msg, ...a) =>
 // Boot-time channel resolution log — emitted once per process so the
 // operator can confirm which env var resolved without exposing any URL.
 dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL}`);
+
+// ── COOLDOWN GATE ────────────────────────────────────────────
+// SINGLE site that arms the movement-digest cooldown. Every call
+// records provenance into _lastMovementDigestMeta AND emits a
+// [MOVEMENT-DIGEST-COOLDOWN] log line carrying:
+//   cooldown_set_by   — which send-path armed cooldown
+//   cooldown_timestamp — ISO UTC of the arming
+//   cooldown_reason   — symbolic reason ("send_ok", etc.)
+//   discord_message_id — proof of delivery if Discord returned one
+//   status / kind     — Discord HTTP status + payload kind
+// If a future code path ever sets _lastMovementDigestAt directly,
+// the meta stays stale and the skip-path log will warn. Don't —
+// always go through this function.
+function _markDigestPosted(info) {
+  info = info || {};
+  _lastMovementDigestAt = Date.now();
+  _lastMovementDigestMeta = {
+    set_by: info.set_by || 'unknown',
+    timestamp: new Date(_lastMovementDigestAt).toISOString(),
+    reason: info.reason || 'unspecified',
+    discord_message_id: info.discord_message_id || null,
+    status: info.status == null ? null : info.status,
+    kind: info.kind || null,
+  };
+  dhLog('INFO',
+    `[MOVEMENT-DIGEST-COOLDOWN] cooldown_set_by=${_lastMovementDigestMeta.set_by} ` +
+    `cooldown_timestamp=${_lastMovementDigestMeta.timestamp} ` +
+    `cooldown_reason=${_lastMovementDigestMeta.reason} ` +
+    `discord_message_id=${_lastMovementDigestMeta.discord_message_id || 'n/a'} ` +
+    `status=${_lastMovementDigestMeta.status == null ? 'n/a' : _lastMovementDigestMeta.status} ` +
+    `kind=${_lastMovementDigestMeta.kind || 'n/a'}`
+  );
+}
 
 // ── INIT ──────────────────────────────────────────────────────
 let _safeOHLC       = null;
@@ -1056,6 +1095,36 @@ async function runDarkHorseScan(universeOrOpts) {
   dhLog('INFO', `[MOVEMENT-DIGEST] webhook_config=${webhookConfig}`);
   dhLog('INFO', `[MOVEMENT-DIGEST] env_key=${DH_WEBHOOK_ENV_KEY}`);
 
+  // Replay the provenance of the *last* cooldown arming whenever we
+  // skip because of cooldown. This is the operator's primary tool
+  // for answering "which prior send armed the gate?" — it always
+  // includes the Discord message ID if we have one. If meta is null
+  // but _lastMovementDigestAt > 0, surface the discrepancy as a
+  // WARN so an out-of-band write is detectable.
+  if (finalReason === 'cooldown') {
+    if (_lastMovementDigestMeta) {
+      const ageMs = Date.now() - _lastMovementDigestAt;
+      dhLog('INFO',
+        `[MOVEMENT-DIGEST] cooldown_set_by=${_lastMovementDigestMeta.set_by} ` +
+        `cooldown_timestamp=${_lastMovementDigestMeta.timestamp} ` +
+        `cooldown_reason=${_lastMovementDigestMeta.reason} ` +
+        `discord_message_id=${_lastMovementDigestMeta.discord_message_id || 'n/a'} ` +
+        `cooldown_age_ms=${ageMs}`
+      );
+    } else if (_lastMovementDigestAt > 0) {
+      dhLog('WARN',
+        `[MOVEMENT-DIGEST] cooldown_active but meta=null — ` +
+        `_lastMovementDigestAt was set outside _markDigestPosted. ` +
+        `last_at_ms=${_lastMovementDigestAt}`
+      );
+    } else {
+      dhLog('WARN',
+        `[MOVEMENT-DIGEST] cooldown decision reported cooldown but ` +
+        `_lastMovementDigestAt=0 — fomo decision module disagreement`
+      );
+    }
+  }
+
   // WATCH — post SINGLE STRONGEST only (highest score)
   // Rule: must be specific tradable symbol, correct output format,
   // gated by per-symbol dedupe (identical_state + 6h hard floor).
@@ -1162,7 +1231,13 @@ async function runDarkHorseScan(universeOrOpts) {
                      `wait=true sanitized=${payload.replaced ? 'true' : 'false'}`);
       const send = await dhSendWebhook(DH_WEBHOOK_URL, { content: payload.content }, { wait: true });
       if (send && send.ok) {
-        _lastMovementDigestAt = Date.now();
+        _markDigestPosted({
+          set_by: 'movement_digest_send_ok',
+          reason: 'discord_2xx_ack',
+          discord_message_id: send.messageId || null,
+          status: send.status,
+          kind,
+        });
         dhLog('INFO', `[WEBHOOK] Movement digest posted` +
                        (payload.replaced ? ' (sanitized)' : ''));
         dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${kind} ` +
@@ -1203,6 +1278,17 @@ function __getWatchEchoForTests() {
   return out;
 }
 
+// ── Movement-digest cooldown test hooks ──
+// Used by scripts/test_dh_cooldown_qa.js. NOT for runtime use.
+function __resetMovementDigestForTests() {
+  _lastMovementDigestAt = 0;
+  _lastMovementDigestMeta = null;
+}
+function __getMovementDigestAtForTests() { return _lastMovementDigestAt; }
+function __getMovementDigestMetaForTests() {
+  return _lastMovementDigestMeta ? Object.assign({}, _lastMovementDigestMeta) : null;
+}
+
 module.exports = {
   dhInit,
   dhSetPipelineTrigger,
@@ -1229,4 +1315,13 @@ module.exports = {
   dhSendWebhook,
   _dhRedactWebhook,
   _dhExcerptResponse,
+  // Cooldown provenance surface — exported for the qa:dh-cooldown
+  // harness. _markDigestPosted is the SINGLE write site for the
+  // movement-digest cooldown; the test hooks let the harness reset
+  // state, drive the gate, and inspect provenance without going
+  // through a full scan.
+  _markDigestPosted,
+  __resetMovementDigestForTests,
+  __getMovementDigestAtForTests,
+  __getMovementDigestMetaForTests,
 };
