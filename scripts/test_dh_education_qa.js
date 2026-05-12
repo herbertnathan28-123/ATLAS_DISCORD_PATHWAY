@@ -598,10 +598,163 @@ console.log('\n[T12] Chunk-boundary atomicity — no fence splits / glossary ato
 }
 
 // ============================================================
+// T13 — New-scan boundary (operator directive 2026-05-12 — live
+//   evidence iteration). Boundary block sits ABOVE the Part 1/N
+//   label on Part 1 only; Parts 2..N must NOT carry it.
+// ============================================================
+console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestamps');
+{
+  function daily(n, base) {
+    const out = []; let p = base;
+    const t = Math.floor(Date.parse('2026-05-01T00:00:00Z') / 1000);
+    for (let i = 0; i < n; i++) { const o = p, c = p + 0.6, h = c + 0.4, l = o - 0.3; out.push({ open: o, high: h, low: l, close: c, time: t + i * 86400 }); p = c; }
+    return out;
+  }
+  function mkRow(symbol, score, dir, sec) {
+    return Object.assign(
+      rank.enrichCandidate(
+        { symbol, score, direction: dir, summary: 'higher highs and higher lows', reasons: ['structure 2/2'] },
+        daily(25, score * 4 + 1),
+        6, { watchThreshold: 8 }
+      ),
+      { section: sec, sectionLabel: rank.SECTION_LABEL[sec] }
+    );
+  }
+  const top10 = [
+    mkRow('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS),
+    mkRow('NDX',    8, 'Bullish', rank.SECTIONS.INDICES),
+    mkRow('NVDA',   8, 'Bullish', rank.SECTIONS.EQUITIES),
+    mkRow('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES),
+  ];
+  const ranking = {
+    top10, sectionsScanned: ['fx_majors','indices','equities','commodities'],
+    sectionCapsApplied: [], allCount: 4,
+  };
+  const payload = rank.buildRankedMovementDigestPayload(
+    ranking, { level: 'elevated', vixLevel: 'Elevated' },
+    { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
+  );
+  ok('payload carries firstChunkPrefix field',
+     typeof payload.firstChunkPrefix === 'string' && payload.firstChunkPrefix.length > 0);
+  ok('boundary uses ━ horizontal-bar separator',
+     /━━━━━━━━━━━━━━━━━━━━/.test(payload.firstChunkPrefix));
+  ok('boundary header reads "NEW DARK HORSE SCAN"',
+     /🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(payload.firstChunkPrefix));
+  ok('boundary includes UTC + AWST timestamps',
+     /Scan time: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC \/ \d{4}-\d{2}-\d{2} \d{2}:\d{2} AWST/.test(payload.firstChunkPrefix));
+
+  // Chunker pass-through: Part 1 gets the boundary, Parts 2..N do not.
+  const chunks = engine._dhChunkDigest(payload.content, {
+    max: engine.DH_CHUNK_MAX_DEFAULT,
+    firstChunkPrefix: payload.firstChunkPrefix,
+  });
+  ok('chunker produces at least 1 chunk', chunks.length >= 1);
+  ok('Part 1 starts with the boundary block',
+     chunks[0].startsWith('━━━━━━━━━━━━━━━━━━━━\n🐎 **NEW DARK HORSE SCAN**'),
+     { head: chunks[0].slice(0, 120) });
+  ok('Part 1 has the v1.1 header BELOW the boundary',
+     /━━━━━━━━━━━━━━━━━━━━\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part 1\/\d+/.test(chunks[0]));
+  for (let i = 1; i < chunks.length; i++) {
+    ok(`Part ${i + 1}/${chunks.length} does NOT carry the new-scan boundary`,
+       !/NEW DARK HORSE SCAN/.test(chunks[i]),
+       { head: chunks[i].slice(0, 120) });
+    ok(`Part ${i + 1}/${chunks.length} starts directly with the v1.1 Part label`,
+       /^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+/.test(chunks[i]),
+       { head: chunks[i].slice(0, 80) });
+  }
+}
+
+// ============================================================
+// T14 — Bare "unavailable" absent from user-facing digest text
+//   (operator directive 2026-05-12 — live evidence iteration).
+//   The user explicitly flagged "Sections scanned: unavailable"
+//   and the general "unavailable" wording leak across the body.
+// ============================================================
+console.log('\n[T14] Bare "unavailable" absent + "Sections scanned: unavailable" suppressed');
+{
+  // Empty universe path — exercises every fallback that previously
+  // emitted "unavailable".
+  const payloadEmpty = rank.buildRankedMovementDigestPayload(
+    { top10: [], sectionsScanned: [], sectionCapsApplied: [], allCount: 0 },
+    null,   // volatility → null forces every VIX/level fallback path
+    { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
+  );
+  const cEmpty = payloadEmpty.content;
+  ok('empty digest carries NO "Sections scanned: unavailable"',
+     !/Sections scanned:\s*unavailable/i.test(cEmpty),
+     cEmpty.match(/Sections scanned:[^\n]+/));
+  ok('empty digest does NOT carry the bare "Sections scanned:" line at all when no sections',
+     !/^\*\*Sections scanned:\*\*/m.test(cEmpty),
+     'line not suppressed');
+  ok('empty digest does NOT contain bare "unavailable" in user-facing body',
+     !/\bunavailable\b/i.test(cEmpty),
+     cEmpty.match(/[^\n]*\bunavailable\b[^\n]*/));
+  ok('VIX-missing wording uses "reading pending", not "unavailable"',
+     /market fear \/ volatility gauge \(VIX\) reading pending/.test(cEmpty));
+  ok('Volatility level fallback uses "reading pending", not "unavailable"',
+     /\*\*Volatility:\*\* reading pending/.test(cEmpty));
+
+  // Populated path — ensure VIX line uses the level when present
+  // and no "unavailable" leaks anywhere.
+  const payloadPopulated = rank.buildRankedMovementDigestPayload(
+    { top10: [], sectionsScanned: ['fx_majors'], sectionCapsApplied: [], allCount: 0 },
+    { level: 'quiet', vixLevel: 'Normal' },
+    { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
+  );
+  ok('populated digest does NOT contain bare "unavailable" in user-facing body',
+     !/\bunavailable\b/i.test(payloadPopulated.content),
+     payloadPopulated.content.match(/[^\n]*\bunavailable\b[^\n]*/));
+}
+
+// ============================================================
+// T15 — Learning-link URL routing status (operator directive
+//   2026-05-12). Terminology URL registry is NOT YET wired into
+//   this repo. With no URL map provided, the row must stay plain
+//   text (no fake URLs invented). If a URL map IS provided in the
+//   future, the row must use Markdown links for wired terms only.
+// ============================================================
+console.log('\n[T15] Learning-link routing status — plain text default; Markdown links when wired');
+{
+  // No URL map → plain text.
+  const payloadPlain = rank.buildRankedMovementDigestPayload(
+    { top10: [], sectionsScanned: ['fx_majors'], sectionCapsApplied: [], allCount: 0 },
+    { level: 'quiet', vixLevel: 'Normal' },
+    { internal: [], ignored: [], universeSize: 33 }
+  );
+  ok('no urlMap → linkRoutingStatus reports "pending"',
+     payloadPlain.linkRoutingStatus === 'pending');
+  ok('no urlMap → row carries NO Markdown [text](url) patterns',
+     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(
+       payloadPlain.content.slice(
+         payloadPlain.content.indexOf('**Learning links:**'),
+         payloadPlain.content.indexOf('**Learning links:**') + 400
+       )
+     ));
+
+  // Future-state: when a wired URL is passed, the row gains the
+  // Markdown link for that term ONLY.
+  const payloadWired = rank.buildRankedMovementDigestPayload(
+    { top10: [], sectionsScanned: ['fx_majors'], sectionCapsApplied: [], allCount: 0 },
+    { level: 'quiet', vixLevel: 'Normal' },
+    {
+      internal: [], ignored: [], universeSize: 33,
+      learningLinkUrls: { 'Breakout': 'https://example.com/breakout' },
+    }
+  );
+  ok('wired URL → linkRoutingStatus reports "partial"',
+     payloadWired.linkRoutingStatus === 'partial');
+  ok('wired URL → Markdown link rendered for that term',
+     /\[Breakout\]\(https:\/\/example\.com\/breakout\)/.test(payloadWired.content));
+  ok('wired URL → only the wired term is linkified, others stay plain (no fake URLs)',
+     /·\s*Calm retest\s*·/.test(payloadWired.content)
+     && !/\[Calm retest\]\(http/.test(payloadWired.content));
+}
+
+// ============================================================
 // summary
 // ============================================================
 console.log('\n==========================');
 console.log('Passed: ' + passed + '   Failed: ' + failed);
 if (failed > 0) process.exit(1);
-console.log('[DH-EDUCATION-QA] PASS — chart-evidence anchors + glossary + visual pattern + asset-class continuation wording in place; honest pending fallback when data absent; chunker preserved; Learning Links row in position with clean body; live-leak regression guard green; chunk-boundary atomicity verified.');
+console.log('[DH-EDUCATION-QA] PASS — chart-evidence anchors + glossary + visual pattern + asset-class continuation wording in place; honest pending fallback when data absent; chunker preserved; Learning Links row in position with clean body; live-leak regression guard green; chunk-boundary atomicity verified; new-scan boundary on Part 1 only; no bare "unavailable" in user-facing body; URL routing status correctly reported.');
 process.exit(0);
