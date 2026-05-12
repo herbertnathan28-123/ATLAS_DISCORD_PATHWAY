@@ -810,8 +810,8 @@ function getEventIntelligence(symbol, opts) {
     }
 
     lines.push('**TRADER ACTION — BEFORE / DURING / AFTER**');
-    lines.push('Before: do not open new positions inside the 2 hours ahead of the release. Trail or reduce on existing setups.');
-    lines.push('During: do not trade inside the first 5 minutes. Fills are poor, spreads widen, and the first move often reverses.');
+    lines.push('Before: new positions are not supported inside the 2 hours ahead of the release. Trail or reduce on existing setups.');
+    lines.push('During: trading is not supported inside the first 5 minutes after release — fills are poor, spreads widen, and the first move often reverses.');
     lines.push('After: wait for lower-timeframe structure to reform. Enter only when a fresh structural break confirms the post-release direction.');
     lines.push('');
 
