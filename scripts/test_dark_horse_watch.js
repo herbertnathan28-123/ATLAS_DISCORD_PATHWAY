@@ -429,7 +429,7 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
        'FOMO_CAUTION found at digest tail');
     ok('single advisory tail present',
        /Conditions are moving but entry quality is not confirmed/.test(c) &&
-       /Do not chase — wait for the per-candidate confirmation criteria/.test(c), c);
+       /Wait for the per-candidate confirmation criteria \(timeframe \+ level\) listed above before acting/.test(c), c);
 
     // Numeric-level branch: feed a synthetic invalidation text that
     // includes a price. The renderer must switch to "Invalidation level:"

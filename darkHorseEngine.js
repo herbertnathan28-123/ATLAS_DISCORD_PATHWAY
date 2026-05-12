@@ -1029,7 +1029,7 @@ function buildDHPayload(candidate, options) {
   const tf = c.levelTimeframe || '1D';
   const closeAbove = c.direction === 'Bullish' ? 'above' : 'below';
   const closeOpposite = c.direction === 'Bullish' ? 'below' : 'above';
-  const whatConfirms = `A full candle body close ${closeAbove} ${confLvl} on ${tf}, followed by a controlled pullback that holds ${closeAbove} ${cancLvl}.`;
+  const whatConfirms = `A full candle body close ${closeAbove} ${confLvl} on ${tf}, followed by a calm retest that holds ${closeAbove} ${cancLvl}.`;
   const whatCancels  = `A full candle body close ${closeOpposite} ${cancLvl} on ${tf}, or momentum fading before a valid pullback forms.`;
 
   const content =
