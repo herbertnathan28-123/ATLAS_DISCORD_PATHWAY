@@ -751,10 +751,117 @@ console.log('\n[T15] Learning-link routing status — plain text default; Markdo
 }
 
 // ============================================================
+// T16 — State-line wording (operator directive 2026-05-12 — live
+//   evidence iteration). The State line must not contradict the
+//   surrounding output:
+//     - top10 empty                → "publication threshold not met"
+//     - top10 has N standouts (1)  → "1 developing standout is being tracked"
+//     - top10 has N standouts (≥2) → "N developing standouts are being tracked"
+//   The digest path only fires when zero candidates hit WATCH
+//   threshold, so top10 always represents developing standouts
+//   (not confirmed watch candidates).
+// ============================================================
+console.log('\n[T16] State line — context-aware wording; no contradiction with Displayed candidates');
+{
+  function daily(n, base) {
+    const out = []; let p = base;
+    const t = Math.floor(Date.parse('2026-05-01T00:00:00Z') / 1000);
+    for (let i = 0; i < n; i++) { const o = p, c = p + 0.6, h = c + 0.4, l = o - 0.3; out.push({ open: o, high: h, low: l, close: c, time: t + i * 86400 }); p = c; }
+    return out;
+  }
+  function mkRow(symbol, score, dir, sec) {
+    return Object.assign(
+      rank.enrichCandidate(
+        { symbol, score, direction: dir, summary: 'higher highs and higher lows', reasons: ['structure 2/2'] },
+        daily(25, score * 4 + 1),
+        6, { watchThreshold: 8 }
+      ),
+      { section: sec, sectionLabel: rank.SECTION_LABEL[sec] }
+    );
+  }
+  // 16a — Monitoring-only path (top10 empty)
+  const pEmpty = rank.buildRankedMovementDigestPayload(
+    { top10: [], sectionsScanned: [], sectionCapsApplied: [], allCount: 0 },
+    { level: 'quiet', vixLevel: 'Normal' },
+    { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
+  );
+  ok('empty digest — state uses "publication threshold not met this cycle."',
+     /\*\*State:\*\* Monitoring only · publication threshold not met this cycle\./.test(pEmpty.content),
+     pEmpty.content.match(/\*\*State:\*\*[^\n]+/));
+  ok('empty digest — state does NOT carry the contradictory "no confirmed watch candidate" wording',
+     !/no confirmed watch candidate/.test(pEmpty.content));
+
+  // 16b — One developing standout (singular grammar)
+  const pOne = rank.buildRankedMovementDigestPayload(
+    { top10: [mkRow('XAUUSD', 7, 'Bearish', rank.SECTIONS.COMMODITIES)],
+      sectionsScanned: ['commodities'], sectionCapsApplied: [], allCount: 1 },
+    { level: 'quiet', vixLevel: 'Normal' },
+    { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
+  );
+  ok('1 standout — state reads "1 developing standout is being tracked for confirmation."',
+     /\*\*State:\*\* Monitoring only · no fully confirmed watch candidate this cycle, but 1 developing standout is being tracked for confirmation\./.test(pOne.content),
+     pOne.content.match(/\*\*State:\*\*[^\n]+/));
+
+  // 16c — Multiple developing standouts (plural grammar)
+  const pMany = rank.buildRankedMovementDigestPayload(
+    { top10: [
+        mkRow('EURUSD', 7, 'Bullish', rank.SECTIONS.FX_MAJORS),
+        mkRow('NDX',    7, 'Bullish', rank.SECTIONS.INDICES),
+        mkRow('XAUUSD', 6, 'Bearish', rank.SECTIONS.COMMODITIES),
+      ], sectionsScanned: ['fx_majors','indices','commodities'], sectionCapsApplied: [], allCount: 3 },
+    { level: 'elevated', vixLevel: 'Elevated' },
+    { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
+  );
+  ok('3 standouts — state reads "3 developing standouts are being tracked for confirmation."',
+     /\*\*State:\*\* Monitoring only · no fully confirmed watch candidate this cycle, but 3 developing standouts are being tracked for confirmation\./.test(pMany.content),
+     pMany.content.match(/\*\*State:\*\*[^\n]+/));
+
+  // 16d — State line contradiction guard (regression): never emit
+  // the old static contradictory wording.
+  for (const sample of [pEmpty.content, pOne.content, pMany.content]) {
+    ok('no legacy "Monitoring only · no confirmed watch candidate this cycle." line',
+       !/\*\*State:\*\* Monitoring only · no confirmed watch candidate this cycle\.\s*$/m.test(sample));
+  }
+}
+
+// ============================================================
+// T17 — Standout reason wording — "move just confirming" replaced
+//   with "move is only just starting to confirm" for clarity to
+//   greenhorn readers (operator directive 2026-05-12).
+// ============================================================
+console.log('\n[T17] Standout reason — "is only just starting to confirm" replaces "just confirming"');
+{
+  function daily(n, base) {
+    const out = []; let p = base;
+    const t = Math.floor(Date.parse('2026-05-01T00:00:00Z') / 1000);
+    for (let i = 0; i < n; i++) { const o = p, c = p + 0.6, h = c + 0.4, l = o - 0.3; out.push({ open: o, high: h, low: l, close: c, time: t + i * 86400 }); p = c; }
+    return out;
+  }
+  // moveAge = 0 triggers the "just starting to confirm" branch.
+  const cand = rank.enrichCandidate(
+    { symbol: 'XAUUSD', score: 7, direction: 'Bearish', summary: 'pressure building', reasons: ['breakout 1/2'] },
+    daily(25, 1800), 6, { watchThreshold: 8 }
+  );
+  cand.section = rank.SECTIONS.COMMODITIES;
+  cand.sectionLabel = rank.SECTION_LABEL[rank.SECTIONS.COMMODITIES];
+  cand.moveAge = 0;  // force the "just starting" branch
+  const payload = rank.buildRankedMovementDigestPayload(
+    { top10: [cand], sectionsScanned: ['commodities'], sectionCapsApplied: [], allCount: 1 },
+    { level: 'quiet', vixLevel: 'Normal' },
+    { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
+  );
+  ok('standout reason uses "is only just starting to confirm"',
+     /bearish move is only just starting to confirm/.test(payload.content),
+     payload.content.match(/standouts[\s\S]{0,300}/)[0]);
+  ok('standout reason does NOT carry the old "move just confirming" wording',
+     !/\bmove just confirming\b/.test(payload.content));
+}
+
+// ============================================================
 // summary
 // ============================================================
 console.log('\n==========================');
 console.log('Passed: ' + passed + '   Failed: ' + failed);
 if (failed > 0) process.exit(1);
-console.log('[DH-EDUCATION-QA] PASS — chart-evidence anchors + glossary + visual pattern + asset-class continuation wording in place; honest pending fallback when data absent; chunker preserved; Learning Links row in position with clean body; live-leak regression guard green; chunk-boundary atomicity verified; new-scan boundary on Part 1 only; no bare "unavailable" in user-facing body; URL routing status correctly reported.');
+console.log('[DH-EDUCATION-QA] PASS — chart-evidence anchors + glossary + visual pattern + asset-class continuation wording in place; honest pending fallback when data absent; chunker preserved; Learning Links row in position with clean body; live-leak regression guard green; chunk-boundary atomicity verified; new-scan boundary on Part 1 only; no bare "unavailable" in user-facing body; URL routing status correctly reported; State line context-aware; standout reason "just starting to confirm" wording.');
 process.exit(0);

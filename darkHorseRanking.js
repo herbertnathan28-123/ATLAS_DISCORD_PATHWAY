@@ -572,7 +572,7 @@ function _standoutReason(s) {
   const structureTxt = _translateChartJargon(s.structureState || '').trim();
   const ageTxt = (s.moveAge && s.moveAge > 0)
     ? `${dir} sequence active for ${s.moveAge} ${s.moveAge === 1 ? 'candle' : 'candles'}`
-    : `${dir} move just confirming`;
+    : `${dir} move is only just starting to confirm`;
   const speedTxt = (s.moveSpeed != null && Number.isFinite(s.moveSpeed))
     ? `momentum ${s.moveSpeed}× the prior-bar average`
     : null;
@@ -1283,11 +1283,25 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     ? `**Sections scanned:** ${sectionsLine}\n`
     : '';
 
+  // State line — operator directive 2026-05-12 (live evidence
+  // iteration). The previous static "Monitoring only · no
+  // confirmed watch candidate this cycle." contradicted scans
+  // where Displayed candidates ≥ 1 and ⭐ standouts existed.
+  // The digest path only fires when zero candidates have reached
+  // the WATCH threshold (score ≥ 8/10), so top10 always represents
+  // developing standouts being tracked for confirmation, not
+  // confirmed watch candidates. When N ≥ 1 of those exist we say
+  // so explicitly; when none exist we keep the "publication
+  // threshold not met" reading.
+  const stateLine = top.length === 0
+    ? '**State:** Monitoring only · publication threshold not met this cycle.'
+    : `**State:** Monitoring only · no fully confirmed watch candidate this cycle, but ${top.length} developing standout${top.length === 1 ? ' is' : 's are'} being tracked for confirmation.`;
+
   const content =
     `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
     `${learningLinks.text}\n\n` +
     `${DH_CRITERIA_PARAGRAPH}\n\n` +
-    `**State:** Monitoring only · no confirmed watch candidate this cycle.\n` +
+    `${stateLine}\n` +
     `**Volatility:** ${volatilityLevel} · ${vixLine}\n` +
     sectionsLineRendered +
     `${displayedCandidatesLine}\n\n` +
