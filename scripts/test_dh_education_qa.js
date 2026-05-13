@@ -122,15 +122,19 @@ console.log('\n[T2] Honest pending fallback when anchor data missing');
 // ============================================================
 // T3 — "retest holds" wording has a paired hold explanation
 // ============================================================
-console.log('\n[T3] "retest holds" wording paired with hold explanation');
+console.log('\n[T3] Legacy "retest holds" glossary block suppressed (2026-05-13)');
 {
-  // The glossary entry pairs the phrase with the explanation;
-  // the visual-pattern prose also explains it inline.
-  ok('digest glossary defines "Retest holds"',
-     /\*\*Retest holds:\*\*[^\n]+next candle\\?'s body close/i.test(rank.DH_CHART_GLOSSARY)
-     || /\*\*Retest holds:\*\*[^\n]+body close/i.test(rank.DH_CHART_GLOSSARY),
-     rank.DH_CHART_GLOSSARY.slice(0, 200));
-  ok('visual-pattern prose explains "retest holds" inline for longs',
+  // Operator directive 2026-05-13: the legacy chart-pattern glossary
+  // block was suppressed live. The DH_CHART_GLOSSARY constant must
+  // be empty and must NOT carry the old "Retest holds" definition.
+  ok('DH_CHART_GLOSSARY is empty (legacy block suppressed)',
+     rank.DH_CHART_GLOSSARY === '',
+     { sample: String(rank.DH_CHART_GLOSSARY).slice(0, 200) });
+  ok('DH_CHART_GLOSSARY does not contain legacy "Retest holds:" wording',
+     !/\*\*Retest holds:\*\*/.test(rank.DH_CHART_GLOSSARY));
+  // Visual-pattern prose may still reference the phrase inline as
+  // education on a per-candidate card; that surface is unchanged.
+  ok('visual-pattern prose still explains "retest holds" inline for longs',
      /That is what "retest holds" means on a long/.test(renderedWithData));
 }
 
@@ -162,11 +166,13 @@ console.log('\n[T4] "intraday high area" always paired with level or pending not
 // ============================================================
 console.log('\n[T5] "5m/15m close" wording carries timeframe + level context');
 {
-  // The glossary defines "Breakout" with timeframe wording AND
-  // "Invalidation" with timeframe wording. The per-candidate
-  // chart-evidence block names the timeframe explicitly.
-  ok('glossary defines "Breakout" with timeframe wording',
-     /\*\*Breakout:\*\*[^\n]+candle on the named timeframe[^\n]+CLOSES/i.test(rank.DH_CHART_GLOSSARY));
+  // Operator directive 2026-05-13: the legacy glossary block was
+  // suppressed, so the "Breakout" entry is no longer asserted from
+  // DH_CHART_GLOSSARY. Per-candidate timeframe wording on the
+  // Invalidation line is still expected on the chart-evidence
+  // surface.
+  ok('legacy "Breakout:" glossary line NOT present in DH_CHART_GLOSSARY',
+     !/\*\*Breakout:\*\*/.test(rank.DH_CHART_GLOSSARY));
   ok('Invalidation block names a timeframe',
      /Invalidation:[^\n]+\b(?:15m|1D|timeframe)\b/i.test(renderedWithData));
 }
@@ -258,18 +264,49 @@ console.log('\n[T9] Chunker passes on the longer education-layer digest output')
        chunks[i].length <= engine.DH_CHUNK_MAX_DEFAULT,
        { len: chunks[i].length });
   }
-  // Glossary footer must survive chunking (somewhere in the joined body).
+  // Operator directive 2026-05-13: the legacy chart-pattern glossary
+  // block was suppressed. Assert the glossary header / entries are
+  // not present anywhere in the chunked output, and that the tail
+  // of the digest (the section after the last support block, where
+  // the glossary used to sit) carries none of the legacy phrases.
   const joined = chunks.map(c =>
     c.replace(/^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+\n\n/, '')
   ).join('');
-  ok('glossary block survives across chunks (header present)',
-     /### Glossary — chart-pattern terms used above/.test(joined));
-  ok('Recent intraday high area glossary entry survives',
-     /\*\*Recent intraday high area:\*\*/.test(joined));
-  ok('Breakout glossary entry survives',
-     /\*\*Breakout:\*\*/.test(joined));
-  ok('Invalidation glossary entry survives',
-     /\*\*Invalidation:\*\*/.test(joined));
+  ok('legacy glossary heading is NOT emitted',
+     !/### Glossary — chart-pattern terms used above/.test(joined));
+  ok('legacy "Recent intraday high area:" entry is NOT emitted',
+     !/\*\*Recent intraday high area:\*\*/.test(joined));
+  ok('legacy "Breakout:" entry is NOT emitted in the digest footer',
+     !/\*\*Breakout:\*\*/.test(joined));
+  ok('legacy "Retest holds:" entry is NOT emitted in the digest footer',
+     !/\*\*Retest holds:\*\*/.test(joined));
+  ok('legacy "Calm retest:" entry is NOT emitted in the digest footer',
+     !/\*\*Calm retest:\*\*/.test(joined));
+  ok('legacy "Invalidation:" entry is NOT emitted in the digest footer',
+     !/\*\*Invalidation:\*\*/.test(joined));
+  ok('legacy "Continuation window:" entry is NOT emitted in the digest footer',
+     !/\*\*Continuation window:\*\*/.test(joined));
+  // Tail-region sweep — after the last ### supporting block to the
+  // closing "Conditions are moving" footer line, the legacy wording
+  // must not survive. Per-card chart-evidence prose lives above
+  // that boundary and is intentionally untouched by this patch.
+  const tailStart = (() => {
+    const idx = joined.lastIndexOf('⏭️ Next review:');
+    return idx >= 0 ? Math.max(0, idx - 1200) : Math.max(0, joined.length - 1500);
+  })();
+  const tail = joined.slice(tailStart);
+  const BANNED_LEGACY_TAIL = [
+    /\bbreak\s+and\s+hold\b/i,
+    /\bbody\s+close\b/i,
+    /\bwick\s+alone\b/i,
+    /\bRetest\s+holds\b/i,
+    /\bread\s+weakens\b/i,
+  ];
+  for (const re of BANNED_LEGACY_TAIL) {
+    ok('legacy phrase ' + re + ' absent from digest tail',
+       !re.test(tail),
+       { hit: (tail.match(re) || [])[0] });
+  }
 }
 
 // ============================================================
@@ -344,10 +381,14 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
   // 10b — Body text stays clean: no INLINE markdown hyperlinks
   // scattered through the paragraph text below the Learning Links
   // row. We sample everything between the criteria paragraph and
-  // the footer glossary and assert zero [text](http…) patterns.
-  const idxGlossary = c.indexOf('### Glossary');
-  ok('glossary anchor found',  idxGlossary > idxCriteria);
-  const body = c.slice(idxCriteria, idxGlossary);
+  // the next-review footer line and assert zero [text](http…)
+  // patterns. (Anchor changed 2026-05-13 — the legacy glossary
+  // block that used to sit between body and footer is suppressed.)
+  const idxNextReview = c.indexOf('⏭️ Next review:');
+  ok('next-review footer anchor found', idxNextReview > idxCriteria);
+  ok('legacy glossary anchor is NOT present',
+     c.indexOf('### Glossary') < 0);
+  const body = c.slice(idxCriteria, idxNextReview);
   ok('no inline [text](url) patterns in body paragraphs',
      !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(body),
      'an inline link appears in the body');
@@ -568,25 +609,25 @@ console.log('\n[T12] Chunk-boundary atomicity — no fence splits / glossary ato
      diagramsWhole === totalDiagrams,
      { totalDiagrams, diagramsWhole });
 
-  // T12d — glossary section stays whole: the heading and all 7
-  // entries appear in the same chunk.
+  // T12d — legacy glossary suppression (operator directive
+  // 2026-05-13). The heading and all entries must be absent from
+  // every chunk; no chunk should still carry the legacy block.
   const glossaryChunkIdx = chunks.findIndex(c => /### Glossary — chart-pattern terms used above/.test(c));
-  ok('glossary heading lives in exactly one chunk', glossaryChunkIdx >= 0);
-  if (glossaryChunkIdx >= 0) {
-    const c = chunks[glossaryChunkIdx];
-    for (const entry of [
-      '**Recent intraday high area:**',
-      '**Recent intraday low area:**',
-      '**Breakout:**',
-      '**Calm retest:**',
-      '**Retest holds:**',
-      '**Invalidation:**',
-      '**Continuation window:**',
-    ]) {
-      ok(`glossary entry "${entry}" stays in the same chunk as the heading`,
-         c.includes(entry),
-         { glossaryChunk: glossaryChunkIdx, sample: c.slice(0, 200) });
-    }
+  ok('legacy glossary heading lives in NO chunk', glossaryChunkIdx === -1,
+     { glossaryChunkIdx });
+  for (const entry of [
+    '**Recent intraday high area:**',
+    '**Recent intraday low area:**',
+    '**Breakout:**',
+    '**Calm retest:**',
+    '**Retest holds:**',
+    '**Invalidation:**',
+    '**Continuation window:**',
+  ]) {
+    const hitIdx = chunks.findIndex(c => c.includes(entry));
+    ok(`legacy glossary entry "${entry}" appears in NO chunk`,
+       hitIdx === -1,
+       { hitIdx });
   }
 
   // T12e — every chunk is still within the Discord hard limit.

@@ -261,13 +261,13 @@ console.log('\n[T9] "controlled pullback" does not appear bare anywhere');
 {
   ok('digest contains no bare "controlled pullback"',
      !/\bcontrolled pullback\b/i.test(content), { sample: content.slice(0, 200) });
-  // PR (education layer 2026-05-12) replaced the single-line
-  // _Calm retest_ italic with the full chart-pattern glossary
-  // block. Assert the new heading + a "Calm retest:" entry.
-  ok('digest carries the chart-pattern glossary block',
-     /### Glossary — chart-pattern terms used above/.test(content));
-  ok('glossary defines "Calm retest"',
-     /\*\*Calm retest:\*\*/.test(content));
+  // Operator directive 2026-05-13 — the legacy chart-pattern
+  // glossary block was suppressed. Assert the heading and the
+  // "Calm retest:" entry are absent from the live digest output.
+  ok('legacy chart-pattern glossary block is NOT emitted',
+     !/### Glossary — chart-pattern terms used above/.test(content));
+  ok('legacy "Calm retest:" glossary entry is NOT emitted',
+     !/\*\*Calm retest:\*\*/.test(content));
   // Also sweep the watch payload via buildDHPayload — the only
   // other Dark Horse output surface.
   const watchPayload = engine.buildDHPayload({

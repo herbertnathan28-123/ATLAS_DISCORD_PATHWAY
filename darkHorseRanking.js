@@ -647,22 +647,17 @@ function buildNewScanBoundary(nowMs) {
   ].join('\n');
 }
 
-// Full chart-pattern glossary (ATLAS education-layer doctrine
-// 2026-05-12). Every technical phrase used in a candidate card
-// must appear in this glossary OR be paired with an inline
-// chart-level + visual reference per the doctrine. Footer-rendered
-// once per digest; chunker preserves it intact.
-const DH_CHART_GLOSSARY = [
-  '### Glossary — chart-pattern terms used above',
-  '',
-  '**Recent intraday high area:** the highest price reached earlier in the current session before price pulled back. For longs, this is the level price must break and hold above.',
-  '**Recent intraday low area:** the lowest price reached earlier in the current session before price bounced. For shorts, this is the level price must break and hold below.',
-  '**Breakout:** a candle on the named timeframe (e.g. 15m) CLOSES on the directional side of the level — body close, not just a wick. A wick alone does not count.',
-  '**Calm retest:** price comes back toward the breakout level without sharp opposite-direction pressure and without a full body close back through the level.',
-  '**Retest holds:** price stays on the breakout side and the next candle\'s body close confirms it.',
-  '**Invalidation:** a full candle body close back through the breakout / retest area on the named timeframe — the read weakens, not "stops out".',
-  '**Continuation window:** the typical number of sessions during which the read can develop, given the move phase. The session definition is asset-class-specific (NY equity days for stocks; Sydney/Tokyo/London/NY for FX/metals).',
-].join('\n');
+// Legacy chart-pattern glossary block — SUPPRESSED 2026-05-13 per
+// operator directive. The previous wording ("break and hold above",
+// "body close", "wick alone", "Retest holds", "read weakens", and
+// the old continuation-window line) was still being published live
+// on the final Part of every digest. Setting the constant to an
+// empty string drops the block from the live digest while keeping
+// the export resolvable for downstream consumers and test
+// harnesses. The new FOH education / terminology surface will be
+// wired in only after the FOH formatter is properly available in
+// this repo — do not reintroduce a heavy glossary here first.
+const DH_CHART_GLOSSARY = '';
 
 // ── PRE-RADAR / NEAR-MISS / SUPPORTING INTELLIGENCE ──────────
 // Doctrine (operator directive 2026-05-12): quiet scans should
@@ -1325,7 +1320,8 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     renderedStandoutsBlock +
     renderedSectionsBody +
     supportingBody +
-    `${DH_PATTERN_GLOSSARY}\n\n` +
+    // Legacy glossary block suppressed 2026-05-13. Slot intentionally
+    // left empty until the new FOH terminology surface is wired in.
     `⏭️ Next review: ${nextReview}.\n` +
     `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. Reassess against the per-candidate confirmation criteria at the next review.`;
 
