@@ -89,34 +89,47 @@ const renderedNoData   = rank.buildExpandedDetail(enrichedNoData, 1, false);
 
 // ============================================================
 // T1 — Confirmation language pairs price + date when anchor wired
+//
+// Operator directive 2026-05-13 (DH rewrite): chart-evidence
+// block uses bolded "**Chart evidence:**" heading + bulleted
+// "Recent intraday <high|low> area:" / "Invalidation level:"
+// rows with price bolded as `**1814.10**`. Date stamp still
+// carries UTC + AWST.
 // ============================================================
 console.log('\n[T1] Confirmation includes price + date when anchor data exists');
 {
   ok('rendered card carries the "Recent intraday high area" line',
      /Recent intraday high area:/.test(renderedWithData));
-  ok('rendered card includes a numeric price level',
-     /Recent intraday high area:\s*[0-9.]+/.test(renderedWithData),
+  ok('rendered card includes a numeric price level (bolded inside chart evidence)',
+     /Recent intraday high area:[\s\S]*?\*\*[0-9.]+\*\*/.test(renderedWithData),
      renderedWithData.match(/Recent intraday high area:[^\n]+/));
   ok('rendered card includes a UTC date stamp (YYYY-MM-DD UTC)',
      /\d{4}-\d{2}-\d{2}\s+UTC/.test(renderedWithData));
-  ok('Invalidation line names a price level + timeframe',
-     /Invalidation:[^\n]*\b[0-9.]+\b[^\n]*\b(?:15m|1D|timeframe)\b/i.test(renderedWithData),
-     renderedWithData.match(/Invalidation:[^\n]+/));
+  ok('chart-evidence Invalidation level names a price + timeframe',
+     /Invalidation level:[\s\S]*?\*\*[0-9.]+\*\*[\s\S]*?\b(?:15m|1D|timeframe)\b/i.test(renderedWithData),
+     renderedWithData.match(/Invalidation level:[^\n]+/));
 }
 
 // ============================================================
-// T2 — Pending fallback when no anchor data
+// T2 — Suppression when no anchor data
+//
+// Operator directive 2026-05-13 (DH rewrite): the chart-evidence
+// block is now SUPPRESSED entirely when anchor data is not
+// wired. No "pending" / "wiring required" / system-limitation
+// text reaches the user-facing surface. Per-card stays clean.
 // ============================================================
-console.log('\n[T2] Honest pending fallback when anchor data missing');
+console.log('\n[T2] Chart-evidence block suppressed when anchor data missing');
 {
-  ok('pending text present when no htfCandles passed',
-     /Chart evidence: exact intraday level pending/.test(renderedNoData),
-     renderedNoData.match(/Chart evidence:[^\n]+/));
-  ok('follow-up requirement line present',
-     /Required follow-up: wire 5m\/15m OHLC anchor extraction/.test(renderedNoData));
+  ok('legacy "Chart evidence: exact intraday level pending" wording absent',
+     !/Chart evidence: exact intraday level pending/.test(renderedNoData));
+  ok('legacy "Required follow-up: wire 5m/15m" wording absent',
+     !/Required follow-up: wire 5m\/15m OHLC anchor extraction/.test(renderedNoData));
   ok('no fake numeric levels invented when data absent',
      !/Recent intraday high area:\s*[0-9.]+/.test(renderedNoData),
      'a numeric level was produced despite missing data');
+  // No "Chart evidence:" heading line either — entire block hidden.
+  ok('no "Chart evidence:" heading line when block is suppressed',
+     !/\*\*Chart evidence:\*\*/.test(renderedNoData));
 }
 
 // ============================================================
@@ -135,40 +148,33 @@ console.log('\n[T3] "retest holds" wording paired with hold explanation');
 }
 
 // ============================================================
-// T4 — "intraday high area" requires timestamp/price OR pending note
+// T4 — "intraday high area" — bolded price when present, fully
+// suppressed when data is missing (no leakage of pending text).
 // ============================================================
-console.log('\n[T4] "intraday high area" always paired with level or pending note');
+console.log('\n[T4] "intraday high area" pairs with bolded numeric or is suppressed');
 {
-  // When data is wired:
-  ok('with data — "Recent intraday high area:" line present and carries a number',
-     /Recent intraday high area:\s*[0-9.]+/.test(renderedWithData));
-  // When data is missing:
+  ok('with data — "Recent intraday high area:" carries a bolded number',
+     /Recent intraday high area:[\s\S]*?\*\*[0-9.]+\*\*/.test(renderedWithData));
+  // When data is missing the entire chart-evidence block is hidden;
+  // the phrase must not appear in the no-data render.
   const phrase = /(?:Recent intraday (?:high|low) area|intraday (?:high|low) area)/i;
-  const phrasePresent = phrase.test(renderedNoData);
-  // If phrase is present in the no-data path, it MUST be in a
-  // glossary line (which is part of the digest footer, not in the
-  // per-candidate render). Per-candidate render in pending mode
-  // should NOT use the bare phrase outside the chart-evidence block.
-  // The buildChartEvidenceBlock pending branch does not emit
-  // "intraday high area" at all — so the assertion is just:
-  // either it isn't there, or it carries a pending note.
-  ok('without data — phrase either absent or carries pending note',
-     !phrasePresent || /pending/.test(renderedNoData),
+  ok('without data — phrase absent entirely (block suppressed)',
+     !phrase.test(renderedNoData),
      { sample: renderedNoData.slice(0, 600) });
 }
 
 // ============================================================
-// T5 — "5m/15m close" wording carries explanation
+// T5 — Per-candidate timeframe context — sourced from the
+// Confirmation requirement + Chart evidence rows. The glossary
+// footer block is no longer rendered (operator directive
+// 2026-05-13: glossary removed from output body).
 // ============================================================
-console.log('\n[T5] "5m/15m close" wording carries timeframe + level context');
+console.log('\n[T5] Timeframe wording present in card body when data is wired');
 {
-  // The glossary defines "Breakout" with timeframe wording AND
-  // "Invalidation" with timeframe wording. The per-candidate
-  // chart-evidence block names the timeframe explicitly.
-  ok('glossary defines "Breakout" with timeframe wording',
-     /\*\*Breakout:\*\*[^\n]+candle on the named timeframe[^\n]+CLOSES/i.test(rank.DH_CHART_GLOSSARY));
-  ok('Invalidation block names a timeframe',
-     /Invalidation:[^\n]+\b(?:15m|1D|timeframe)\b/i.test(renderedWithData));
+  ok('Confirmation requirement names a timeframe',
+     /Confirmation requirement:[^\n]+\b(?:5m|15m|1H|1D|timeframe)\b/i.test(renderedWithData));
+  ok('Chart-evidence Invalidation level names a timeframe',
+     /Invalidation level:[^\n]+\b(?:15m|1D|timeframe)\b/i.test(renderedWithData));
 }
 
 // ============================================================
@@ -258,28 +264,33 @@ console.log('\n[T9] Chunker passes on the longer education-layer digest output')
        chunks[i].length <= engine.DH_CHUNK_MAX_DEFAULT,
        { len: chunks[i].length });
   }
-  // Glossary footer must survive chunking (somewhere in the joined body).
+  // Operator directive 2026-05-13 (DH rewrite): the glossary
+  // footer block has been removed from the digest body. Confirm
+  // its OLD heading no longer reaches the chunker.
   const joined = chunks.map(c =>
     c.replace(/^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+\n\n/, '')
   ).join('');
-  ok('glossary block survives across chunks (header present)',
-     /### Glossary — chart-pattern terms used above/.test(joined));
-  ok('Recent intraday high area glossary entry survives',
-     /\*\*Recent intraday high area:\*\*/.test(joined));
-  ok('Breakout glossary entry survives',
-     /\*\*Breakout:\*\*/.test(joined));
-  ok('Invalidation glossary entry survives',
-     /\*\*Invalidation:\*\*/.test(joined));
+  ok('legacy glossary heading absent (rewrite removed it)',
+     !/### Glossary — chart-pattern terms used above/.test(joined));
 }
 
 // ============================================================
-// T10 — Learning Links doctrine (operator directive 2026-05-12)
-//   Row sits IMMEDIATELY under heading, BEFORE criteria paragraph.
-//   Plain-term form when URL map absent (rule 5). No fake URLs
-//   (rule 6). Body text MUST stay clean — no inline hyperlinks
-//   scattered through paragraphs (rule 1, 2, 3).
+// T10 — Top-of-output Expanded Terminology Hyperlinks
+//
+// Operator directive 2026-05-13 (full DH rewrite + section-
+// hyperlink standard):
+//   - Body Learning-Links row REMOVED entirely. Hyperlinks live
+//     at the TOP only (in firstChunkPrefix, between the scan
+//     boundary and the v1.1 header).
+//   - Row uses bracket form `[Breakout] [Calm Retest]
+//     [Invalidation] [Higher High / Higher Low]` rendered inside
+//     a ```ansi code fence with cyan/teal escape codes so the
+//     items read as chip-style references.
+//   - No fake URLs.
+//   - Body of the digest stays clean: no markdown links scattered
+//     through paragraphs.
 // ============================================================
-console.log('\n[T10] Learning Links row — position, content, plain-term default, clean body');
+console.log('\n[T10] Top-of-output Expanded Terminology Hyperlinks — bracket chips, ansi cyan, no body row');
 {
   // Use the full 8-candidate fixture from T9 so we exercise a
   // realistic digest output, not a single-card render.
@@ -315,78 +326,33 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
     sectionCapsApplied: [], allCount: 4,
   };
 
-  // 10a — Plain-term default (URL map not provided)
+  // 10a — Body row removed entirely from the digest body.
   const payloadPlain = rank.buildRankedMovementDigestPayload(ranking, { level: 'elevated', vixLevel: 'Elevated' }, { now: Date.parse('2026-05-12T04:00:00Z') });
   const c = payloadPlain.content;
-  ok('Expanded Terminology Hyperlinks row present',
-     /\*\*Expanded Terminology Hyperlinks:\*\*/.test(c), c.slice(0, 400));
-  ok('legacy "**Learning links:**" label removed across DH output',
+  ok('legacy body "**Learning links:**" label REMOVED',
      !/\*\*Learning links:\*\*/.test(c));
-  // Position check: between the 🐎 header and the criteria paragraph.
-  const idxHeader   = c.indexOf('🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**');
-  const idxLinks    = c.indexOf('**Expanded Terminology Hyperlinks:**');
-  const idxCriteria = c.indexOf('**Dark Horse criteria:**');
-  ok('header found',   idxHeader   >= 0);
-  ok('links found',    idxLinks    >  0);
-  ok('criteria found', idxCriteria >  0);
-  ok('Learning Links sits BETWEEN header and criteria paragraph',
-     idxHeader < idxLinks && idxLinks < idxCriteria,
-     { idxHeader, idxLinks, idxCriteria });
-  // Content: all 9 user-specified terms present in the row.
-  for (const term of rank.DH_LEARNING_LINKS_TERMS) {
-    ok('learning row carries term "' + term + '"',
-       c.includes(term),
-       { sample: c.slice(idxLinks, idxLinks + 400) });
+  ok('legacy body "**Expanded Terminology Hyperlinks:**" body row REMOVED',
+     !/\*\*Expanded Terminology Hyperlinks:\*\*/.test(c));
+
+  // 10b — Top-of-output row lives in firstChunkPrefix.
+  ok('payload.firstChunkPrefix is non-empty', typeof payloadPlain.firstChunkPrefix === 'string' && payloadPlain.firstChunkPrefix.length > 0);
+  ok('firstChunkPrefix carries the 📘 Expanded Terminology Hyperlinks: prefix',
+     /📘 \*\*Expanded Terminology Hyperlinks:\*\*/.test(payloadPlain.firstChunkPrefix));
+  ok('firstChunkPrefix carries the ```ansi chip fence',
+     /```ansi/.test(payloadPlain.firstChunkPrefix));
+  for (const term of ['Breakout', 'Calm Retest', 'Invalidation', 'Higher High / Higher Low']) {
+    ok('top hyperlinks row carries chip "[' + term + ']"',
+       payloadPlain.firstChunkPrefix.includes('[' + term + ']'));
   }
-  ok('plain-term default — no Markdown link syntax in the row when URL map absent',
-     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(c.slice(idxLinks, idxLinks + 400)),
-     'a [text](url) pattern appears in the Learning Links row');
-  ok('linkRoutingStatus reported as pending',
-     payloadPlain.linkRoutingStatus === 'pending');
+  ok('top hyperlinks row carries NO Markdown link syntax',
+     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(payloadPlain.firstChunkPrefix));
 
-  // 10b — Body text stays clean: no INLINE markdown hyperlinks
-  // scattered through the paragraph text below the Learning Links
-  // row. We sample everything between the criteria paragraph and
-  // the footer glossary and assert zero [text](http…) patterns.
-  const idxGlossary = c.indexOf('### Glossary');
-  ok('glossary anchor found',  idxGlossary > idxCriteria);
-  const body = c.slice(idxCriteria, idxGlossary);
-  ok('no inline [text](url) patterns in body paragraphs',
-     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(body),
+  // 10c — Body text stays clean: no INLINE markdown hyperlinks
+  // scattered through the paragraph text. (Glossary footer is
+  // already removed; sample the whole body.)
+  ok('no inline [text](url) patterns in digest body',
+     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(c),
      'an inline link appears in the body');
-
-  // 10c — partial-URL form: rule 4 says use Markdown links only when
-  // URLs exist; rule 6 says do not invent fakes. Pass a partial
-  // urlMap and confirm only the keyed terms get linkified.
-  const payloadPartial = rank.buildRankedMovementDigestPayload(
-    ranking,
-    { level: 'elevated', vixLevel: 'Elevated' },
-    {
-      now: Date.parse('2026-05-12T04:00:00Z'),
-      learningLinkUrls: { 'Calm retest': 'https://example.com/calm-retest' },
-    }
-  );
-  ok('partial-URL form linkifies only the wired term',
-     /\[Calm retest\]\(https:\/\/example\.com\/calm-retest\)/.test(payloadPartial.content),
-     payloadPartial.content.slice(payloadPartial.content.indexOf('**Expanded Terminology Hyperlinks:**'), payloadPartial.content.indexOf('**Expanded Terminology Hyperlinks:**') + 400));
-  ok('partial-URL form leaves un-wired terms plain (no fake URLs)',
-     // "Breakout" is in the term list but no URL was provided →
-     // must render as plain text, not "[Breakout](…)".
-     /·\s*Breakout\s*·/.test(payloadPartial.content)
-     && !/\[Breakout\]\(https?/.test(payloadPartial.content),
-     'Breakout was either linkified with a fake URL or stripped');
-  ok('partial-URL form reports linkRoutingStatus = partial',
-     payloadPartial.linkRoutingStatus === 'partial');
-
-  // 10d — buildLearningLinksBlock unit checks (URL routing edge cases)
-  const blockEmpty = rank.buildLearningLinksBlock();
-  ok('empty call returns plain-term row',
-     /\*\*Expanded Terminology Hyperlinks:\*\* Dark Horse candidate · WATCH candidate · /.test(blockEmpty.text));
-  const blockFake = rank.buildLearningLinksBlock({ 'Calm retest': 'not-a-real-url' });
-  ok('non-https URL is rejected (term stays plain)',
-     /·\s*Calm retest\s*·/.test(blockFake.text)
-     && !/\[Calm retest\]\(not-a-real-url\)/.test(blockFake.text),
-     'a non-https url was accepted');
 }
 
 // ============================================================
@@ -474,19 +440,28 @@ console.log('\n[T11] Live-leak regression guard — every named substring absent
      /identify markets and instruments/.test(content));
   ok('"Displayed candidates:" header present',
      /\*\*Displayed candidates:\*\* \d+/.test(content));
-  ok('footer ends with "Reassess against the per-candidate confirmation criteria at the next review."',
-     /Reassess against the per-candidate confirmation criteria at the next review\./.test(content));
-  ok('chart-evidence pending note uses "Chart confirmation remains pending until 15m/5m anchor wiring is added"',
-     /Chart confirmation remains pending until 15m\/5m anchor wiring is added/.test(content));
+  // Operator directive 2026-05-13 (DH rewrite): footer wording
+  // rewritten to drop the backend "per-candidate confirmation
+  // criteria" phrasing.
+  ok('footer ends with the rewrite advisory wording',
+     /Recheck each candidate against its confirmation requirement at the next review\./.test(content));
+  // Chart-evidence pending wording was a system-limitation leak;
+  // the rewrite REMOVED the entire pending branch (block is
+  // suppressed when anchors are not wired). Confirm it does not
+  // appear.
+  ok('legacy chart-evidence "pending until 15m/5m anchor wiring" wording absent',
+     !/Chart confirmation remains pending until 15m\/5m anchor wiring is added/.test(content));
   ok('jargon translated: "higher highs and higher lows" appears',
      /higher highs and higher lows/.test(content));
   ok('jargon translated: "× the prior-bar average" appears',
      /×\s*the prior-bar average/.test(content));
   ok('jargon translated: "section average" appears',
      /section average\b/.test(content));
-  // Standout reason now includes structure read + sequence detail.
-  ok('standout reason carries enriched evidence, not generic phase line',
-     /because\s+\w+\s+stage,\s*score\s+\d+\/10;\s+structure read:/.test(content));
+  // Operator directive 2026-05-13 (DH rewrite): standout reason
+  // wording switched from "structure read:" to "chart pattern:"
+  // (plainer English).
+  ok('standout reason carries enriched evidence (chart pattern, phase, score)',
+     /because\s+\w+\s+stage,\s*score\s+\d+\/10;\s+chart pattern:/.test(content));
 }
 
 // ============================================================
@@ -571,26 +546,12 @@ console.log('\n[T12] Chunk-boundary atomicity — no fence splits / glossary ato
      diagramsWhole === totalDiagrams,
      { totalDiagrams, diagramsWhole });
 
-  // T12d — glossary section stays whole: the heading and all 7
-  // entries appear in the same chunk.
-  const glossaryChunkIdx = chunks.findIndex(c => /### Glossary — chart-pattern terms used above/.test(c));
-  ok('glossary heading lives in exactly one chunk', glossaryChunkIdx >= 0);
-  if (glossaryChunkIdx >= 0) {
-    const c = chunks[glossaryChunkIdx];
-    for (const entry of [
-      '**Recent intraday high area:**',
-      '**Recent intraday low area:**',
-      '**Breakout:**',
-      '**Calm retest:**',
-      '**Retest holds:**',
-      '**Invalidation:**',
-      '**Continuation window:**',
-    ]) {
-      ok(`glossary entry "${entry}" stays in the same chunk as the heading`,
-         c.includes(entry),
-         { glossaryChunk: glossaryChunkIdx, sample: c.slice(0, 200) });
-    }
-  }
+  // T12d — Operator directive 2026-05-13 (DH rewrite): the
+  // glossary footer block was REMOVED from the digest body. The
+  // chunk atomicity check for the OLD glossary heading is
+  // replaced with a guard asserting the legacy heading is gone.
+  ok('legacy "### Glossary — chart-pattern terms used above" heading absent from every chunk',
+     chunks.every((c) => !/### Glossary — chart-pattern terms used above/.test(c)));
 
   // T12e — every chunk is still within the Discord hard limit.
   for (let i = 0; i < chunks.length; i++) {
@@ -654,23 +615,23 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
      /🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(payload.firstChunkPrefix));
   ok('boundary includes UTC + AWST timestamps',
      /Scan time: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC \/ \d{4}-\d{2}-\d{2} \d{2}:\d{2} AWST/.test(payload.firstChunkPrefix));
-  // Bearish presence (XAUUSD in this fixture) triggers the visual-
-  // QA-fix top-of-output Expanded Terminology Hyperlinks row.
-  // Doctrine (post-PR-#64 review): row is PLAIN TEXT — no Markdown
-  // link syntax, no `#<slug>` anchor fragments. Lane 1 library
-  // still supports link form for future real-URL wiring.
-  // Operator directive 2026-05-13: row label renamed from
-  // "📘 Learn:" to "📘 Expanded Terminology Hyperlinks:".
-  ok('Lane 2 — bearish present → 📘 Expanded Terminology Hyperlinks row appended',
-     /📘 Expanded Terminology Hyperlinks: /.test(payload.firstChunkPrefix));
-  ok('Lane 2 — legacy "📘 Learn:" prefix absent',
+  // Operator directive 2026-05-13 (full DH rewrite + section-
+  // hyperlink standard): Top-of-output Terminology Hyperlinks
+  // row appears on EVERY scan (not just bearish) and uses bracket
+  // chips inside a ```ansi code fence for cyan/teal styling.
+  // Row carries four canonical terms.
+  ok('top-of-output 📘 Expanded Terminology Hyperlinks row appended',
+     /📘 \*\*Expanded Terminology Hyperlinks:\*\*/.test(payload.firstChunkPrefix));
+  ok('row uses ```ansi code fence (cyan chip styling)',
+     /```ansi/.test(payload.firstChunkPrefix));
+  ok('legacy "📘 Learn:" prefix absent',
      !/📘 Learn: /.test(payload.firstChunkPrefix));
-  ok('Lane 2 — row contains "Lower High / Lower Low" plain term',
-     /📘 Expanded Terminology Hyperlinks: [\s\S]*?Lower High \/ Lower Low/.test(payload.firstChunkPrefix));
-  ok('Lane 2 — row contains NO Markdown link syntax',
-     !/📘 Expanded Terminology Hyperlinks: [\s\S]*?\[[^\]]+\]\([^)]+\)/.test(payload.firstChunkPrefix));
-  ok('Lane 2 — row contains NO "#<slug>" anchor-fragment leaks',
-     !/📘 Expanded Terminology Hyperlinks:[^\n]*#[a-z][a-z0-9-]*/.test(payload.firstChunkPrefix));
+  for (const term of ['Breakout', 'Calm Retest', 'Invalidation', 'Higher High / Higher Low']) {
+    ok('chip "[' + term + ']" present in firstChunkPrefix',
+       payload.firstChunkPrefix.includes('[' + term + ']'));
+  }
+  ok('row carries NO Markdown link syntax',
+     !/📘[\s\S]*?\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(payload.firstChunkPrefix));
 
   // Chunker pass-through: Part 1 gets the boundary, Parts 2..N do not.
   const chunks = engine._dhChunkDigest(payload.content, {
@@ -682,13 +643,13 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
      chunks[0].startsWith('```diff\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n```\n### 🆕 🐎 **NEW DARK HORSE SCAN**'),
      { head: chunks[0].slice(0, 220) });
   // The Expanded Terminology Hyperlinks row sits between the
-  // boundary (closing ``` fence) and the v1.1 header on bearish
-  // digests. We assert the v1.1 header sits BELOW the boundary
-  // (allowing for the row in between).
+  // boundary (closing ``` fence) and the v1.1 header. We assert
+  // the v1.1 header sits BELOW the boundary (allowing for the
+  // row in between).
   ok('Part 1 has the v1.1 header BELOW the boundary + Terminology row',
      /```\n[\s\S]*?\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part 1\/\d+/.test(chunks[0]));
-  ok('Part 1 has the 📘 Expanded Terminology Hyperlinks row BETWEEN the closing fence and the v1.1 header',
-     /```\n\n📘 Expanded Terminology Hyperlinks: [\s\S]*?\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\*/.test(chunks[0]));
+  ok('Part 1 has the 📘 Expanded Terminology Hyperlinks chips block BETWEEN the boundary and the v1.1 header',
+     /📘 \*\*Expanded Terminology Hyperlinks:\*\*[\s\S]*?```ansi[\s\S]*?```[\s\S]*?\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\*/.test(chunks[0]));
   for (let i = 1; i < chunks.length; i++) {
     ok(`Part ${i + 1}/${chunks.length} does NOT carry the new-scan boundary`,
        !/NEW DARK HORSE SCAN/.test(chunks[i]),
@@ -742,32 +703,28 @@ console.log('\n[T14] Bare "unavailable" absent + "Sections scanned: unavailable"
 }
 
 // ============================================================
-// T15 — Learning-link URL routing status (operator directive
-//   2026-05-12). Terminology URL registry is NOT YET wired into
-//   this repo. With no URL map provided, the row must stay plain
-//   text (no fake URLs invented). If a URL map IS provided in the
-//   future, the row must use Markdown links for wired terms only.
+// T15 — Operator directive 2026-05-13 (full DH rewrite):
+// the body Learning-Links row is REMOVED entirely. The
+// `learningLinkUrls` opts plumbing is now obsolete for the
+// user-facing surface — confirm the digest body emits no
+// markdown-link patterns regardless of the URL map.
 // ============================================================
-console.log('\n[T15] Learning-link routing status — plain text default; Markdown links when wired');
+console.log('\n[T15] Body Learning-Links surface removed — no URL form leaks into body');
 {
-  // No URL map → plain text.
   const payloadPlain = rank.buildRankedMovementDigestPayload(
     { top10: [], sectionsScanned: ['fx_majors'], sectionCapsApplied: [], allCount: 0 },
     { level: 'quiet', vixLevel: 'Normal' },
     { internal: [], ignored: [], universeSize: 33 }
   );
-  ok('no urlMap → linkRoutingStatus reports "pending"',
-     payloadPlain.linkRoutingStatus === 'pending');
-  ok('no urlMap → row carries NO Markdown [text](url) patterns',
-     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(
-       payloadPlain.content.slice(
-         payloadPlain.content.indexOf('**Expanded Terminology Hyperlinks:**'),
-         payloadPlain.content.indexOf('**Expanded Terminology Hyperlinks:**') + 400
-       )
-     ));
+  ok('digest body has NO body-row Learning Links surface anymore',
+     !/\*\*Learning links:\*\*/.test(payloadPlain.content)
+     && !/\*\*Expanded Terminology Hyperlinks:\*\*/.test(payloadPlain.content));
+  ok('digest body has NO Markdown [text](https) patterns anywhere',
+     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(payloadPlain.content));
 
-  // Future-state: when a wired URL is passed, the row gains the
-  // Markdown link for that term ONLY.
+  // Even if a caller passes the legacy learningLinkUrls opts,
+  // nothing markdown-linked leaks into the body (the body row
+  // was removed).
   const payloadWired = rank.buildRankedMovementDigestPayload(
     { top10: [], sectionsScanned: ['fx_majors'], sectionCapsApplied: [], allCount: 0 },
     { level: 'quiet', vixLevel: 'Normal' },
@@ -776,13 +733,8 @@ console.log('\n[T15] Learning-link routing status — plain text default; Markdo
       learningLinkUrls: { 'Breakout': 'https://example.com/breakout' },
     }
   );
-  ok('wired URL → linkRoutingStatus reports "partial"',
-     payloadWired.linkRoutingStatus === 'partial');
-  ok('wired URL → Markdown link rendered for that term',
-     /\[Breakout\]\(https:\/\/example\.com\/breakout\)/.test(payloadWired.content));
-  ok('wired URL → only the wired term is linkified, others stay plain (no fake URLs)',
-     /·\s*Calm retest\s*·/.test(payloadWired.content)
-     && !/\[Calm retest\]\(http/.test(payloadWired.content));
+  ok('legacy learningLinkUrls opts do NOT inject markdown links into the body',
+     !/\[Breakout\]\(https:\/\/example\.com\/breakout\)/.test(payloadWired.content));
 }
 
 // ============================================================
@@ -820,10 +772,14 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
     { level: 'quiet', vixLevel: 'Normal' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('empty digest — state uses "publication threshold not met this cycle."',
-     /\*\*State:\*\* Monitoring only · publication threshold not met this cycle\./.test(pEmpty.content),
+  // Operator directive 2026-05-13 (DH rewrite): "Monitoring only"
+  // prefix + "publication threshold not met" wording dropped.
+  ok('empty digest — state uses "Conditions are quiet across the radar this cycle."',
+     /\*\*State:\*\* Conditions are quiet across the radar this cycle\./.test(pEmpty.content),
      pEmpty.content.match(/\*\*State:\*\*[^\n]+/));
-  ok('empty digest — state does NOT carry the contradictory "no confirmed watch candidate" wording',
+  ok('empty digest — state does NOT carry the legacy "Monitoring only" prefix',
+     !/Monitoring only/.test(pEmpty.content));
+  ok('empty digest — state does NOT carry the legacy "no confirmed watch candidate" wording',
      !/no confirmed watch candidate/.test(pEmpty.content));
 
   // 16b — One developing standout (singular grammar)
@@ -833,8 +789,8 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
     { level: 'quiet', vixLevel: 'Normal' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('1 standout — state reads "1 developing standout is being tracked for confirmation."',
-     /\*\*State:\*\* Monitoring only · no fully confirmed watch candidate this cycle, but 1 developing standout is being tracked for confirmation\./.test(pOne.content),
+  ok('1 standout — state reads "1 developing standout is on the radar this cycle."',
+     /\*\*State:\*\* 1 developing standout is on the radar this cycle\./.test(pOne.content),
      pOne.content.match(/\*\*State:\*\*[^\n]+/));
 
   // 16c — Multiple developing standouts (plural grammar)
@@ -847,15 +803,15 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
     { level: 'elevated', vixLevel: 'Elevated' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('3 standouts — state reads "3 developing standouts are being tracked for confirmation."',
-     /\*\*State:\*\* Monitoring only · no fully confirmed watch candidate this cycle, but 3 developing standouts are being tracked for confirmation\./.test(pMany.content),
+  ok('3 standouts — state reads "3 developing standouts are on the radar this cycle."',
+     /\*\*State:\*\* 3 developing standouts are on the radar this cycle\./.test(pMany.content),
      pMany.content.match(/\*\*State:\*\*[^\n]+/));
 
-  // 16d — State line contradiction guard (regression): never emit
-  // the old static contradictory wording.
+  // 16d — Regression guard: never emit the old "Monitoring only"
+  // backend prefix or "confirmed watch candidate" wording.
   for (const sample of [pEmpty.content, pOne.content, pMany.content]) {
-    ok('no legacy "Monitoring only · no confirmed watch candidate this cycle." line',
-       !/\*\*State:\*\* Monitoring only · no confirmed watch candidate this cycle\.\s*$/m.test(sample));
+    ok('no legacy "Monitoring only" / "confirmed watch candidate" wording',
+       !/Monitoring only/.test(sample) && !/confirmed watch candidate/.test(sample));
   }
 }
 
@@ -885,11 +841,18 @@ console.log('\n[T17] Standout reason — "is only just starting to confirm" repl
     { level: 'quiet', vixLevel: 'Normal' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('standout reason uses "is only just starting to confirm"',
-     /bearish move is only just starting to confirm/.test(payload.content),
-     payload.content.match(/standouts[\s\S]{0,300}/)[0]);
-  ok('standout reason does NOT carry the old "move just confirming" wording',
+  // Operator directive 2026-05-13 (DH rewrite): the "is only just
+  // starting to confirm" wording was REMOVED — when moveAge=0 we
+  // simply OMIT the sequence-age clause from the standout reason.
+  ok('standout reason does NOT carry legacy "is only just starting to confirm"',
+     !/is only just starting to confirm/.test(payload.content));
+  ok('standout reason does NOT carry legacy "move just confirming" wording',
      !/\bmove just confirming\b/.test(payload.content));
+  // The reason still carries the score + section + chart-pattern
+  // anchor so the reader sees WHY the candidate stood out.
+  ok('standout reason still carries score + chart-pattern evidence',
+     /score\s+\d+\/10/.test(payload.content)
+     && /chart pattern:/.test(payload.content));
 }
 
 // ============================================================
