@@ -101,12 +101,24 @@ const bearishOpts = { internal: [], ignored: [], universeSize: 33, now: NOW };
 const bearishRow = rank.buildVisualLearningLinksRow(bearishRanking, bearishOpts);
 ok('bearish present — row is non-empty', typeof bearishRow === 'string' && bearishRow.length > 0);
 ok('row begins with 📘 Learn: prefix', /^📘 Learn: /.test(bearishRow));
-ok('row links to Lower High / Lower Low', /\[Lower High \/ Lower Low\]\(#lh-ll\)/.test(bearishRow));
-ok('row links to BOS', /\[Break of Structure\]\(#bos\)/.test(bearishRow));
-ok('row links to Liquidity Sweep', /\[Liquidity Sweep\]\(#liquidity-sweep\)/.test(bearishRow));
-ok('row links to Failed Retest', /\[Failed Retest\]\(#failed-retest\)/.test(bearishRow));
+// Doctrine (operator directive 2026-05-12, post-PR-#64 review):
+// row must be PLAIN TEXT — no Markdown link syntax, no `#<slug>`
+// anchor fragments. The Lane 1 library still supports link form
+// for later real-URL wiring; this consumer renders plain text.
+ok('row contains "Lower High / Lower Low" (plain term, not a link)',
+   /Lower High \/ Lower Low/.test(bearishRow));
+ok('row contains "Break of Structure" (plain term)',
+   /Break of Structure/.test(bearishRow));
+ok('row contains "Liquidity Sweep" (plain term)',
+   /Liquidity Sweep/.test(bearishRow));
+ok('row contains "Failed Retest" (plain term)',
+   /Failed Retest/.test(bearishRow));
+ok('row contains NO Markdown link syntax — no "[text](url)" pattern',
+   !/\[[^\]]+\]\([^)]+\)/.test(bearishRow));
+ok('row contains NO "#<slug>" anchor-fragment output', !/#[a-z][a-z0-9-]*/.test(bearishRow));
+ok('row contains NO bare "http" / "https" prefix', !/\bhttps?:\/\//.test(bearishRow));
+ok('row uses " · " separator', / · /.test(bearishRow));
 ok('row is single-line (no newlines)', !bearishRow.includes('\n'));
-ok('row uses Lane 1 default anchor-slug form (#<slug>)', /\(#[a-z-]+\)/.test(bearishRow));
 
 // Bearish in internal pool ONLY (not in top10) still triggers the row —
 // supports the "developing standout" case where bearish has not yet
@@ -162,7 +174,12 @@ ok('payload.firstChunkPrefix is non-empty', typeof bearishPayload.firstChunkPref
 ok('firstChunkPrefix carries the 🔴 separator', /🔴━+🔴/.test(bearishPayload.firstChunkPrefix));
 ok('firstChunkPrefix carries the 🆕 NEW badge', /🆕 🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(bearishPayload.firstChunkPrefix));
 ok('firstChunkPrefix carries the 📘 Learn row', /📘 Learn: /.test(bearishPayload.firstChunkPrefix));
-ok('firstChunkPrefix carries the LH/LL link', /\[Lower High \/ Lower Low\]\(#lh-ll\)/.test(bearishPayload.firstChunkPrefix));
+ok('firstChunkPrefix carries the "Lower High / Lower Low" plain term',
+   /📘 Learn: [\s\S]*?Lower High \/ Lower Low/.test(bearishPayload.firstChunkPrefix));
+ok('firstChunkPrefix carries NO Markdown link syntax',
+   !/📘 Learn: [\s\S]*?\[[^\]]+\]\([^)]+\)/.test(bearishPayload.firstChunkPrefix));
+ok('firstChunkPrefix carries NO "#<slug>" anchor-fragment leaks in the Learn row',
+   !/📘 Learn:[^\n]*#[a-z][a-z0-9-]*/.test(bearishPayload.firstChunkPrefix));
 
 const bullishPayload = rank.buildRankedMovementDigestPayload(
   bullishOnly, { level: 'elevated', vixLevel: 'Elevated' },
