@@ -121,7 +121,8 @@ const content = payload.content;
 // builder's per-section ≤2 clip). The "**#N — SYMBOL" or
 // "**⭐ #N — SYMBOL" card header is unique to expanded
 // candidate cards and never appears in the standouts/footer.
-const renderedCardRe = /\*\*[⭐\s]*#\d+ — [A-Z0-9]+/g;
+// v1.3 cards use a banner separator: "━━━━━━━━ [⭐ ]SYMBOL ↑ · N/10 · Section ━━━━━━━━"
+const renderedCardRe = /━{6,}\s+[⭐\s]*[A-Z0-9]+\s+[↑↓→]\s+·\s+\d+\/\d+/g;
 const renderedCardCount = (content.match(renderedCardRe) || []).length;
 
 // ============================================================
@@ -130,12 +131,16 @@ const renderedCardCount = (content.match(renderedCardRe) || []).length;
 // ============================================================
 console.log('\n[T1] FOH atmosphere banner present + legacy criteria paragraph absent');
 {
-  ok('digest carries the FOH digest-version line',
-     /_Digest version:_\s*v1\.2-foh/.test(content));
-  ok('digest carries the FOH market-atmosphere line',
-     /_Market atmosphere:_/.test(content));
-  ok('digest carries the FOH scan-state line',
-     /_Scan state:_/.test(content));
+  ok('digest carries the FOH OPERATOR SURFACE banner',
+     /🐎 \*\*ATLAS · DARK HORSE · FOH OPERATOR SURFACE\*\*/.test(content));
+  ok('digest carries the v1.3 banner version line',
+     /v1\.3 — operator edition/.test(content));
+  ok('digest carries the FOH Atmosphere banner line',
+     /🌐 \*\*Atmosphere:\*\*/.test(content));
+  ok('digest carries the FOH Scan-condition banner line',
+     /🎯 \*\*Scan condition:\*\*/.test(content));
+  ok('digest carries the FOH Operator Panel',
+     /⚡ OPERATOR PANEL/.test(content));
   ok('legacy "**Dark Horse criteria:**" paragraph is NOT emitted',
      !/\*\*Dark Horse criteria:\*\*/.test(content));
   ok('legacy "ATLAS FX regularly scans" wording is NOT emitted',
@@ -176,14 +181,14 @@ console.log('\n[T2] Section radar headers carry color glyph in canonical order')
 // ============================================================
 console.log('\n[T3] At most two candidate cards per section in the FOH cards block');
 {
-  // Slice from the "CANDIDATE CARDS" separator to end of digest
-  // and group cards by their per-card section label line.
-  const cardsStart = content.indexOf('🔴 CANDIDATE CARDS');
+  // v1.3 card banner separator format:
+  //   ━━━━━━━━ [⭐ ]SYMBOL ↑ · 9/10 · FX Majors ━━━━━━━━
+  const cardsStart = content.indexOf('🎴 CANDIDATE CARDS');
   const cardsRegion = cardsStart >= 0 ? content.slice(cardsStart) : '';
-  const cardHeaderRe = /\*\*[⭐\s]*#\d+ — ([A-Z0-9]+)\s*[↑↓→]\*\*\s*·\s*([^·\n]+?)\s*·\s*[🟢🟡🟠🔴🔵⚪]/g;
+  const cardBannerRe = /━{6,}\s+[⭐\s]*([A-Z0-9]+)\s+[↑↓→]\s+·\s+\d+\/\d+\s+·\s+([^·\n]+?)\s+━{6,}/g;
   const counts = {};
   let m;
-  while ((m = cardHeaderRe.exec(cardsRegion)) !== null) {
+  while ((m = cardBannerRe.exec(cardsRegion)) !== null) {
     const section = m[2].trim();
     counts[section] = (counts[section] || 0) + 1;
   }
@@ -200,7 +205,7 @@ console.log('\n[T3] At most two candidate cards per section in the FOH cards blo
 // ============================================================
 console.log('\n[T4] ⭐ standouts marked inline on exactly two cards');
 {
-  const starredCards = (content.match(/\*\*⭐ #\d+ — /g) || []);
+  const starredCards = (content.match(/━{6,}\s+⭐ [A-Z0-9]+\s+[↑↓→]/g) || []);
   ok('exactly 2 cards carry the ⭐ inline standout marker',
      starredCards.length === 2, { starredCards });
   // Also confirm the legacy "- ⭐ #1 / #2" standalone bullet list
@@ -246,11 +251,15 @@ console.log('\n[T5] Standout tie-break — early > mid > late, lower late-entry-
 // Replaces legacy "Trend age:" / "Trend phase:" labels with
 // plain-English FOH equivalents.
 // ============================================================
-console.log('\n[T6] FOH _Identity:_ block appears for each card');
+console.log('\n[T6] FOH v1.3 card STATUS / Phase / Movement-quality identity rows');
 {
-  const identityCount = (content.match(/_Identity:_/g) || []).length;
-  ok('every card carries an _Identity:_ block', identityCount === renderedCardCount,
-     { identityCount, cards: renderedCardCount });
+  const statusCount = (content.match(/\*\*STATUS\*\* ·/g) || []).length;
+  const phaseCount  = (content.match(/🧬 \*\*Phase\*\* ·/g) || []).length;
+  const moveCount   = (content.match(/⚡ \*\*Movement quality\*\* ·/g) || []).length;
+  ok('every card carries a **STATUS** identity row', statusCount === renderedCardCount,
+     { statusCount, cards: renderedCardCount });
+  ok('every card carries a 🧬 **Phase** row', phaseCount === renderedCardCount, { phaseCount });
+  ok('every card carries a ⚡ **Movement quality** row', moveCount === renderedCardCount, { moveCount });
   ok('legacy "Trend age:" label NOT emitted',
      (content.match(/^Trend age:/gm) || []).length === 0);
   ok('legacy "Trend phase:" label NOT emitted',
@@ -258,36 +267,34 @@ console.log('\n[T6] FOH _Identity:_ block appears for each card');
 }
 
 // ============================================================
-// T7 — FOH "What happened" / "Where it matters" / "Why ATLAS is
-// watching" sentences appear for every card.
+// T7 — FOH v1.3 card 3-question opener (WHAT HAPPENED / WHERE IT
+// MATTERS / WHY ATLAS IS WATCHING) appears for every card.
 // ============================================================
-console.log('\n[T7] FOH 3-question opener present for every card');
+console.log('\n[T7] FOH v1.3 3-question opener present for every card');
 {
-  const whatN  = (content.match(/_What happened:_/g) || []).length;
-  const whereN = (content.match(/_Where it matters:_/g) || []).length;
-  const whyN   = (content.match(/_Why ATLAS is watching:_/g) || []).length;
-  ok('every card carries _What happened:_ block', whatN === renderedCardCount, { whatN });
-  ok('every card carries _Where it matters:_ block', whereN === renderedCardCount, { whereN });
-  ok('every card carries _Why ATLAS is watching:_ block', whyN === renderedCardCount, { whyN });
+  const whatN  = (content.match(/📍 \*\*WHAT HAPPENED\*\*/g) || []).length;
+  const whereN = (content.match(/🎯 \*\*WHERE IT MATTERS\*\*/g) || []).length;
+  const whyN   = (content.match(/🧠 \*\*WHY ATLAS IS WATCHING\*\*/g) || []).length;
+  ok('every card carries the 📍 WHAT HAPPENED block', whatN === renderedCardCount, { whatN });
+  ok('every card carries the 🎯 WHERE IT MATTERS block', whereN === renderedCardCount, { whereN });
+  ok('every card carries the 🧠 WHY ATLAS IS WATCHING block', whyN === renderedCardCount, { whyN });
 }
 
 // ============================================================
-// T8 — FOH healthy / caution / danger / invalidation zone cues
-// appear on every card.
+// T8 — FOH v1.3 path-conditions block — HEALTHY / CAUTION /
+// DANGER / INVALIDATION on every card.
 // ============================================================
-console.log('\n[T8] FOH zone cues present on every card');
+console.log('\n[T8] FOH v1.3 path-conditions cues present on every card');
 {
-  const healthyN = (content.match(/🟢 _Healthy zone:_/g) || []).length;
-  // FOH translator now picks the caution glyph based on
-  // late-entry tone (🟢 healthy / 🟡 building / 🟠 elevated /
-  // 🔵 pending). Accept any of the four for the caution line.
-  const cautionN = (content.match(/[🟢🟡🟠🔵] _Caution zone:_/gu) || []).length;
-  const dangerN  = (content.match(/🟠 _Danger zone:_/g) || []).length;
-  const invalN   = (content.match(/🔴 _Invalidation:_/g) || []).length;
-  ok('every card carries the 🟢 Healthy zone cue', healthyN === renderedCardCount, { healthyN });
-  ok('every card carries a Caution zone cue (🟢/🟡/🟠/🔵)', cautionN === renderedCardCount, { cautionN });
-  ok('every card carries the 🟠 Danger zone cue',  dangerN  === renderedCardCount, { dangerN });
-  ok('every card carries the 🔴 Invalidation cue', invalN   === renderedCardCount, { invalN });
+  const healthyN = (content.match(/🟢 \*\*HEALTHY PATH\*\*/g) || []).length;
+  // The caution glyph is picked by translator from late-entry tone
+  // — accept any of 🟢/🟡/🟠/🔵 for that line.
+  const cautionN = (content.match(/[🟢🟡🟠🔵] \*\*CAUTION PATH\*\*/gu) || []).length;
+  const dangerN  = (content.match(/🟠 \*\*DANGER PATH\*\*/g) || []).length;
+  const invalN   = (content.match(/❌ \*\*INVALIDATION\*\*/g) || []).length;
+  ok('every card carries a CAUTION PATH cue (🟢/🟡/🟠/🔵)', cautionN === renderedCardCount, { cautionN });
+  ok('every card carries the 🟠 DANGER PATH cue',  dangerN  === renderedCardCount, { dangerN });
+  ok('every card carries the ❌ INVALIDATION cue', invalN   === renderedCardCount, { invalN });
   ok('legacy "Continuation window:" label NOT emitted',
      (content.match(/^Continuation window:/gm) || []).length === 0);
 }
@@ -362,7 +369,7 @@ console.log('\n[T11] Chunked delivery still works for the longer output');
   }
   // Part labels sequential.
   for (let i = 0; i < chunks.length; i++) {
-    const expect = new RegExp(`^🐎 \\*\\*DARK HORSE — GLOBAL MOVER RADAR \\(v1\\.1\\)\\*\\* — Part ${i + 1}\\/${chunks.length}\\n\\n`);
+    const expect = new RegExp(`^\\*\\*🐎 ATLAS · DARK HORSE FOH\\*\\* — Part ${i + 1}\\/${chunks.length}\\n\\n`);
     ok(`chunk ${i + 1} carries Part ${i + 1}/${chunks.length} label`,
        expect.test(chunks[i]),
        { i, head: chunks[i].slice(0, 80) });
@@ -373,7 +380,7 @@ console.log('\n[T11] Chunked delivery still works for the longer output');
   // trailing newlines per body — line-start boundaries are not
   // preserved across joined bodies. The card-header pattern is
   // unique enough to count without the anchor.
-  const joined = chunks.map(c => c.replace(/^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+\n\n/, '')).join('');
+  const joined = chunks.map(c => c.replace(/^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part \d+\/\d+\n\n/, '')).join('');
   const sourceHeaderCount = (content.match(/\*\*[⭐\s]*#\d+ — [A-Z0-9]+/g) || []).length;
   const joinedHeaderCount = (joined.match(/\*\*[⭐\s]*#\d+ — [A-Z0-9]+/g) || []).length;
   ok('every candidate header preserved across chunks',

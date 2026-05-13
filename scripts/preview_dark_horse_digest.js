@@ -88,7 +88,7 @@ const chunks = engine._dhChunkDigest(payload.content, {
 });
 
 const joined = chunks.map(c =>
-  c.replace(/^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+\n\n/, '')
+  c.replace(/^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part \d+\/\d+\n\n/, '')
 ).join('');
 
 const idxNextReview = joined.lastIndexOf('⏭️ Next review:');
@@ -96,6 +96,7 @@ const tailStart = idxNextReview >= 0 ? Math.max(0, idxNextReview - 1200) : Math.
 const tail = joined.slice(tailStart);
 
 const isLegacyRun = process.argv.includes('--legacy');
+const ctx_atThreshold = ranking.top10.filter(r => (r.score || 0) >= 8).length;
 const checks = [
   // Legacy-suppression guards — operator directive 2026-05-13.
   ['DH_CHART_GLOSSARY constant is empty',
@@ -131,46 +132,98 @@ const checks = [
 // template does not emit them.
 if (!isLegacyRun) {
   checks.push(
-    ['FOH digest-version line present',
-      /_Digest version:_\s*v1\.2-foh/.test(joined)],
-    ['FOH _Market atmosphere:_ line present',
-      /_Market atmosphere:_/.test(joined)],
-    ['FOH _Publication state:_ line present',
-      /_Publication state:_/.test(joined)],
-    ['FOH 🔴 NEW separator present',
-      /━━━━━━━━━━ 🔴/.test(joined)],
-    ['FOH global market read section present',
-      /### 🌐 Global market read/.test(joined)],
-    ['FOH section radar uses color glyphs',
-      /### [🟢🟡🟠🔴🔵⚪]\s+/u.test(joined)],
-    ['FOH terminology row present',
-      /🟦 _Expanded terminology:_/.test(joined)],
-    ['FOH cards expose 🟢 Healthy zone cue',
-      /🟢 _Healthy zone:_/.test(joined)],
-    ['FOH cards expose 🟡 Caution zone cue',
-      /🟡 _Caution zone:_/.test(joined)],
-    ['FOH cards expose 🟠 Danger zone cue',
-      /🟠 _Danger zone:_/.test(joined)],
-    ['FOH cards expose 🔴 Invalidation cue',
-      /🔴 _Invalidation:_/.test(joined)],
-    ['FOH _What ATLAS needs next:_ block present',
-      /_What ATLAS needs next:_/.test(joined)],
-    ['FOH operator-note block present',
-      /### 🎙️ Operator note/.test(joined)],
-    ['FOH watch-explanation block present',
+    ['v1.3 premium banner present (ATLAS · DARK HORSE · FOH OPERATOR SURFACE)',
+      /🐎 \*\*ATLAS · DARK HORSE · FOH OPERATOR SURFACE\*\*/.test(joined)],
+    ['v1.3 banner version line ("v1.3 — operator edition")',
+      /v1\.3 — operator edition/.test(joined)],
+    ['v1.3 banner Scan-time line',
+      /📍 \*\*Scan time:\*\*/.test(joined)],
+    ['v1.3 banner Atmosphere line',
+      /🌐 \*\*Atmosphere:\*\*/.test(joined)],
+    ['v1.3 banner Publication-condition line',
+      /🔭 \*\*Publication condition:\*\*/.test(joined)],
+    ['v1.3 banner Strongest-live-area line',
+      /⭐ \*\*Strongest live area:\*\*/.test(joined)],
+    ['v1.3 banner Immediate-read sentence',
+      /_Immediate read:_/.test(joined)],
+    ['v1.3 OPERATOR PANEL block present',
+      /⚡ OPERATOR PANEL/.test(joined)],
+    ['operator panel STATE tag present',
+      /\*\*STATE\*\* ·/.test(joined)],
+    ['operator panel ENERGY tag present',
+      /\*\*ENERGY\*\* ·/.test(joined)],
+    ['operator panel BEST AREA tag present',
+      /\*\*BEST AREA\*\* ·/.test(joined)],
+    ['operator panel RISK TONE tag present',
+      /\*\*RISK TONE\*\* ·/.test(joined)],
+    ['operator panel PUBLICATION tag present',
+      /\*\*PUBLICATION\*\* ·/.test(joined)],
+    ['operator panel NEXT REVIEW tag present',
+      /\*\*NEXT REVIEW\*\* ·/.test(joined)],
+    ['🔴 CURRENT LIVE READ separator present',
+      /🔴 CURRENT LIVE READ/.test(joined)],
+    ['Market atmosphere section heading present',
+      /### 🌐 Market atmosphere/.test(joined)],
+    ['atmosphere substructure — Where pressure is building',
+      /🔭 \*\*Where pressure is building:\*\*/.test(joined)],
+    ['atmosphere substructure — Why ATLAS is not promoting yet',
+      /🤔 \*\*Why ATLAS is not promoting yet:\*\*/.test(joined)],
+    ['atmosphere substructure — Trader mistake refused',
+      /🛡️ \*\*Trader mistake ATLAS is refusing to make:\*\*/.test(joined)],
+    ['atmosphere substructure — What would change the state',
+      /🔁 \*\*What would change the state:\*\*/.test(joined)],
+    ['EXPANDED TERMINOLOGY row present (rebranded from Learning Links)',
+      /🟦 \*\*Expanded Terminology\*\* ·/.test(joined)],
+    ['Section radar uses color glyphs AND status tags',
+      /### [🟢🟡🟠🔴🔵⚪]\s+[^\n]+·\s+\*\*(?:HEALTHY|BUILDING|CAUTION|DANGER|CONTEXT|QUIET)\*\*/u.test(joined)],
+    ['Section radar — Upgrade / Downgrade lines',
+      /🟢 \*\*What would upgrade it:\*\*/.test(joined)
+      && /🔴 \*\*What would downgrade it:\*\*/.test(joined)],
+    ['Candidate cards use banner separator ("━━━ SYM ↑ · N/10 ━━━")',
+      /━━━━━━━━ [⭐\s]*[A-Z0-9]+ [↑↓→] · \d+\/\d+ ·/.test(joined)],
+    ['Card carries STATUS / Phase / Movement-quality identity rows',
+      /\*\*STATUS\*\* ·/.test(joined)
+      && /🧬 \*\*Phase\*\* ·/.test(joined)
+      && /⚡ \*\*Movement quality\*\* ·/.test(joined)],
+    ['Card carries WHAT HAPPENED / WHERE IT MATTERS / WHY ATLAS IS WATCHING headings',
+      /📍 \*\*WHAT HAPPENED\*\*/.test(joined)
+      && /🎯 \*\*WHERE IT MATTERS\*\*/.test(joined)
+      && /🧠 \*\*WHY ATLAS IS WATCHING\*\*/.test(joined)],
+    ['Card path conditions block (HEALTHY / CAUTION / DANGER / INVALIDATION)',
+      /🟢 \*\*HEALTHY PATH\*\*/.test(joined)
+      && /\*\*CAUTION PATH\*\*/.test(joined)
+      && /🟠 \*\*DANGER PATH\*\*/.test(joined)
+      && /❌ \*\*INVALIDATION\*\*/.test(joined)],
+    ['Card forward-read block (WHAT ATLAS NEEDS NEXT / OPERATOR NOTE / REPLAY)',
+      /📡 \*\*WHAT ATLAS NEEDS NEXT\*\*/.test(joined)
+      && /🎙️ \*\*OPERATOR NOTE\*\*/.test(joined)
+      && /🗂️ \*\*REPLAY REFERENCE\*\*/.test(joined)],
+    ['Watch explanation block present (FOH operational)',
       /### ⏳ Why ATLAS is not promoting yet/.test(joined)],
-    ['FOH universe-coverage block present',
-      /### 📊 Universe coverage/.test(joined)],
-    ['FOH closing block present',
-      /### 🔚 Next review/.test(joined)],
+    ['Avoided-risk block present when no publication-grade promotion',
+      ctx_atThreshold === 0
+        ? /🛡️ WHAT ATLAS REFUSED TO PROMOTE/.test(joined)
+        : true],
+    ['Operator-note block present',
+      /🎙️ OPERATOR NOTE/.test(joined)],
+    ['Universe coverage block present',
+      /📊 UNIVERSE COVERAGE/.test(joined)],
+    ['Closing block — Next-review + upgrade + downgrade present',
+      /🔚 NEXT REVIEW/.test(joined)
+      && /🟢 \*\*What could upgrade by next scan\*\*/.test(joined)
+      && /🔴 \*\*What could downgrade by next scan\*\*/.test(joined)],
     ['FOH advisory tail present',
       /⚠️ Advisory only/.test(joined)],
     ['No legacy "**Dark Horse criteria:**" paragraph',
       !/\*\*Dark Horse criteria:\*\*/.test(joined)],
     ['No legacy "**Displayed candidates:**" header',
       !/\*\*Displayed candidates:\*\*/.test(joined)],
-    ['No legacy "Conditions are moving but entry quality is not confirmed." footer',
+    ['No legacy "Conditions are moving …" footer',
       !/Conditions are moving but entry quality is not confirmed/.test(joined)],
+    ['No legacy "Learning links:" label (replaced by Expanded Terminology)',
+      !/\*\*Learning links:\*\*/.test(joined)],
+    ['No legacy "GLOBAL MOVER RADAR" wording in the digest BODY (chunk Part labels do not count)',
+      !/GLOBAL MOVER RADAR/.test(joined)],
     ['Every chunk ≤ Discord 2000-char hard limit',
       chunks.every(c => c.length <= 2000)],
   );

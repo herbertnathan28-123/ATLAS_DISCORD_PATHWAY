@@ -270,7 +270,7 @@ console.log('\n[T9] Chunker passes on the longer education-layer digest output')
   // of the digest (the section after the last support block, where
   // the glossary used to sit) carries none of the legacy phrases.
   const joined = chunks.map(c =>
-    c.replace(/^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+\n\n/, '')
+    c.replace(/^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part \d+\/\d+\n\n/, '')
   ).join('');
   ok('legacy glossary heading is NOT emitted',
      !/### Glossary — chart-pattern terms used above/.test(joined));
@@ -359,11 +359,11 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
   const payloadPlain = rank.buildRankedMovementDigestPayload(ranking, { level: 'elevated', vixLevel: 'Elevated' }, { now: Date.parse('2026-05-12T04:00:00Z') });
   const c = payloadPlain.content;
   // FOH terminology row is plain text, no Markdown links by default.
-  ok('FOH terminology row present', /🟦 _Expanded terminology:_/.test(c), c.slice(0, 400));
-  const idxHeader     = c.indexOf('🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.2 · FOH)**');
-  const idxGlobalRead = c.indexOf('### 🌐 Global market read');
-  const idxTerminology = c.indexOf('🟦 _Expanded terminology:_');
-  const idxSepSection = c.indexOf('🔴 SECTION RADAR');
+  ok('FOH terminology row present', /🟦 \*\*Expanded Terminology\*\* ·/.test(c), c.slice(0, 400));
+  const idxHeader     = c.indexOf('🐎 **ATLAS · DARK HORSE · FOH OPERATOR SURFACE**');
+  const idxGlobalRead = c.indexOf('### 🌐 Market atmosphere');
+  const idxTerminology = c.indexOf('🟦 **Expanded Terminology**');
+  const idxSepSection = c.indexOf('📡 SECTION RADAR');
   ok('FOH header found',       idxHeader      >= 0);
   ok('global-read found',      idxGlobalRead  >  idxHeader);
   ok('terminology row found',  idxTerminology >  idxGlobalRead);
@@ -385,7 +385,7 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
   // the FOH next-review block and assert zero [text](http…)
   // patterns. (Anchor changed 2026-05-13 — legacy glossary block
   // suppressed and replaced by FOH closing block.)
-  const idxNextReview = c.indexOf('### 🔚 Next review');
+  const idxNextReview = c.indexOf('🔚 NEXT REVIEW');
   ok('FOH next-review block anchor found', idxNextReview > idxTerminology);
   ok('legacy glossary anchor is NOT present',
      c.indexOf('### Glossary') < 0);
@@ -513,8 +513,8 @@ console.log('\n[T11] Live-leak regression guard — every named substring absent
   // template. Their FOH replacements are asserted here.)
   ok('FOH atmosphere statement is present',
      /Market energy is/.test(content));
-  ok('FOH _Publication state:_ line is present',
-     /_Publication state:_/.test(content));
+  ok('FOH 🔭 **Publication condition:** line is present',
+     /🔭 \*\*Publication condition:\*\*/.test(content));
   ok('FOH next-review block carries an advisory closing sentence',
      /ATLAS remains in monitoring mode/.test(content));
   // FOH semantic translator (operator directive 2026-05-13)
@@ -535,8 +535,9 @@ console.log('\n[T11] Live-leak regression guard — every named substring absent
   // Standout reason prose retired in FOH — standouts are marked
   // inline on the card header instead. Assert at least one card
   // carries the inline ⭐ marker.
+  // v1.3 cards use a banner separator "━━━━━━━━ ⭐ SYM ↑ · N/10 …"
   ok('FOH inline standout marker present on at least one card',
-     /\*\*⭐ #\d+ — /.test(content));
+     /━━━━━━━━ ⭐ [A-Z0-9]+ /.test(content));
   // Legacy wordings that must be absent under FOH.
   ok('legacy "**Dark Horse criteria:**" paragraph NOT emitted',
      !/\*\*Dark Horse criteria:\*\*/.test(content));
@@ -609,7 +610,7 @@ console.log('\n[T12] Chunk-boundary atomicity — no fence splits / glossary ato
   for (let i = 0; i < chunks.length; i++) {
     const head = chunks[i].slice(0, 100);
     ok(`chunk ${i + 1}/${chunks.length} — Part header at chunk start (not inside a fence)`,
-       /^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+\n\n/.test(chunks[i])
+       /^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part \d+\/\d+\n\n/.test(chunks[i])
        && !/```[\s\S]*?🐎 \*\*DARK HORSE/.test(chunks[i]),
        { head });
   }
@@ -694,32 +695,31 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
     ranking, { level: 'elevated', vixLevel: 'Elevated' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('payload carries firstChunkPrefix field',
-     typeof payload.firstChunkPrefix === 'string' && payload.firstChunkPrefix.length > 0);
-  ok('boundary uses ━ horizontal-bar separator',
-     /━━━━━━━━━━━━━━━━━━━━/.test(payload.firstChunkPrefix));
-  ok('boundary header reads "NEW DARK HORSE SCAN"',
-     /🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(payload.firstChunkPrefix));
-  ok('boundary includes UTC + AWST timestamps',
-     /Scan time: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC \/ \d{4}-\d{2}-\d{2} \d{2}:\d{2} AWST/.test(payload.firstChunkPrefix));
+  // Operator directive 2026-05-13 (v1.3): the legacy 4-line
+  // "NEW DARK HORSE SCAN" firstChunkPrefix boundary was retired.
+  // The new FOH OPERATOR SURFACE banner inside `content` carries
+  // the scan-time identity on Part 1 directly.
+  ok('v1.3 payload no longer carries the legacy firstChunkPrefix block',
+     payload.firstChunkPrefix == null);
+  ok('content carries the FOH OPERATOR SURFACE banner block on Part 1',
+     /🐎 \*\*ATLAS · DARK HORSE · FOH OPERATOR SURFACE\*\*/.test(payload.content));
+  ok('FOH banner includes UTC + AWST scan-time line',
+     /📍 \*\*Scan time:\*\* \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC · \d{4}-\d{2}-\d{2} \d{2}:\d{2} AWST/.test(payload.content));
 
-  // Chunker pass-through: Part 1 gets the boundary, Parts 2..N do not.
   const chunks = engine._dhChunkDigest(payload.content, {
     max: engine.DH_CHUNK_MAX_DEFAULT,
     firstChunkPrefix: payload.firstChunkPrefix,
   });
   ok('chunker produces at least 1 chunk', chunks.length >= 1);
-  ok('Part 1 starts with the boundary block',
-     chunks[0].startsWith('━━━━━━━━━━━━━━━━━━━━\n🐎 **NEW DARK HORSE SCAN**'),
-     { head: chunks[0].slice(0, 120) });
-  ok('Part 1 has the v1.1 header BELOW the boundary',
-     /━━━━━━━━━━━━━━━━━━━━\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part 1\/\d+/.test(chunks[0]));
+  ok('Part 1 starts with the FOH transport label, then the OPERATOR SURFACE banner',
+     /^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part 1\/\d+\n\n━{20,}\n🐎 \*\*ATLAS · DARK HORSE · FOH OPERATOR SURFACE\*\*/.test(chunks[0]),
+     { head: chunks[0].slice(0, 200) });
   for (let i = 1; i < chunks.length; i++) {
-    ok(`Part ${i + 1}/${chunks.length} does NOT carry the new-scan boundary`,
-       !/NEW DARK HORSE SCAN/.test(chunks[i]),
+    ok(`Part ${i + 1}/${chunks.length} does NOT carry the OPERATOR SURFACE banner`,
+       !/FOH OPERATOR SURFACE/.test(chunks[i]),
        { head: chunks[i].slice(0, 120) });
-    ok(`Part ${i + 1}/${chunks.length} starts directly with the v1.1 Part label`,
-       /^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+/.test(chunks[i]),
+    ok(`Part ${i + 1}/${chunks.length} starts directly with the FOH transport label`,
+       /^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part \d+\/\d+/.test(chunks[i]),
        { head: chunks[i].slice(0, 80) });
   }
 }
@@ -751,12 +751,12 @@ console.log('\n[T14] Bare "unavailable" absent + "Sections scanned: unavailable"
      cEmpty.match(/[^\n]*\bunavailable\b[^\n]*/));
   // FOH no longer carries the legacy "market fear / volatility
   // gauge (VIX) …" or "**Volatility:** …" lines verbatim. Instead
-  // the atmosphere banner exposes _Market atmosphere:_ <level>
+  // the atmosphere banner exposes 🌐 **Atmosphere:** <level>
   // and the global-read block opens with a regime-appropriate
   // sentence. Assert the FOH equivalents emit a "pending" reading
   // rather than the banned "unavailable" wording.
-  ok('FOH _Market atmosphere:_ exists in the empty-universe digest',
-     /_Market atmosphere:_/.test(cEmpty));
+  ok('FOH 🌐 **Atmosphere:** exists in the empty-universe digest',
+     /🌐 \*\*Atmosphere:\*\*/.test(cEmpty));
   ok('FOH atmosphere fallback uses "pending" wording, not "unavailable"',
      /reading is pending/.test(cEmpty) || /reading pending/.test(cEmpty));
 
@@ -793,7 +793,7 @@ console.log('\n[T15] Learning-link routing status — plain text default; Markdo
   // the live formatter emits the plain FOH terminology row instead
   // of the legacy Learning Links row. No Markdown links should be
   // present anywhere in that row.
-  const termIdx = payloadPlain.content.indexOf('🟦 _Expanded terminology:_');
+  const termIdx = payloadPlain.content.indexOf('🟦 **Expanded Terminology**');
   ok('no urlMap → FOH terminology row present (plain text)',
      termIdx >= 0);
   ok('no urlMap → row carries NO Markdown [text](url) patterns',
@@ -861,11 +861,15 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
   //                                    AND "Monitoring only — publication threshold not met this cycle."
   //   - top10 has one developing     → "1 developing standout surfaced — none confirmed"
   //   - top10 has many developing    → "N developing standouts surfaced — none confirmed"
-  ok('empty digest — _Publication state:_ reads "Publication threshold not met this cycle"',
-     /_Publication state:_\s*Publication threshold not met this cycle/.test(pEmpty.content),
-     pEmpty.content.match(/_Publication state:_[^\n]+/));
-  ok('empty digest — closing block carries "publication threshold not met this cycle."',
-     /Monitoring only — publication threshold not met this cycle\./.test(pEmpty.content));
+  // v1.3 surfaces this in TWO places: the banner's "Publication
+  // condition" + "Scan condition" lines, and the closing block's
+  // "Current operator state". Assert each.
+  ok('empty digest — banner Publication condition reads "Not promoted this cycle"',
+     /🔭 \*\*Publication condition:\*\* Not promoted this cycle/.test(pEmpty.content));
+  ok('empty digest — banner Scan condition reads "Monitoring only · publication threshold not met"',
+     /🎯 \*\*Scan condition:\*\* Monitoring only · publication threshold not met/.test(pEmpty.content));
+  ok('empty digest — closing block carries "publication threshold not met this cycle"',
+     /Monitoring only — publication threshold not met this cycle/.test(pEmpty.content));
   ok('empty digest — no legacy contradictory "no confirmed watch candidate" wording',
      !/no confirmed watch candidate/.test(pEmpty.content));
 
@@ -876,9 +880,9 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
     { level: 'quiet', vixLevel: 'Normal' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('1 standout — _Publication state:_ reads "1 developing standout surfaced — none confirmed"',
-     /_Publication state:_\s*1 developing standout surfaced — none confirmed/.test(pOne.content),
-     pOne.content.match(/_Publication state:_[^\n]+/));
+  ok('1 standout — banner Scan condition reads "1 developing standout surfaced · none confirmed"',
+     /🎯 \*\*Scan condition:\*\* 1 developing standout surfaced · none confirmed/.test(pOne.content),
+     pOne.content.match(/🎯 \*\*Scan condition:\*\*[^\n]+/));
 
   // 16c — Multiple developing standouts (plural grammar)
   const pMany = rank.buildRankedMovementDigestPayload(
@@ -890,9 +894,9 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
     { level: 'elevated', vixLevel: 'Elevated' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('3 standouts — _Publication state:_ reads "3 developing standouts surfaced — none confirmed"',
-     /_Publication state:_\s*3 developing standouts surfaced — none confirmed/.test(pMany.content),
-     pMany.content.match(/_Publication state:_[^\n]+/));
+  ok('3 standouts — banner Scan condition reads "3 developing standouts surfaced · none confirmed"',
+     /🎯 \*\*Scan condition:\*\* 3 developing standouts surfaced · none confirmed/.test(pMany.content),
+     pMany.content.match(/🎯 \*\*Scan condition:\*\*[^\n]+/));
 
   // 16d — Legacy state-line wording must be absent.
   for (const sample of [pEmpty.content, pOne.content, pMany.content]) {
@@ -926,7 +930,7 @@ console.log('\n[T17] Inline ⭐ standout marker on cards (FOH replacement for th
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
   ok('FOH inline standout marker present on the single card',
-     /\*\*⭐ #1 — XAUUSD/.test(payload.content));
+     /━━━━━━━━ ⭐ XAUUSD /.test(payload.content));
   ok('legacy standout-reason prose retired — no "move just confirming"',
      !/\bmove just confirming\b/.test(payload.content));
   ok('legacy standout-reason prose retired — no "starting to confirm" line either',
