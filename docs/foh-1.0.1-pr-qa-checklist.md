@@ -165,6 +165,66 @@ preserves the cooldown contract (Pack 8.10 — no engine logic touched).
   environment. They will be attached when the operator triggers the
   digest path against the staging webhook._
 
+## v4 build-order refinements (2026-05-13)
+
+### Wording doctrine lock
+
+- [x] Every important statement answers: what does that mean / why does it matter / what happens if it fails / how far is acceptable / when does it become dangerous / what is the hard invalidation / what should the trader do next.
+- [x] No banned vague wording without explanation: `buyers defend`, `breakout level`, `holds`, `confirms`, `weakens`, `buy the dip`, `risk-off`, `setup valid`, `standing`, `read weakens`, `continuation window` — all paired with level + observation + action when used.
+
+### Multi-zone Where to Act (Dark Horse v4)
+
+- [x] Every candidate embed's `Where to Act` field is a multi-line value containing all of:
+  - `🟢 ENTRY zone` — healthy area + trader action
+  - `🟡 WATCH level` — caution trigger + trader action
+  - `🟠 CAUTION zone` — danger sign + trader action
+  - `🛑 INVALIDATION` — hard stop + trader action
+  - `🔵 Next review` — reassess pointer
+
+### Candidate lifecycle states
+
+- [x] Each candidate carries a lifecycle state visible in its red NEW BADGE separator and embed title:
+  - `🆕 FRESH` — first appearance
+  - `🔁 STILL ACTIVE` — continuing from prior scan
+  - `🌅 FADING` — older / late-stage, reduced conviction
+
+### Market Mood traffic-light
+
+- [x] Banner content carries a `▸ Market Mood` subheading with a traffic-light glyph + count-of-5 rating (e.g. `🟡🟡🟡🟡 (4/5) ELEVATED`).
+- [x] Section includes "what it means right now" + "what this means for trader behaviour" + "why this rating, not lower or higher" blocks.
+
+### Quiet-scan path
+
+- [x] When no candidate makes the standout bar, the banner reads "Quiet cycle" + the pre-radar section names: what was scanned, what nearly qualified, what pressure is building, what would change the state, when to reassess.
+
+### Market Intel FOH foundations (parallel lane)
+
+- [x] Market Intel prototype script exists at `scripts/render_market_intel_foh_preview.js`.
+- [x] Prototype renders 10 required sections:
+  - Global Market Mood / Risk State (traffic-light)
+  - Major Events Coming Up
+  - Why These Events Matter
+  - Possible Market Reaction Paths (IF/THEN)
+  - What Traders Should Watch (pre / during / post)
+  - Risk Escalation / Caution Zones (multi-zone)
+  - Expanded Terminology Hyperlinks
+  - Visual event/risk cards
+  - Beginner-readable explanations
+  - NO backend engine wiring (confirmed: no import of any Market Intel runtime)
+
+### Acceptance artefacts (Gate 1)
+
+- [x] Dark Horse v4: `docs/screenshots/dh-foh-v4.{png,pdf,html}` + per-section + detail crops + inline gallery `dh-foh-v4-gallery.md`.
+- [x] Market Intel: `docs/screenshots/market-intel-foh-v1.{png,pdf,html}` + per-section + detail crops + inline gallery `market-intel-foh-v1-gallery.md`.
+
+### Wire-up status (HELD)
+
+- v3 wire-up of `darkHorseFoh.buildDarkHorseFohPayload` is on the branch (commit `672552b`).
+- v4 changes are NOT yet wired. Wire-up requires operator visual sign-off on the v4 prototype.
+- Market Intel runtime is NOT touched. Wire-up requires operator visual sign-off on the Market Intel prototype.
+
+---
+
 ## Pack 8.11 — Acceptance language (verbatim)
 
 > Front-of-house presentation PR reviewed against FOH.1.0.1. Merge

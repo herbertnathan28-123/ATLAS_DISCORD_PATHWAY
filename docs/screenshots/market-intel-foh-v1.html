@@ -1,0 +1,237 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>FOH.1.0.1 Market Intel — v1 prototype</title>
+<style>
+    body {
+      margin: 0; padding: 28px 20px;
+      background: #36393F;
+      color: #DCDDDE;
+      font-family: "gg sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 18px;
+      line-height: 1.55;
+    }
+    .channel {
+      max-width: 780px;
+      margin: 0 auto;
+      background: #36393F;
+    }
+    .channel-header {
+      border-bottom: 1px solid #2F3136;
+      padding-bottom: 16px;
+      margin-bottom: 28px;
+      color: #B9BBBE;
+      font-size: 15px;
+      display: flex; gap: 10px; align-items: center;
+    }
+    .channel-header .hash { color: #72767D; font-size: 26px; font-weight: 600; }
+    .channel-header .name { color: #FFFFFF; font-weight: 600; font-size: 17px; }
+    .message {
+      padding: 14px 0 14px 68px;
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .message::before {
+      content: ""; position: absolute; left: 12px; top: 14px;
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, #5865F2, #EB459E);
+    }
+    .message::after {
+      content: "ATLAS  ·  Market Intel";
+      position: absolute; left: 68px; top: -2px;
+      color: #FFFFFF; font-weight: 600; font-size: 16px;
+    }
+    .message-content {
+      margin-top: 22px;
+      color: #DCDDDE;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .message-content pre.fence {
+      background: #2F3136;
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin: 10px 0;
+      font-family: Consolas, "Andale Mono WT", "Andale Mono", "Lucida Console", "Lucida Sans Typewriter", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Liberation Mono", "Nimbus Mono L", Monaco, "Courier New", Courier, monospace;
+      font-size: 15px;
+      line-height: 1.55;
+      color: #B9BBBE;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .embed {
+      max-width: 620px;
+      margin-top: 14px;
+      background: #2F3136;
+      border-left: 5px solid #4F545C;
+      border-radius: 6px;
+      padding: 16px 20px 18px;
+    }
+    .embed-title {
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 19px;
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+    .embed-desc {
+      color: #DCDDDE;
+      font-size: 16px;
+      line-height: 1.55;
+      margin-bottom: 14px;
+    }
+    .embed-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 24px;
+    }
+    .embed-field.block { grid-column: 1 / -1; }
+    .embed-field.inline { grid-column: span 1; }
+    .embed-field-name {
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .embed-field-value {
+      color: #DCDDDE;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+    .embed-field-value .entry    { color: #23A55A; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .stop     { color: #ED4245; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .caution  { color: #F1C40F; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .marginal { color: #E67E22; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .warn     { color: #F1C40F; font-weight: 600; display: block; margin: 4px 0; }
+    .embed-field-value .info-line { color: #5BC0DE; font-weight: 600; display: block; margin: 4px 0; }
+    .embed-field-value .term-chip {
+      color: #5BC0DE;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .embed-footer {
+      color: #72767D;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #40444B;
+    }
+  </style></head>
+<body>
+<div class="channel">
+  <div class="channel-header">
+    <span class="hash">#</span>
+    <span class="name">market-intel</span>
+    <span style="margin-left:auto;color:#72767D">FOH.1.0.1 Market Intel prototype v1 · macro / event briefing · prototype-only</span>
+  </div>
+  
+    <div class="message" data-idx="0">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color:#ED4245">- ▼ ▼ ▼   N E W   M A R K E T   I N T E L   ▼ ▼ ▼</span>
+<span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color:#ED4245">- 📡   Tuesday 13 May · 11:00 UTC · macro briefing · live intel   📡</span>
+<span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   📡  MARKET INTEL — LIVE MACRO BRIEFING        ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br>_2 major events landing in the next 6 hours._<br>_Combined risk state: CAUTION — see operational read below._<br><br>📘 <strong>EXPANDED TERMINOLOGY HYPERLINKS</strong><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">CPI]</span>  <span style="color:#5BC0DE;font-weight:700">Central Bank]</span>  <span style="color:#5BC0DE;font-weight:700">Hawkish]</span>  <span style="color:#5BC0DE;font-weight:700">Dovish]</span>  <span style="color:#5BC0DE;font-weight:700">Risk-On / Risk-Off]</span>  <span style="color:#5BC0DE;font-weight:700">Yield Spread]</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   🌐  GLOBAL MARKET MOOD  &amp;  RISK STATE         ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Risk State  ·  CAUTION  🟠🟠🟠🟠  (4 / 5)</span></pre><br><br>_What it means right now:_<br>   Markets are sensitive. A mid-week US CPI print at 12:30 UTC<br>   plus an ECB speaker at 14:00 UTC are converging into a<br>   24-hour window where surprises can move dollar pairs,<br>   gold, and US indices in a coordinated way.<br><br>_What this means for trader behaviour:_<br>   🟢 Pre-event: keep position sizes light. Big news = big swings.<br>   🟡 During: do not chase the first 60 seconds of the print.<br>   🟠 After: wait for the 5m close to confirm direction.<br>   🛑 If both events surprise the same way: tactical stand-aside.<br><br>_Why this rating, not lower or higher:_<br>   Risk would be RED (5/5) if a central-bank decision were<br>   landing this cycle — there isn't. Risk would be YELLOW (3/5)<br>   if only one of these two events were on the calendar.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   📅  MAJOR EVENTS  ·  NEXT 24 HOURS            ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br><pre class="fence"><span style="color:#ED4245">12:30 UTC   US CPI (inflation print)         🟠🟠🟠🟠  HIGH</span>
+<span style="color:#5BC0DE;font-weight:700">14:00 UTC   ECB Lagarde — scheduled speech    🟡🟡🟡    MEDIUM</span>
+<span style="color:#5BC0DE;font-weight:700">21:00 UTC   FOMC Daly — fireside chat          🟡🟡      LOW-MEDIUM</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Why these events matter</span></pre><br><br>   CPI is the inflation print that decides whether the Fed stays<br>   on its current path or tightens further. A hot print pushes<br>   the dollar up and pressures equities and gold. A soft print<br>   does the opposite. Lagarde's speech follows the print and<br>   often re-prices the euro relative to dollar moves.<br></div>
+      
+    </div>
+    <div class="message" data-idx="1">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- 🆕  PRIMARY EVENT  ·  US CPI · 12:30 UTC</span></pre></div>
+      
+    <div class="embed" style="border-left-color:#e74c3c">
+      <div class="embed-title">🇺🇸  ·  US CPI · April release  ·  🟠 HIGH</div><div class="embed-desc">US Consumer Price Index for April. Headline + Core readings determine whether the Fed leans hawkish or dovish at the next meeting. The print moves dollar pairs, gold, and US indices on release.</div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">When</div>
+        <div class="embed-field-value">Today  ·  12:30 UTC</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Impact</div>
+        <div class="embed-field-value">🟠 HIGH · tier-1 catalyst</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Affected Markets</div>
+        <div class="embed-field-value">DXY  ·  EURUSD  ·  GBPUSD  ·  USDJPY  ·  XAUUSD  ·  US500  ·  NDX</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What Traders Should Watch</div>
+        <div class="embed-field-value">🟢 BEFORE — Cut size to 30–50% of normal. Step away from open trades 5 minutes before 12:30. Cancel pending limit orders.<br>🟡 DURING — Do not act on the first 60 seconds of the candle. The initial spike often reverses before settling.<br>🟠 AFTER — Wait for the 5-minute close after 12:30. Re-read structure once volatility settles. Only act on cleaned-up levels.</div>
+      </div></div>
+      <div class="embed-footer">Market Intel  ·  live briefing · Today  ·  12:30 UTC  ·  monitor in #market-intel</div>
+    </div>
+    </div>
+    <div class="message" data-idx="2">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- 🆕  REACTION PATHS  ·  WHAT HAPPENS IF…</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   🎯  POSSIBLE MARKET REACTION PATHS            ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">Hawkish Surprise]</span>  <span style="color:#5BC0DE;font-weight:700">Dovish Surprise]</span>  <span style="color:#5BC0DE;font-weight:700">In-Line Print]</span>  <span style="color:#5BC0DE;font-weight:700">Whipsaw]</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  IF  CPI prints HOTTER than expected (hawkish)</span></pre><br><br>   • Dollar (DXY) pushes higher.<br>   • EURUSD / GBPUSD pressured to the downside.<br>   • US indices (US500 / NDX) drop on rate-hike fears.<br>   • Gold (XAUUSD) initially drops, can recover on safe-haven flow.<br>   _Trader read:_ short-dollar setups are at risk. Long dollar<br>   setups gain weight, but wait for the 5m close.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  IF  CPI prints COOLER than expected (dovish)</span></pre><br><br>   • Dollar (DXY) pulls back.<br>   • EURUSD / GBPUSD push up.<br>   • US indices rally on rate-cut optimism.<br>   • Gold rises with the broader risk-on flow.<br>   _Trader read:_ short-dollar setups gain weight. Long-dollar<br>   setups should be exited or paused.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  IF  CPI prints IN-LINE with expectations</span></pre><br><br>   • Initial spike then settle. No clean directional bias.<br>   • Markets re-focus on Lagarde at 14:00 UTC.<br>   _Trader read:_ stand aside through the spike. Wait for Lagarde.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  IF  the print sparks a WHIPSAW (both sides print quickly)</span></pre><br><br>   • Initial direction reverses within 10 minutes.<br>   • This happens 1 in 4 CPI prints, more in high-volatility regimes.<br>   _Trader read:_ do not chase the first move. Wait for the 15m close.</div>
+      
+    </div>
+    <div class="message" data-idx="3">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- 🆕  RISK ESCALATION  ·  CAUTION ZONES</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   ⚠️  RISK ESCALATION  ·  CAUTION → DANGER → STAND ASIDE║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">Risk Escalation]</span>  <span style="color:#5BC0DE;font-weight:700">Stand Aside]</span>  <span style="color:#5BC0DE;font-weight:700">Position Sizing]</span>  <span style="color:#5BC0DE;font-weight:700">Volatility Window]</span></pre><br><br><pre class="fence"><span style="color:#23A55A">🟢 HEALTHY  ·  Pre-print window (now → 12:25 UTC)</span>
+   Normal trade-management rules apply. Size light, set sensible
+   stops, do not enter fresh positions within 5 minutes of CPI.
+
+<span style="color:#FAA61A;font-weight:700">🟡 CAUTION  ·  T-5 minutes (12:25 → 12:30 UTC)</span>
+   Close open positions in DXY / EURUSD / XAUUSD / US500
+   unless they are far in profit and have wide stops.
+   Action: tighten stops or step aside.
+
+<span style="color:#ED4245">🟠 DANGER  ·  T-0 to T+5 (12:30 → 12:35 UTC)</span>
+   The print moment. Markets often whipsaw 50–100 pips on DXY
+   pairs in the first 60 seconds. Do not trade this window.
+   Action: stand aside. Watch only.
+
+<span style="color:#ED4245">🛑 STAND ASIDE  ·  If both CPI and Lagarde surprise hawkish</span>
+   Combined surprise from both events would re-price the dollar
+   for the rest of the session. Wait for the 15-minute close
+   AFTER Lagarde finishes (~14:30 UTC) before resuming.
+
+<span style="color:#23A55A">🟢 RE-ENTRY  ·  12:35 UTC onwards</span>
+   Re-read structure on the 5m chart. Match against the
+   reaction-path scenarios above. Act only on the cleanest
+   setups that match the actual direction the market chose.</pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  What changes this risk state</span></pre><br><br>   • If CPI cancels (rare): state drops to YELLOW.<br>   • If a central-bank decision is added: state climbs to RED.<br>   • If Lagarde's speech is cancelled: state drops to YELLOW.</div>
+      
+    </div>
+    <div class="message" data-idx="4">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- 🆕  WHAT TRADERS SHOULD WATCH  ·  PRE / DURING / POST</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   👀  WHAT TRADERS SHOULD WATCH                 ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">DXY]</span>  <span style="color:#5BC0DE;font-weight:700">Yield Spread]</span>  <span style="color:#5BC0DE;font-weight:700">VIX]</span>  <span style="color:#5BC0DE;font-weight:700">Liquidity]</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Pre-event indicators (now → 12:25 UTC)</span></pre><br>   • DXY trend: above 105 = market already pricing hawkish CPI.<br>   • 2Y yield: above 4.85% = same signal.<br>   • VIX above 18 = elevated nerves; below 14 = complacent.<br>   • EURUSD position into the print = market lean.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  During the event (12:30 → 12:35 UTC)</span></pre><br>   • Initial print reaction in the first 60 seconds is noise.<br>   • Watch the 5m candle close at 12:35 UTC — that's the trend.<br>   • Read DXY first, then look at EURUSD / XAUUSD response.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Post-event reassessment (12:35 → 14:00 UTC)</span></pre><br>   • Did the initial direction hold or whipsaw?<br>   • Is volume confirming the move or fading?<br>   • What did treasuries do? (Bonds confirm rate-path bets.)<br>   • Wait for Lagarde 14:00 UTC before sizing into new trades.<br><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   📚  EVENT-DAY REFERENCE  ·  THE 4 WINDOWS       ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span>
+
+<span style="color:#23A55A">   ▲ activity</span>
+<span style="color:#23A55A">   │                ╭──────────────╮</span>
+<span style="color:#23A55A">   │   pre-event   ╱  T-0 print    ╲   post-settle</span>
+<span style="color:#ED4245">   │     ✓        ╱     ⚠ chaos      ╲    ✓ trade</span>
+<span style="color:#23A55A">   │   ─────────╱─────────────────────╲────────</span>
+<span style="color:#23A55A">   │           ╱                       ╲</span>
+<span style="color:#23A55A">   └────────────────────────────────────────▶ time</span>
+<span style="color:#ED4245">        T-5      T+0     T+5      T+15      T+30</span>
+
+<span style="color:#5BC0DE;font-weight:700">   ▸  How to read this</span>
+       Every macro event has 4 windows. Pre-event = trade with
+       size light. T-0 = stand aside. Post-settle (T+5 to T+15)
+       = the real direction shows up. T+30+ = normal trading.
+
+<span style="color:#5BC0DE;font-weight:700">   ▸  How a trader uses this</span>
+       Look at the clock against the event time on the schedule
+       above. Match the window to the rule. Position sizing and
+       entry timing follow from the window, not the chart alone.
+
+<span style="color:#5BC0DE;font-weight:700">   ▸  Rendered ATLAS event cards coming next</span>
+       Future scans will replace this schematic with rendered
+       ATLAS event cards — actual price charts during real CPI
+       prints, with the four windows annotated on live data.</pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Briefing summary</span></pre><br><br>_Two macro events land within 90 minutes today. Risk state is_<br>_CAUTION (4 / 5) for the next 6 hours. Reduce position sizing,_<br>_avoid the T-0 print windows, and re-read structure AFTER the_<br>_5-minute close on each event. ATLAS Market Intel next updates_<br>_at 13:30 UTC with the post-CPI read._</div>
+      
+    </div>
+</div>
+</body></html>

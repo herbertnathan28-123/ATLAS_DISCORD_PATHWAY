@@ -1,0 +1,283 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>FOH.1.0.1 Dark Horse — v4 prototype</title>
+<style>
+    body {
+      margin: 0; padding: 28px 20px;
+      background: #36393F;
+      color: #DCDDDE;
+      font-family: "gg sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 18px;
+      line-height: 1.55;
+    }
+    .channel {
+      max-width: 780px;
+      margin: 0 auto;
+      background: #36393F;
+    }
+    .channel-header {
+      border-bottom: 1px solid #2F3136;
+      padding-bottom: 16px;
+      margin-bottom: 28px;
+      color: #B9BBBE;
+      font-size: 15px;
+      display: flex; gap: 10px; align-items: center;
+    }
+    .channel-header .hash { color: #72767D; font-size: 26px; font-weight: 600; }
+    .channel-header .name { color: #FFFFFF; font-weight: 600; font-size: 17px; }
+    .message {
+      padding: 14px 0 14px 68px;
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .message::before {
+      content: ""; position: absolute; left: 12px; top: 14px;
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, #5865F2, #EB459E);
+    }
+    .message::after {
+      content: "ATLAS  ·  Dark Horse Radar";
+      position: absolute; left: 68px; top: -2px;
+      color: #FFFFFF; font-weight: 600; font-size: 16px;
+    }
+    .message-content {
+      margin-top: 22px;
+      color: #DCDDDE;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .message-content pre.fence {
+      background: #2F3136;
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin: 10px 0;
+      font-family: Consolas, "Andale Mono WT", "Andale Mono", "Lucida Console", "Lucida Sans Typewriter", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Liberation Mono", "Nimbus Mono L", Monaco, "Courier New", Courier, monospace;
+      font-size: 15px;
+      line-height: 1.55;
+      color: #B9BBBE;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .embed {
+      max-width: 620px;
+      margin-top: 14px;
+      background: #2F3136;
+      border-left: 5px solid #4F545C;
+      border-radius: 6px;
+      padding: 16px 20px 18px;
+    }
+    .embed-title {
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 19px;
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+    .embed-desc {
+      color: #DCDDDE;
+      font-size: 16px;
+      line-height: 1.55;
+      margin-bottom: 14px;
+    }
+    .embed-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 24px;
+    }
+    .embed-field.block { grid-column: 1 / -1; }
+    .embed-field.inline { grid-column: span 1; }
+    .embed-field-name {
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .embed-field-value {
+      color: #DCDDDE;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+    .embed-field-value .entry    { color: #23A55A; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .stop     { color: #ED4245; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .caution  { color: #F1C40F; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .marginal { color: #E67E22; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .warn     { color: #F1C40F; font-weight: 600; display: block; margin: 4px 0; }
+    .embed-field-value .info-line { color: #5BC0DE; font-weight: 600; display: block; margin: 4px 0; }
+    .embed-field-value .term-chip {
+      color: #5BC0DE;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .embed-footer {
+      color: #72767D;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #40444B;
+    }
+  </style></head>
+<body>
+<div class="channel">
+  <div class="channel-header">
+    <span class="hash">#</span>
+    <span class="name">dark-horse-radar</span>
+    <span style="margin-left:auto;color:#72767D">FOH.1.0.1 prototype v4 · multi-zone Where to Act · candidate lifecycle · Market Mood traffic-light</span>
+  </div>
+  
+    <div class="message" data-idx="0">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color:#ED4245">- ▼ ▼ ▼   N E W   D A R K   H O R S E   S C A N   ▼ ▼ ▼</span>
+<span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color:#ED4245">- 🆕   Tuesday 13 May · 12:00 UTC · 33 markets scanned   🆕</span>
+<span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   🐎  DARK HORSE — GLOBAL MOVER RADAR           ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br>_3 standouts found this cycle._<br>_1 fresh (new this scan)  ·  1 still active  ·  1 fading._<br><br>📘 <strong>EXPANDED TERMINOLOGY HYPERLINKS</strong><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">Breakout]</span>  <span style="color:#5BC0DE;font-weight:700">Retest]</span>  <span style="color:#5BC0DE;font-weight:700">Pullback]</span>  <span style="color:#5BC0DE;font-weight:700">Support / Resistance]</span>  <span style="color:#5BC0DE;font-weight:700">Invalidation]</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Market Mood  ·  ELEVATED  🟡🟡🟡🟡  (4 / 5)</span></pre><br><br>_What this means right now:_<br>   The broader market is moving fast. Big swings either side are<br>   more likely than usual. Trades that worked in calm conditions<br>   are more likely to be whipped out before reaching their target.<br><br>_What this means for your trading this cycle:_<br>   🟢 Use 60–70% of your normal position size, not 100%.<br>   🟡 Give risk-off levels more room — wider stops, not tighter.<br>   🟠 Skip marginal setups. Only act on the cleanest reads below.<br>   🛑 Do not chase already-extended moves. Wait for the next test.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   ⭐  STANDOUTS — TODAY'S STRONGEST MOVERS       ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br><pre class="fence"><span style="color:#ED4245">- 🆕  FRESH STANDOUT #1 of 3  ·  EURUSD just appeared on the radar</span></pre></div>
+      
+    <div class="embed" style="border-left-color:#2ecc71">
+      <div class="embed-title">🐎  EURUSD  ·  STRONG BULLISH  ·  🆕 FRESH</div><div class="embed-desc">Price pushed above 1.0950 — a level that had capped EURUSD for the last 3 weeks — and held the level cleanly on the 1H close. The move is new this scan.</div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">Move Type</div>
+        <div class="embed-field-value">Breakout · early stage</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Direction</div>
+        <div class="embed-field-value">▲ Long  (rising bias — price expected to keep moving up)</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Conviction</div>
+        <div class="embed-field-value">🟢🟢🟢🟢 / 5 · High</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Trigger Level</div>
+        <div class="embed-field-value">1.0950 — cleared cleanly on the 1H close</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Horizon</div>
+        <div class="embed-field-value">Swing — days, not minutes</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Today's Rank</div>
+        <div class="embed-field-value">1st of today's 3 standouts</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Where to Act</div>
+        <div class="embed-field-value"><span class="entry">🟢 ENTRY zone  1.0920 – 1.0935</span><br>   Healthy area for the idea. If price pulls back into this band<br>   and pauses, that's where buyers are expected to step in.<br>   Action: BUY small size — scale in only as the level holds.<br><br><span class="caution">🟡 WATCH level  1.0900</span><br>   Caution. A close below this on the 1H means the move<br>   is losing initial momentum. Don't add. Reduce existing size.<br>   Action: hold what you have, do not chase further entries.<br><br>🟠 CAUTION zone  1.0900 – 1.0880<br>   Sellers (or buyers, if short) gaining the upper hand.<br>   Action: scratch the trade for small loss. Stand aside<br>   until the next ATLAS scan reads the structure again.<br><br><span class="stop">🛑 INVALIDATION  close below 1.0875</span><br>   Hard stop. The bullish idea is off entirely.<br>   Action: exit any remaining size. Do not re-enter<br>   until a fresh structure forms on a later scan.<br><br><span class="info-line">🔵 Next review  12:15 UTC</span><br>   ATLAS re-reads the structure at the next scan. Live levels<br>   above will update with what actually happened in price.</div>
+      </div></div>
+      <div class="embed-footer">ATLAS · Dark Horse · standout 1 of 3 · first detected at this scan (Tuesday 13 May · 12:00 UTC)</div>
+    </div>
+    </div>
+    <div class="message" data-idx="1">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- 🆕  STILL ACTIVE STANDOUT #2 of 3  ·  XAUUSD (now in cycle 2)</span></pre></div>
+      
+    <div class="embed" style="border-left-color:#e74c3c">
+      <div class="embed-title">🐎  XAUUSD  ·  STRONG BEARISH  ·  🔁 STILL ACTIVE</div><div class="embed-desc">Gold broke below 2398 on the 1H close 2 cycles ago. Sellers are still in control of the structure and the level has held as a ceiling on the bounce.</div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">Move Type</div>
+        <div class="embed-field-value">Breakdown · mid stage</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Direction</div>
+        <div class="embed-field-value">▼ Short  (falling bias — price expected to keep moving down)</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Conviction</div>
+        <div class="embed-field-value">🔴🔴🔴🔴 / 5 · High</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Trigger Level</div>
+        <div class="embed-field-value">2398 — broken 2 cycles ago, ceiling holds</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Horizon</div>
+        <div class="embed-field-value">Swing — days, not minutes</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Today's Rank</div>
+        <div class="embed-field-value">2nd of today's 3 standouts</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Where to Act</div>
+        <div class="embed-field-value"><span class="entry">🟢 ENTRY zone  2398 – 2402</span><br>   Healthy area for the idea. If price pulls back into this band<br>   and pauses, that's where sellers are expected to step in.<br>   Action: SELL small size — scale in only as the level holds.<br><br><span class="caution">🟡 WATCH level  2406</span><br>   Caution. A close above this on the 1H means the move<br>   is losing initial momentum. Don't add. Reduce existing size.<br>   Action: hold what you have, do not chase further entries.<br><br>🟠 CAUTION zone  2406 – 2412<br>   Sellers (or buyers, if short) gaining the upper hand.<br>   Action: scratch the trade for small loss. Stand aside<br>   until the next ATLAS scan reads the structure again.<br><br><span class="stop">🛑 INVALIDATION  close above 2415</span><br>   Hard stop. The bearish idea is off entirely.<br>   Action: exit any remaining size. Do not re-enter<br>   until a fresh structure forms on a later scan.<br><br><span class="info-line">🔵 Next review  12:15 UTC</span><br>   ATLAS re-reads the structure at the next scan. Live levels<br>   above will update with what actually happened in price.</div>
+      </div></div>
+      <div class="embed-footer">ATLAS · Dark Horse · standout 2 of 3 · first detected 11:30 UTC (cycle 2 of 3)</div>
+    </div>
+    </div>
+    <div class="message" data-idx="2">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- 🆕  FADING STANDOUT #3 of 3  ·  NVDA — older mover, late-stage caution</span></pre></div>
+      
+    <div class="embed" style="border-left-color:#e67e22">
+      <div class="embed-title">🐎  NVDA  ·  DEVELOPING WATCH  ·  🌅 FADING</div><div class="embed-desc">NVIDIA's uptrend has been running for 4 cycles. The next push is getting smaller each scan — the move is mature. Wait for the next test, do not chase.</div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">Move Type</div>
+        <div class="embed-field-value">Continuation · late stage</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Direction</div>
+        <div class="embed-field-value">▲ Long  (rising bias — but reward is shrinking)</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Conviction</div>
+        <div class="embed-field-value">🟠🟠🟠 / 5 · Reduced</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Trigger Level</div>
+        <div class="embed-field-value">925.40 — still the structural level, but stale</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Horizon</div>
+        <div class="embed-field-value">Intraday — hours, not days</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Today's Rank</div>
+        <div class="embed-field-value">3rd of today's 3 standouts</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Where to Act</div>
+        <div class="embed-field-value"><span class="entry">🟢 ENTRY zone  918.00 – 922.00</span><br>   Healthy area for the idea. If price pulls back into this band<br>   and pauses, that's where buyers are expected to step in.<br>   Action: BUY small size — scale in only as the level holds.<br><br><span class="caution">🟡 WATCH level  912.80</span><br>   Caution. A close below this on the 1H means the move<br>   is losing initial momentum. Don't add. Reduce existing size.<br>   Action: hold what you have, do not chase further entries.<br><br>🟠 CAUTION zone  912.80 – 906.00<br>   Sellers (or buyers, if short) gaining the upper hand.<br>   Action: scratch the trade for small loss. Stand aside<br>   until the next ATLAS scan reads the structure again.<br><br><span class="stop">🛑 INVALIDATION  close below 902.50</span><br>   Hard stop. The bullish idea is off entirely.<br>   Action: exit any remaining size. Do not re-enter<br>   until a fresh structure forms on a later scan.<br><br><span class="info-line">🔵 Next review  12:15 UTC</span><br>   ATLAS re-reads the structure at the next scan. Live levels<br>   above will update with what actually happened in price.<br><br><span class="warn">⚠️  Late-stage caveat — the move is older than fresh ones. Half</span><br>   normal position size at most. Skip if conditions look messy.</div>
+      </div></div>
+      <div class="embed-footer">ATLAS · Dark Horse · standout 3 of 3 · first detected 09:45 UTC (cycle 4 of 4 — fading)</div>
+    </div>
+    </div>
+    <div class="message" data-idx="3">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- 🆕  BUILDING  &amp;  CHART REFERENCE</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   📡  BUILDING — WARMING UP BELOW STANDOUT GRADE║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">Pre-Radar]</span>  <span style="color:#5BC0DE;font-weight:700"></span><span style="color:#5BC0DE;font-weight:700">entum]</span>  <span style="color:#5BC0DE;font-weight:700">Structure]</span>  <span style="color:#5BC0DE;font-weight:700"></span><span style="color:#5BC0DE;font-weight:700">ation]</span></pre><br><br>_Two markets are close to the standout bar but not there yet._<br>_GBPUSD needs a 1H close above 1.2600 to qualify._<br>_EURJPY needs momentum to expand on its next push (currently flat)._<br>_If structure firms by the next scan, they'll graduate into a standout._<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   📚  CHART REFERENCE — THE FOUR-ZONE READ        ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span>
+
+<span style="color:#23A55A">   ▲ price                              ╭──── higher</span>
+<span style="color:#23A55A">   │                            ╭──╮ ╱</span>
+<span style="color:#23A55A">   │       🟢 ENTRY  ◄──── ●──╯  ●</span>   ← buyers stepped in
+<span style="color:#23A55A">   │   ─────────────────────────────────</span>   ← ceiling, now a floor
+<span style="color:#ED4245">   │       🟡 WATCH  ◄─── close below = caution</span>
+<span style="color:#ED4245">   │       🟠 CAUTION  ◄── sellers winning</span>
+<span style="color:#ED4245">   │   ─────────────────────────────────</span>   ← invalidation level
+<span style="color:#ED4245">   │       🛑 INVALIDATION  ◄── idea is off</span>
+<span style="color:#23A55A">   └────────────────────────────────────▶ time</span>
+
+<span style="color:#5BC0DE;font-weight:700">   ▸  How to read this</span>
+       Every Dark Horse candidate above is broken into the same
+       four zones. Walk top-down: ENTRY → WATCH → CAUTION →
+       INVALIDATION. You always know which zone price is in,
+       and what to do about it.
+
+<span style="color:#5BC0DE;font-weight:700">   ▸  How a trader uses this</span>
+       Match live price to the zone. Only act when price is in
+       the GREEN entry zone and conditions match the setup.
+       Anything below RED means stand aside or exit. No guessing.
+
+<span style="color:#5BC0DE;font-weight:700">   ▸  Rendered ATLAS charts coming next</span>
+       Future scans will replace this schematic with a rendered
+       ATLAS chart of the actual candidate, with the same four
+       zones drawn on the live price action.</pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Risk reminder</span></pre><br>_Even a strong standout is a plan, not a guarantee. Every zone above is what ATLAS sees right now — live price moves and the zones move with it. Cross-check the current price against the zone before acting. ATLAS reviews again at 12:15 UTC._</div>
+      
+    </div>
+</div>
+</body></html>
