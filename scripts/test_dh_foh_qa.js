@@ -184,15 +184,19 @@ console.log('\n[T5] Conviction value uses colour-active-count, no filler dots');
   const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10)];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, {});
   const conv = out.messages[0].embeds[0].fields.find(f => f.name === 'Conviction').value;
+  // Operator polish 2026-05-13: full 5-disc scale with `⚫` for
+  // inactive remainder per dh-foh-v6-gallery.md priority 1.
   ok('conviction value uses colour glyph + "/ 5" suffix',
      /^(🟢|🔴|🟡|🟠|⚪)/.test(conv) && / \/ 5 · /.test(conv) && /(Low|Medium|High|Very High)$/.test(conv),
      { conv });
   ok('no empty-circle ○ filler', !/○/.test(conv));
-  ok('no inactive ● filler', !/●○/.test(conv));
-  ok('score 10 → 5/5 Very High',
+  ok('no inactive ● filler (only ⚫ allowed)', !/●○/.test(conv));
+  ok('score 10 → 5/5 Very High (no inactive ⚫ when all 5 active)',
      /^🟢🟢🟢🟢🟢 \/ 5 · Very High$/.test(foh.convictionScale(10, foh.STATE_BADGE.STRONG_BULLISH)));
-  ok('score 6 bearish → 3/5 🔴 Medium',
-     /^🔴🔴🔴 \/ 5 · Medium$/.test(foh.convictionScale(6, foh.STATE_BADGE.BEARISH_PRESSURE)));
+  ok('score 6 bearish → 3 active + 2 inactive ⚫ — Medium',
+     /^🔴🔴🔴⚫⚫ \/ 5 · Medium$/.test(foh.convictionScale(6, foh.STATE_BADGE.BEARISH_PRESSURE)));
+  ok('score 8 bullish → 4 active + 1 inactive ⚫ — High',
+     /^🟢🟢🟢🟢⚫ \/ 5 · High$/.test(foh.convictionScale(8, foh.STATE_BADGE.STRONG_BULLISH)));
 }
 
 // ============================================================
@@ -307,10 +311,13 @@ console.log('\n[T10] Where to Act — multi-line BUY/RISK-OFF + late-stage cavea
   ok('Where to Act field present', wta != null);
   // Multi-line — value contains \n between BUY/RISK-OFF
   ok('Where to Act contains \\n line break', wta.value.includes('\n'));
-  ok('Where to Act has 🟢 BUY or 🟢 SELL line', /^🟢 (BUY|SELL) at/m.test(wta.value), wta);
-  ok('Where to Act has 🛑 RISK-OFF line', /^🛑 RISK-OFF at/m.test(wta.value), wta);
-  ok('Where to Act uses beginner-readable "exit the idea" wording',
-     /exit the idea if this level fails/.test(wta.value), wta);
+  // Operator polish 2026-05-13: Where to Act uses a tight price
+  // range (X.XX – Y.YY) + plain-English condition, not "at X — on
+  // the dip-and-hold". RISK-OFF explains the consequence.
+  ok('Where to Act has 🟢 BUY/SELL with tight price range', /^🟢 (BUY|SELL) [0-9.]+ – [0-9.]+ —/m.test(wta.value), wta);
+  ok('Where to Act has 🛑 RISK-OFF with consequence sentence', /^🛑 RISK-OFF at [0-9.]+ — If price closes/m.test(wta.value), wta);
+  ok('Where to Act uses beginner-readable "abandon the * idea" consequence',
+     /abandon the (long|short) idea/.test(wta.value), wta);
 
   // Late-stage caveat line should appear for late/exhaustion phases.
   const lateRow = mkRanked('NVDA', 7, 'Bullish', rank.SECTIONS.EQUITIES, 900);
@@ -326,10 +333,12 @@ console.log('\n[T10] Where to Act — multi-line BUY/RISK-OFF + late-stage cavea
 // ============================================================
 console.log('\n[T11] Direction + Move Type + Mover Stage discipline');
 {
-  // Direction values must include the beginner-readable hint
-  ok('Bullish → "▲ Long  (rising bias)"', foh.directionField('Bullish') === '▲ Long  (rising bias)');
-  ok('Bearish → "▼ Short  (falling bias)"', foh.directionField('Bearish') === '▼ Short  (falling bias)');
-  ok('Neutral → "▶ Sideways  (no clear bias)"', foh.directionField('Neutral') === '▶ Sideways  (no clear bias)');
+  // Direction values must include the beginner-readable hint.
+  // Operator polish 2026-05-13: plain-English translation instead
+  // of the bracketed shorthand.
+  ok('Bullish → "▲ Long — expecting higher prices"',  foh.directionField('Bullish') === '▲ Long — expecting higher prices');
+  ok('Bearish → "▼ Short — expecting lower prices"',  foh.directionField('Bearish') === '▼ Short — expecting lower prices');
+  ok('Neutral → "▶ Sideways — no clear directional bias"', foh.directionField('Neutral') === '▶ Sideways — no clear directional bias');
   const ALLOWED_MOVE_TYPE = new Set(['Breakout', 'Reversal', 'Range Break', 'Continuation']);
   for (const phase of ['early', 'mid', 'late', 'exhaustion']) {
     const r = { direction: 'Bullish', movePhase: phase, score: 8, structureState: 'higher highs and higher lows', section: rank.SECTIONS.FX_MAJORS };
@@ -506,6 +515,69 @@ console.log('\n[T19] Terminology hyperlinks — Markdown links emitted when URLs
      /\[Breakout\]\(https:\/\/example\.com\/glossary\/breakout\)/.test(outB.messages[0].content));
   ok('linkRoutingStatus = "partial" when at least one URL wired',
      outB.linkRoutingStatus === 'partial');
+}
+
+// ============================================================
+// T20 — Live-polish 2026-05-13: WHAT TO DO NOW numbered ① ② ③ ④ ⑤
+// checklist field is mandatory on every candidate embed
+// (dh-foh-v6-gallery.md Priority 9).
+// ============================================================
+console.log('\n[T20] WHAT TO DO NOW numbered ① ② ③ ④ ⑤ checklist on every candidate');
+{
+  const top10 = [
+    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,   1.10),
+    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES, 2400),
+    mkRanked('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,    900),
+  ];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
+  const candidateMessages = out.messages.slice(0, -1); // exclude tail
+  ok('every candidate embed carries a WHAT TO DO NOW field',
+     candidateMessages.every(m => m.embeds[0].fields.some(f => f.name === 'WHAT TO DO NOW')));
+  const f0 = candidateMessages[0].embeds[0].fields.find(f => f.name === 'WHAT TO DO NOW').value;
+  ok('checklist uses ① ② ③ ④ ⑤ numbered glyphs',
+     /①/.test(f0) && /②/.test(f0) && /③/.test(f0) && /④/.test(f0) && /⑤/.test(f0), { f0 });
+  ok('① is a "wait for pullback to range" instruction',
+     /^① Wait for price to pull back into [0-9.]+–[0-9.]+\.$/m.test(f0));
+  ok('② is a "watch defender behaviour" instruction',
+     /^② Watch whether (buyers defend|sellers cap)/m.test(f0));
+  ok('③ is an "avoid entry on immediate rejection" instruction',
+     /^③ Avoid entry if price (slices|punches)/m.test(f0));
+  ok('④ is a size / exposure instruction',
+     /^④ (Use roughly half|Reduce exposure)/m.test(f0));
+  ok('⑤ is an "exit on invalidation close" instruction',
+     /^⑤ Exit the idea if [0-9.]+ fails on a 1H close\.$/m.test(f0));
+
+  // Late-stage candidates carry the half-exposure variant on ④.
+  const lateRow = mkRanked('NVDA', 7, 'Bullish', rank.SECTIONS.EQUITIES, 900);
+  lateRow.movePhase = 'late';
+  const out2 = foh.buildDarkHorseFohPayload({ top10: [lateRow], allCount: 33 }, null, {});
+  const f1 = out2.messages[0].embeds[0].fields.find(f => f.name === 'WHAT TO DO NOW').value;
+  ok('late-stage ④ uses "half your normal exposure" wording',
+     /④ Use roughly half your normal exposure/.test(f1), { f1 });
+}
+
+// ============================================================
+// T21 — Live-polish 2026-05-13: conviction discs render in the
+// active state colour (never neutral white) per Priority 1.
+// ============================================================
+console.log('\n[T21] Conviction discs inherit ACTIVE STATE COLOUR — never white');
+{
+  // Every state-badge maps to a non-white glyph in the conviction
+  // disc rendering. The marginal state previously rendered as ⚪
+  // (white), which the operator flagged as visually weak. v6 polish
+  // promotes marginal to orange so every disc stays readable.
+  for (const sb of [
+    foh.STATE_BADGE.STRONG_BULLISH,
+    foh.STATE_BADGE.STRONG_BEARISH,
+    foh.STATE_BADGE.BULLISH_PRESSURE,
+    foh.STATE_BADGE.BEARISH_PRESSURE,
+    foh.STATE_BADGE.DEVELOPING_WATCH,
+    foh.STATE_BADGE.MARGINAL_REDUCED_CONVICTION,
+  ]) {
+    const scale = foh.convictionScale(5, sb);
+    ok(`state "${sb}" — discs are not ⚪ white`, !scale.startsWith('⚪'));
+    ok(`state "${sb}" — discs include either 🟢/🔴/🟡/🟠 colour`, /^(🟢|🔴|🟡|🟠)/.test(scale));
+  }
 }
 
 // ============================================================

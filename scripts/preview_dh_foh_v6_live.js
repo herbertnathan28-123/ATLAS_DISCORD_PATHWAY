@@ -85,17 +85,36 @@ const checks = [
   // Embed structure (Pack 2.2 fields)
   ['embed.title format: "🐎  SYM  ·  <state-badge>"',       /^🐎  EURUSD  ·  /.test(m[0].embeds[0].title)],
   ['embed.title ends with a state-badge from allow-list',   foh.STATE_BADGE_VALUES.has(m[0].embeds[0].title.replace(/^🐎  [A-Z0-9]+  ·  /, ''))],
-  ['Conviction field uses 5-disc colour-active scale',      /(🟢|🔴|🟡|🟠|⚪)+\s\/\s5\s·\s(Low|Medium|High|Very High)/.test(m[0].embeds[0].fields.find(f => f.name === 'Conviction').value)],
-  ['no inactive disc filler ⚫ in active candidate cards',   !m.slice(0, -1).some(x => x.embeds && x.embeds.some(e => e.fields.some(f => /[●○]/.test(f.value))))],
-  ['Direction field has beginner-readable hint',            /(Long|Short|Sideways)\s+\(/.test(m[0].embeds[0].fields.find(f => f.name === 'Direction').value)],
+  ['Conviction field uses 5-disc colour-active scale',      /(🟢|🔴|🟡|🟠)+\s\/\s5\s·\s(Low|Medium|High|Very High)/.test(m[0].embeds[0].fields.find(f => f.name === 'Conviction').value)],
+  ['v6 polish: full 5-disc scale with ⚫ inactive remainder when active < 5',
+    m.slice(0, -1).every(x => x.embeds.every(e => {
+      const v = e.fields.find(f => f.name === 'Conviction').value;
+      const activeMatch = v.match(/^(🟢|🔴|🟡|🟠)+/u);
+      const active = activeMatch ? Array.from(activeMatch[0]).length : 0;
+      const inactiveMatch = v.match(/⚫+/u);
+      const inactive = inactiveMatch ? inactiveMatch[0].length : 0;
+      return active + inactive === 5;
+    }))],
+  ['v6 polish: conviction discs never render as neutral ⚪ white', !m.slice(0, -1).some(x => x.embeds.some(e => /^⚪/.test(e.fields.find(f => f.name === 'Conviction').value)))],
+  ['no ●/○ filler anywhere in candidate embeds',            !m.slice(0, -1).some(x => x.embeds && x.embeds.some(e => e.fields.some(f => /[●○]/.test(f.value))))],
+  ['v6 polish: Direction uses plain-English translation ("Long — expecting higher prices")',
+    /(Long — expecting higher prices|Short — expecting lower prices|Sideways — no clear directional bias)/.test(m[0].embeds[0].fields.find(f => f.name === 'Direction').value)],
   ['Move Type field present + in allow-list',               ['Breakout','Reversal','Range Break','Continuation'].some(t => m[0].embeds[0].fields.find(f => f.name === 'Move Type').value.startsWith(t))],
   ['Trigger Level value uses "(Above|Below) N — ..." form', /(Above|Below) \d+(\.\d+)? — /.test(m[0].embeds[0].fields.find(f => f.name === 'Trigger Level').value)],
   ['Today\'s Rank uses ordinal "Nth of today\'s K standouts"', /^1st of today's \d+ standouts?$/.test(m[0].embeds[0].fields.find(f => f.name === "Today's Rank").value)],
   ['"In ATLAS terms" / "Terms" field REMOVED',              !m[0].embeds[0].fields.some(f => /In ATLAS terms|Terms/.test(f.name))],
-  // Where to Act
-  ['Where to Act has multi-line BUY/RISK-OFF structure',    /^🟢 (BUY|SELL) at/m.test(m[0].embeds[0].fields.find(f => f.name === 'Where to Act').value)],
+  // Where to Act — v6 polish
+  ['v6 polish: Where to Act uses tight price range (X.XX – Y.YY), not single price',
+    /^🟢 (BUY|SELL) [0-9.]+ – [0-9.]+ —/m.test(m[0].embeds[0].fields.find(f => f.name === 'Where to Act').value)],
   ['Where to Act includes 🛑 RISK-OFF line',                /^🛑 RISK-OFF at/m.test(m[0].embeds[0].fields.find(f => f.name === 'Where to Act').value)],
-  ['Where to Act uses beginner-readable "exit the idea"',   /exit the idea if this level fails/.test(m[0].embeds[0].fields.find(f => f.name === 'Where to Act').value)],
+  ['v6 polish: RISK-OFF explains the consequence ("abandon the long/short idea")',
+    /abandon the (long|short) idea/.test(m[0].embeds[0].fields.find(f => f.name === 'Where to Act').value)],
+  ['v6 polish: "on the dip-and-hold" wording REMOVED',      !/on the dip-and-hold/.test(allText)],
+  // WHAT TO DO NOW — mandatory v6 polish field
+  ['v6 polish: WHAT TO DO NOW field present on every candidate embed',
+    m.slice(0, -1).every(x => x.embeds[0].fields.some(f => f.name === 'WHAT TO DO NOW'))],
+  ['WHAT TO DO NOW uses ① ② ③ ④ ⑤ numbered glyphs',
+    /①[\s\S]*②[\s\S]*③[\s\S]*④[\s\S]*⑤/.test(m[0].embeds[0].fields.find(f => f.name === 'WHAT TO DO NOW').value)],
   // Red NEW BADGE separators
   ['M2 has "STANDOUT #2 of 4" red badge',                   /```diff\n-\s*🆕\s+STANDOUT #2 of 4\n```/.test(m[1].content)],
   ['M3 has "STANDOUT #3 of 4" red badge',                   /```diff\n-\s*🆕\s+STANDOUT #3 of 4\n```/.test(m[2].content)],

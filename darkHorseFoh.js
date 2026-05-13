@@ -87,19 +87,26 @@ function _badgeGlyph(stateBadge) {
     case STATE_BADGE.DEVELOPING_WATCH:
       return '🟡';
     case STATE_BADGE.MARGINAL_REDUCED_CONVICTION:
-      return '⚪';
+      // Operator polish 2026-05-13 — discs must never appear neutral
+      // white in the live surface. Marginal candidates render in
+      // orange (caution-tone) so the disc count is immediately
+      // readable on every card.
+      return '🟠';
     default:
       return '🟠';
   }
 }
 
 // Public — used by both the QA harness directly and by the embed
-// builder below.
+// builder below. Operator polish 2026-05-13: discs are a full 5-disc
+// scale with inactive remainder rendered as `⚫` per the v6
+// canonical doctrine (dh-foh-v6-gallery.md priority 1).
 function convictionScale(score, stateBadge) {
   const active = _scoreToActive(score);
   const label  = _activeToLabel(active);
   const glyph  = _badgeGlyph(stateBadge);
-  return glyph.repeat(active) + ' / 5 · ' + label;
+  const inactive = 5 - active;
+  return glyph.repeat(active) + '⚫'.repeat(inactive) + ' / 5 · ' + label;
 }
 
 // Public — classify the candidate to a state-badge from the
@@ -133,11 +140,14 @@ function _badgeToColor(stateBadge) {
 }
 
 // ── Per-field helpers (public) ───────────────────────────────
+// Operator polish 2026-05-13: Long / Short / Sideways carry an
+// inline plain-English translation so beginners do not need to
+// know trader shorthand to read the card.
 function directionField(direction) {
   const d = String(direction || '').toLowerCase();
-  if (d === 'bullish') return '▲ Long  (rising bias)';
-  if (d === 'bearish') return '▼ Short  (falling bias)';
-  return '▶ Sideways  (no clear bias)';
+  if (d === 'bullish') return '▲ Long — expecting higher prices';
+  if (d === 'bearish') return '▼ Short — expecting lower prices';
+  return '▶ Sideways — no clear directional bias';
 }
 function moveType(record) {
   const phase = String((record && record.movePhase) || '').toLowerCase();
@@ -176,8 +186,34 @@ function _todaysRankValue(idx, total) {
   return ord + " of today's " + total + ' standout' + (total === 1 ? '' : 's');
 }
 
-// Where to Act — multi-line BUY/SELL + RISK-OFF + late-stage
-// caveat (when phase is late or exhaustion).
+// Build a tight entry-zone range from a single anchor price. The
+// ranking pipeline currently only carries a single anchor level
+// per side (recentHigh / recentLow). Operator polish 2026-05-13:
+// the live surface needs a concrete range, not "above X". We
+// derive a tight 0.1% band around the anchor on either side of
+// the price (conservative — gives the operator a realistic hold
+// zone without inventing precision the engine does not have).
+function _entryRange(priceText, isShort) {
+  if (!priceText || !/^[0-9.]+$/.test(priceText)) return null;
+  const p = parseFloat(priceText);
+  if (!Number.isFinite(p) || p === 0) return null;
+  // 0.1% band — narrow enough to read as an execution band, wide
+  // enough to absorb a tick of slippage.
+  const band = Math.max(0.0001, p * 0.001);
+  const decimals = (priceText.split('.')[1] || '').length || 2;
+  const fmt = n => n.toFixed(decimals);
+  return isShort
+    ? { low: fmt(p), high: fmt(p + band), pivot: priceText }
+    : { low: fmt(p - band), high: fmt(p), pivot: priceText };
+}
+
+// Where to Act — multi-line BUY/SELL range + RISK-OFF consequence
+// + late-stage caveat. Operator polish 2026-05-13:
+//   - replaces "on the dip-and-hold" with a plain-English condition,
+//   - emits a tight execution range (X.XX–Y.YY) instead of a single
+//     price,
+//   - expands RISK-OFF into an explicit consequence sentence,
+//   - keeps the late-stage caveat line.
 function _whereToActValue(record) {
   const ev = record && record.evidenceAnchors;
   const dir = String((record && record.direction) || '').toLowerCase();
@@ -188,36 +224,95 @@ function _whereToActValue(record) {
   const inv  = ev && ev.invalidation;
   const entryPrice = (ref && ref.priceText) || '0';
   const invPrice   = (inv && inv.priceText) || '0';
+  const range = _entryRange(entryPrice, isShort);
+  const rangeText = range ? (range.low + ' – ' + range.high) : entryPrice;
+  // Plain-English condition for the entry — replaces "on the
+  // dip-and-hold". Tells the operator the exact behaviour to wait
+  // for before pulling the trigger.
+  const condition = isShort
+    ? 'only after price retraces into the band and stalls below the broken level (no fresh push higher)'
+    : 'only after price pulls back into the band and stabilises above the broken level (no immediate rejection)';
+  // RISK-OFF consequence — replaces the bare "exit the idea".
+  // Explains WHAT failed, WHY it matters, and WHAT the operator
+  // should do.
+  const riskOffConsequence = isShort
+    ? 'If price closes back above ' + invPrice + ' on the 1H, the bearish structure has failed — abandon the short idea.'
+    : 'If price closes back below ' + invPrice + ' on the 1H, the bullish structure has failed — abandon the long idea.';
   const lines = [
-    '🟢 ' + verb + ' at ' + entryPrice + ' — on the dip-and-hold',
-    '🛑 RISK-OFF at ' + invPrice + ' — exit the idea if this level fails',
+    '🟢 ' + verb + ' ' + rangeText + ' — ' + condition + '.',
+    '🛑 RISK-OFF at ' + invPrice + ' — ' + riskOffConsequence,
   ];
   if (phase === 'late' || phase === 'exhaustion') {
-    lines.push('⚠️  Size small — the move is late in its cycle.');
+    lines.push('⚠️  Size small — most of the move is already in the price, reward is shrinking.');
   }
   return lines.join('\n');
 }
 
-// Description — single-line trader voice, ≤ 240 chars.
+// WHAT TO DO NOW — numbered ① ② ③ ④ ⑤ checklist with concrete
+// behavioural instructions. Operator-mandated polish 2026-05-13
+// (dh-foh-v6-gallery.md Priority 9). One of the most important
+// missing layers from the v6 live surface — explicit, sequential,
+// plain-English actions the trader can execute on without further
+// interpretation.
+function _whatToDoNowValue(record) {
+  const ev = record && record.evidenceAnchors;
+  const dir = String((record && record.direction) || '').toLowerCase();
+  const phase = String((record && record.movePhase) || '').toLowerCase();
+  const isShort = dir === 'bearish';
+  const verb = isShort ? 'SELL' : 'BUY';
+  const ref  = isShort ? (ev && ev.recentLow)  : (ev && ev.recentHigh);
+  const inv  = ev && ev.invalidation;
+  const entryPrice = (ref && ref.priceText) || '0';
+  const invPrice   = (inv && inv.priceText) || '0';
+  const range = _entryRange(entryPrice, isShort);
+  const rangeText = range ? (range.low + '–' + range.high) : entryPrice;
+  const defender = isShort ? 'sellers cap the bounce' : 'buyers defend the band';
+  const reject   = isShort ? 'price punches back up through the band on first touch'
+                          : 'price slices straight back down through the band on first touch';
+  const sizeLine = (phase === 'late' || phase === 'exhaustion')
+    ? '④ Use roughly half your normal exposure — the move is late and reward per unit of risk is reduced.'
+    : '④ Reduce exposure if volatility expands or the broader market mood shifts to caution.';
+  return [
+    '① Wait for price to pull back into ' + rangeText + '.',
+    '② Watch whether ' + defender + ' on the first test.',
+    '③ Avoid entry if ' + reject + '.',
+    sizeLine,
+    '⑤ Exit the idea if ' + invPrice + ' fails on a 1H close.',
+  ].join('\n');
+}
+
+// Description — single-line trader voice, ≤ 240 chars. Operator
+// polish 2026-05-13: vary the wording by movePhase so cards do not
+// feel template-spammed when several candidates classify into the
+// same state-badge in the same cycle.
 function _description(record, stateBadge) {
   const sym = (record && record.symbol) || 'instrument';
-  const dir = String((record && record.direction) || '').toLowerCase();
+  const phase = String((record && record.movePhase) || '').toLowerCase();
   if (stateBadge === STATE_BADGE.STRONG_BULLISH) {
-    return 'Price pushed through the prior ceiling on ' + sym + ' and held the level cleanly on the close. The move is fresh and the path of least resistance is up.';
+    if (phase === 'early') return sym + ' just broke through a multi-week ceiling and held the level on the close. The move is fresh — path of least resistance is up.';
+    if (phase === 'mid')   return sym + ' has cleared its prior ceiling and the broken level has flipped into support. Buyers are defending every dip.';
+    return sym + ' is extending an upside break that has held cleanly. The structure is intact, the move is in motion.';
   }
   if (stateBadge === STATE_BADGE.STRONG_BEARISH) {
-    return 'Sellers cracked the prior floor on ' + sym + ' and the broken level has held as a ceiling on every bounce. Path of least resistance is down.';
+    if (phase === 'early') return sym + ' just cracked a multi-week floor and the broken level is already capping every bounce. Path of least resistance is down.';
+    if (phase === 'mid')   return sym + ' is mid-break, sellers in control. The broken floor has flipped into a ceiling.';
+    return sym + ' is extending a downside break that has held cleanly. Structure remains bearish.';
   }
   if (stateBadge === STATE_BADGE.BULLISH_PRESSURE) {
-    return sym + ' is building upward pressure — the trigger has not cleared yet, but buyers keep defending dips.';
+    if (phase === 'early') return sym + ' is building early upward pressure. Buyers keep stepping in on dips — the trigger has not yet cleared.';
+    return sym + ' is grinding into resistance with steady buying. The trigger break has not yet fired, but conditions are constructive.';
   }
   if (stateBadge === STATE_BADGE.BEARISH_PRESSURE) {
-    return sym + ' is building downward pressure — the trigger has not cleared yet, but sellers keep defending bounces.';
+    if (phase === 'early') return sym + ' is building early downward pressure. Sellers keep capping rallies — the trigger has not yet cleared.';
+    return sym + ' is grinding into support with steady selling. The trigger break has not yet fired, but conditions are weak.';
   }
   if (stateBadge === STATE_BADGE.DEVELOPING_WATCH) {
-    return sym + ' is mature in its current direction. Reward is shrinking — wait for the next clean test, do not chase.';
+    if (phase === 'late') return sym + ' is late in its current direction — most of the easy move is already in the price. Wait for the next structural test.';
+    if (phase === 'exhaustion') return sym + ' is stretched and showing exhaustion. Reversal risk is rising — do not chase, watch for a turn.';
+    return sym + ' is on the developing-watch list. The structure is intact but reward is shrinking — wait for the next clean test.';
   }
-  return sym + ' is showing marginal conviction. Only act on a clean break — small size if at all.';
+  if (phase === 'exhaustion') return sym + ' has overextended on weak structure. Only react to a clean reversal — chasing here has poor odds.';
+  return sym + ' is on the radar but conviction is thin. Wait for a clean break before risking capital.';
 }
 
 // ── Banner construction (M1.content) ─────────────────────────
@@ -361,14 +456,16 @@ function _candidateEmbed(record, idx, total, isLast, opts) {
   const rankVal = _todaysRankValue(idx, total);
   const whereTo = _whereToActValue(record);
 
+  const whatToDoNow = _whatToDoNowValue(record);
   const fields = [
-    { name: 'Move Type',     value: moveT + ' · Mover Stage ' + moverStage(record), inline: true },
-    { name: 'Direction',     value: dirVal, inline: true },
-    { name: 'Conviction',    value: conviction, inline: true },
-    { name: 'Trigger Level', value: triggerVal, inline: true },
-    { name: 'Horizon',       value: horizon, inline: true },
-    { name: "Today's Rank",  value: rankVal, inline: true },
-    { name: 'Where to Act',  value: whereTo, inline: false },
+    { name: 'Move Type',        value: moveT + ' · Mover Stage ' + moverStage(record), inline: true },
+    { name: 'Direction',        value: dirVal, inline: true },
+    { name: 'Conviction',       value: conviction, inline: true },
+    { name: 'Trigger Level',    value: triggerVal, inline: true },
+    { name: 'Horizon',          value: horizon, inline: true },
+    { name: "Today's Rank",     value: rankVal, inline: true },
+    { name: 'Where to Act',     value: whereTo, inline: false },
+    { name: 'WHAT TO DO NOW',   value: whatToDoNow, inline: false },
   ];
 
   const embed = { color, title, description: desc, fields };
