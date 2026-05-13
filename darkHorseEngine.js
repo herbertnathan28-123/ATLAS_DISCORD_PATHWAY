@@ -1336,166 +1336,177 @@ async function runDarkHorseScan(universeOrOpts) {
     dhLog('INFO', `[MOVEMENT-DIGEST] firing — level=${volatility.level} ` +
                   `internal=${volatility.internalCount} reason=${volatility.reason}`);
     try {
-      // ── DARK HORSE v1.1 — global mover ranking ──
-      // Use the existing scan results as the ranking universe. Pull
-      // HTF candles via the engine's own _safeOHLC (cached) so we
-      // don't double-fetch. The ranking module is purely additive;
-      // if it throws for any reason we fall through to the v0.1
-      // simple digest so the operator never loses the heartbeat.
-      let payload;
-      let kind = 'movement_digest';
-      try {
-        const rank = require('./darkHorseRanking');
-        const candleProvider = async (sym) => {
-          if (typeof _safeOHLC !== 'function') return null;
-          try { return await _safeOHLC(sym, '1D', 100); }
-          catch (_e) { return null; }
-        };
-        // Universe for ranking = everything that scored > 0 on this scan.
-        const rankingUniverse = [...watch, ...internal];
-        const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
-          topN: 10, sectionCap: 2, sectionCapMax: 3,
-          watchThreshold: DH_SCORE_WATCH,
-        });
-        rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
-        // Pre-Radar / Near-Miss lane (operator directive 2026-05-12).
-        // The digest builder consumes the FULL scan output (internal +
-        // ignored counts + universe size) so it can render the
-        // pre-radar / near-miss / quiet-market-reason / waiting-for /
-        // universe-coverage supporting-intelligence layer below the
-        // main section radar. PRESENTATION LAYER ONLY — does not
-        // alter scoring, thresholds, scheduler, transport, or
-        // ranking foundation.
-        payload = fomo.sanitize(rank.buildRankedMovementDigestPayload(ranking, volatility, {
-          internal,                          // 5–7 score band (Pre-Radar + Near-Miss universe)
-          ignored,                           // <5 score (Universe Coverage counts only)
-          universeSize: DH_UNIVERSE.length,  // total symbols actually scanned this cycle
-        }));
-        kind = 'movement_digest_v1_1';
-      } catch (rankErr) {
-        dhLog('WARN', `[DH-RANKING] v1.1 build failed, falling back to v0.1: ${rankErr.message}`);
-        payload = fomo.sanitize(fomo.buildMovementDigestPayload(volatility, internal));
-      }
+      // ── DARK HORSE FOH.1.0.1 — front-of-house delivery ──
+      // Binding contract: ATLAS Front-of-House Presentation Contract.
+      // Pack 2 (Dark Horse templates) + Pack 4 (Expanded
+      // Terminology Hyperlinks) + Pack 8 (PR QA).
+      //
+      // One Discord embed per promoted candidate, sequential
+      // delivery, `─── NEW ───` separator between candidates,
+      // trader-facing Level-1 voice, state-badge allow-list,
+      // colour-active-count conviction scale, banned-wording
+      // sweep before send.
+      //
+      // The scoring + ranking + cooldown layers are reused
+      // unchanged (Pack 8.10 hard rule — no engine logic touched).
+      const rank = require('./darkHorseRanking');
+      const foh  = require('./darkHorseFoh');
+      const candleProvider = async (sym) => {
+        if (typeof _safeOHLC !== 'function') return null;
+        try { return await _safeOHLC(sym, '1D', 100); }
+        catch (_e) { return null; }
+      };
+      const rankingUniverse = [...watch, ...internal];
+      const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
+        topN: 10, sectionCap: 2, sectionCapMax: 3,
+        watchThreshold: DH_SCORE_WATCH,
+      });
+      rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
 
-      // Post-sanitisation polish (operator directive 2026-05-12 — Lane 3).
-      // fomo.sanitize replaces banned phrases with the literal
-      // marker "[REDACTED-FOMO]". The marker must never reach the
-      // user-facing surface — scrub it here, then clean up the
-      // sentence shape (orphan spaces / stray trailing commas /
-      // collapsed blank lines) so the redacted text still reads
-      // naturally.
-      if (payload && payload.content) {
-        const before = payload.content;
-        let s = payload.content;
-        // Strip the redaction markers entirely. Surrounding spacing
-        // collapses to a single space.
-        s = s.replace(/\[REDACTED-FOMO\]/g, '');
-        // Collapse triple+ blank lines that the marker removal may
-        // have left behind.
-        s = s.replace(/\n{3,}/g, '\n\n');
-        // Strip orphan trailing commas at the end of a line (the
-        // operator caught "### Heading,\n" and "paragraph,\n"
-        // patterns after sanitisation).
-        s = s.replace(/,(\s*\n)/g, '$1');
-        // Collapse repeated whitespace within a line (excluding
-        // newlines) — guards against "word  word" gaps where the
-        // marker sat between two words.
-        s = s.replace(/[ \t]{2,}/g, ' ');
-        // Tidy " ." / " ," / " ;" leftovers from marker removal.
-        s = s.replace(/\s+([.,;:])/g, '$1');
-        // Tidy trailing spaces left at end-of-line by earlier passes.
-        s = s.replace(/[ \t]+\n/g, '\n');
-        if (s !== before) {
-          dhLog('INFO', '[DH-POLISH] post-sanitisation cleanup applied (redaction-marker / trailing-comma / whitespace polish)');
-        }
-        payload.content = s;
-      }
-
-      const totalContentLen = (payload.content || '').length;
-      // Stable identifier for this digest. Lets the operator group
-      // every chunk's send_result line in Render logs back to a
-      // single scan output.
+      const kind = 'movement_digest_foh_v1_0';
       const digestId = 'dh' + Date.now().toString(36);
 
-      // Build the ordered chunk list. The chunker preserves
-      // section/candidate boundaries and labels each chunk
-      // "Part X/Y". A digest that fits under DH_CHUNK_MAX_DEFAULT
-      // is returned as a single chunk so single-message delivery
-      // is fully backwards compatible.
-      const chunks = _dhChunkDigest(payload.content, {
-        max: DH_CHUNK_MAX_DEFAULT,
-        // Operator directive 2026-05-12 — pass the "NEW DARK HORSE
-        // SCAN" boundary block returned by buildRankedMovementDigestPayload
-        // through to the chunker so it renders ONCE at the top of
-        // Part 1, never on Parts 2..N.
-        firstChunkPrefix: payload.firstChunkPrefix,
+      const built = foh.buildDarkHorseFohPayload(ranking, volatility, {
+        now: Date.now(),
+        intervalMs: 15 * 60 * 1000,
       });
-      const chunkCount = chunks.length;
-
-      // Preflight log — emitted BEFORE any send so the operator
-      // can see total content length + chunk count even if zero
-      // chunks reach Discord.
-      dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${kind} digest_id=${digestId} ` +
-                     `totalContentLen=${totalContentLen} chunkCount=${chunkCount} ` +
-                     `chunkMax=${DH_CHUNK_MAX_DEFAULT} wait=true ` +
-                     `sanitized=${payload.replaced ? 'true' : 'false'}`);
-
-      // Hard guard: refuse to even attempt a send if any chunk
-      // would exceed Discord's 2000-char absolute limit. Cooldown
-      // is NOT armed; the next scan retries.
-      const oversizeIdx = chunks.findIndex(c => c.length > DH_CHUNK_DISCORD_HARD_LIMIT);
-      if (oversizeIdx >= 0) {
-        dhLog('ERROR', `[WEBHOOK] Movement digest aborted — chunk ${oversizeIdx + 1}/${chunkCount} length=${chunks[oversizeIdx].length} exceeds Discord ${DH_CHUNK_DISCORD_HARD_LIMIT}-char limit. Cooldown NOT armed.`);
-        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${kind} digest_id=${digestId} part=${oversizeIdx + 1}/${chunkCount} contentLen=${chunks[oversizeIdx].length} reason=chunk_exceeds_hard_limit level=${volatility.level} internal=${volatility.internalCount}`);
-      } else {
-        // Sequential delivery. Each chunk awaits the previous
-        // result. The chain aborts on the first non-ok send so
-        // we never publish a partially delivered digest.
-        const sends = [];
-        let aborted = false;
-        let failedAt = -1;
-        for (let i = 0; i < chunkCount; i++) {
-          const partLabel = `${i + 1}/${chunkCount}`;
-          const chunkContent = chunks[i];
-          const chunkLen = chunkContent.length;
-          dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${kind} digest_id=${digestId} part=${partLabel} chunkLen=${chunkLen} wait=true`);
-          const send = await dhSendWebhook(DH_WEBHOOK_URL, { content: chunkContent }, { wait: true });
-          sends.push(send);
-          if (send && send.ok) {
-            dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${kind} digest_id=${digestId} part=${partLabel} ` +
-                           `status=${send.status} discord_msg_id=${send.messageId || 'n/a'} contentLen=${chunkLen} bodyLen=${send.bodyLen} durationMs=${send.durationMs}`);
-          } else {
-            failedAt = i;
-            aborted = true;
-            dhLog('ERROR', `[WEBHOOK] Movement digest aborted at part ${partLabel} — Discord rejected the chunk. Cooldown NOT armed.`);
-            dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${kind} digest_id=${digestId} part=${partLabel} contentLen=${chunkLen} ${_dhExcerptResponse(send)} level=${volatility.level} internal=${volatility.internalCount}`);
-            break;
-          }
-        }
-        if (!aborted) {
-          // Every chunk delivered. Anchor cooldown to the FIRST
-          // chunk's message ID so the operator can match the
-          // cooldown line back to the visible Discord post that
-          // started the digest.
-          const anchorSend = sends[0];
-          _markDigestPosted({
-            set_by: 'movement_digest_send_ok',
-            reason: chunkCount > 1
-              ? `discord_2xx_ack_chunked_${chunkCount}`
-              : 'discord_2xx_ack',
-            discord_message_id: anchorSend.messageId || null,
-            status: anchorSend.status,
-            kind,
+      // Sanitiser walker — applies fomo.sanitize to every embed
+      // string + content string. Defends against late drift even
+      // if the FOH builder is byte-clean.
+      const sanitised = foh.sanitiseFohMessages(built.messages, fomo.sanitize);
+      // Polish step — strip [REDACTED-FOMO] markers + collapse
+      // whitespace, applied to message.content AND every embed
+      // string field.
+      function polish(s) {
+        if (typeof s !== 'string' || s.length === 0) return s;
+        let out = s;
+        out = out.replace(/\[REDACTED-FOMO\]/g, '');
+        out = out.replace(/\n{3,}/g, '\n\n');
+        out = out.replace(/,(\s*\n)/g, '$1');
+        out = out.replace(/[ \t]{2,}/g, ' ');
+        out = out.replace(/\s+([.,;:])/g, '$1');
+        out = out.replace(/[ \t]+\n/g, '\n');
+        return out;
+      }
+      const polishedMessages = sanitised.messages.map((m) => {
+        const next = { ...m };
+        if (typeof next.content === 'string') next.content = polish(next.content);
+        if (Array.isArray(next.embeds)) {
+          next.embeds = next.embeds.map((e) => {
+            const ne = { ...e };
+            if (typeof ne.title === 'string') ne.title = polish(ne.title);
+            if (typeof ne.description === 'string') ne.description = polish(ne.description);
+            if (Array.isArray(ne.fields)) {
+              ne.fields = ne.fields.map((f) => ({ ...f, value: polish(f.value) }));
+            }
+            if (ne.footer && typeof ne.footer.text === 'string') {
+              ne.footer = { ...ne.footer, text: polish(ne.footer.text) };
+            }
+            return ne;
           });
-          dhLog('INFO', `[WEBHOOK] Movement digest posted (${chunkCount} chunk${chunkCount > 1 ? 's' : ''})` +
-                         (payload.replaced ? ' (sanitized)' : ''));
-        } else {
-          dhLog('ERROR', `[WEBHOOK] Movement digest NOT delivered — failed at chunk ${failedAt + 1}/${chunkCount}. ${failedAt} prior chunk${failedAt === 1 ? '' : 's'} were posted but the digest is incomplete.`);
+        }
+        return next;
+      });
+
+      // Final banned-wording sweep — Pack 8.4 defence in depth.
+      // If anything slipped past the trader-voice writes, the
+      // digest is aborted (cooldown NOT armed; next scan retries).
+      const bannedHits = foh.sweepBannedWording(polishedMessages);
+      if (bannedHits.length > 0) {
+        dhLog('ERROR', `[WEBHOOK] FOH digest aborted — banned-wording sweep hit ${bannedHits.length} pattern(s). Cooldown NOT armed.`);
+        for (const h of bannedHits.slice(0, 4)) {
+          dhLog('ERROR', `[DH-FOH-SWEEP] messageIdx=${h.messageIdx} pattern=${h.pattern} hit="${String(h.hit).slice(0, 40)}"`);
+        }
+        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${kind} digest_id=${digestId} reason=banned_wording_sweep`);
+        return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
+      }
+
+      const messageCount = polishedMessages.length;
+
+      // Preflight log — emitted BEFORE any send.
+      dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${kind} digest_id=${digestId} ` +
+                     `messageCount=${messageCount} candidateCount=${built.candidateCount} ` +
+                     `filteredOut=${built.filteredOut} sanitized=${sanitised.replaced ? 'true' : 'false'}`);
+
+      if (messageCount === 0) {
+        // FOH discipline: candidates without chart-evidence
+        // anchors are filtered out (Pack 2 — empty fields suppress
+        // rather than print backend wording). When the filter
+        // removes every candidate, no digest fires. Cooldown is
+        // NOT armed.
+        dhLog('INFO', `[MOVEMENT-DIGEST] FOH suppressed — no candidates carry a chart-evidence anchor (filtered_out=${built.filteredOut}). Cooldown not armed.`);
+        return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
+      }
+
+      // Hard size guard — Discord limits content to 2000 chars
+      // per message and 6000 total chars per embed.
+      let oversizeIdx = -1, oversizeReason = '';
+      for (let i = 0; i < polishedMessages.length; i++) {
+        const m = polishedMessages[i];
+        const meas = foh.measureMessage(m);
+        if (meas.contentLen > foh.DISCORD_CONTENT_LIMIT) {
+          oversizeIdx = i;
+          oversizeReason = `content_${meas.contentLen}>${foh.DISCORD_CONTENT_LIMIT}`;
+          break;
+        }
+        const embedOver = meas.embedTotals.findIndex(n => n > foh.DISCORD_EMBED_TOTAL_LIMIT);
+        if (embedOver >= 0) {
+          oversizeIdx = i;
+          oversizeReason = `embed_${meas.embedTotals[embedOver]}>${foh.DISCORD_EMBED_TOTAL_LIMIT}`;
+          break;
         }
       }
+      if (oversizeIdx >= 0) {
+        dhLog('ERROR', `[WEBHOOK] FOH digest aborted — message ${oversizeIdx + 1}/${messageCount} ${oversizeReason}. Cooldown NOT armed.`);
+        dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${kind} digest_id=${digestId} part=${oversizeIdx + 1}/${messageCount} reason=${oversizeReason}`);
+        return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
+      }
+
+      // Sequential delivery. Each message awaits the previous
+      // result. The chain aborts on the first non-ok send so we
+      // never publish a partial digest.
+      const sends = [];
+      let aborted = false;
+      let failedAt = -1;
+      for (let i = 0; i < messageCount; i++) {
+        const partLabel = `${i + 1}/${messageCount}`;
+        const msg = polishedMessages[i];
+        const meas = foh.measureMessage(msg);
+        dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${kind} digest_id=${digestId} part=${partLabel} ` +
+                       `contentLen=${meas.contentLen} embedCount=${(msg.embeds || []).length} ` +
+                       `embedTotalChars=${(meas.embedTotals || []).reduce((a, b) => a + b, 0)} wait=true`);
+        const send = await dhSendWebhook(DH_WEBHOOK_URL, msg, { wait: true });
+        sends.push(send);
+        if (send && send.ok) {
+          dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${kind} digest_id=${digestId} part=${partLabel} ` +
+                         `status=${send.status} discord_msg_id=${send.messageId || 'n/a'} contentLen=${meas.contentLen} bodyLen=${send.bodyLen} durationMs=${send.durationMs}`);
+        } else {
+          failedAt = i;
+          aborted = true;
+          dhLog('ERROR', `[WEBHOOK] FOH digest aborted at part ${partLabel} — Discord rejected the message. Cooldown NOT armed.`);
+          dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${kind} digest_id=${digestId} part=${partLabel} contentLen=${meas.contentLen} ${_dhExcerptResponse(send)} level=${volatility.level} internal=${volatility.internalCount}`);
+          break;
+        }
+      }
+      if (!aborted) {
+        const anchorSend = sends[0];
+        _markDigestPosted({
+          set_by: 'movement_digest_send_ok',
+          reason: messageCount > 1
+            ? `discord_2xx_ack_foh_${messageCount}`
+            : 'discord_2xx_ack_foh',
+          discord_message_id: anchorSend.messageId || null,
+          status: anchorSend.status,
+          kind,
+        });
+        dhLog('INFO', `[WEBHOOK] FOH digest posted (${messageCount} message${messageCount > 1 ? 's' : ''}, ${built.candidateCount} candidate${built.candidateCount > 1 ? 's' : ''})` +
+                       (sanitised.replaced ? ' (sanitized)' : ''));
+      } else {
+        dhLog('ERROR', `[WEBHOOK] FOH digest NOT delivered — failed at message ${failedAt + 1}/${messageCount}. ${failedAt} prior message${failedAt === 1 ? '' : 's'} were posted but the digest is incomplete.`);
+      }
     } catch (e) {
-      dhLog('ERROR', `[WEBHOOK] Movement digest failed: ${_dhRedactWebhook(e.message)}`);
-      dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest reason=${_dhRedactWebhook(e.message)}`);
+      dhLog('ERROR', `[WEBHOOK] FOH digest failed: ${_dhRedactWebhook(e.message)}`);
+      dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=movement_digest_foh_v1_0 reason=${_dhRedactWebhook(e.message)}`);
     }
   }
 
