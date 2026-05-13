@@ -1,0 +1,525 @@
+# TRC- registry — Dark Horse FOH.1.0.1 rebuild
+
+**Scope:** training-capture rows raised by the Dark Horse front-of-house
+rebuild against FOH.1.0.1 (Pack 5 discipline — every new surface concept
+flags at least one TRC- row).
+
+**Status legend:** `flagged` · `drafted` · `built` · `approved`.
+
+Rows are drafted in the schema specified by Pack 5.2. Routing to the
+final store (Notion table, dashboard table, repo JSONL) is Astra's
+responsibility per the handoff notes. Until then, this file is the
+canonical artefact.
+
+---
+
+## TRC-20260513-001 — State-badge allow-list (Dark Horse FOH)
+
+```json
+{
+  "id": "TRC-20260513-001",
+  "topic": "Reading the Dark Horse state badge",
+  "source_section": "Dark Horse · Candidate embed title",
+  "why_it_matters": "The state badge is the five-second read on every candidate. STRONG BULLISH and BULLISH PRESSURE look similar but the difference between them is the difference between a high-conviction setup and an early-stage one — trade size and patience should change accordingly.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Treating BULLISH PRESSURE the same as STRONG BULLISH and sizing in at full conviction before the structure is mature.",
+  "suggested_module": "dark-horse-state-badge-101",
+  "related_terminology": ["bias", "conviction", "trend", "breakout"],
+  "status": "flagged",
+  "created_at": "2026-05-13T03:22:00Z",
+  "flagged_by": "cchat"
+}
+```
+
+---
+
+## TRC-20260513-002 — Structure break vs trend shift
+
+```json
+{
+  "id": "TRC-20260513-002",
+  "topic": "Structure break vs trend shift — what's actually different",
+  "source_section": "Dark Horse · Move Type field + Pack 4 [Breakout] term",
+  "why_it_matters": "A structure break confirms direction. A trend shift confirms that the OPPOSITE direction is now in play. Greenhorns conflate the two and end up shorting strength or buying weakness because the chart 'shifted' but they did not check which way.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Reading a higher-low / higher-high sequence as a 'trend shift' when it's a continuation pattern — and entering against the trend.",
+  "suggested_module": "structure-break-vs-trend-shift-101",
+  "related_terminology": ["structure_break", "trend_shift", "trend", "continuation", "reversal"],
+  "status": "flagged",
+  "created_at": "2026-05-13T03:22:00Z",
+  "flagged_by": "cchat"
+}
+```
+
+---
+
+## TRC-20260513-003 — Conviction colour-active-count scale
+
+```json
+{
+  "id": "TRC-20260513-003",
+  "topic": "Reading the conviction scale (🟢🟢🟢🟢 / 5)",
+  "source_section": "Dark Horse · Conviction field + Pack §0.2",
+  "why_it_matters": "The conviction value reads colour first, count second. A 🔴🔴🔴 / 5 line is a bearish conviction read — not a green-3 read with red filler. Reading the colour as decorative instead of meaningful is the most common interpretation mistake on the new format.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Counting the dots and ignoring the colour. A 🔴🔴🔴🔴 / 5 read on a stop-loss surface means the bearish thesis is strong, not 'four green lights say go'.",
+  "suggested_module": "conviction-scale-read-101",
+  "related_terminology": ["conviction", "bias", "traffic_light_state"],
+  "status": "flagged",
+  "created_at": "2026-05-13T03:22:00Z",
+  "flagged_by": "cchat"
+}
+```
+
+---
+
+## TRC-20260513-004 — Mover Stage 1 vs Stage 2 vs Stage 3
+
+```json
+{
+  "id": "TRC-20260513-004",
+  "topic": "Mover Stage 1 / 2 / 3 — where on the move are you?",
+  "source_section": "Dark Horse · Move Type field (Stage 1|2|3)",
+  "why_it_matters": "Mover Stage 1 carries the most reward and the most failure risk — the move is fresh. Stage 3 is mature; late-entry risk is high and the structural cycle is closer to a turn than a continuation. The stage is the trader's first cue on whether to size in or stand aside.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Treating Stage 3 (late) as a continuation entry because the chart still 'looks bullish' — the move has already moved.",
+  "suggested_module": "mover-stage-101",
+  "related_terminology": ["mover_stage_1", "trend", "continuation", "reversal", "validity"],
+  "status": "flagged",
+  "created_at": "2026-05-13T03:22:00Z",
+  "flagged_by": "cchat"
+}
+```
+
+---
+
+## TRC-20260513-005 — Where to Act — entry / stop colour-coded text matching
+
+```json
+{
+  "id": "TRC-20260513-005",
+  "topic": "Where to Act — entry / stop colour-coded text",
+  "source_section": "Dark Horse · Where to Act field + Pack §0.4",
+  "why_it_matters": "The Where to Act line is the only field that names concrete price levels. The colour coding (🟢 ENTRY / 🛑 STOP) carries the action meaning. Reading the levels without reading the colour can lead to placing the stop above the entry or entering at the stop price.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": true,
+  "common_mistake": "Glancing at the levels and skipping the colour codes — placing a stop-loss order at the entry price.",
+  "suggested_module": "entry-stop-colour-coding-101",
+  "related_terminology": ["entry_point", "stop_loss", "invalidation_level", "conviction"],
+  "status": "flagged",
+  "created_at": "2026-05-13T03:22:00Z",
+  "flagged_by": "cchat"
+}
+```
+
+---
+
+## TRC-20260513-006 — Rendered ATLAS chart-reference cards (NEXT EVOLUTION)
+
+```json
+{
+  "id": "TRC-20260513-006",
+  "topic": "Rendered ATLAS chart-reference cards — next evolution after FOH v3 wire-up",
+  "source_section": "Dark Horse · Visual reference card lane",
+  "why_it_matters": "The FOH v3 wire-up keeps the simplified ASCII chart art for the BUILDING / reference-card lane. The operator has flagged the next required evolution: replace the ASCII art with rendered ATLAS chart-reference images (real chart snapshots styled in ATLAS colours, with the breakout / retest / hold annotated visually). The simplified card carries the wire-up; the rendered card carries the long-term standard.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Treating the simplified ASCII reference as the final form. The FOH v3 wire-up explicitly accepts the simplified card as an interim placeholder; final acceptance requires rendered ATLAS chart-reference cards in their place.",
+  "suggested_module": "rendered-chart-reference-cards-v1",
+  "related_terminology": ["breakout", "retest", "invalidation_level", "mover_stage_1", "trend"],
+  "status": "flagged",
+  "created_at": "2026-05-13T12:30:00Z",
+  "flagged_by": "operator-via-claude-code",
+  "scope_notes": "Pack 7 (visual learning card copy) defines the multi-surface card structure. Rendered ATLAS chart-reference cards extend Pack 7 by adding real chart imagery on the hero zone, replacing the ASCII art placeholder. The renderer.js stack is OFF-LIMITS for FOH (Pack 8.10 hard rule); a separate FOH-side image producer (puppeteer + ATLAS-styled HTML or canvas) should be designed for the reference cards. This is the next evolution after FOH v3 ships, NOT part of v3 wire-up."
+}
+```
+
+---
+
+## TRC-20260513-007 — Multi-zone "Where to Act" disclosure (Dark Horse v4)
+
+```json
+{
+  "id": "TRC-20260513-007",
+  "topic": "Multi-zone Where to Act — Entry / Watch / Caution / Invalidation discipline",
+  "source_section": "Dark Horse · Candidate embed · Where to Act field",
+  "why_it_matters": "Traders need to know not just where to enter, but exactly when to start being cautious, when to stand aside, and when the idea is hard-invalidated. The single-line BUY / RISK-OFF format hid that progression. The multi-zone form makes it explicit: ENTRY zone (action: BUY small) → WATCH level (action: hold, do not add) → CAUTION zone (action: scratch) → INVALIDATION (action: exit and do not re-enter). Each zone names a price level, what it means, and what the trader does.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Reading only the entry level and treating everything else as ambient noise. Without the explicit zones, a trader holds onto a long position past the caution zone, into the danger zone, and stops out at the invalidation level. The multi-zone disclosure tells them to scratch the trade BEFORE invalidation.",
+  "suggested_module": "multi-zone-trade-management-101",
+  "related_terminology": ["entry_point", "stop_loss", "invalidation_level", "risk_management"],
+  "status": "flagged",
+  "created_at": "2026-05-13T14:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-008 — Candidate lifecycle states (FRESH / STILL ACTIVE / FADING)
+
+```json
+{
+  "id": "TRC-20260513-008",
+  "topic": "Candidate lifecycle states — how to read a NEW candidate vs an active vs a fading one",
+  "source_section": "Dark Horse · per-candidate red NEW BADGE separator",
+  "why_it_matters": "A fresh candidate (cycle 1) carries the highest reward potential and the most uncertainty. A still-active candidate (cycle 2–3) has held its structure across multiple scans and reads more reliably. A fading candidate is a stale mover where the easy reward has been earned — late-entry risk is high. Traders need to act on these differently: full size on FRESH only after the WATCH zone holds; reduced size on STILL ACTIVE; SKIP or half-size only on FADING.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": false,
+  "common_mistake": "Treating a fading candidate the same as a fresh one. Sizing in full on NVDA on its 4th cycle is how traders give back gains — the move has already moved.",
+  "suggested_module": "candidate-lifecycle-states-101",
+  "related_terminology": ["mover_stage_1", "trend", "conviction", "late_entry_risk"],
+  "status": "flagged",
+  "created_at": "2026-05-13T14:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-009 — Market Mood traffic-light + 5-rating system
+
+```json
+{
+  "id": "TRC-20260513-009",
+  "topic": "Market Mood traffic-light — what 🟡🟡🟡🟡 (4/5) ELEVATED actually means for your trading",
+  "source_section": "Dark Horse · Banner ▸ Market Mood subheading",
+  "why_it_matters": "Volatility regimes change which trading style works. Calm markets reward tight stops and bigger size. Elevated/extreme markets punish tight stops and reward smaller size with wider stops. The 5-rating + operational meaning + behaviour-change block tells the trader in plain English what to do RIGHT NOW about position sizing, stop placement, and which setups to skip.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Using the same position sizing and stop distance in elevated-vol conditions as in calm conditions. The trade idea was fine — the size and stop were not.",
+  "suggested_module": "market-mood-trading-101",
+  "related_terminology": ["volatility", "atr", "risk_management", "traffic_light_state"],
+  "status": "flagged",
+  "created_at": "2026-05-13T14:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-010 — Market Intel FOH foundations
+
+```json
+{
+  "id": "TRC-20260513-010",
+  "topic": "Market Intel FOH foundations — events / reaction paths / risk escalation",
+  "source_section": "Market Intel · FOH prototype v1",
+  "why_it_matters": "Market Intel is the second FOH lane (parallel to Dark Horse). It surfaces macro/event intelligence in a beginner-readable, operational form — what's coming, why it matters, what could happen, what to watch, and when to stand aside. Traders need ALL of these answered before a CPI print or central-bank decision so they don't trade into the chaos window blind.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Trading through the T-0 print window because the chart 'looks good'. The print moment is where 50-100 pip whipsaws happen on dollar pairs. The chart that looked good at T-5 is meaningless at T-0.",
+  "suggested_module": "macro-event-trading-windows-101",
+  "related_terminology": ["central_bank", "hawkish", "dovish", "volatility", "yield_spread", "risk_on_off"],
+  "status": "flagged",
+  "created_at": "2026-05-13T14:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-011 — Wording doctrine lock (every important statement must answer)
+
+```json
+{
+  "id": "TRC-20260513-011",
+  "topic": "ATLAS wording doctrine — every important statement must answer 7 questions",
+  "source_section": "Dark Horse + Market Intel · wording layer",
+  "why_it_matters": "ATLAS communication standard: every statement must answer (a) what does that mean (b) why does it matter (c) what happens if it fails (d) how far is acceptable (e) when does it become dangerous (f) what is the hard invalidation (g) what should the trader do next. No more vague 'buyers defend' / 'breakout level' / 'holds' / 'confirms' without explained level + consequence + action. The doctrine is enforced by the multi-zone disclosure pattern across both Dark Horse v4 and Market Intel — every zone names a level, an observation, and an action.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Writing 'bullish setup weakens' without telling the trader at what price level, what that means for their position, or what they should do about it. The reader is left guessing.",
+  "suggested_module": "atlas-wording-doctrine-101",
+  "related_terminology": ["invalidation_level", "structure_break", "risk_management"],
+  "status": "flagged",
+  "created_at": "2026-05-13T14:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-012 — ATLAS wording doctrine lock (six-question rule)
+
+```json
+{
+  "id": "TRC-20260513-012",
+  "topic": "Every important ATLAS statement must answer six questions",
+  "source_section": "All FOH surfaces (Dark Horse + Market Intel) · wording layer",
+  "why_it_matters": "The doctrine answers: (1) What does this mean? (2) Why does it matter? (3) What should I do? (4) What happens if it changes? (5) Risk in dollars first, not pips? (6) Healthy vs caution vs danger vs invalidation? When ATLAS makes a statement without answering these six, the trader is left guessing. Guessing is how accounts get blown up.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Writing 'bullish setup weakens' without telling the trader (a) at what level, (b) what that means for their position, (c) what they should do about it, (d) what the dollar drawdown is, (e) when the trade becomes hard-invalidated. The reader cannot act on incomplete information.",
+  "suggested_module": "atlas-six-question-doctrine-101",
+  "related_terminology": ["entry_point", "invalidation_level", "risk_management", "position_sizing"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-013 — Dollar-first risk language
+
+```json
+{
+  "id": "TRC-20260513-013",
+  "topic": "ATLAS risk language is dollars-first, points-second",
+  "source_section": "All FOH surfaces · Where to Act + Dollar risk this trade",
+  "why_it_matters": "Traders manage accounts in dollars, not pips. Saying 'a 50-pip move' tells the trader nothing about real risk to their account. Saying '$500 risk on $100k notional EURUSD' tells them exactly what's at stake. ATLAS leads every risk discussion with the dollar figure and uses pip/point context only as a secondary footnote.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Sizing in based on pip distance without converting to dollar exposure. A 50-pip stop is $500 on $100k EURUSD but $1,000 on $200k or $250 on $50k. The pip number is the same; the account impact is different.",
+  "suggested_module": "dollar-first-risk-sizing-101",
+  "related_terminology": ["position_sizing", "stop_loss", "risk_management"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-014 — NEW badge lifecycle variants (renderer-side)
+
+```json
+{
+  "id": "TRC-20260513-014",
+  "topic": "NEW badge lifecycle — FRESH solid red, STILL ACTIVE outlined red, FADING outlined orange",
+  "source_section": "Dark Horse v5 · per-candidate red NEW BADGE separator",
+  "why_it_matters": "The badge tells the trader at a glance whether a candidate is brand new (highest reward + highest uncertainty) or has been running across multiple scans (more reliable) or is fading (skip). FRESH = solid red filled with white text; STILL ACTIVE (1+ day, still trending) = outlined red; FADING (late-stage, mature) = outlined orange. The visual variant is rendered locally in HTML/CSS. Discord cannot render filled backgrounds via text — full Discord delivery requires the rendered-card-image surface lane (TRC-20260513-006 family).",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": false,
+  "common_mistake": "Treating a FADING candidate the same as a FRESH one. Sizing into NVDA on its 4th cycle when the easy reward has already been earned.",
+  "suggested_module": "candidate-lifecycle-visual-cues-101",
+  "related_terminology": ["mover_stage_1", "conviction", "late_entry_risk"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-015 — Hyperlink-stub system (Expanded Terminology Hyperlinks)
+
+```json
+{
+  "id": "TRC-20260513-015",
+  "topic": "Hyperlink stubs on every unexplained domain term",
+  "source_section": "All FOH surfaces · inline terminology + Expanded Terminology Hyperlinks row",
+  "why_it_matters": "A beginner-readable surface cannot leave terms like Long, Short, Hawkish, Risk-Off, CPI, VIX, DXY, Whipsaw, Yield Spread, Invalidation unexplained. v5/v2 wraps every such term in a Markdown link [term](#term-slug). Discord renders these in its native cyan link colour. Once the glossary site exists, the anchor slugs map to permanent definition pages. Until then the bracketed form serves as an inline marker that the term IS explained somewhere, and the visual treatment is preserved.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Leaving 'hawkish' or 'whipsaw' unexplained on the assumption the reader knows. Most readers do not.",
+  "suggested_module": "expanded-terminology-glossary-routing",
+  "related_terminology": ["bias", "conviction"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-016 — Rendered ATLAS chart-card primitive (SVG)
+
+```json
+{
+  "id": "TRC-20260513-016",
+  "topic": "Rendered ATLAS chart-card preview — SVG using locked palette",
+  "source_section": "Dark Horse v5 · per-candidate embed · chartCard field; Market Intel v2 · event-day reference",
+  "why_it_matters": "The operator flagged the simplified ASCII reference cards as interim — final acceptance requires rendered chart imagery. v5 introduces an SVG chart-card primitive in scripts/_foh_renderer.js that renders candles + four zones (entry green band + watch dashed yellow + invalidation red dashed) + ATLAS-style price-label boxes (HIGH yellow / CURRENT green / ENTRY orange / LOW blue) using the locked CLAUDE.md colour palette (#00ff00 / #ff0015 / #131722 / etc). It is NOT a real chart render — that requires renderer.js wiring which is OFF LIMITS for FOH. This primitive is the proxy that proves the visual goal until the real chart-render lane is approved separately.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Confusing the SVG chart-card prototype with a real ATLAS chart render. The prototype shows what the visual goal looks like; the real-data render is a future wire-up.",
+  "suggested_module": "rendered-chart-card-pipeline",
+  "related_terminology": ["entry_zone", "invalidation_level", "watch_level"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-017 — Multi-colour FOH section hierarchy
+
+```json
+{
+  "id": "TRC-20260513-017",
+  "topic": "Section banners use different colours by purpose, not single gold",
+  "source_section": "All FOH surfaces · section banners + subheadings",
+  "why_it_matters": "Operator directive: 'use different bold colours for different sections where helpful, not one generic orange for everything.' v5/v2 introduces a 6-colour ANSI palette: GOLD (primary banners), CYAN (subheadings / references), MAGENTA (educational callouts), GREEN (healthy/valid), RED (danger/invalidation), BLUE (info/event context). Section banner accent is chosen by purpose, not by reflex.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": false,
+  "common_mistake": "Using gold for everything makes the eye skim. Multi-colour means the reader can identify section type at a glance.",
+  "suggested_module": "foh-section-colour-language",
+  "related_terminology": ["traffic_light_state"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-018 — Market Intel reaction-path doctrine (4 outcomes)
+
+```json
+{
+  "id": "TRC-20260513-018",
+  "topic": "Every macro event surfaces 4 reaction paths: HIGHER / LOWER / IN-LINE / CONFLICTING",
+  "source_section": "Market Intel v2 · Possible Market Reaction Paths section",
+  "why_it_matters": "Beginners need to know what to do in EVERY outcome, not just the most likely one. v2 surfaces all 4 paths per major event. Each path names: affected markets, expected behaviour per market, dollar impact range (no pips), what you should do (✘ DO NOT + ✓ DO items). The CONFLICTING path (renamed from 'whipsaw') is the most-punishing outcome and gets the most detailed action guidance.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Only preparing for the consensus outcome. When an event surprises the other way, the unprepared trader is blown up by the move they didn't model.",
+  "suggested_module": "macro-event-4-reaction-paths",
+  "related_terminology": ["hawkish", "dovish", "in_line_print", "initial_direction_reversal"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-019 — 5-disc severity scale (operator doctrine)
+
+```json
+{
+  "id": "TRC-20260513-019",
+  "topic": "Universal 5-disc severity scale for Risk State / Conviction / Volatility / Event Intensity",
+  "source_section": "All FOH surfaces (Dark Horse + Market Intel) · severity readouts",
+  "why_it_matters": "Operator doctrine v6: every severity readout in ATLAS uses the same 5-disc visual scale. Format: 🟠🟠🟠🟠⚫ 4/5 — Elevated. Inactive discs are always ⚫ (never rainbow). The level maps to a colour family — 1 calm/green, 2 stable/yellow, 3-4 active-elevated/orange, 5 extreme/red. Direction-aware contexts (Conviction on bullish vs bearish DH candidate) can override the active-disc colour to green or red while keeping the inactive ⚫.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": false,
+  "common_mistake": "Showing 4/5 conviction as four green dots with no inactive disc visible — the reader has no anchor for the maximum scale. Always show the unfilled slot so the reader sees both the actual level AND the headroom.",
+  "suggested_module": "atlas-5-disc-severity-scale",
+  "related_terminology": ["conviction", "market_mood", "risk_state", "volatility"],
+  "status": "flagged",
+  "created_at": "2026-05-13T18:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-020 — Inline coloured-price tokens (renderer-side)
+
+```json
+{
+  "id": "TRC-20260513-020",
+  "topic": "Inline coloured-price tokens: {{entry:1.0925}} {{watch:1.0900}} {{caution:...}} {{invalid:1.0875}}",
+  "source_section": "All FOH surfaces · field values + message content",
+  "why_it_matters": "Operator doctrine v6 — Priority 4: invalidation prices RED, caution blocks ORANGE, watch levels yellow, entry levels green, dollar amounts gold. The renderer translates tokens to coloured spans so prices read in their doctrine colour wherever they appear in prose. Discord-native delivery cannot colour inline text via Markdown — full Discord requires the rendered-card-image surface lane (TRC-20260513-006 family).",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": false,
+  "common_mistake": "Leaving execution-critical prices as neutral white text. The trader's eye should jump straight to the invalidation level (red) without reading the whole paragraph.",
+  "suggested_module": "colour-doctrine-prices",
+  "related_terminology": ["entry_point", "invalidation_level", "watch_level", "caution_zone"],
+  "status": "flagged",
+  "created_at": "2026-05-13T18:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-021 — Execution Range Doctrine (tight bands by default)
+
+```json
+{
+  "id": "TRC-20260513-021",
+  "topic": "ATLAS Execution Range Doctrine — tight tactical entry bands, widen only when volatility justifies",
+  "source_section": "Dark Horse v6 · Entry zone bands",
+  "why_it_matters": "Operator doctrine: avoid oversized vague zones. Default to controlled tactical entry ranges (e.g. 1.0924–1.0928, a 4-point band) instead of exact single-price instructions OR broad 15-point bands. Tight bands acknowledge spread/slippage while remaining decision-grade. Bands expand only when volatility (Market Mood Elevated/Extreme) or event conditions justify it. Under extreme conditions, the rule is 'wait for stabilization before new entry consideration' — not a wider band.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Setting a 50-point entry band on a normal-vol setup. The trader ends up buying anywhere in that 50-point range, often at the worst price.",
+  "suggested_module": "atlas-execution-range-doctrine",
+  "related_terminology": ["entry_zone", "volatility", "expected_duration"],
+  "status": "flagged",
+  "created_at": "2026-05-13T18:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-022 — Terminology renames (Horizon → Expected Duration, Print → Announced result, Whipsaw → Initial-direction reversal, Clean structure → Confirmed directional structure)
+
+```json
+{
+  "id": "TRC-20260513-022",
+  "topic": "Doctrine-v6 terminology renames — replace insider trader-speak with plain English",
+  "source_section": "All FOH surfaces · wording layer",
+  "why_it_matters": "Operator doctrine v6 — Priority 5: institutional intelligence translated into executable human understanding requires removing analyst jargon. Horizon → Expected Duration (clearer time scope). Whipsaw → Initial-direction reversal (says what actually happens). Print → Announced result (says what actually happened). Clean structure → Confirmed directional structure (says what makes it 'clean'). Each rename includes a hyperlink stub so the term routes to a glossary entry once the glossary site is wired.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Using insider terms because they're shorter. Saying 'Horizon: Swing' tells the reader nothing without context; 'Expected Duration: Swing — days, not minutes' is operationally complete.",
+  "suggested_module": "atlas-plain-english-terminology",
+  "related_terminology": ["expected_duration", "initial_direction_reversal", "confirmed_directional_structure"],
+  "status": "flagged",
+  "created_at": "2026-05-13T18:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## Suppression / promotion discipline (operator-side reference)
+
+These rows are not in the per-row JSON registry but apply to every
+trader-facing Dark Horse surface:
+
+- **Empty fields suppress, never display.** Where a field would carry
+  `pending`, `unavailable`, `N/A`, or `coming soon`, the field is dropped
+  from the embed entirely. Pack 2.7 lists the approved replacements where
+  a real pre-trigger state exists (`awaiting trigger`, `setup developing`,
+  `trigger not completed`, `confirmation not completed`).
+- **No glossary footer.** Pack 2.6 — glossary footer is banned from
+  every Dark Horse surface. Definitions live in the Pack 4 terminology
+  hyperlink rows under section headings, and in TRC-routed training
+  modules.
+- **No backend wording.** Pack 2.6 + Pack 8.4 — `BOS`, `CHoCH`,
+  `provider`, `cache`, `harvester`, `manifest`, `TwelveData`, `matcher`,
+  `classifier`, `z-score`, `ATR percentile`, `fetch_run_id` are all
+  banned from user-facing strings. The `darkHorseFoh.sweepBannedWording`
+  helper is the final guard; if it fires, the digest is aborted and
+  cooldown is NOT armed.
+
+---
+
+_File maintained by Claude Code · created during the FOH.1.0.1 Dark
+Horse rebuild on branch `claude/resume-n8n-work-LdFVz`._

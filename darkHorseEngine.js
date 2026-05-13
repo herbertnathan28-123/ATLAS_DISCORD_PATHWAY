@@ -1347,12 +1347,101 @@ async function runDarkHorseScan(universeOrOpts) {
     dhLog('INFO', `[MOVEMENT-DIGEST] firing — level=${volatility.level} ` +
                   `internal=${volatility.internalCount} reason=${volatility.reason}`);
     try {
-      // ── DARK HORSE v1.1 — global mover ranking ──
-      // Use the existing scan results as the ranking universe. Pull
-      // HTF candles via the engine's own _safeOHLC (cached) so we
-      // don't double-fetch. The ranking module is purely additive;
-      // if it throws for any reason we fall through to the v0.1
-      // simple digest so the operator never loses the heartbeat.
+      // ── DARK HORSE FOH.1.0.1 — v6 prototype parity ──
+      // Default path. Builds a sequence of Discord-renderable
+      // messages (banner + per-candidate embeds + tail) from the
+      // canonical v6 doctrine. Bypasses the chunker — each message
+      // is already Discord-sized and ships in one POST.
+      //
+      // The legacy v1.3/v1.1 chunked path is preserved below as a
+      // fallback (enabled via ATLAS_DH_FOH_LEGACY=1) so a fast
+      // env-only rollback exists if a regression surfaces.
+      const useFohV6 = process.env.ATLAS_DH_FOH_LEGACY !== '1';
+      if (useFohV6) {
+        try {
+          const foh  = require('./darkHorseFoh');
+          const rank = require('./darkHorseRanking');
+          const candleProvider = async (sym) => {
+            if (typeof _safeOHLC !== 'function') return null;
+            try { return await _safeOHLC(sym, '1D', 100); } catch (_e) { return null; }
+          };
+          const rankingUniverse = [...watch, ...internal];
+          const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
+            topN: 10, sectionCap: 2, sectionCapMax: 3,
+            watchThreshold: DH_SCORE_WATCH,
+          });
+          rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
+          const fohPayload = foh.buildDarkHorseFohPayload(ranking, volatility, {
+            now: Date.now(),
+            universeSize: DH_UNIVERSE.length,
+            terminologyUrls: null,
+          });
+          // Sanitiser walker — wraps the existing fomo.sanitize so
+          // banned phrases are scrubbed from every embed string field.
+          const sanitisedPayload = foh.sanitiseFohMessages(fohPayload.messages, fomo.sanitize);
+          const digestId = 'dh' + Date.now().toString(36);
+          dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${fohPayload.kind} digest_id=${digestId} ` +
+                         `candidateCount=${fohPayload.candidateCount} embedCount=${fohPayload.embedCount} ` +
+                         `filteredOut=${fohPayload.filteredOut} messageCount=${sanitisedPayload.messages.length} ` +
+                         `sanitized=${sanitisedPayload.replaced ? 'true' : 'false'}`);
+          // Hard guard — refuse to send if any message would exceed
+          // Discord limits (content > 2000 or embed total > 6000).
+          let oversize = -1;
+          for (let i = 0; i < sanitisedPayload.messages.length; i++) {
+            const meas = foh.measureMessage(sanitisedPayload.messages[i]);
+            if (meas.contentLen > foh.DISCORD_CONTENT_LIMIT) { oversize = i; break; }
+            if (meas.embedTotals.some(t => t > foh.DISCORD_EMBED_TOTAL_LIMIT)) { oversize = i; break; }
+          }
+          if (oversize >= 0) {
+            dhLog('ERROR', `[WEBHOOK] FOH digest aborted — message ${oversize + 1} exceeds Discord limits. Cooldown NOT armed.`);
+          } else {
+            // Sequential delivery. Each message awaits the previous.
+            // Chain aborts on the first non-ok send.
+            const sends = [];
+            let aborted = false, failedAt = -1;
+            for (let i = 0; i < sanitisedPayload.messages.length; i++) {
+              const m = sanitisedPayload.messages[i];
+              const partLabel = `${i + 1}/${sanitisedPayload.messages.length}`;
+              const body = { content: m.content || '' };
+              if (Array.isArray(m.embeds) && m.embeds.length) body.embeds = m.embeds;
+              const send = await dhSendWebhook(DH_WEBHOOK_URL, body, { wait: true });
+              sends.push(send);
+              if (send && send.ok) {
+                dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${fohPayload.kind} digest_id=${digestId} part=${partLabel} status=${send.status} discord_msg_id=${send.messageId || 'n/a'} embedCount=${(m.embeds||[]).length} bodyLen=${send.bodyLen} durationMs=${send.durationMs}`);
+              } else {
+                failedAt = i; aborted = true;
+                dhLog('ERROR', `[WEBHOOK] FOH digest aborted at part ${partLabel}. Cooldown NOT armed.`);
+                dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=${fohPayload.kind} digest_id=${digestId} part=${partLabel} ${_dhExcerptResponse(send)} level=${volatility.level} internal=${volatility.internalCount}`);
+                break;
+              }
+            }
+            if (!aborted) {
+              const anchorSend = sends[0];
+              _markDigestPosted({
+                set_by: 'movement_digest_send_ok',
+                reason: 'discord_2xx_ack_foh_v6_' + sanitisedPayload.messages.length,
+                discord_message_id: anchorSend.messageId || null,
+                status: anchorSend.status,
+                kind: fohPayload.kind,
+              });
+              dhLog('INFO', `[WEBHOOK] FOH digest posted (${sanitisedPayload.messages.length} messages)` +
+                             (sanitisedPayload.replaced ? ' (sanitized)' : ''));
+            } else {
+              dhLog('ERROR', `[WEBHOOK] FOH digest NOT delivered — failed at message ${failedAt + 1}/${sanitisedPayload.messages.length}.`);
+            }
+          }
+          return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
+        } catch (fohErr) {
+          dhLog('WARN', `[DH-FOH] v6 path failed, falling through to v1.3 legacy: ${fohErr.message}`);
+          // Fall through to v1.3 chunked path below.
+        }
+      }
+
+      // ── DARK HORSE v1.1/v1.3 — chunked legacy fallback ──
+      // Original behaviour. Builds a single content string and
+      // chunks it through _dhChunkDigest. Reachable only when the
+      // FOH v6 path is disabled via ATLAS_DH_FOH_LEGACY=1 or when
+      // the FOH builder throws above.
       let payload;
       let kind = 'movement_digest';
       try {
