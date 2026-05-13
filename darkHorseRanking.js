@@ -220,11 +220,14 @@ function whyNotWatch(score, watchThreshold) {
 }
 
 function atlasStateFromPhase(phase) {
-  if (phase === 'early') return 'Monitoring only — early phase';
-  if (phase === 'mid')   return 'Monitoring only — mid phase, watch for confirmation';
-  if (phase === 'late')  return 'Monitoring only — late phase, late-entry risk rising';
-  if (phase === 'exhaustion') return 'Monitoring only — exhaustion phase, do not chase';
-  return 'Monitoring only';
+  // Operator directive 2026-05-13 (Dark Horse rewrite): drop the
+  // "Monitoring only" / backend-system prefix entirely. State
+  // describes the move's life-cycle phase in trader language.
+  if (phase === 'early')      return 'Early-phase move — room to develop';
+  if (phase === 'mid')        return 'Mid-phase move — watching for confirmation';
+  if (phase === 'late')       return 'Late-phase move — late-entry risk rising';
+  if (phase === 'exhaustion') return 'Exhaustion phase — do not chase';
+  return null;
 }
 
 // ── RANKING ──────────────────────────────────────────────────
@@ -526,7 +529,10 @@ function plainTrendPhase(phase) {
   if (phase === 'mid')        return 'mid stage — trend developing, confirmation still required';
   if (phase === 'late')       return 'late stage — extension efficiency dropping, pullback risk rising';
   if (phase === 'exhaustion') return 'exhaustion stage — already overextended, late-entry risk high';
-  return 'phase reading pending';
+  // Operator directive 2026-05-13 (Dark Horse rewrite): drop the
+  // "reading pending" fallback; null tells the renderer to
+  // suppress the row.
+  return null;
 }
 
 function plainContinuationWindow(phase) {
@@ -534,7 +540,8 @@ function plainContinuationWindow(phase) {
   if (phase === 'mid')        return 'mid-stage move; follow-through still possible, but confirmation is required before confidence improves';
   if (phase === 'late')       return 'late-stage move; upside/downside extension is becoming less efficient and pullback risk is rising';
   if (phase === 'exhaustion') return 'window closed — late-entry risk high; price is already extended versus the prior structure';
-  return 'window reading pending';
+  // Operator directive 2026-05-13: drop "reading pending" fallback.
+  return null;
 }
 
 function patternReferenceFor(rank) {
@@ -553,7 +560,8 @@ function patternReferenceFor(rank) {
   if (phase === 'exhaustion') {
     return 'late extension → mean-reversion risk → fresh structure cycle required';
   }
-  return 'pattern reference pending';
+  // Operator directive 2026-05-13: drop "reference pending" fallback.
+  return null;
 }
 
 // ── CHART-JARGON TRANSLATOR ─────────────────────────────────
@@ -591,24 +599,28 @@ function _translateChartJargon(input) {
 // available so a Level-1 reader can see WHY this candidate stood
 // out, not just a generic phase label.
 function _standoutReason(s) {
-  const phaseHead = plainTrendPhase(s.movePhase).split(' — ')[0];
+  // Operator directive 2026-05-13 (Dark Horse rewrite): drop the
+  // "is only just starting to confirm" / system-limit wording.
+  // Trader-facing reason in plain English.
+  const phasePlain = plainTrendPhase(s.movePhase);
+  const phaseHead = phasePlain ? phasePlain.split(' — ')[0] : null;
   const dir = s.direction ? s.direction.toLowerCase() : 'neutral';
   const structureTxt = _translateChartJargon(s.structureState || '').trim();
   const ageTxt = (s.moveAge && s.moveAge > 0)
     ? `${dir} sequence active for ${s.moveAge} ${s.moveAge === 1 ? 'candle' : 'candles'}`
-    : `${dir} move is only just starting to confirm`;
+    : null;
   const speedTxt = (s.moveSpeed != null && Number.isFinite(s.moveSpeed))
     ? `momentum ${s.moveSpeed}× the prior-bar average`
     : null;
   const evidenceParts = [
-    `${phaseHead}, score ${s.score}/10`,
-    structureTxt && structureTxt.length ? `structure read: ${structureTxt}` : null,
+    phaseHead ? `${phaseHead}, score ${s.score}/10` : `score ${s.score}/10`,
+    structureTxt && structureTxt.length ? `chart pattern: ${structureTxt}` : null,
     ageTxt,
     speedTxt,
     `section: ${s.sectionLabel}`,
   ].filter(Boolean);
-  // Anchor level (if the partial-availability 1D extreme is wired)
-  // gives the reader a concrete number to look up on the chart.
+  // Anchor level (when wired) gives the reader a concrete number
+  // to look up on the chart.
   const ev = s.evidenceAnchors;
   if (ev && ev.availability !== 'pending') {
     const anchor = s.direction === 'Bearish' ? ev.recentLow : ev.recentHigh;
@@ -708,44 +720,35 @@ function _digestHasBullish(ranking, opts) {
   return hasInTop || hasInInternal;
 }
 
-function buildVisualLearningLinksRow(ranking, opts) {
-  // Lane 2 scope: prototype targets bearish LH/LL routes. We surface
-  // the LH/LL → BOS → Liquidity Sweep → Failed Retest learning path
-  // (every entry exists in the Lane 1 catalogue). When the digest
-  // carries no Bearish candidates we suppress the row entirely so
-  // monitoring-only / bullish-only scans aren't padded with an
-  // unrelated education row.
-  //
-  // Doctrine (operator directive 2026-05-12, post-PR-#64 review):
-  // emit PLAIN TEXT only — no Markdown link syntax, no `#<slug>`
-  // anchor fragments. Discord renders any [Name](anything) as a
-  // clickable hyperlink, and clickable hyperlinks that don't resolve
-  // are "fake URLs" per doctrine. The Lane 1 library still supports
-  // the link form via renderLearningLinksRow() + setDeepLinkBuilder();
-  // when a real terminology/dashboard URL exists, this consumer
-  // switches over without changes to the library.
-  if (!_digestHasBearish(ranking, opts)) return '';
-  let vpl;
-  try {
-    vpl = require('./visualPatternLibrary');
-  } catch (_e) {
-    return '';
-  }
-  if (!vpl || typeof vpl.getPattern !== 'function') return '';
-  const ids = ['lh_ll', 'bos', 'liquidity_sweep', 'failed_retest'];
-  const names = ids
-    .map((id) => vpl.getPattern(id))
-    .filter(Boolean)
-    // Short name: drop the parenthetical suffix so "Lower High /
-    // Lower Low (bearish trend structure)" surfaces as just
-    // "Lower High / Lower Low" in the row.
-    .map((p) => p.name.replace(/\s*\(.*?\)\s*$/, '').trim());
-  if (names.length === 0) return '';
-  // Operator directive 2026-05-13 (Lane 2 visual QA fix):
-  // rename "📘 Learn:" → "📘 Expanded Terminology Hyperlinks:"
-  // across Dark Horse output. The compact-row position directly
-  // under the title/header is preserved.
-  return `📘 Expanded Terminology Hyperlinks: ${names.join(' · ')}`;
+// ── TERMINOLOGY CHIP HELPER ───────────────────────────────────
+// Operator directive 2026-05-13 (section-level hyperlink
+// standard): every major Dark Horse heading carries a compact
+// terminology-chip row directly under it. Discord renders
+// `[2;36m...[0m` (faint cyan) inside ```ansi code
+// fences — that gives the "clickable teal/cyan reference
+// material" visual the operator asked for without introducing
+// fake Markdown link URLs. Chips read as one-line bracketed
+// pills; the chunker's code-fence atomicity keeps the row
+// whole within a chunk.
+function _renderTerminologyChipsRow(items) {
+  if (!Array.isArray(items) || items.length === 0) return '';
+  const ansi = items.map((t) => `[2;36m[${t}][0m`).join(' ');
+  return '```ansi\n' + ansi + '\n```';
+}
+
+function buildVisualLearningLinksRow(/* ranking, opts */) {
+  // Operator directive 2026-05-13 (full DH rewrite):
+  //   - Row appears on EVERY scan (not just bearish).
+  //   - Bracket form: [Breakout] [Calm Retest] [Invalidation]
+  //                   [Higher High / Higher Low]
+  //   - Cyan/teal ANSI chip styling (no fake URLs).
+  //   - Compact-row position directly under the title/header is
+  //     preserved (placed in firstChunkPrefix on Part 1).
+  //   - Bold prefix renders OUTSIDE the ansi fence so emoji +
+  //     markdown formatting survive; chips live inside the fence
+  //     for the cyan colour treatment.
+  const terms = ['Breakout', 'Calm Retest', 'Invalidation', 'Higher High / Higher Low'];
+  return `📘 **Expanded Terminology Hyperlinks:**\n${_renderTerminologyChipsRow(terms)}`;
 }
 
 // Full chart-pattern glossary (ATLAS education-layer doctrine
@@ -837,32 +840,42 @@ function selectNearMissCandidates(internalArr) {
 
 function buildPreRadarBlock(preRadar) {
   if (!preRadar || preRadar.length === 0) return null;
-  const lines = ['### 🛰️ Pre-Radar / Building pressure'];
+  // Operator directive 2026-05-13 (Dark Horse rewrite): drop
+  // "publication threshold" / "Not promoted" / "Confirmation
+  // pending" backend wording. Trader-facing description only.
+  // Heading uses 📡 satellite per operator's section-hyperlink
+  // example. Cyan chip row sits directly under the heading.
+  const lines = ['### 📡 Pre-Radar / Building Pressure'];
+  lines.push(_renderTerminologyChipsRow(['Pre-Radar', 'Momentum', 'Structure']));
   lines.push('');
-  lines.push('_Below the publication threshold but showing early developmental signals. Not promoted — pressure visible but incomplete._');
+  lines.push('_Early developmental signals showing structure could form on the next leg._');
   lines.push('');
   for (const r of preRadar) {
-    // Operator directive 2026-05-12 (Lane 3): label and value were
-    // both prepended → "momentum speed pending" duplicate. Strip
-    // the redundant "speed" — the surrounding label already names
-    // the field.
-    const speed = r.moveSpeed != null ? `${r.moveSpeed}× the prior-bar average` : 'reading pending';
     const dir   = r.direction === 'Bullish' ? '↑' : r.direction === 'Bearish' ? '↓' : '→';
-    // Same fix as the speed label above — "phase phase pending"
-    // duplicate. Strip the redundant "phase".
-    const phase = r.movePhase || 'reading pending';
     const why   = _translateChartJargon((r.summary || 'composite criteria met').toString());
-    lines.push(`- **${r.symbol}** ${dir}  ·  ${r.sectionLabel}  ·  score ${r.score}/10  ·  phase ${phase}  ·  momentum ${speed}`);
-    lines.push(`  Building: ${why}. Confirmation pending — one structure step away from promotion.`);
+    // Build the meta-line conditionally so phase / momentum rows
+    // are suppressed when the underlying field is null (no
+    // "reading pending" fallback).
+    const meta = [`${r.sectionLabel}`, `score ${r.score}/10`];
+    if (r.movePhase) meta.push(`phase ${r.movePhase}`);
+    if (r.moveSpeed != null && Number.isFinite(r.moveSpeed)) {
+      meta.push(`momentum ${r.moveSpeed}× the prior-bar average`);
+    }
+    lines.push(`- **${r.symbol}** ${dir}  ·  ${meta.join('  ·  ')}`);
+    lines.push(`  **Building:** ${why}. One clean structural step away from a WATCH-grade read.`);
   }
   return lines.join('\n');
 }
 
 function buildNearMissBlock(nearMiss) {
   if (!nearMiss || nearMiss.length === 0) return null;
-  const lines = ['### 🎯 Near-Miss — below WATCH threshold'];
+  // Operator directive 2026-05-13: drop "Not promoted yet.
+  // Awaiting confirmation." backend wording. Cyan chip row sits
+  // directly under the heading.
+  const lines = ['### 🎯 Near-Miss — close to WATCH grade'];
+  lines.push(_renderTerminologyChipsRow(['Near-Miss', 'WATCH Threshold', 'Confirmation']));
   lines.push('');
-  lines.push('_Worth monitoring. Not promoted yet. Awaiting confirmation._');
+  lines.push('_Strong reads forming. Worth keeping on the chart now._');
   lines.push('');
   for (const r of nearMiss) {
     const dir = r.direction === 'Bullish' ? '↑' : r.direction === 'Bearish' ? '↓' : '→';
@@ -870,48 +883,53 @@ function buildNearMissBlock(nearMiss) {
     const gap = 8 - r.score; // WATCH threshold = 8
     const gapText = gap === 1 ? 'one point' : `${gap} points`;
     lines.push(`- **${r.symbol}** ${dir}  ·  ${r.sectionLabel}  ·  score ${r.score}/10 (${gapText} below the WATCH threshold of 8/10)`);
-    lines.push(`  Reading: ${why}. Confirmation pending before promotion.`);
+    lines.push(`  **Reading:** ${why}.`);
   }
   return lines.join('\n');
 }
 
 function buildQuietMarketReason(volatility, internalArr, ignoredArr) {
-  // Synthesize a 1–2 sentence diagnostic explaining WHY no
-  // standout published. Uses only existing engine data — no
-  // scoring change, no threshold change.
+  // Operator directive 2026-05-13 (Dark Horse rewrite): drop
+  // "no standout published" / "below publication threshold"
+  // backend wording. Trader-facing diagnostic in plain English.
   const internalCount = Array.isArray(internalArr) ? internalArr.length : 0;
   const ignoredCount  = Array.isArray(ignoredArr)  ? ignoredArr.length  : 0;
   const volLevel = (volatility && volatility.level) || 'quiet';
   const reasons = [];
   if (volLevel === 'quiet')   reasons.push('volatility is quiet across the universe');
   if (volLevel === 'elevated') reasons.push('volatility is elevated but structure has not aligned');
-  if (volLevel === 'extreme')  reasons.push('volatility is extreme — structure expanding too fast for clean confirmation');
+  if (volLevel === 'extreme')  reasons.push('volatility is extreme — structure expanding too fast for clean reads');
   if (internalCount === 0 && ignoredCount > 0) {
-    reasons.push('no candidate cleared the near-threshold score (5/10)');
+    reasons.push('no candidate has cleared the early-signal score band yet');
   } else if (internalCount > 0 && internalCount < 3) {
-    reasons.push(`${internalCount} ${internalCount === 1 ? 'candidate is' : 'candidates are'} building near the threshold but none have confirmed clean structure`);
+    reasons.push(`${internalCount} ${internalCount === 1 ? 'candidate is' : 'candidates are'} building, but none have produced a clean structural read`);
   } else if (internalCount >= 3) {
-    reasons.push(`${internalCount} candidates are building near the threshold but momentum/structure alignment is mixed`);
+    reasons.push(`${internalCount} candidates are building, but momentum and structure are not aligning yet`);
   }
   if (ignoredCount > 0 && internalCount === 0) {
     reasons.push('the rest of the universe is showing weak or contracting movement');
   }
   if (reasons.length === 0) {
-    reasons.push('conditions remain below the publication threshold this cycle');
+    reasons.push('conditions remain quiet across the universe this cycle');
   }
-  const lines = ['### 🤫 Why no standout published'];
+  const lines = ['### 🤫 Why the radar is quiet'];
+  lines.push(_renderTerminologyChipsRow(['Volatility', 'Internal Candidates', 'Universe Coverage']));
   lines.push('');
   lines.push(reasons.map(r => '_' + r.charAt(0).toUpperCase() + r.slice(1) + '._').join(' '));
   return lines.join('\n');
 }
 
 function buildWaitingForBlock(internalArr) {
-  // What ATLAS is waiting for — synthesize the single most-common
-  // required confirmation pattern across the internal universe.
-  const lines = ['### ⏳ What ATLAS is waiting for'];
+  // Operator directive 2026-05-13 (Dark Horse rewrite + section
+  // hyperlink standard): heading matches the operator's
+  // section-hyperlink example "What ATLAS Is Waiting For". The
+  // body still drops the banned "awaiting confirmation criteria"
+  // wording. Cyan chip row sits directly under the heading.
+  const lines = ['### ⏳ What ATLAS Is Waiting For'];
+  lines.push(_renderTerminologyChipsRow(['Breakout', 'Retest', 'Invalidation']));
   lines.push('');
   if (!Array.isArray(internalArr) || internalArr.length === 0) {
-    lines.push('_Awaiting a candidate that crosses the near-threshold score (5/10) with clean directional structure._');
+    lines.push('_A fresh candidate would need to break a recent high or low and hold it on the retest for the radar to fire._');
     return lines.join('\n');
   }
   // Asset-class concentration tells us which timeframe matters
@@ -927,18 +945,18 @@ function buildWaitingForBlock(internalArr) {
   const domSec = dominant ? dominant[0] : null;
   const conditions = [];
   if (domSec === SECTIONS.FX_MAJORS || domSec === SECTIONS.FX_CROSSES) {
-    conditions.push('A clean 5m or 15m body close above the recent intraday high (longs) or below the intraday low (shorts), followed by a calm retest that holds.');
+    conditions.push('A clean 5m or 15m body close above the recent intraday high (for longs) or below the intraday low (for shorts), followed by a calm retest that holds.');
   } else if (domSec === SECTIONS.INDICES) {
-    conditions.push('A 15m or 1H body close above the recent session high (longs) or below the session low (shorts), with the retest holding and volume not collapsing.');
+    conditions.push('A 15m or 1H body close above the recent session high (for longs) or below the session low (for shorts), with the retest holding and volume not collapsing.');
   } else if (domSec === SECTIONS.COMMODITIES) {
-    conditions.push('A 1H body close above the recent intraday high (longs) or below the intraday low (shorts), with an ATR-respecting retest that holds.');
+    conditions.push('A 1H body close above the recent intraday high (for longs) or below the intraday low (for shorts), with the retest holding without a sharp rejection.');
   } else if (domSec === SECTIONS.EQUITIES) {
-    conditions.push('A 5m or 15m body close above the recent intraday high (longs) or below the intraday low (shorts), with the retest holding above (or below) the prior-session reference level.');
+    conditions.push('A 5m or 15m body close above the recent intraday high (for longs) or below the intraday low (for shorts), with the retest holding above (or below) the prior-session reference level.');
   } else {
-    conditions.push('A higher-timeframe body close above the recent significant high (longs) or below the significant low (shorts), with a retest that holds.');
+    conditions.push('A higher-timeframe body close above the recent significant high (for longs) or below the significant low (for shorts), with a retest that holds.');
   }
-  conditions.push('Higher-timeframe and lower-timeframe direction should agree before any near-threshold candidate is promoted.');
-  conditions.push('Momentum should expand (rather than contract) into the breakout candle — confirmation, not exhaustion.');
+  conditions.push('Higher-timeframe and lower-timeframe direction should agree before a candidate is upgraded.');
+  conditions.push('Momentum should expand (not contract) into the breakout candle — that confirms drive, not exhaustion.');
   for (const c of conditions) lines.push('- ' + c);
   return lines.join('\n');
 }
@@ -985,11 +1003,15 @@ function buildUniverseCoverageBlock(opts, ranking) {
   }
 
   const lines = ['### 📊 Universe coverage'];
+  lines.push(_renderTerminologyChipsRow(['Scan Universe', 'Score Threshold', 'Section Strength']));
   lines.push('');
+  // Operator directive 2026-05-13 (DH rewrite): rename
+  // "near-threshold" / "publication threshold" backend bands to
+  // trader-facing labels.
   lines.push(`- **Symbols scanned:** ${universeSize}`);
-  lines.push(`- **Below near-threshold (score < 5/10):** ${ignoredArr.length}`);
-  lines.push(`- **Near-threshold (score 5–7/10):** ${internalArr.length}`);
-  lines.push(`- **At publication threshold (score ≥ 8/10):** ${top.filter(r => r.score >= 8).length}`);
+  lines.push(`- **Below score band (< 5/10):** ${ignoredArr.length}`);
+  lines.push(`- **Mid score band (5–7/10):** ${internalArr.length}`);
+  lines.push(`- **At WATCH grade (score ≥ 8/10):** ${top.filter(r => r.score >= 8).length}`);
   if (strongest) {
     lines.push(`- **Strongest section:** ${SECTION_LABEL[strongest.section] || strongest.section} (avg score ${strongest.avg.toFixed(1)}/10 across ${strongest.count} candidate${strongest.count === 1 ? '' : 's'})`);
   } else {
@@ -1092,47 +1114,43 @@ function compactVisualDiagram(direction) {
 // + dates when evidenceAnchors.availability is 'partial' or 'full';
 // honest "pending" + follow-up note otherwise.
 function buildChartEvidenceBlock(rank) {
+  // Operator directive 2026-05-13 (Dark Horse rewrite): if the
+  // anchor data is not wired, SUPPRESS the entire block — do not
+  // print "pending" / "wiring required" / system limitations.
+  // The user-facing surface only carries evidence when we actually
+  // have it.
   const ev = rank && rank.evidenceAnchors;
-  if (!ev || ev.availability === 'pending') {
-    return [
-      'Chart evidence: exact intraday level pending — the current data packet does not include enough 5m/15m anchor detail to publish a timestamped level.',
-      'Required follow-up: wire 5m/15m OHLC anchor extraction for recent high, breakout close, retest touch, hold close, and invalidation level.',
-    ];
-  }
+  if (!ev || ev.availability === 'pending') return [];
+
   const isShort = rank.direction === 'Bearish';
   const anchor  = isShort ? ev.recentLow : ev.recentHigh;
   const inv     = ev.invalidation;
   const lines = [];
-  lines.push('Chart evidence:');
+  // Only emit the heading if we actually have something to put
+  // under it. Otherwise the entire block is dropped.
+  const sub = [];
   if (anchor && anchor.priceText) {
-    lines.push(
-      `- Recent intraday ${isShort ? 'low' : 'high'} area: ${anchor.priceText} ` +
-      `(${anchor.source}; ` +
-      `date ${anchor.dateUtc} UTC / ${anchor.dateAwst} AWST).`
+    sub.push(
+      `- Recent intraday ${isShort ? 'low' : 'high'} area: **${anchor.priceText}** ` +
+      `(date ${anchor.dateUtc} UTC / ${anchor.dateAwst} AWST).`
     );
-    lines.push(`  Note: ${anchor.note}.`);
   }
-  // Breakout / retest / hold timestamps require 15m/5m data — staged.
-  lines.push(
-    '- Breakout evidence: 15m/5m intraday close timestamp pending — anchor wiring required ' +
-    'before a candle-close time can be published. Chart confirmation remains pending ' +
-    'until 15m/5m anchor wiring is added.'
-  );
-  lines.push(
-    '- Retest evidence: 15m/5m retest-touch timestamp pending — anchor wiring required ' +
-    'before the retest hold can be confirmed by the system.'
-  );
-  lines.push(
-    '- Hold evidence: 15m/5m hold-close timestamp pending — anchor wiring required ' +
-    'before the system can confirm a body-close hold.'
-  );
   if (inv && inv.priceText) {
-    lines.push(
-      `- Invalidation: a candle body close back ${isShort ? 'above' : 'below'} ` +
-      `${inv.priceText} on the ${inv.timeframe} weakens the read.`
+    // Strip parenthetical timeframe annotations like "(pending wiring)"
+    // and "(current)" so the user-facing timeframe is clean.
+    const tfClean = String(inv.timeframe || '')
+      .replace(/\s*\(.*?\)\s*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\s*\/\s*/g, '/')
+      .trim() || '15m';
+    sub.push(
+      `- Invalidation level: a candle body close back ${isShort ? 'above' : 'below'} ` +
+      `**${inv.priceText}** on the ${tfClean} weakens the read.`
     );
-    lines.push(`  Rule: ${inv.rule}`);
   }
+  if (sub.length === 0) return [];
+  lines.push('**Chart evidence:**');
+  for (const s of sub) lines.push(s);
   return lines;
 }
 
@@ -1168,69 +1186,107 @@ const SECTION_DISPLAY_ORDER = [
 ];
 
 function buildExpandedDetail(rank, idx, isStandout) {
+  // Operator directive 2026-05-13 (Dark Horse rewrite): every
+  // colon label is bolded for visual emphasis. Any row whose
+  // data is missing is SUPPRESSED entirely — no "reading pending"
+  // / "unavailable" / system-limitation fallback wording. Only
+  // surface rows we have real content for.
   const r = rank;
   const star = isStandout ? '⭐ ' : '';
-  // Translate raw chart-analyst abbreviations / jargon at the
-  // presentation layer (HH/HL → plain English, × baseline → "× the
-  // prior-bar average", section avg → "section average", etc.) so
-  // the user surface stays beginner-readable while internal engine
-  // outputs keep their concise form.
-  const speedStr = r.moveSpeed != null
+
+  // Speed / relative-strength: emit only when present.
+  const speedStr = (r.moveSpeed != null && Number.isFinite(r.moveSpeed))
     ? _translateChartJargon(`${r.moveSpeed}× baseline`)
-    : 'speed reading pending';
-  const rsStr = r.relativeStrength != null
+    : null;
+  const rsStr = (r.relativeStrength != null && Number.isFinite(r.relativeStrength))
     ? _translateChartJargon(`${r.relativeStrength}× section avg`)
-    : 'relative strength reading pending';
+    : null;
+
+  // Score breakdown — always emit at least one bullet (composite
+  // criteria met) since the engine always has SOMETHING to say.
   const breakdownLine = r.scoreBreakdown && r.scoreBreakdown.length
     ? r.scoreBreakdown.map(x => `   • ${_translateChartJargon(x)}`).join('\n')
     : '   • composite criteria met';
 
-  // Continuation window — combine the phase-derived plain-English
-  // sentence with the asset-class-specific session text so the user
-  // knows what "the next 1-3 sessions" actually means for THIS
-  // section. continuationSessionText defaults if the field wasn't
-  // set on the rank record (older fixtures).
-  const sessionText = r.continuationSessionText || continuationWindowSessionsText(r.section);
-  const continuationLine = `Continuation window: ${plainContinuationWindow(r.movePhase)} (sessions = ${sessionText})`;
+  // Continuation window — suppress entirely when phase wording
+  // is null (rather than printing "window reading pending").
+  const continuationText = plainContinuationWindow(r.movePhase);
+  const sessionTextRaw = r.continuationSessionText || continuationWindowSessionsText(r.section);
+  // Strip trailing period to avoid nested-paren "..." artefacts.
+  const sessionText = (sessionTextRaw || '').replace(/\.\s*$/, '');
+  const continuationLine = continuationText
+    ? `**Continuation window:** ${continuationText} (sessions = ${sessionText})`
+    : null;
 
-  // Conditional rows — suppress "Macro / event link: unavailable"
-  // (operator directive 2026-05-12 — useless line, just noise).
-  // Surface it ONLY when a real link is wired.
+  // Trend-phase row — suppress when phase wording is null.
+  const phaseText = plainTrendPhase(r.movePhase);
+  const phaseLine = phaseText ? `**Trend phase:** ${phaseText}` : null;
+
+  // Pattern reference — suppress when null.
+  const patternRef = patternReferenceFor(r);
+  const patternRefLine = patternRef ? `**Pattern reference:** ${patternRef}` : null;
+
+  // ATLAS state — suppress when null (operator directive: drop
+  // "Monitoring only" filler).
+  const atlasStateLine = r.atlasState ? `**ATLAS state:** ${r.atlasState}` : null;
+
+  // Macro / event link — suppress when unavailable.
   const macroEventLine = (r.macroEventLink
     && !/^unavailable\b/i.test(r.macroEventLink)
     && r.macroEventLink !== '')
-    ? `Macro / event link: ${r.macroEventLink}`
+    ? `**Macro / event link:** ${r.macroEventLink}`
     : null;
 
+  // Structure state — emit only when we have something other than
+  // a generic fallback.
+  const structureStateText = r.structureState && !/^reading pending$/i.test(r.structureState)
+    ? _translateChartJargon(r.structureState)
+    : null;
+  const structureStateLine = structureStateText ? `**Structure state:** ${structureStateText}` : null;
+
   const lines = [
-    `**${star}#${idx + 1} — ${r.symbol} ${arrowFor(r.direction)}**  ·  Section: ${r.sectionLabel}${r.safeHavenOverlay ? ' · safe-haven overlay' : ''}`,
-    `Direction: ${r.direction || 'neutral'}  ·  Score: ${r.score}/10`,
-    `Score breakdown:\n${breakdownLine}`,
-    `Move strength: ${r.moveStrength}/10  ·  Move speed: ${speedStr}`,
-    `Trend age: ${_translateChartJargon(plainTrendAge(r.moveAge, r.direction, { firstDetectionSnapshot: r.firstDetectionSnapshot, now: r.firstDetectionNow }))}`,
-    `Trend phase: ${plainTrendPhase(r.movePhase)}`,
+    `**${star}#${idx + 1} — ${r.symbol} ${arrowFor(r.direction)}**  ·  **Section:** ${r.sectionLabel}${r.safeHavenOverlay ? ' · safe-haven overlay' : ''}`,
+    `**Direction:** ${r.direction || 'neutral'}  ·  **Score:** ${r.score}/10`,
+    `**Score breakdown:**\n${breakdownLine}`,
+    speedStr
+      ? `**Move strength:** ${r.moveStrength}/10  ·  **Move speed:** ${speedStr}`
+      : `**Move strength:** ${r.moveStrength}/10`,
+    `**Trend age:** ${_translateChartJargon(plainTrendAge(r.moveAge, r.direction, { firstDetectionSnapshot: r.firstDetectionSnapshot, now: r.firstDetectionNow }))}`,
+    phaseLine,
     continuationLine,
-    `Late-entry risk: ${r.lateEntryRisk}`,
-    `Relative strength vs section: ${rsStr}`,
-    `Why flagged: ${_translateChartJargon(r.whyFlagged)}`,
+    `**Late-entry risk:** ${r.lateEntryRisk}`,
+    rsStr ? `**Relative strength vs section:** ${rsStr}` : null,
+    `**Why flagged:** ${_translateChartJargon(r.whyFlagged)}`,
     macroEventLine,
-    `Structure state: ${_translateChartJargon(r.structureState)}`,
-    `Confirmation requirement: ${_translateChartJargon(r.confirmationRequirement)}`,
-    // Chart evidence block — per-candidate price + date stamp where
-    // data is wired, honest "pending" + follow-up note otherwise.
+    structureStateLine,
+    `**Confirmation requirement:** ${_translateChartJargon(r.confirmationRequirement)}`,
+    // Chart evidence block — suppressed entirely when anchor data
+    // is not wired (no "pending" / "wiring required" leaks).
     ...buildChartEvidenceBlock(r),
-    // Visual pattern — abstract pattern reference, then prose, then
-    // ASCII diagram. Three forms so a beginner reader has both the
-    // shape (diagram) and the meaning (prose).
-    `Pattern reference: ${patternReferenceFor(r)}`,
+    // Visual pattern — pattern reference (if available), then prose,
+    // then ASCII diagram. Visual example travels with the card so
+    // a Level-1 reader sees both the shape and the meaning.
+    patternRefLine,
     ...visualPatternProse(r.direction),
     compactVisualDiagram(r.direction),
-    `Why not WATCH: ${r.whyNotWatch}`,
-    `Promotion criteria: ${_translateChartJargon(r.promotionTrigger)}`,
-    ...renderInvalidationRow(r.invalidationTrigger),
-    `ATLAS state: ${r.atlasState}`,
+    `**Promotion criteria:** ${_translateChartJargon(r.promotionTrigger)}`,
+    // Operator directive 2026-05-13 (Dark Horse rewrite): the
+    // chart-evidence block already surfaces a price-stamped
+    // "Invalidation level" line when anchor data is wired. To
+    // avoid a duplicate condition row, suppress this trigger row
+    // when the chart evidence already published an Invalidation
+    // level for this candidate.
+    ...(
+      r.evidenceAnchors
+        && r.evidenceAnchors.availability !== 'pending'
+        && r.evidenceAnchors.invalidation
+        && r.evidenceAnchors.invalidation.priceText
+        ? []
+        : renderInvalidationRow(r.invalidationTrigger)
+    ),
+    atlasStateLine,
   ];
-  return lines.filter(l => l != null).join('\n');
+  return lines.filter(l => l != null && l !== '').join('\n');
 }
 
 // "Invalidation level:" when the source text carries a numeric price,
@@ -1240,21 +1296,15 @@ function buildExpandedDetail(rank, idx, isStandout) {
 // expected path; do NOT invent or paraphrase a number when none exists.
 function renderInvalidationRow(invalidationText) {
   const text = _translateChartJargon(String(invalidationText || '').trim());
+  if (!text) return [];
   // Detect a price-like number that is not a parenthesised timeframe
   // such as "(5m/15m)" or "0.6%".
   const priceLikeRe = /(?<![\d.\/(])\b\d{1,7}(?:\.\d{1,8})\b(?![%\dm\)])/;
   const hasNumericLevel = priceLikeRe.test(text);
   if (hasNumericLevel) {
-    return [`Invalidation level: ${text}`];
+    return [`**Invalidation level:** ${text}`];
   }
-  // No numeric level in the source template. Operator directive
-  // 2026-05-12: suppress the "Reference level not published"
-  // sub-row entirely — the Chart evidence block above already
-  // surfaces a price-stamped invalidation level (or an honest
-  // "pending" note) so a duplicate placeholder is just noise.
-  return [
-    `Invalidation condition: ${text}`,
-  ];
+  return [`**Invalidation condition:** ${text}`];
 }
 
 function buildCompactDetail(rank, idx) {
@@ -1301,7 +1351,12 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
       const idx = displayIdx++;
       return buildExpandedDetail(r, idx, standoutSet.has(r.symbol));
     }).join('\n\n──\n\n');
-    sectionBlocks.push(`### ${SECTION_LABEL[sec]}\n\n${rendered}`);
+    // Operator directive 2026-05-13 (section-hyperlink standard):
+    // every major heading carries a compact terminology chip row
+    // directly under it. The per-section radar groups use the
+    // common trader-facing trio: Section Strength, Direction, Score.
+    const sectionChips = _renderTerminologyChipsRow(['Section Strength', 'Direction', 'Score']);
+    sectionBlocks.push(`### ${SECTION_LABEL[sec]}\n${sectionChips}\n\n${rendered}`);
   }
 
   // ── Header / state / footer ──
@@ -1339,12 +1394,13 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     ? sectionBlocks.join('\n\n') + '\n\n'
     : '_No section data this scan._\n\n';
 
-  // Learning Links row — operator directive 2026-05-12: sits
-  // IMMEDIATELY under the heading, before the criteria paragraph.
-  // Plain terms until per-term URLs are wired (rule 5). Pass
-  // opts.learningLinkUrls = { 'Calm retest': 'https://…' } to enable
-  // Markdown links for specific terms. Body text MUST stay clean —
-  // no inline hyperlinks scattered through paragraphs.
+  // Operator directive 2026-05-13 (full DH rewrite): the BODY
+  // Terminology Hyperlinks row is REMOVED. Hyperlinks appear at
+  // the top only (in firstChunkPrefix via buildVisualLearningLinksRow).
+  // buildLearningLinksBlock() stays in the export list for QA
+  // harnesses that exercise the unit-level URL routing; it is no
+  // longer composed into the digest body. linkRoutingStatus
+  // remains exported via the payload so the engine can log it.
   const learningLinks = buildLearningLinksBlock(opts.learningLinkUrls);
 
   // ── Pre-Radar / Near-Miss supporting-intelligence layer ─────
@@ -1377,9 +1433,12 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
   // filler. The supporting blocks still render in their natural
   // position below the state header.
   const isMonitoringOnly = top.length === 0;
+  // Operator directive 2026-05-13 (section-hyperlink standard):
+  // the ⭐ Current standouts heading carries its own cyan chip row.
+  const standoutsChips = _renderTerminologyChipsRow(['Dark Horse Candidate', 'Relative Strength', 'Trend Phase']);
   const renderedStandoutsBlock = isMonitoringOnly && supportingBlocks.length > 0
     ? ''
-    : `### ⭐ Current standouts\n${standoutLines}\n\n`;
+    : `### ⭐ Current standouts\n${standoutsChips}\n${standoutLines}\n\n`;
   const renderedSectionsBody = isMonitoringOnly && supportingBlocks.length > 0
     ? ''
     : sectionsBody;
@@ -1426,23 +1485,23 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     ? `**Sections scanned:** ${sectionsLine}\n`
     : '';
 
-  // State line — operator directive 2026-05-12 (live evidence
-  // iteration). The previous static "Monitoring only · no
-  // confirmed watch candidate this cycle." contradicted scans
-  // where Displayed candidates ≥ 1 and ⭐ standouts existed.
-  // The digest path only fires when zero candidates have reached
-  // the WATCH threshold (score ≥ 8/10), so top10 always represents
-  // developing standouts being tracked for confirmation, not
-  // confirmed watch candidates. When N ≥ 1 of those exist we say
-  // so explicitly; when none exist we keep the "publication
-  // threshold not met" reading.
+  // State line — operator directive 2026-05-13 (full DH rewrite):
+  // drop the "Monitoring only" / "no confirmed watch candidate"
+  // backend wording. Trader-facing line in plain English.
   const stateLine = top.length === 0
-    ? '**State:** Monitoring only · publication threshold not met this cycle.'
-    : `**State:** Monitoring only · no fully confirmed watch candidate this cycle, but ${top.length} developing standout${top.length === 1 ? ' is' : 's are'} being tracked for confirmation.`;
+    ? '**State:** Conditions are quiet across the radar this cycle.'
+    : `**State:** ${top.length} developing standout${top.length === 1 ? ' is' : 's are'} on the radar this cycle.`;
 
+  // Operator directive 2026-05-13 (full DH rewrite):
+  //   - DROP the body Terminology Hyperlinks row (top-of-output
+  //     only — emitted via firstChunkPrefix).
+  //   - DROP the footer glossary block (DH_PATTERN_GLOSSARY) — no
+  //     full glossary in the digest body anymore.
+  //   - BOLD every colon label across the standing rows.
+  //   - Replace footer "Reassess against the per-candidate
+  //     confirmation criteria" wording (backend phrasing).
   const content =
     `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
-    `${learningLinks.text}\n\n` +
     `${DH_CRITERIA_PARAGRAPH}\n\n` +
     `${stateLine}\n` +
     `**Volatility:** ${volatilityLevel} · ${vixLine}\n` +
@@ -1451,9 +1510,8 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
     renderedStandoutsBlock +
     renderedSectionsBody +
     supportingBody +
-    `${DH_PATTERN_GLOSSARY}\n\n` +
-    `⏭️ Next review: ${nextReview}.\n` +
-    `⚠️ Conditions are moving but entry quality is not confirmed. Late-entry risk varies by phase per candidate. Reassess against the per-candidate confirmation criteria at the next review.`;
+    `⏭️ **Next review:** ${nextReview}.\n` +
+    `⚠️ Conditions are moving but the per-candidate read still has to firm up before any entry plan. Recheck each candidate against its confirmation requirement at the next review.`;
 
   return {
     content,
