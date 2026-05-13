@@ -653,10 +653,17 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
   // Bearish presence (XAUUSD in this fixture) triggers the visual-
   // learning-prototype top-of-output links row. Routes to the
   // bearish LH/LL learning path (Lane 1 catalogue).
+  // Doctrine (post-PR-#64 review): row is PLAIN TEXT — no Markdown
+  // link syntax, no `#<slug>` anchor fragments. Lane 1 library
+  // still supports link form for future real-URL wiring.
   ok('Lane 2 — bearish present → visual learning links row appended',
      /📘 Learn: /.test(payload.firstChunkPrefix));
-  ok('Lane 2 — learning row links to Lower High \/ Lower Low',
-     /\[Lower High \/ Lower Low\]\(#lh-ll\)/.test(payload.firstChunkPrefix));
+  ok('Lane 2 — row contains "Lower High / Lower Low" plain term',
+     /📘 Learn: [\s\S]*?Lower High \/ Lower Low/.test(payload.firstChunkPrefix));
+  ok('Lane 2 — row contains NO Markdown link syntax',
+     !/📘 Learn: [\s\S]*?\[[^\]]+\]\([^)]+\)/.test(payload.firstChunkPrefix));
+  ok('Lane 2 — row contains NO "#<slug>" anchor-fragment leaks',
+     !/📘 Learn:[^\n]*#[a-z][a-z0-9-]*/.test(payload.firstChunkPrefix));
 
   // Chunker pass-through: Part 1 gets the boundary, Parts 2..N do not.
   const chunks = engine._dhChunkDigest(payload.content, {
