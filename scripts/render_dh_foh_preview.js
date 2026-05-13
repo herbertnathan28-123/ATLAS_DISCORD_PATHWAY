@@ -41,29 +41,46 @@ const puppeteer = require('puppeteer');
 const ESC = '';
 function ansi(code, text) { return `${ESC}[${code}m${text}${ESC}[0m`; }
 
+// v2 prototype — stronger red NEW banner with triple bar + page-width
+// wing-arrows pointing at the badge so the boundary reads as a
+// "change of scene", not a subtle separator. Discord renders the
+// `-` prefixed lines red inside ```diff fences.
 const RED_NEW_DIVIDER = [
   '```diff',
-  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-  '- ⚡  🆕  NEW DARK HORSE SCAN  🆕  ⚡',
-  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '- ▼ ▼ ▼   N E W   D A R K   H O R S E   S C A N   ▼ ▼ ▼',
+  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '- 🆕   Tuesday 13 May  ·  12:00 UTC  ·  33 markets scanned   🆕',
+  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
   '```',
 ].join('\n');
 
 function goldSectionBox(headingText) {
-  // Discord renders ESC[33m as gold/orange inside ```ansi.
-  // ESC[33;1m is bold gold for extra visual weight.
+  // Gold ASCII box for major section headings. ESC[33;1m =
+  // bold gold inside ```ansi. Page-width box so the heading
+  // reads as a banner, not an inline label.
   return [
     '```ansi',
-    `${ESC}[33;1m╔══════════════════════════════════════════════════════╗`,
-    `${ESC}[33;1m║   ${headingText.padEnd(50, ' ')}║`,
-    `${ESC}[33;1m╚══════════════════════════════════════════════════════╝${ESC}[0m`,
+    `${ESC}[33;1m╔════════════════════════════════════════════════════════════╗`,
+    `${ESC}[33;1m║   ${headingText.padEnd(56, ' ')}║`,
+    `${ESC}[33;1m╚════════════════════════════════════════════════════════════╝${ESC}[0m`,
+    '```',
+  ].join('\n');
+}
+
+function goldSubheading(text) {
+  // Bold-gold subheading inside an ansi fence — a level smaller than
+  // the section box. Used for "Today's read" / "Market mood" rows.
+  return [
+    '```ansi',
+    `${ESC}[33;1m▸  ${text}${ESC}[0m`,
     '```',
   ].join('\n');
 }
 
 function tealTerminologyRow(terms) {
-  // Discord renders ESC[36m as cyan/teal inside ```ansi.
-  const inner = terms.map(t => `${ESC}[36m[${t}]${ESC}[0m`).join('  ');
+  // Cyan/teal chips inside ```ansi. Bold for stronger weight.
+  const inner = terms.map(t => `${ESC}[36;1m[${t}]${ESC}[0m`).join('  ');
   return [
     '```ansi',
     inner,
@@ -72,116 +89,143 @@ function tealTerminologyRow(terms) {
 }
 
 function visualReferenceCard() {
-  // Bullish breakout + retest reference. ASCII chart art inside an
-  // ansi fence so the layout stays whole and the gold/teal accents
-  // render.
+  // Bullish breakout + retest reference. Plain-English prose only —
+  // no "body close", no "retest holds", no "confirms". Gold heading
+  // box + green/red ASCII chart + cyan trader-voice annotations.
   return [
     '```ansi',
-    `${ESC}[33;1m╔══════════════════════════════════════════════════════╗`,
-    `${ESC}[33;1m║   📚  CHART REFERENCE — BULLISH BREAKOUT + RETEST    ║`,
-    `${ESC}[33;1m╚══════════════════════════════════════════════════════╝${ESC}[0m`,
+    `${ESC}[33;1m╔════════════════════════════════════════════════════════════╗`,
+    `${ESC}[33;1m║   📚  WHAT A CLEAN BULLISH BREAKOUT LOOKS LIKE             ║`,
+    `${ESC}[33;1m╚════════════════════════════════════════════════════════════╝${ESC}[0m`,
     '',
     `${ESC}[32m  ▲ price${ESC}[0m`,
-    `${ESC}[32m  │                                ╭──── continuation${ESC}[0m`,
+    `${ESC}[32m  │                                  ╭──── higher still${ESC}[0m`,
     `${ESC}[32m  │                          ╭──╮ ╱${ESC}[0m`,
-    `${ESC}[31m  │   ─────────────────────●──╯  ●${ESC}[0m  ← retest holds above old high`,
-    `${ESC}[31m  │   old high  (now support)${ESC}[0m`,
+    `${ESC}[31m  │   ─────────────────────●──╯  ●${ESC}[0m  ← buyers defended the level`,
+    `${ESC}[31m  │   ceiling — now a floor${ESC}[0m`,
     `${ESC}[32m  │            ╭──╮${ESC}[0m`,
-    `${ESC}[32m  │     ╭──╮  ╱    ╲ ╱  ← breakout candle body CLOSES above${ESC}[0m`,
+    `${ESC}[32m  │     ╭──╮  ╱    ╲ ╱  ← price pushed up through the ceiling${ESC}[0m`,
     `${ESC}[32m  │  ╱╲╱   ╲╱      V${ESC}[0m`,
     `${ESC}[32m  └────────────────────────────────────────▶ time${ESC}[0m`,
     '',
-    `${ESC}[36m  Read:${ESC}[0m  body close above the level → calm retest →`,
-    `${ESC}[36m         body stays above → continuation.${ESC}[0m`,
-    `${ESC}[36m  Where to act:${ESC}[0m  buy the retest, stop just below the level.`,
+    `${ESC}[36;1m  What you're seeing${ESC}[0m`,
+    '    Price punched above a level that capped it for weeks,',
+    '    then dipped back to test that same level. Buyers came in',
+    '    to defend it. The market kept moving higher from there.',
+    '',
+    `${ESC}[36;1m  How ATLAS reads it${ESC}[0m`,
+    '    The ceiling has flipped into a floor. While that floor',
+    '    holds, the path of least resistance is up.',
+    '',
+    `${ESC}[36;1m  How a trader acts on it${ESC}[0m`,
+    '    Buy the pullback to the floor, place the risk-off just',
+    '    under it. If the floor breaks, the idea is off.',
     '```',
   ].join('\n');
 }
 
 const SAMPLE_MESSAGES = [
-  // ── Message 1: red NEW divider + gold banner + teal terminology row + first embed ──
+  // ── Message 1 — Red NEW divider + gold banner + scan summary + teal terminology row ──
+  // + Today's read + Market mood + ⭐ Standouts heading + NEW separator + first embed.
   {
     content: [
       RED_NEW_DIVIDER,
       '',
       goldSectionBox('🐎  DARK HORSE — GLOBAL MOVER RADAR'),
-      '2026-05-13  ·  3 candidates promoted  ·  scan: 12:00 UTC',
       '',
-      '📘 **Expanded Terminology Hyperlinks**',
+      '_The standout movers ATLAS found this cycle._',
+      '_Three strong moves. Two bullish, one bearish. Broader market mood is jumpy — keep size measured._',
+      '',
+      '📘 **EXPANDED TERMINOLOGY HYPERLINKS**',
       tealTerminologyRow(['Breakout', 'Retest', 'Continuation', 'Mover Stage 1']),
       '',
-      goldSectionBox('⭐  CURRENT STANDOUTS'),
+      goldSubheading('Today\'s read'),
+      'Three markets are showing real strength. The full picture is below.',
+      '',
+      goldSubheading('Market mood'),
+      'Elevated risk — broad market is moving fast, so size positions with care.',
+      '',
+      goldSectionBox('⭐  STANDOUTS — TODAY\'S STRONGEST MOVERS'),
       '',
       '─── NEW ───',
     ].join('\n'),
     embeds: [{
       color: 0x2ECC71,
       title: '🐎 EURUSD · STRONG BULLISH',
-      description: 'Multi-day breakout retested cleanly. Mover stage 1.',
+      description: 'EURUSD has pushed above a multi-week ceiling and held the level cleanly. The move is fresh.',
       fields: [
-        { name: 'Move Type',   value: 'Breakout · Stage 1',                                     inline: true  },
-        { name: 'Direction',   value: '▲ Long',                                                  inline: true  },
-        { name: 'Conviction',  value: '🟢🟢🟢🟢 / 5 · High',                                       inline: true  },
-        { name: 'Trigger',     value: '1.0950 confirmed',                                        inline: true  },
-        { name: 'Timeframe',   value: 'Swing (1–5d)',                                            inline: true  },
-        { name: 'Where to Act', value: '🟢 ENTRY POINT: 1.0925  ·  🛑 STOP LOSS: 1.0895  ·  Buy on retest of 1.0925', inline: false },
-        { name: 'Terms', value: '[Breakout]  [Retest]  [Continuation]  [Mover Stage 1]', inline: false },
+        { name: 'Move Type',   value: 'Breakout · early stage',                                  inline: true  },
+        { name: 'Direction',   value: '▲ Long',                                                   inline: true  },
+        { name: 'Conviction',  value: '🟢🟢🟢🟢 / 5 · High',                                        inline: true  },
+        { name: 'The Setup',   value: 'Above 1.0950 — broken cleanly',                            inline: true  },
+        { name: 'Horizon',     value: 'Days, not minutes',                                        inline: true  },
+        { name: 'Standing',    value: 'Standout #1 of 3',                                         inline: true  },
+        { name: 'Where to Act', value: '🟢 BUY the dip into 1.0925 if it holds  ·  🛑 RISK-OFF if 1.0895 fails  ·  level flips back to ceiling', inline: false },
+        { name: 'In ATLAS terms', value: '[Breakout]  [Retest]  [Continuation]  [Mover Stage 1]', inline: false },
       ],
-      footer: { text: 'Dark Horse Radar · scan 12:00 UTC · 1/3 candidates' },
+      footer: { text: 'Dark Horse Radar · 12:00 UTC · standout 1 of 3' },
     }],
   },
 
-  // ── Message 2: NEW separator + bearish candidate ──
+  // ── Message 2 — NEW separator + bearish embed ──
   {
     content: '─── NEW ───',
     embeds: [{
       color: 0xE74C3C,
       title: '🐎 XAUUSD · STRONG BEARISH',
-      description: 'Multi-day breakdown retested cleanly. Mover stage 1.',
+      description: 'Gold has broken under a multi-week floor. Sellers are now in control of the structure.',
       fields: [
-        { name: 'Move Type',   value: 'Breakout · Stage 1',                                       inline: true  },
+        { name: 'Move Type',   value: 'Breakdown · early stage',                                  inline: true  },
         { name: 'Direction',   value: '▼ Short',                                                   inline: true  },
         { name: 'Conviction',  value: '🔴🔴🔴🔴 / 5 · High',                                        inline: true  },
-        { name: 'Trigger',     value: '2398.20 confirmed',                                         inline: true  },
-        { name: 'Timeframe',   value: 'Swing (1–5d)',                                              inline: true  },
-        { name: 'Where to Act', value: '🟢 ENTRY POINT: 2401.50  ·  🛑 STOP LOSS: 2410.30  ·  Sell on retest of 2401.50', inline: false },
-        { name: 'Terms', value: '[Breakout]  [Retest]  [Continuation]  [Mover Stage 1]', inline: false },
+        { name: 'The Setup',   value: 'Below 2398.20 — broken cleanly',                           inline: true  },
+        { name: 'Horizon',     value: 'Days, not minutes',                                        inline: true  },
+        { name: 'Standing',    value: 'Standout #2 of 3',                                         inline: true  },
+        { name: 'Where to Act', value: '🟢 SELL the bounce into 2401.50 if it stalls  ·  🛑 RISK-OFF if 2410.30 reclaims  ·  the bear thesis is off', inline: false },
+        { name: 'In ATLAS terms', value: '[Breakout]  [Retest]  [Continuation]  [Mover Stage 1]', inline: false },
       ],
-      footer: { text: 'Dark Horse Radar · scan 12:00 UTC · 2/3 candidates' },
+      footer: { text: 'Dark Horse Radar · 12:00 UTC · standout 2 of 3' },
     }],
   },
 
-  // ── Message 3: NEW separator + developing-watch candidate ──
+  // ── Message 3 — NEW separator + developing-watch embed ──
   {
     content: '─── NEW ───',
     embeds: [{
       color: 0xF1C40F,
       title: '🐎 NVDA · DEVELOPING WATCH',
-      description: 'Mature uptrend. Late-entry risk rising.',
+      description: 'NVIDIA\'s uptrend is mature. The room for fresh reward is shrinking — wait for the next test, do not chase.',
       fields: [
-        { name: 'Move Type',   value: 'Continuation · Stage 3',                                   inline: true  },
+        { name: 'Move Type',   value: 'Continuation · late stage',                                inline: true  },
         { name: 'Direction',   value: '▲ Long',                                                    inline: true  },
         { name: 'Conviction',  value: '🟡🟡🟡🟡 / 5 · High',                                        inline: true  },
-        { name: 'Trigger',     value: '925.40 · awaiting trigger',                                 inline: true  },
-        { name: 'Timeframe',   value: 'Intraday',                                                  inline: true  },
-        { name: 'Where to Act', value: '🟢 ENTRY POINT: 921.10  ·  🛑 STOP LOSS: 912.80  ·  Buy on retest of 921.10', inline: false },
-        { name: 'Terms', value: '[Breakout]  [Retest]  [Continuation]  [Mover Stage 1]', inline: false },
+        { name: 'The Setup',   value: 'Above 925.40 — waiting on the next push',                  inline: true  },
+        { name: 'Horizon',     value: 'Hours, not days',                                          inline: true  },
+        { name: 'Standing',    value: 'Standout #3 of 3',                                         inline: true  },
+        { name: 'Where to Act', value: '🟢 BUY only on a pullback to 921.10 that holds  ·  🛑 RISK-OFF if 912.80 fails  ·  size small, the move is late', inline: false },
+        { name: 'In ATLAS terms', value: '[Breakout]  [Retest]  [Continuation]  [Mover Stage 1]', inline: false },
       ],
-      footer: { text: 'Dark Horse Radar · scan 12:00 UTC · 3/3 candidates · next review 12:15 UTC' },
+      footer: { text: 'Dark Horse Radar · 12:00 UTC · standout 3 of 3 · ATLAS reviews again at 12:15 UTC' },
     }],
   },
 
-  // ── Message 4 (quiet-scan reference card surface) ──
-  // Per Pack 2 + operator FOH requirement #9 / #10: visual
-  // reference card area shows even when scan activity is low.
+  // ── Message 4 — Pre-radar + visual reference card ──
+  // Quiet-scan surface: when no candidate clears the standout bar,
+  // the radar still teaches. The gold heading + cyan terminology +
+  // visual chart card carry the page.
   {
     content: [
-      goldSectionBox('📡  PRE-RADAR / BUILDING PRESSURE'),
+      goldSectionBox('📡  BUILDING — MARKETS WARMING UP'),
+      '',
       tealTerminologyRow(['Pre-Radar', 'Momentum', 'Structure']),
       '',
-      '_Early developmental signals showing structure could form on the next leg._',
+      '_These aren\'t ready to act on yet. They\'re close, and worth keeping on the chart._',
+      '_If structure firms by the next cycle, they\'ll graduate into a standout._',
       '',
       visualReferenceCard(),
+      '',
+      goldSubheading('Risk reminder'),
+      '_Even a strong standout is a plan, not a guarantee. Cross-check each card against live price before acting. ATLAS reviews again at 12:15 UTC._',
     ].join('\n'),
   },
 ];
@@ -490,7 +534,8 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
 
   const html = buildHtml(SAMPLE_MESSAGES);
-  const htmlPath = path.join(outDir, 'dh-foh-prototype-v1.html');
+  const version = process.env.FOH_PREVIEW_VERSION || 'v2';
+  const htmlPath = path.join(outDir, `dh-foh-prototype-${version}.html`);
   fs.writeFileSync(htmlPath, html, 'utf8');
 
   const browser = await puppeteer.launch({
@@ -511,7 +556,7 @@ async function main() {
       deviceScaleFactor: 2,
     });
 
-    const pngPath = path.join(outDir, 'dh-foh-prototype-v1.png');
+    const pngPath = path.join(outDir, `dh-foh-prototype-${version}.png`);
     await page.screenshot({ path: pngPath, fullPage: true });
     console.log('Wrote:', pngPath);
     console.log('Wrote:', htmlPath);
