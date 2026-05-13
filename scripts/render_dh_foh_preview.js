@@ -606,9 +606,87 @@ async function main() {
       deviceScaleFactor: 2,
     });
 
+    // (1) Full-strip PNG — the original delivery.
     const pngPath = path.join(outDir, `dh-foh-prototype-${version}.png`);
     await page.screenshot({ path: pngPath, fullPage: true });
     console.log('Wrote:', pngPath);
+
+    // (2) Multi-page PDF — universally viewable on iPad/iPhone/Mac/
+    //     Windows. Page width matches the channel width so the
+    //     content lays out cleanly across pages.
+    const pdfPath = path.join(outDir, `dh-foh-prototype-${version}.pdf`);
+    await page.pdf({
+      path: pdfPath,
+      printBackground: true,
+      width: '820px',
+      height: '1160px',  // close to iPad portrait aspect, multi-page
+      margin: { top: '0px', bottom: '0px', left: '0px', right: '0px' },
+    });
+    console.log('Wrote:', pdfPath);
+
+    // (3) Per-message PNGs — one PNG per scan element so the operator
+    //     can inspect each banner / candidate / reference card on its
+    //     own, instead of fighting one 5000-pixel-tall strip. Each
+    //     PNG is captured at the same 2x DPR but only the bounding
+    //     box of that message div, plus a little breathing pad.
+    const sectionNames = ['banner-and-first-card', 'bearish', 'watch', 'reference-card'];
+    const messageHandles = await page.$$('.message');
+    for (let i = 0; i < messageHandles.length; i++) {
+      const handle = messageHandles[i];
+      const sectionLabel = sectionNames[i] || `section-${i + 1}`;
+      const sectionPath = path.join(outDir, `dh-foh-prototype-${version}-section-${i + 1}-${sectionLabel}.png`);
+      // `clip` honours the bounding box exactly; we expand by ~12px
+      // padding so the avatar / header line doesn't hug the edge.
+      const bb = await handle.boundingBox();
+      if (!bb) continue;
+      await page.screenshot({
+        path: sectionPath,
+        clip: {
+          x: Math.max(0, bb.x - 12),
+          y: Math.max(0, bb.y - 12),
+          width: Math.ceil(bb.width + 24),
+          height: Math.ceil(bb.height + 24),
+        },
+      });
+      console.log('Wrote:', sectionPath);
+    }
+
+    // Finer slices for sections the operator wants to inspect alone:
+    //   - the red NEW divider + banner header (top of M1)
+    //   - the first candidate embed (bottom of M1)
+    //   - the visual reference card (bottom of M4)
+    // These are operator-friendly snapshots that crop out everything
+    // else, so each visual element can be reviewed in isolation.
+    async function snapshotChild(messageIdx, selector, label) {
+      const msgHandle = messageHandles[messageIdx];
+      if (!msgHandle) return;
+      const childs = await msgHandle.$$(selector);
+      for (let j = 0; j < childs.length; j++) {
+        const c = childs[j];
+        const bb = await c.boundingBox();
+        if (!bb) continue;
+        const filename = `dh-foh-prototype-${version}-detail-${label}${childs.length > 1 ? '-' + (j + 1) : ''}.png`;
+        const filePath = path.join(outDir, filename);
+        await page.screenshot({
+          path: filePath,
+          clip: {
+            x: Math.max(0, bb.x - 16),
+            y: Math.max(0, bb.y - 16),
+            width: Math.ceil(bb.width + 32),
+            height: Math.ceil(bb.height + 32),
+          },
+        });
+        console.log('Wrote:', filePath);
+      }
+    }
+    // M1's message-content carries the full banner (red NEW divider +
+    // gold banner + teal terminology row + ▸ subheadings + ⭐ standouts
+    // gold box). M1 also has the first candidate embed below the
+    // content. M4's content carries the BUILDING + reference card.
+    await snapshotChild(0, '.message-content', 'banner');
+    await snapshotChild(0, '.embed', 'first-candidate-embed');
+    await snapshotChild(3, '.message-content', 'reference-card');
+
     console.log('Wrote:', htmlPath);
   } finally {
     await browser.close();
