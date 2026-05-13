@@ -159,13 +159,18 @@ console.log('\n[T4] Pre-Radar block — heading + doctrine sentence + per-candid
   ];
   const pr = rank.selectPreRadarCandidates(internal);
   const block = rank.buildPreRadarBlock(pr);
-  ok('block has Pre-Radar heading', /### .* Pre-Radar.* Building pressure/.test(block));
-  ok('block carries doctrine sentence ("Not promoted")',
-     /Not promoted — pressure visible but incomplete/.test(block));
+  // Operator directive 2026-05-13 (DH rewrite + section-hyperlink
+  // standard): heading is "📡 Pre-Radar / Building Pressure" and
+  // carries a cyan chip row underneath. Doctrine sentence no
+  // longer says "Not promoted"; it now reads as the trader-facing
+  // "early developmental signals".
+  ok('block has Pre-Radar heading', /### 📡 Pre-Radar \/ Building Pressure/.test(block));
+  ok('block carries doctrine sentence (early developmental signals)',
+     /Early developmental signals showing structure could form on the next leg/.test(block));
   ok('per-candidate line includes symbol + score + phase + momentum',
      /\*\*EURUSD\*\*.*score 5\/10.*phase early.*momentum 1\.4× the prior-bar average/.test(block));
-  ok('per-candidate Building/Confirmation framing present',
-     /Building: higher highs and higher lows forming on 1D\. Confirmation pending — one structure step away from promotion\./.test(block));
+  ok('per-candidate Building/structural-step framing present',
+     /\*\*Building:\*\* higher highs and higher lows forming on 1D\. One clean structural step away from a WATCH-grade read\./.test(block));
   ok('translates jargon inside summary',
      // The summary "HH/HL" would translate to "higher highs and higher lows".
      // Our fixture already used the translated phrasing; verify no raw "HH/HL".
@@ -185,10 +190,13 @@ console.log('\n[T5] Near-Miss block — gap-text to WATCH threshold per candidat
   ];
   const nm = rank.selectNearMissCandidates(internal);
   const block = rank.buildNearMissBlock(nm);
-  ok('block has Near-Miss heading + "below WATCH threshold"',
-     /### .* Near-Miss — below WATCH threshold/.test(block));
-  ok('doctrine sentence — "Worth monitoring. Not promoted yet. Awaiting confirmation."',
-     /Worth monitoring\. Not promoted yet\. Awaiting confirmation\./.test(block));
+  // Operator directive 2026-05-13: heading rewritten as
+  // "Near-Miss — close to WATCH grade"; doctrine sentence
+  // rewritten in trader voice.
+  ok('block has Near-Miss heading + "close to WATCH grade"',
+     /### .* Near-Miss — close to WATCH grade/.test(block));
+  ok('doctrine sentence — "Strong reads forming. Worth keeping on the chart now."',
+     /Strong reads forming\. Worth keeping on the chart now\./.test(block));
   ok('score-7 line names "one point below the WATCH threshold of 8/10"',
      /XAUUSD[\s\S]*one point below the WATCH threshold of 8\/10/.test(block));
   ok('score-6 line names "2 points below the WATCH threshold of 8/10"',
@@ -203,14 +211,16 @@ console.log('\n[T6] Quiet Market Reason — references volatility + internal-cou
   const block1 = rank.buildQuietMarketReason({ level: 'quiet' }, [], new Array(20).fill(null).map((_, i) => mkIgnored('I' + i)));
   ok('quiet vol + no internal — names "volatility is quiet"',
      /volatility is quiet/i.test(block1));
-  ok('quiet vol + no internal — names "no candidate cleared the near-threshold"',
-     /no candidate cleared the near-threshold/i.test(block1));
+  // Operator directive 2026-05-13: "near-threshold" backend
+  // wording rewritten to "early-signal score band".
+  ok('quiet vol + no internal — names "no candidate has cleared the early-signal score band"',
+     /no candidate has cleared the early-signal score band/i.test(block1));
 
   const block2 = rank.buildQuietMarketReason({ level: 'elevated' }, [mkInternal({}), mkInternal({})], []);
   ok('elevated vol + small internal pool — names elevated state',
      /volatility is elevated/i.test(block2));
-  ok('elevated vol + 2 internal — names "candidates are building near the threshold"',
-     /candidates are building near the threshold/i.test(block2));
+  ok('elevated vol + 2 internal — names "candidates are building"',
+     /candidates are building/i.test(block2));
 
   const block3 = rank.buildQuietMarketReason({ level: 'extreme' }, [mkInternal({}),mkInternal({}),mkInternal({})], []);
   ok('extreme vol — names extreme state', /volatility is extreme/i.test(block3));
@@ -252,8 +262,10 @@ console.log('\n[T7] Waiting For — synthesises confirmation pattern from domina
 
   // Empty
   const blockEmpty = rank.buildWaitingForBlock([]);
-  ok('empty universe — awaits a near-threshold-score candidate',
-     /Awaiting a candidate that crosses the near-threshold score \(5\/10\)/.test(blockEmpty));
+  // Operator directive 2026-05-13: empty fallback rewritten as
+  // trader-facing forward-looking text.
+  ok('empty universe — empty-fallback text uses trader-facing wording',
+     /A fresh candidate would need to break a recent high or low and hold it on the retest for the radar to fire/.test(blockEmpty));
 }
 
 // ============================================================
@@ -270,9 +282,11 @@ console.log('\n[T8] Universe Coverage — counts + strongest/weakest section + c
   const ranking = { top10: [], sectionsScanned: ['fx_majors','commodities'], sectionCapsApplied: [], allCount: 3 };
   const block = rank.buildUniverseCoverageBlock({ internal, ignored, universeSize: 33 }, ranking);
   ok('Symbols scanned: 33', /Symbols scanned:\*\*\s+33/.test(block));
-  ok('Below near-threshold (< 5/10): 25', /Below near-threshold[^*]*:\*\*\s+25/.test(block));
-  ok('Near-threshold (5–7/10): 3', /Near-threshold[^*]*:\*\*\s+3/.test(block));
-  ok('At publication threshold (≥ 8/10): 0', /At publication threshold[^*]*:\*\*\s+0/.test(block));
+  // Operator directive 2026-05-13: backend band names renamed to
+  // trader-facing labels.
+  ok('Below score band (< 5/10): 25', /Below score band[^*]*:\*\*\s+25/.test(block));
+  ok('Mid score band (5–7/10): 3', /Mid score band[^*]*:\*\*\s+3/.test(block));
+  ok('At WATCH grade (≥ 8/10): 0', /At WATCH grade[^*]*:\*\*\s+0/.test(block));
   ok('Strongest section line present', /\*\*Strongest section:\*\* /.test(block));
   ok('Volatility concentration line present', /Volatility concentration:/.test(block));
 }
@@ -292,11 +306,15 @@ console.log('\n[T9] Monitoring-only digest — supporting layer replaces standou
     { internal, ignored: [], universeSize: 33, now: Date.parse('2026-05-12T04:00:00Z') }
   );
   const c = payload.content;
-  ok('Pre-Radar block rendered',  /### .* Pre-Radar.* Building pressure/.test(c));
-  ok('Near-Miss block rendered',  /### .* Near-Miss/.test(c));
-  ok('Why-no-standout block rendered', /### .* Why no standout published/.test(c));
-  ok('Waiting For block rendered', /### .* What ATLAS is waiting for/.test(c));
-  ok('Universe coverage block rendered', /### .* Universe coverage/.test(c));
+  // Operator directive 2026-05-13: heading wording updated for
+  // every supporting block.
+  ok('Pre-Radar block rendered',  /### 📡 Pre-Radar \/ Building Pressure/.test(c));
+  ok('Near-Miss block rendered',  /### 🎯 Near-Miss/.test(c));
+  ok('"Why the radar is quiet" block rendered',
+     /### 🤫 Why the radar is quiet/.test(c));
+  ok('"What ATLAS Is Waiting For" block rendered',
+     /### ⏳ What ATLAS Is Waiting For/.test(c));
+  ok('Universe coverage block rendered', /### 📊 Universe coverage/.test(c));
   ok('Redundant "_No qualifying standouts this scan._" SUPPRESSED in monitoring-only',
      !/_No qualifying standouts this scan\._/.test(c),
      'placeholder still appears');
@@ -334,9 +352,10 @@ console.log('\n[T10] Populated digest — supporting layer renders below main se
   const c = payload.content;
   const idxStandouts = c.indexOf('### ⭐ Current standouts');
   const idxFxMajors  = c.indexOf('### FX Majors');
-  const idxPreRadar  = c.indexOf('### 🛰️ Pre-Radar');
+  // Operator directive 2026-05-13: heading now uses 📡 satellite
+  // antenna emoji + capitalisation "/ Building Pressure".
+  const idxPreRadar  = c.indexOf('### 📡 Pre-Radar');
   const idxNearMiss  = c.indexOf('### 🎯 Near-Miss');
-  const idxGlossary  = c.indexOf('### Glossary');
   ok('standouts block still rendered when top10 has content', idxStandouts > 0);
   ok('main section radar still rendered (FX Majors)', idxFxMajors > 0);
   ok('Pre-Radar appears AFTER main section radar (supporting position)',
@@ -345,8 +364,9 @@ console.log('\n[T10] Populated digest — supporting layer renders below main se
   ok('Near-Miss appears AFTER main section radar',
      idxNearMiss > idxFxMajors,
      { idxFxMajors, idxNearMiss });
-  ok('Glossary still at the foot (after supporting blocks)',
-     idxGlossary > idxNearMiss);
+  // Operator directive 2026-05-13: glossary block REMOVED.
+  ok('legacy glossary block absent (rewrite removed it)',
+     c.indexOf('### Glossary') === -1);
 }
 
 // ============================================================
@@ -364,20 +384,41 @@ console.log('\n[T11] Approved vocabulary present in supporting blocks');
     { internal, ignored: [], universeSize: 33 }
   );
   const c = payload.content;
+  // Operator directive 2026-05-13 (full DH rewrite): approved
+  // vocabulary swept clean of backend phrasing
+  // (no "Not promoted", "Confirmation pending",
+  // "Worth monitoring", "Awaiting confirmation",
+  // "publication threshold", "pressure visible but incomplete").
+  // Approved trader-facing terms now live in the rewritten
+  // supporting blocks.
   const APPROVED = [
     /building/i,
-    /monitoring/i,
+    /Strong reads forming/i,
+    /Early developmental signals/i,
+    /WATCH-grade/i,
+    /radar/i,
+  ];
+  for (const re of APPROVED) {
+    ok(`approved vocabulary present: ${re}`,
+       re.test(c),
+       re.test(c) ? undefined : 'phrase missing from output');
+  }
+
+  // Regression: legacy backend wording must NOT reappear.
+  const BANNED = [
     /Not promoted/i,
     /Confirmation pending/i,
     /pressure visible but incomplete/i,
     /publication threshold/i,
     /Worth monitoring/i,
     /Awaiting confirmation/i,
+    /Monitoring only/,
+    /no standout published/i,
   ];
-  for (const re of APPROVED) {
-    ok(`approved vocabulary present: ${re}`,
-       re.test(c),
-       re.test(c) ? undefined : 'phrase missing from output');
+  for (const re of BANNED) {
+    ok(`legacy backend wording absent: ${re}`,
+       !re.test(c),
+       re.test(c) ? `phrase still appears in output: ${re}` : undefined);
   }
 }
 
