@@ -698,6 +698,15 @@ function buildVisualLearningLinksRow(ranking, opts) {
   // carries no Bearish candidates we suppress the row entirely so
   // monitoring-only / bullish-only scans aren't padded with an
   // unrelated education row.
+  //
+  // Doctrine (operator directive 2026-05-12, post-PR-#64 review):
+  // emit PLAIN TEXT only — no Markdown link syntax, no `#<slug>`
+  // anchor fragments. Discord renders any [Name](anything) as a
+  // clickable hyperlink, and clickable hyperlinks that don't resolve
+  // are "fake URLs" per doctrine. The Lane 1 library still supports
+  // the link form via renderLearningLinksRow() + setDeepLinkBuilder();
+  // when a real terminology/dashboard URL exists, this consumer
+  // switches over without changes to the library.
   if (!_digestHasBearish(ranking, opts)) return '';
   let vpl;
   try {
@@ -705,14 +714,17 @@ function buildVisualLearningLinksRow(ranking, opts) {
   } catch (_e) {
     return '';
   }
-  if (!vpl || typeof vpl.renderLearningLinksRow !== 'function') return '';
-  // The link builder is intentionally NOT registered globally here.
-  // Default builder emits `#<slug>` anchor form, which renders as a
-  // clean Discord-safe plain term once Discord strips the fragment.
-  // The dashboard / docs surface will call setDeepLinkBuilder() at
-  // boot once its URL is wired. Until then we DO surface the row
-  // (with anchor form) so the learning-path is visible immediately.
-  return vpl.renderLearningLinksRow(['lh_ll', 'bos', 'liquidity_sweep', 'failed_retest']);
+  if (!vpl || typeof vpl.getPattern !== 'function') return '';
+  const ids = ['lh_ll', 'bos', 'liquidity_sweep', 'failed_retest'];
+  const names = ids
+    .map((id) => vpl.getPattern(id))
+    .filter(Boolean)
+    // Short name: drop the parenthetical suffix so "Lower High /
+    // Lower Low (bearish trend structure)" surfaces as just
+    // "Lower High / Lower Low" in the row.
+    .map((p) => p.name.replace(/\s*\(.*?\)\s*$/, '').trim());
+  if (names.length === 0) return '';
+  return `📘 Learn: ${names.join(' · ')}`;
 }
 
 // Full chart-pattern glossary (ATLAS education-layer doctrine
