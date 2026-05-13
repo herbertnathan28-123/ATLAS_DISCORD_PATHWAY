@@ -112,50 +112,34 @@ const bearishRanking = {
 const bearishOpts = { internal: [], ignored: [], universeSize: 33, now: NOW };
 
 const bearishRow = rank.buildVisualLearningLinksRow(bearishRanking, bearishOpts);
-ok('bearish present — row is non-empty', typeof bearishRow === 'string' && bearishRow.length > 0);
-// Operator directive 2026-05-13 (Lane 2 visual QA fix): renamed
-// "📘 Learn:" → "📘 Expanded Terminology Hyperlinks:" across DH output.
-ok('row begins with "📘 Expanded Terminology Hyperlinks:" prefix',
-   /^📘 Expanded Terminology Hyperlinks: /.test(bearishRow));
+ok('row is non-empty', typeof bearishRow === 'string' && bearishRow.length > 0);
+// Operator directive 2026-05-13 (full DH rewrite + section-
+// hyperlink standard):
+//   - Row appears on EVERY scan (not just bearish).
+//   - Bracket form: [Breakout] [Calm Retest] [Invalidation]
+//                   [Higher High / Higher Low]
+//   - ```ansi cyan styling for chip treatment.
+//   - Plain text only — no fake URLs.
+ok('row begins with "📘 **Expanded Terminology Hyperlinks:**" prefix',
+   /^📘 \*\*Expanded Terminology Hyperlinks:\*\*/.test(bearishRow));
 ok('row does NOT carry the legacy "📘 Learn:" prefix',
-   !/^📘 Learn: /.test(bearishRow));
-// Doctrine (operator directive 2026-05-12, post-PR-#64 review):
-// row must be PLAIN TEXT — no Markdown link syntax, no `#<slug>`
-// anchor fragments. The Lane 1 library still supports link form
-// for later real-URL wiring; this consumer renders plain text.
-ok('row contains "Lower High / Lower Low" (plain term, not a link)',
-   /Lower High \/ Lower Low/.test(bearishRow));
-ok('row contains "Break of Structure" (plain term)',
-   /Break of Structure/.test(bearishRow));
-ok('row contains "Liquidity Sweep" (plain term)',
-   /Liquidity Sweep/.test(bearishRow));
-ok('row contains "Failed Retest" (plain term)',
-   /Failed Retest/.test(bearishRow));
-ok('row contains NO Markdown link syntax — no "[text](url)" pattern',
-   !/\[[^\]]+\]\([^)]+\)/.test(bearishRow));
-ok('row contains NO "#<slug>" anchor-fragment output', !/#[a-z][a-z0-9-]*/.test(bearishRow));
-ok('row contains NO bare "http" / "https" prefix', !/\bhttps?:\/\//.test(bearishRow));
-ok('row uses " · " separator', / · /.test(bearishRow));
-ok('row is single-line (no newlines)', !bearishRow.includes('\n'));
-
-// Bearish in internal pool ONLY (not in top10) still triggers the row —
-// supports the "developing standout" case where bearish has not yet
-// crossed into top10.
-const bearishOnlyInInternal = {
-  top10: [],
-  sectionsScanned: [], sectionCapsApplied: [], allCount: 0,
-};
-const bearishInInternalOpts = {
-  internal: [mkRow('AUDUSD', 6, 'Bearish', rank.SECTIONS.FX_MAJORS)],
-  ignored: [], universeSize: 33, now: NOW,
-};
-ok('row fires when bearish is only in the internal pool',
-   rank.buildVisualLearningLinksRow(bearishOnlyInInternal, bearishInInternalOpts).length > 0);
+   !/📘 Learn: /.test(bearishRow));
+ok('row uses ```ansi code-fence chip styling', /```ansi/.test(bearishRow));
+for (const term of ['Breakout', 'Calm Retest', 'Invalidation', 'Higher High / Higher Low']) {
+  ok('chip "[' + term + ']" present in row', bearishRow.includes('[' + term + ']'));
+}
+ok('row carries NO Markdown link syntax — no "[text](url)" pattern',
+   !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(bearishRow));
+ok('row carries NO "#<slug>" anchor-fragment output',
+   !/#[a-z][a-z0-9-]*/.test(bearishRow));
+ok('row carries NO bare "http" / "https" prefix', !/\bhttps?:\/\//.test(bearishRow));
 
 // ----------------------------------------------------------------
-// T3 — Bullish-only and monitoring-only do NOT trigger the row
+// T3 — Operator directive 2026-05-13 (full DH rewrite): the row
+// fires on EVERY scan now, not just bearish. The bearish-only
+// suppression rule is REMOVED.
 // ----------------------------------------------------------------
-section('T3 — Bullish-only / monitoring-only suppression');
+section('T3 — Top hyperlinks row fires on every scan');
 
 const bullishOnly = {
   top10: [
@@ -164,16 +148,17 @@ const bullishOnly = {
   ],
   sectionsScanned: ['indices', 'equities'], sectionCapsApplied: [], allCount: 2,
 };
-ok('bullish-only top10 → no learning row',
-   rank.buildVisualLearningLinksRow(bullishOnly, { internal: [], ignored: [], universeSize: 33, now: NOW }) === '');
+ok('bullish-only top10 → row STILL fires (rewrite drops bearish-only gating)',
+   rank.buildVisualLearningLinksRow(bullishOnly, { internal: [], ignored: [], universeSize: 33, now: NOW }).length > 0);
 
 const monitoringOnly = {
   top10: [], sectionsScanned: [], sectionCapsApplied: [], allCount: 0,
 };
-ok('monitoring-only (no candidates) → no learning row',
-   rank.buildVisualLearningLinksRow(monitoringOnly, { internal: [], ignored: [], universeSize: 33, now: NOW }) === '');
+ok('monitoring-only (no candidates) → row STILL fires',
+   rank.buildVisualLearningLinksRow(monitoringOnly, { internal: [], ignored: [], universeSize: 33, now: NOW }).length > 0);
 
-// Predicate guards
+// Predicate guards (still exported, still work as helpers — but
+// no longer gate the row).
 ok('_digestHasBearish detects top10 bearish', rank._digestHasBearish(bearishRanking, bearishOpts) === true);
 ok('_digestHasBearish rejects bullish-only top10', rank._digestHasBearish(bullishOnly, { internal: [], ignored: [], universeSize: 33, now: NOW }) === false);
 ok('_digestHasBullish detects top10 bullish', rank._digestHasBullish(bullishOnly, { internal: [], ignored: [], universeSize: 33, now: NOW }) === true);
@@ -189,20 +174,21 @@ const bearishPayload = rank.buildRankedMovementDigestPayload(
 );
 
 ok('payload.firstChunkPrefix is non-empty', typeof bearishPayload.firstChunkPrefix === 'string' && bearishPayload.firstChunkPrefix.length > 0);
-// Boundary now uses ```diff fences (renders RED in Discord).
+// Boundary uses ```diff fences (renders RED in Discord).
 ok('firstChunkPrefix carries 2 ```diff fences (top + bottom red bar)',
    (bearishPayload.firstChunkPrefix.match(/```diff/g) || []).length === 2);
 ok('firstChunkPrefix carries the 🆕 NEW badge as H3', /### 🆕 🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(bearishPayload.firstChunkPrefix));
+// Top hyperlinks row uses bracket chips inside a ```ansi fence.
 ok('firstChunkPrefix carries the 📘 Expanded Terminology Hyperlinks row',
-   /📘 Expanded Terminology Hyperlinks: /.test(bearishPayload.firstChunkPrefix));
-ok('firstChunkPrefix carries the "Lower High / Lower Low" plain term',
-   /📘 Expanded Terminology Hyperlinks: [\s\S]*?Lower High \/ Lower Low/.test(bearishPayload.firstChunkPrefix));
+   /📘 \*\*Expanded Terminology Hyperlinks:\*\*/.test(bearishPayload.firstChunkPrefix));
+ok('firstChunkPrefix carries a ```ansi cyan-chip fence',
+   /```ansi/.test(bearishPayload.firstChunkPrefix));
+for (const term of ['Breakout', 'Calm Retest', 'Invalidation', 'Higher High / Higher Low']) {
+  ok('chip "[' + term + ']" present in firstChunkPrefix',
+     bearishPayload.firstChunkPrefix.includes('[' + term + ']'));
+}
 ok('firstChunkPrefix carries NO Markdown link syntax in the row',
-   !/📘 Expanded Terminology Hyperlinks: [\s\S]*?\[[^\]]+\]\([^)]+\)/.test(bearishPayload.firstChunkPrefix));
-ok('firstChunkPrefix carries NO "#<slug>" anchor-fragment leaks in the row',
-   !/📘 Expanded Terminology Hyperlinks:[^\n]*#[a-z][a-z0-9-]*/.test(bearishPayload.firstChunkPrefix));
-ok('firstChunkPrefix uses blank-line spacing between bottom fence and Terminology row',
-   /```\n\n📘 Expanded Terminology Hyperlinks: /.test(bearishPayload.firstChunkPrefix));
+   !/📘[\s\S]*?\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(bearishPayload.firstChunkPrefix));
 
 const bullishPayload = rank.buildRankedMovementDigestPayload(
   bullishOnly, { level: 'elevated', vixLevel: 'Elevated' },
@@ -210,8 +196,8 @@ const bullishPayload = rank.buildRankedMovementDigestPayload(
 );
 ok('bullish-only payload firstChunkPrefix carries boundary',
    (bullishPayload.firstChunkPrefix.match(/```diff/g) || []).length === 2);
-ok('bullish-only payload firstChunkPrefix DOES NOT carry 📘 Expanded Terminology Hyperlinks row',
-   !/📘 Expanded Terminology Hyperlinks: /.test(bullishPayload.firstChunkPrefix));
+ok('bullish-only payload firstChunkPrefix ALSO carries the 📘 row (rewrite removed bearish-only gating)',
+   /📘 \*\*Expanded Terminology Hyperlinks:\*\*/.test(bullishPayload.firstChunkPrefix));
 
 // Chunker pass-through verifies the boundary + Terminology row sit on
 // Part 1 only and never repeat on Parts 2..N.
@@ -223,12 +209,12 @@ ok('chunker produces at least 1 chunk', bearishChunks.length >= 1);
 ok('Part 1 starts with the ```diff boundary block',
    bearishChunks[0].startsWith('```diff\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n```\n### 🆕 🐎 **NEW DARK HORSE SCAN**'));
 ok('Part 1 carries the 📘 Expanded Terminology Hyperlinks row',
-   /📘 Expanded Terminology Hyperlinks: /.test(bearishChunks[0]));
+   /📘 \*\*Expanded Terminology Hyperlinks:\*\*/.test(bearishChunks[0]));
 for (let i = 1; i < bearishChunks.length; i++) {
   ok(`Part ${i + 1}/${bearishChunks.length} does NOT carry the boundary`,
      !/NEW DARK HORSE SCAN/.test(bearishChunks[i]));
   ok(`Part ${i + 1}/${bearishChunks.length} does NOT carry the 📘 Expanded Terminology Hyperlinks row`,
-     !/📘 Expanded Terminology Hyperlinks: /.test(bearishChunks[i]));
+     !/📘 \*\*Expanded Terminology Hyperlinks:\*\*/.test(bearishChunks[i]));
 }
 
 // ----------------------------------------------------------------
@@ -340,17 +326,18 @@ ok('plainTrendAge(1, Bullish) unchanged',
 ok('plainTrendAge(7, Bearish) unchanged — late-stage extended-move wording',
    /extended move/.test(rank.plainTrendAge(7, 'Bearish')));
 
-// Body Terminology Hyperlinks block still emits correctly. The
-// top-of-output 📘 row is a SEPARATE surface; this body row is the
-// post-rename ("Learning links" → "Expanded Terminology Hyperlinks")
-// version per the operator directive 2026-05-13.
+// Operator directive 2026-05-13 (full DH rewrite): the body
+// Terminology Hyperlinks row is REMOVED from the digest body.
+// buildLearningLinksBlock() stays exported (back-compat for unit
+// tests) but is no longer composed into the digest. We still
+// assert it returns the renamed "**Expanded Terminology
+// Hyperlinks:**" prefix in its unit output so the helper is
+// internally consistent.
 const llBlock = rank.buildLearningLinksBlock({});
-ok('buildLearningLinksBlock emits the renamed "**Expanded Terminology Hyperlinks:**" prefix',
+ok('buildLearningLinksBlock helper still emits the renamed prefix',
    /\*\*Expanded Terminology Hyperlinks:\*\*/.test(llBlock.text));
-ok('buildLearningLinksBlock does NOT carry the legacy "**Learning links:**" prefix',
+ok('buildLearningLinksBlock helper does NOT carry the legacy "**Learning links:**" prefix',
    !/\*\*Learning links:\*\*/.test(llBlock.text));
-ok('body Terminology Hyperlinks block does NOT carry the 📘 emoji (different surface)',
-   !/📘/.test(llBlock.text));
 
 // ----------------------------------------------------------------
 // T8 — Hard-boundary regressions
