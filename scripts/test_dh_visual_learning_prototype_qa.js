@@ -75,13 +75,26 @@ const NOW = Date.parse('2026-05-12T18:01:00Z');
 section('T1 — Scan boundary (Lane 2 redesign)');
 
 const boundary = rank.buildNewScanBoundary(NOW);
-ok('boundary uses 🔴 red-bordered separator (top + bottom)', (boundary.match(/🔴━+🔴/g) || []).length === 2);
+// Operator directive 2026-05-13 (Lane 2 visual QA fix): boundary
+// now uses ```diff code blocks so the bar renders in actual RED
+// in Discord (the previous 🔴...🔴 emoji form rendered as tiny
+// inline icons with default-coloured ━ chars). The legacy "━━━"
+// substring is preserved inside the diff fence so chunker
+// boundary-check regexes that grep for it keep firing.
+ok('boundary opens with ```diff code fence', /^```diff\n/.test(boundary));
+ok('boundary closes with ``` code fence', /\n```$/.test(boundary));
+ok('boundary contains exactly 2 ```diff fences (top + bottom red bar)',
+   (boundary.match(/```diff/g) || []).length === 2);
+ok('boundary contains diff "- " prefix on the bar line (renders RED in Discord)',
+   /\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n/.test(boundary));
 ok('boundary still embeds ━ horizontal-bar string (chunker compat)', /━━━━━━━━━━━━━━━━━━━━/.test(boundary));
 ok('boundary header carries 🆕 NEW badge', /🆕 /.test(boundary));
+ok('boundary header is rendered as H3 (### prefix for visual weight)',
+   /### 🆕 🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(boundary));
 ok('boundary header still contains "NEW DARK HORSE SCAN"', /🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(boundary));
-ok('boundary header has 🆕 immediately before 🐎', /🆕 🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(boundary));
 ok('boundary carries UTC + AWST scan-time line', /Scan time: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC \/ \d{4}-\d{2}-\d{2} \d{2}:\d{2} AWST/.test(boundary));
-ok('boundary is exactly 4 lines', boundary.split('\n').length === 4);
+ok('boundary is exactly 8 lines (top fence + bar + fence + header + scan-time + fence + bar + fence)',
+   boundary.split('\n').length === 8);
 
 // ----------------------------------------------------------------
 // T2 — Bearish-route learning links row
@@ -100,7 +113,12 @@ const bearishOpts = { internal: [], ignored: [], universeSize: 33, now: NOW };
 
 const bearishRow = rank.buildVisualLearningLinksRow(bearishRanking, bearishOpts);
 ok('bearish present — row is non-empty', typeof bearishRow === 'string' && bearishRow.length > 0);
-ok('row begins with 📘 Learn: prefix', /^📘 Learn: /.test(bearishRow));
+// Operator directive 2026-05-13 (Lane 2 visual QA fix): renamed
+// "📘 Learn:" → "📘 Expanded Terminology Hyperlinks:" across DH output.
+ok('row begins with "📘 Expanded Terminology Hyperlinks:" prefix',
+   /^📘 Expanded Terminology Hyperlinks: /.test(bearishRow));
+ok('row does NOT carry the legacy "📘 Learn:" prefix',
+   !/^📘 Learn: /.test(bearishRow));
 // Doctrine (operator directive 2026-05-12, post-PR-#64 review):
 // row must be PLAIN TEXT — no Markdown link syntax, no `#<slug>`
 // anchor fragments. The Lane 1 library still supports link form
@@ -171,38 +189,46 @@ const bearishPayload = rank.buildRankedMovementDigestPayload(
 );
 
 ok('payload.firstChunkPrefix is non-empty', typeof bearishPayload.firstChunkPrefix === 'string' && bearishPayload.firstChunkPrefix.length > 0);
-ok('firstChunkPrefix carries the 🔴 separator', /🔴━+🔴/.test(bearishPayload.firstChunkPrefix));
-ok('firstChunkPrefix carries the 🆕 NEW badge', /🆕 🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(bearishPayload.firstChunkPrefix));
-ok('firstChunkPrefix carries the 📘 Learn row', /📘 Learn: /.test(bearishPayload.firstChunkPrefix));
+// Boundary now uses ```diff fences (renders RED in Discord).
+ok('firstChunkPrefix carries 2 ```diff fences (top + bottom red bar)',
+   (bearishPayload.firstChunkPrefix.match(/```diff/g) || []).length === 2);
+ok('firstChunkPrefix carries the 🆕 NEW badge as H3', /### 🆕 🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(bearishPayload.firstChunkPrefix));
+ok('firstChunkPrefix carries the 📘 Expanded Terminology Hyperlinks row',
+   /📘 Expanded Terminology Hyperlinks: /.test(bearishPayload.firstChunkPrefix));
 ok('firstChunkPrefix carries the "Lower High / Lower Low" plain term',
-   /📘 Learn: [\s\S]*?Lower High \/ Lower Low/.test(bearishPayload.firstChunkPrefix));
-ok('firstChunkPrefix carries NO Markdown link syntax',
-   !/📘 Learn: [\s\S]*?\[[^\]]+\]\([^)]+\)/.test(bearishPayload.firstChunkPrefix));
-ok('firstChunkPrefix carries NO "#<slug>" anchor-fragment leaks in the Learn row',
-   !/📘 Learn:[^\n]*#[a-z][a-z0-9-]*/.test(bearishPayload.firstChunkPrefix));
+   /📘 Expanded Terminology Hyperlinks: [\s\S]*?Lower High \/ Lower Low/.test(bearishPayload.firstChunkPrefix));
+ok('firstChunkPrefix carries NO Markdown link syntax in the row',
+   !/📘 Expanded Terminology Hyperlinks: [\s\S]*?\[[^\]]+\]\([^)]+\)/.test(bearishPayload.firstChunkPrefix));
+ok('firstChunkPrefix carries NO "#<slug>" anchor-fragment leaks in the row',
+   !/📘 Expanded Terminology Hyperlinks:[^\n]*#[a-z][a-z0-9-]*/.test(bearishPayload.firstChunkPrefix));
+ok('firstChunkPrefix uses blank-line spacing between bottom fence and Terminology row',
+   /```\n\n📘 Expanded Terminology Hyperlinks: /.test(bearishPayload.firstChunkPrefix));
 
 const bullishPayload = rank.buildRankedMovementDigestPayload(
   bullishOnly, { level: 'elevated', vixLevel: 'Elevated' },
   { internal: [], ignored: [], universeSize: 33, now: NOW }
 );
-ok('bullish-only payload firstChunkPrefix carries boundary', /🔴━+🔴/.test(bullishPayload.firstChunkPrefix));
-ok('bullish-only payload firstChunkPrefix DOES NOT carry 📘 Learn row', !/📘 Learn: /.test(bullishPayload.firstChunkPrefix));
+ok('bullish-only payload firstChunkPrefix carries boundary',
+   (bullishPayload.firstChunkPrefix.match(/```diff/g) || []).length === 2);
+ok('bullish-only payload firstChunkPrefix DOES NOT carry 📘 Expanded Terminology Hyperlinks row',
+   !/📘 Expanded Terminology Hyperlinks: /.test(bullishPayload.firstChunkPrefix));
 
-// Chunker pass-through verifies the boundary + learning row sit on
+// Chunker pass-through verifies the boundary + Terminology row sit on
 // Part 1 only and never repeat on Parts 2..N.
 const bearishChunks = engine._dhChunkDigest(bearishPayload.content, {
   max: engine.DH_CHUNK_MAX_DEFAULT,
   firstChunkPrefix: bearishPayload.firstChunkPrefix,
 });
 ok('chunker produces at least 1 chunk', bearishChunks.length >= 1);
-ok('Part 1 starts with the 🔴 boundary block',
-   bearishChunks[0].startsWith('🔴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━🔴\n🆕 🐎 **NEW DARK HORSE SCAN**'));
-ok('Part 1 carries the 📘 Learn row', /📘 Learn: /.test(bearishChunks[0]));
+ok('Part 1 starts with the ```diff boundary block',
+   bearishChunks[0].startsWith('```diff\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n```\n### 🆕 🐎 **NEW DARK HORSE SCAN**'));
+ok('Part 1 carries the 📘 Expanded Terminology Hyperlinks row',
+   /📘 Expanded Terminology Hyperlinks: /.test(bearishChunks[0]));
 for (let i = 1; i < bearishChunks.length; i++) {
   ok(`Part ${i + 1}/${bearishChunks.length} does NOT carry the boundary`,
      !/NEW DARK HORSE SCAN/.test(bearishChunks[i]));
-  ok(`Part ${i + 1}/${bearishChunks.length} does NOT carry the 📘 Learn row`,
-     !/📘 Learn: /.test(bearishChunks[i]));
+  ok(`Part ${i + 1}/${bearishChunks.length} does NOT carry the 📘 Expanded Terminology Hyperlinks row`,
+     !/📘 Expanded Terminology Hyperlinks: /.test(bearishChunks[i]));
 }
 
 // ----------------------------------------------------------------
@@ -314,13 +340,16 @@ ok('plainTrendAge(1, Bullish) unchanged',
 ok('plainTrendAge(7, Bearish) unchanged — late-stage extended-move wording',
    /extended move/.test(rank.plainTrendAge(7, 'Bearish')));
 
-// Existing learning links block (body) still emits correctly. Lane 2
-// adds a SEPARATE top-of-output row; the existing in-body row is
-// untouched per the operator brief.
+// Body Terminology Hyperlinks block still emits correctly. The
+// top-of-output 📘 row is a SEPARATE surface; this body row is the
+// post-rename ("Learning links" → "Expanded Terminology Hyperlinks")
+// version per the operator directive 2026-05-13.
 const llBlock = rank.buildLearningLinksBlock({});
-ok('legacy buildLearningLinksBlock still emits "**Learning links:**" prefix',
-   /\*\*Learning links:\*\*/.test(llBlock.text));
-ok('legacy learning links block does NOT carry the 📘 emoji (different surface)',
+ok('buildLearningLinksBlock emits the renamed "**Expanded Terminology Hyperlinks:**" prefix',
+   /\*\*Expanded Terminology Hyperlinks:\*\*/.test(llBlock.text));
+ok('buildLearningLinksBlock does NOT carry the legacy "**Learning links:**" prefix',
+   !/\*\*Learning links:\*\*/.test(llBlock.text));
+ok('body Terminology Hyperlinks block does NOT carry the 📘 emoji (different surface)',
    !/📘/.test(llBlock.text));
 
 // ----------------------------------------------------------------
