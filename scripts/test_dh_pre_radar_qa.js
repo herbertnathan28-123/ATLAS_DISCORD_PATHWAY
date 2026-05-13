@@ -332,11 +332,13 @@ console.log('\n[T10] Populated digest — supporting layer renders below main se
     { internal, ignored: [], universeSize: 33, now: Date.parse('2026-05-12T04:00:00Z') }
   );
   const c = payload.content;
-  const idxStandouts = c.indexOf('### ⭐ Current standouts');
-  const idxFxMajors  = c.indexOf('### FX Majors');
-  const idxPreRadar  = c.indexOf('### 🛰️ Pre-Radar');
-  const idxNearMiss  = c.indexOf('### 🎯 Near-Miss');
-  const idxGlossary  = c.indexOf('### Glossary');
+  const idxStandouts  = c.indexOf('### ⭐ Current standouts');
+  const idxFxMajors   = c.indexOf('### FX Majors');
+  const idxPreRadar   = c.indexOf('### 🛰️ Pre-Radar');
+  const idxNearMiss   = c.indexOf('### 🎯 Near-Miss');
+  // Operator directive 2026-05-13 — legacy glossary suppressed.
+  // The footer anchor is now the next-review line, not "### Glossary".
+  const idxNextReview = c.indexOf('⏭️ Next review:');
   ok('standouts block still rendered when top10 has content', idxStandouts > 0);
   ok('main section radar still rendered (FX Majors)', idxFxMajors > 0);
   ok('Pre-Radar appears AFTER main section radar (supporting position)',
@@ -345,8 +347,9 @@ console.log('\n[T10] Populated digest — supporting layer renders below main se
   ok('Near-Miss appears AFTER main section radar',
      idxNearMiss > idxFxMajors,
      { idxFxMajors, idxNearMiss });
-  ok('Glossary still at the foot (after supporting blocks)',
-     idxGlossary > idxNearMiss);
+  ok('legacy glossary block NOT emitted', c.indexOf('### Glossary') === -1);
+  ok('next-review footer sits AFTER the supporting blocks',
+     idxNextReview > idxNearMiss);
 }
 
 // ============================================================
