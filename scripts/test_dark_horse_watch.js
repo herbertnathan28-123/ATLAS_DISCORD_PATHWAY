@@ -221,7 +221,7 @@ console.log('\n[T4] Bearish candidate — payload + banned sweep');
   ok('confirm line uses "close below <price> on 1D"',
      /close below \d+(?:\.\d+)?\s+on\s+1D/i.test(c), c);
   // cancel line uses "close above" (cancellation of bearish thesis)
-  ok('cancel line uses "close above <price> on 1D"',
+  ok('cancel line uses "close above \\d+(?:\\.\\d+)? on 1D"',
      /close above \d+(?:\.\d+)?\s+on\s+1D/i.test(c), c);
   bannedSweep('T4 bearish payload', c);
 }
@@ -402,47 +402,53 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
 
     bannedSweep('T10 v1.1 digest', c);
 
-    ok('row label "Promotion criteria:" present',
-       /\bPromotion criteria:\s/.test(c), c);
+    // Operator directive 2026-05-13 (Dark Horse rewrite): all
+    // colon labels are bolded. Trigger / condition labels
+    // surface as `**Promotion criteria:**`, `**Invalidation
+    // condition:**`, `**Invalidation level:**` etc.
+    ok('row label "**Promotion criteria:**" present',
+       /\*\*Promotion criteria:\*\*\s/.test(c), c);
     ok('row label "Promotion trigger:" REMOVED',
        !/\bPromotion trigger:/.test(c));
     ok('row label "Invalidation trigger:" REMOVED',
        !/\bInvalidation trigger:/.test(c));
 
-    // Current invalidation template carries no numeric price → must
-    // emit "Invalidation condition:" + the "Reference level not
-    // published in this digest yet." sub-row.
-    const condCount = (c.match(/Invalidation condition:/g) || []).length;
+    // Operator directive 2026-05-13 (Dark Horse rewrite): when the
+    // chart-evidence block publishes a numeric Invalidation level
+    // (via the 1D-anchor extreme), the per-card trigger row is
+    // SUPPRESSED to avoid a duplicate condition line. So in the
+    // top-3 fixture (which has 1D candles wired) we expect zero
+    // bare "Invalidation condition:" rows and the Invalidation
+    // level (with price) inside the Chart evidence block instead.
+    const condCount = (c.match(/\*\*Invalidation condition:\*\*/g) || []).length;
     const refCount  = (c.match(/Reference level not published in this digest yet\./g) || []).length;
-    const lvlCount  = (c.match(/Invalidation level:/g) || []).length;
-    ok('Invalidation condition: appears once per top-3 candidate',
-       condCount === 3, { condCount });
-    // Operator directive 2026-05-12 — the "Reference level not
-    // published in this digest yet." sub-row is now SUPPRESSED.
-    // The Chart evidence block above already publishes a
-    // price-stamped invalidation level (or an honest pending
-    // note), so the duplicate placeholder is dropped from the
-    // user-facing surface.
+    const evLvlCount = (c.match(/- Invalidation level:/g) || []).length;
+    ok('Invalidation condition: SUPPRESSED when Chart-evidence Invalidation level present',
+       condCount === 0, { condCount });
+    ok('Chart-evidence Invalidation level appears once per top-3 candidate',
+       evLvlCount === 3, { evLvlCount });
+    // The "Reference level not published in this digest yet."
+    // sub-row was already suppressed per the 2026-05-12 directive.
     ok('Reference level not published — SUPPRESSED per education-layer doctrine',
        refCount === 0, { refCount });
-    ok('Invalidation level: NOT used when no numeric price in source',
-       lvlCount === 0, { lvlCount });
 
     // No doubled tail: the digest must end with a single advisory
     // line. The old FOMO_CAUTION trailer must not be appended.
     ok('digest does NOT contain the old FOMO_CAUTION trailer',
        !c.includes(fomo.FOMO_CAUTION),
        'FOMO_CAUTION found at digest tail');
-    // Operator directive 2026-05-12 — footer rewritten to ask the
-    // reader to reassess at the next review window rather than the
-    // older "wait … before acting" wording.
-    ok('single advisory tail present',
-       /Conditions are moving but entry quality is not confirmed/.test(c) &&
-       /Reassess against the per-candidate confirmation criteria at the next review\./.test(c), c);
+    // Operator directive 2026-05-13 (Dark Horse rewrite) — footer
+    // rewritten to drop the backend "per-candidate confirmation
+    // criteria" phrasing.
+    ok('single advisory tail present (rewrite wording)',
+       /Conditions are moving but the per-candidate read still has to firm up/.test(c) &&
+       /Recheck each candidate against its confirmation requirement at the next review\./.test(c), c);
 
     // Numeric-level branch: feed a synthetic invalidation text that
     // includes a price. The renderer must switch to "Invalidation level:"
-    // and OMIT the "Reference level not published" helper.
+    // and OMIT the "Reference level not published" helper. This
+    // fixture does NOT include evidenceAnchors so the trigger-row
+    // path runs (chart-evidence suppression does not kick in).
     const withLevel = rank.buildExpandedDetail({
       symbol: 'TEST', section: 'equities', sectionLabel: 'Major Equities / Momentum',
       safeHavenOverlay: false, direction: 'Bullish', score: 8,
@@ -454,8 +460,8 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
       whyFlagged: 'mock', macroEventLink: 'mock',
       whyNotWatch: 'mock', atlasState: 'mock',
     }, 0);
-    ok('numeric-bearing invalidation switches to "Invalidation level:"',
-       /Invalidation level:\s+Close below 178\.40/.test(withLevel), withLevel);
+    ok('numeric-bearing invalidation switches to "Invalidation level:" (bolded label)',
+       /\*\*Invalidation level:\*\*\s+Close below 178\.40/.test(withLevel), withLevel);
     ok('numeric-bearing invalidation OMITS "Reference level not published"',
        !/Reference level not published/.test(withLevel));
 
