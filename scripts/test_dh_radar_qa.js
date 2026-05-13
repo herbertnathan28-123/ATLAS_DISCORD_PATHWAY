@@ -229,8 +229,11 @@ console.log('\n[T5] Standout tie-break — early > mid > late, lower late-entry-
 // ============================================================
 console.log('\n[T6] Trend age appears for each shown candidate');
 {
-  const ageLines = (content.match(/^Trend age:/gm) || []).length;
-  ok(`Trend age: appears once per shown candidate (${renderedCardCount} cards, ${ageLines} lines)`,
+  // Operator directive 2026-05-13 (Dark Horse rewrite): every
+  // colon label across the per-candidate card is now bolded
+  // (`**Trend age:**`).
+  const ageLines = (content.match(/^\*\*Trend age:\*\*/gm) || []).length;
+  ok(`**Trend age:** appears once per shown candidate (${renderedCardCount} cards, ${ageLines} lines)`,
      ageLines === renderedCardCount, { ageLines, cards: renderedCardCount });
 }
 
@@ -239,8 +242,8 @@ console.log('\n[T6] Trend age appears for each shown candidate');
 // ============================================================
 console.log('\n[T7] Trend phase appears for each shown candidate');
 {
-  const phaseLines = (content.match(/^Trend phase:/gm) || []).length;
-  ok(`Trend phase: appears once per shown candidate (${phaseLines} lines)`,
+  const phaseLines = (content.match(/^\*\*Trend phase:\*\*/gm) || []).length;
+  ok(`**Trend phase:** appears once per shown candidate (${phaseLines} lines)`,
      phaseLines === renderedCardCount, { phaseLines, cards: renderedCardCount });
 }
 
@@ -249,8 +252,8 @@ console.log('\n[T7] Trend phase appears for each shown candidate');
 // ============================================================
 console.log('\n[T8] Continuation window appears for each shown candidate');
 {
-  const continLines = (content.match(/^Continuation window:/gm) || []).length;
-  ok(`Continuation window: appears once per shown candidate (${continLines} lines)`,
+  const continLines = (content.match(/^\*\*Continuation window:\*\*/gm) || []).length;
+  ok(`**Continuation window:** appears once per shown candidate (${continLines} lines)`,
      continLines === renderedCardCount, { continLines, cards: renderedCardCount });
 }
 
@@ -261,13 +264,15 @@ console.log('\n[T9] "controlled pullback" does not appear bare anywhere');
 {
   ok('digest contains no bare "controlled pullback"',
      !/\bcontrolled pullback\b/i.test(content), { sample: content.slice(0, 200) });
-  // PR (education layer 2026-05-12) replaced the single-line
-  // _Calm retest_ italic with the full chart-pattern glossary
-  // block. Assert the new heading + a "Calm retest:" entry.
-  ok('digest carries the chart-pattern glossary block',
-     /### Glossary — chart-pattern terms used above/.test(content));
-  ok('glossary defines "Calm retest"',
-     /\*\*Calm retest:\*\*/.test(content));
+  // Operator directive 2026-05-13 (Dark Horse rewrite): the
+  // glossary footer block has been REMOVED from the digest body.
+  // Terminology now lives at the top-of-output (and per section)
+  // as compact hyperlink chip rows. Assert the OLD glossary
+  // heading is no longer in the output.
+  ok('digest does NOT carry the legacy glossary block (rewrite removed it)',
+     !/### Glossary — chart-pattern terms used above/.test(content));
+  ok('top-of-output Terminology Hyperlinks row reaches Part 1 via firstChunkPrefix',
+     /Expanded Terminology Hyperlinks:/.test(payload.firstChunkPrefix || ''));
   // Also sweep the watch payload via buildDHPayload — the only
   // other Dark Horse output surface.
   const watchPayload = engine.buildDHPayload({
