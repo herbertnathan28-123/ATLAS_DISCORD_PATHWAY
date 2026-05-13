@@ -291,6 +291,34 @@ preserves the cooldown contract (Pack 8.10 — no engine logic touched).
 
 ---
 
+## v6 / MI v3 doctrine-v6 execution-clarity pass (2026-05-13 evening 2)
+
+### 10 priorities applied across both lanes
+
+- [x] **Priority 1 — 5-disc severity scale** on Conviction (DH) + Market Mood + Risk State + Event Intensity. Format: `🟢🟢🟢🟢⚫ 4/5 — High` / `🟠🟠🟠🟠⚫ 4/5 — Elevated` / `🔴🔴🔴🔴🔴 5/5 — Extreme`. Inactive disc always `⚫`. No rainbow inactive.
+- [x] **Priority 2 — Abstract analyst language removed/translated.** "Half size" → "0.5 lot of your normal 1-lot trade". "Cleanest read" → "setups where price closes beyond the trigger level AND the next candle closes beyond it". "Wider stops" → "give the trade more room — a tight exit-point is more likely to be hit before the move confirms direction".
+- [x] **Priority 3 — Dollar-first execution** on every Where to Act / risk-escalation / What to Do Now field. "$300 risk on $100k notional EURUSD" first, "30-point distance" only as parenthetical context.
+- [x] **Priority 4 — Colour-coded prices** via `{{entry:X}}` `{{watch:X}}` `{{caution:X}}` `{{invalid:X}}` `{{money:X}}` tokens. CSS classes `.px-entry / .px-watch / .px-caution / .px-invalid / .px-money` on both field values and message content.
+- [x] **Priority 5 — Terminology renames.** `Horizon` → `Expected Duration`. `Whipsaw` → `Initial-direction reversal`. `Print` → `Announced result`. `Clean structure` → `Confirmed directional structure`. Each carries a hyperlink stub.
+- [x] **Priority 6 — Consequence-based guidance.** Every Dark Horse v6 candidate embed answers all 6 questions explicitly (What happened / Why it matters / What to do / Financial cost if wrong / What confirms / What cancels).
+- [x] **Priority 7 — Tighter execution zones.** v6 EURUSD entry band 1.0924–1.0928 (4 points, normal vol). Expansion documented only for elevated vol.
+- [x] **Priority 8 — Rendered chart cards** continued. SVG using locked CLAUDE.md palette on every candidate and the event-day reference.
+- [x] **Priority 9 — Action translation layer.** Every Dark Horse v6 card carries a `WHAT TO DO NOW` field with ① ② ③ ④ ⑤ numbered steps, dollar amounts inline.
+- [x] **Priority 10 — Hard boundary.** No engine touch. Both prototype scripts import only `_foh_renderer.js`.
+
+### Acceptance artefacts (Gate 1)
+
+- [x] Dark Horse v6: `docs/screenshots/dh-foh-v6.{png,pdf,html}` + 5 per-section + 5 detail crops + inline gallery `dh-foh-v6-gallery.md`.
+- [x] Market Intel v3: `docs/screenshots/market-intel-foh-v3.{png,pdf,html}` + 7 per-section + 6 detail crops + inline gallery `market-intel-foh-v3-gallery.md`.
+
+### Wire-up status (still HELD)
+
+- v3 wire-up of `darkHorseFoh.buildDarkHorseFohPayload` is current on the branch.
+- v4 + v5 + v6 changes are NOT yet wired. Wire-up requires operator visual sign-off on v6 prototype.
+- Market Intel runtime is NOT touched. Wire-up requires operator visual sign-off on the MI v3 prototype.
+
+---
+
 ## Pack 8.11 — Acceptance language (verbatim)
 
 > Front-of-house presentation PR reviewed against FOH.1.0.1. Merge

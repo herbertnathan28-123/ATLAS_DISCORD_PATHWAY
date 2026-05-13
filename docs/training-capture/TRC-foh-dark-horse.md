@@ -410,6 +410,94 @@ canonical artefact.
 
 ---
 
+## TRC-20260513-019 — 5-disc severity scale (operator doctrine)
+
+```json
+{
+  "id": "TRC-20260513-019",
+  "topic": "Universal 5-disc severity scale for Risk State / Conviction / Volatility / Event Intensity",
+  "source_section": "All FOH surfaces (Dark Horse + Market Intel) · severity readouts",
+  "why_it_matters": "Operator doctrine v6: every severity readout in ATLAS uses the same 5-disc visual scale. Format: 🟠🟠🟠🟠⚫ 4/5 — Elevated. Inactive discs are always ⚫ (never rainbow). The level maps to a colour family — 1 calm/green, 2 stable/yellow, 3-4 active-elevated/orange, 5 extreme/red. Direction-aware contexts (Conviction on bullish vs bearish DH candidate) can override the active-disc colour to green or red while keeping the inactive ⚫.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": false,
+  "common_mistake": "Showing 4/5 conviction as four green dots with no inactive disc visible — the reader has no anchor for the maximum scale. Always show the unfilled slot so the reader sees both the actual level AND the headroom.",
+  "suggested_module": "atlas-5-disc-severity-scale",
+  "related_terminology": ["conviction", "market_mood", "risk_state", "volatility"],
+  "status": "flagged",
+  "created_at": "2026-05-13T18:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-020 — Inline coloured-price tokens (renderer-side)
+
+```json
+{
+  "id": "TRC-20260513-020",
+  "topic": "Inline coloured-price tokens: {{entry:1.0925}} {{watch:1.0900}} {{caution:...}} {{invalid:1.0875}}",
+  "source_section": "All FOH surfaces · field values + message content",
+  "why_it_matters": "Operator doctrine v6 — Priority 4: invalidation prices RED, caution blocks ORANGE, watch levels yellow, entry levels green, dollar amounts gold. The renderer translates tokens to coloured spans so prices read in their doctrine colour wherever they appear in prose. Discord-native delivery cannot colour inline text via Markdown — full Discord requires the rendered-card-image surface lane (TRC-20260513-006 family).",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": false,
+  "common_mistake": "Leaving execution-critical prices as neutral white text. The trader's eye should jump straight to the invalidation level (red) without reading the whole paragraph.",
+  "suggested_module": "colour-doctrine-prices",
+  "related_terminology": ["entry_point", "invalidation_level", "watch_level", "caution_zone"],
+  "status": "flagged",
+  "created_at": "2026-05-13T18:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-021 — Execution Range Doctrine (tight bands by default)
+
+```json
+{
+  "id": "TRC-20260513-021",
+  "topic": "ATLAS Execution Range Doctrine — tight tactical entry bands, widen only when volatility justifies",
+  "source_section": "Dark Horse v6 · Entry zone bands",
+  "why_it_matters": "Operator doctrine: avoid oversized vague zones. Default to controlled tactical entry ranges (e.g. 1.0924–1.0928, a 4-point band) instead of exact single-price instructions OR broad 15-point bands. Tight bands acknowledge spread/slippage while remaining decision-grade. Bands expand only when volatility (Market Mood Elevated/Extreme) or event conditions justify it. Under extreme conditions, the rule is 'wait for stabilization before new entry consideration' — not a wider band.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Setting a 50-point entry band on a normal-vol setup. The trader ends up buying anywhere in that 50-point range, often at the worst price.",
+  "suggested_module": "atlas-execution-range-doctrine",
+  "related_terminology": ["entry_zone", "volatility", "expected_duration"],
+  "status": "flagged",
+  "created_at": "2026-05-13T18:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-022 — Terminology renames (Horizon → Expected Duration, Print → Announced result, Whipsaw → Initial-direction reversal, Clean structure → Confirmed directional structure)
+
+```json
+{
+  "id": "TRC-20260513-022",
+  "topic": "Doctrine-v6 terminology renames — replace insider trader-speak with plain English",
+  "source_section": "All FOH surfaces · wording layer",
+  "why_it_matters": "Operator doctrine v6 — Priority 5: institutional intelligence translated into executable human understanding requires removing analyst jargon. Horizon → Expected Duration (clearer time scope). Whipsaw → Initial-direction reversal (says what actually happens). Print → Announced result (says what actually happened). Clean structure → Confirmed directional structure (says what makes it 'clean'). Each rename includes a hyperlink stub so the term routes to a glossary entry once the glossary site is wired.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Using insider terms because they're shorter. Saying 'Horizon: Swing' tells the reader nothing without context; 'Expected Duration: Swing — days, not minutes' is operationally complete.",
+  "suggested_module": "atlas-plain-english-terminology",
+  "related_terminology": ["expected_duration", "initial_direction_reversal", "confirmed_directional_structure"],
+  "status": "flagged",
+  "created_at": "2026-05-13T18:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
 ## Suppression / promotion discipline (operator-side reference)
 
 These rows are not in the per-row JSON registry but apply to every

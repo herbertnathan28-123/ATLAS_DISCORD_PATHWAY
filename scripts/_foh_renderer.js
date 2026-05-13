@@ -140,8 +140,37 @@ function renderContent(content) {
       /LINK([^]+)([^]+)/g,
       (_m, t, href) => `<a class="term-link" href="${href}" title="${href}">${t}</a>`
     );
+    // v6 — inline coloured-price token translation in message
+    // content (also applied in field values via renderEmbed).
+    // Operator doctrine: invalidation prices RED, caution blocks
+    // ORANGE, watch yellow, entry green, dollar amounts gold.
+    escaped = escaped
+      .replace(/\{\{entry:([^}]+)\}\}/g,    (_m, v) => `<span class="px-entry">${v}</span>`)
+      .replace(/\{\{watch:([^}]+)\}\}/g,    (_m, v) => `<span class="px-watch">${v}</span>`)
+      .replace(/\{\{caution:([^}]+)\}\}/g,  (_m, v) => `<span class="px-caution">${v}</span>`)
+      .replace(/\{\{invalid:([^}]+)\}\}/g,  (_m, v) => `<span class="px-invalid">${v}</span>`)
+      .replace(/\{\{money:([^}]+)\}\}/g,    (_m, v) => `<span class="px-money">${v}</span>`);
     return escaped.replace(/\n/g, '<br>');
   }).join('');
+}
+
+// ── ATLAS Severity Disc Scale (operator doctrine — 5-disc) ─
+// Format: 🟠🟠🟠🟠⚫ 4/5 — Elevated
+// Rules:
+//   active discs same colour family
+//   inactive discs always ⚫ (dimmed same-family surrogate)
+//   NEVER mixed rainbow inactive
+// Used for: Risk State, Conviction, Volatility, Event Intensity,
+// Momentum, Market Mood, Trade Authority, Session Aggression.
+function discScale(active, total, label, colour) {
+  total = Number.isFinite(total) ? total : 5;
+  active = Math.max(0, Math.min(total, Number.isFinite(active) ? active : 0));
+  const fillByLevel = { 1: '🟢', 2: '🟡', 3: '🟠', 4: '🟠', 5: '🔴' };
+  const filled = colour || fillByLevel[active] || '🟢';
+  const dot = '⚫';
+  const discs = filled.repeat(active) + dot.repeat(total - active);
+  const tail = label ? ` — ${label}` : '';
+  return `${discs} ${active}/${total}${tail}`;
 }
 
 // ── Embed → HTML ───────────────────────────────────────────
@@ -150,31 +179,48 @@ function renderEmbed(e) {
   const title = e.title ? `<div class="embed-title">${escapeHtml(e.title)}</div>` : '';
   const desc = e.description ? `<div class="embed-desc">${escapeHtml(e.description)}</div>` : '';
   const fields = (e.fields || []).map(f => {
-    const escaped = escapeHtml(f.value || '');
+    // Pre-process inline colour-coded price tokens BEFORE escaping.
+    // Operator doctrine: invalidation prices RED, caution blocks
+    // ORANGE, watch levels yellow, entry levels green. Tokens:
+    //   {{entry:1.0925}} {{watch:1.0900}} {{caution:text}}
+    //   {{invalid:1.0875}} {{money:$300}}
+    let raw = String(f.value || '');
+    raw = raw
+      .replace(/\{\{entry:([^}]+)\}\}/g,    (_m, v) => 'COLENTRY' + v + '')
+      .replace(/\{\{watch:([^}]+)\}\}/g,    (_m, v) => 'COLWATCH' + v + '')
+      .replace(/\{\{caution:([^}]+)\}\}/g,  (_m, v) => 'COLCAUTION' + v + '')
+      .replace(/\{\{invalid:([^}]+)\}\}/g,  (_m, v) => 'COLINVALID' + v + '')
+      .replace(/\{\{money:([^}]+)\}\}/g,    (_m, v) => 'COLMONEY' + v + '');
+    // Markdown links [text](href) — render as cyan styled anchors.
+    raw = raw.replace(
+      /\[([^\]]+)\]\((https?:\/\/[^)]+|#[^)]+)\)/g,
+      (_m, t, href) => 'LINK' + t + '' + href + ''
+    );
+    const escaped = escapeHtml(raw);
     // Multi-line value support — Discord renders \n in field
     // values as actual line breaks. We mark up specific
-    // colour-banded action lines (entry / exit / risk-off / etc.)
-    // so each row gets its own visual band.
+    // colour-banded action lines (entry / exit / risk-off / etc.).
     const lines = escaped.split('\n').map(line => {
       if (/^🟢\s+(BUY|SELL|ENTRY|HEALTHY|GO)/.test(line))      return `<span class="entry">${line}</span>`;
       if (/^🟡\s+(WATCH|CAUTION|PENDING-CONFIRM)/.test(line))   return `<span class="caution">${line}</span>`;
-      if (/^🟠\s+(MARGINAL|TIGHTEN|REDUCE|DANGER)/.test(line))  return `<span class="marginal">${line}</span>`;
-      if (/^🛑\s+(RISK-OFF|STOP|INVALIDATION|EXIT|HARD-OFF)/.test(line)) return `<span class="stop">${line}</span>`;
-      if (/^🔴\s+(INVALID|DANGER|EXIT|STOP)/.test(line))       return `<span class="stop">${line}</span>`;
+      if (/^🟠\s+(MARGINAL|TIGHTEN|REDUCE|DANGER|CAUTION)/.test(line))  return `<span class="marginal">${line}</span>`;
+      if (/^🛑\s+(RISK-OFF|STOP|INVALIDATION|EXIT|HARD-OFF|Invalidation)/.test(line)) return `<span class="stop">${line}</span>`;
+      if (/^🔴\s+(INVALID|DANGER|EXIT|STOP|Invalidation)/.test(line))       return `<span class="stop">${line}</span>`;
       if (/^⚠️\s+/.test(line))                                  return `<span class="warn">${line}</span>`;
       if (/^🔵\s+/.test(line))                                  return `<span class="info-line">${line}</span>`;
       if (/^💲\s+/.test(line))                                  return `<span class="money-line">${line}</span>`;
+      if (/^\$\s+/.test(line))                                  return `<span class="money-line">${line}</span>`;
       return line;
     }).join('<br>');
-    // Markdown link → cyan-blue link styling (matches Discord native
-    // link colour). [text](href) becomes a styled span. The href is
-    // captured but not actually linked in the preview — operator can
-    // see the URL in the title attribute on hover.
-    let withLinks = lines.replace(
-      /\[([^\]]+)\]\((https?:\/\/[^)]+|#[^)]+)\)/g,
-      (m, t, href) => `<a class="term-link" href="${escapeHtml(href)}" title="${escapeHtml(href)}">${escapeHtml(t)}</a>`
-    );
-    const withChips = withLinks.replace(/(\[[^\]]+\])(?!\()/g, '<span class="term-chip">$1</span>');
+    // Substitute placeholder tokens with HTML
+    let withTokens = lines
+      .replace(/COLENTRY([^]+)/g,   (_m, v) => `<span class="px-entry">${v}</span>`)
+      .replace(/COLWATCH([^]+)/g,   (_m, v) => `<span class="px-watch">${v}</span>`)
+      .replace(/COLCAUTION([^]+)/g, (_m, v) => `<span class="px-caution">${v}</span>`)
+      .replace(/COLINVALID([^]+)/g, (_m, v) => `<span class="px-invalid">${v}</span>`)
+      .replace(/COLMONEY([^]+)/g,   (_m, v) => `<span class="px-money">${v}</span>`)
+      .replace(/LINK([^]+)([^]+)/g, (_m, t, href) => `<a class="term-link" href="${href}" title="${href}">${t}</a>`);
+    const withChips = withTokens.replace(/(\[[^\]]+\])(?!\()/g, '<span class="term-chip">$1</span>');
     return `
       <div class="embed-field ${f.inline ? 'inline' : 'block'}">
         <div class="embed-field-name">${escapeHtml(f.name)}</div>
@@ -184,10 +230,6 @@ function renderEmbed(e) {
   const footer = e.footer && e.footer.text
     ? `<div class="embed-footer">${escapeHtml(e.footer.text)}</div>`
     : '';
-  // ATLAS-styled chart card support — when an embed carries
-  // `chartCard`, we render it as an SVG snapshot inside the embed
-  // above the fields. This replaces ASCII art with a chart-shaped
-  // visual using the locked ATLAS colour palette.
   const chart = e.chartCard ? renderChartCardSvg(e.chartCard) : '';
   return `
     <div class="embed" style="border-left-color:${colour}">
@@ -475,6 +517,21 @@ function buildHtml(messages, opts) {
       letter-spacing: 0.3px;
     }
     .embed-field-value .money-line { color: #FAA61A; font-weight: 700; display: block; margin: 4px 0; }
+    /* Operator doctrine colour-coded price tokens. Watch yellow,
+       caution orange, invalidation red, entry green, money gold.
+       Used via {{entry:1.0925}} {{watch:1.0900}} etc. in field
+       values so the price reads in the doctrine colour wherever it
+       appears in prose. */
+    .embed-field-value .px-entry   { color: #23A55A; font-weight: 700; }
+    .embed-field-value .px-watch   { color: #F1C40F; font-weight: 700; }
+    .embed-field-value .px-caution { color: #E67E22; font-weight: 700; }
+    .embed-field-value .px-invalid { color: #ED4245; font-weight: 700; }
+    .embed-field-value .px-money   { color: #FAA61A; font-weight: 700; }
+    .message-content .px-entry     { color: #23A55A; font-weight: 700; }
+    .message-content .px-watch     { color: #F1C40F; font-weight: 700; }
+    .message-content .px-caution   { color: #E67E22; font-weight: 700; }
+    .message-content .px-invalid   { color: #ED4245; font-weight: 700; }
+    .message-content .px-money     { color: #FAA61A; font-weight: 700; }
     .embed-field-value .term-link,
     .message-content .term-link {
       color: #5BC0DE;
@@ -658,4 +715,5 @@ module.exports = {
   renderEmbed,
   renderChartCardSvg,
   renderNewBadge,
+  discScale,
 };
