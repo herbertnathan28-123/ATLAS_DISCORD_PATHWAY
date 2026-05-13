@@ -225,6 +225,72 @@ preserves the cooldown contract (Pack 8.10 — no engine logic touched).
 
 ---
 
+## v5 / MI v2 doctrine-escalation pass (2026-05-13 evening)
+
+### Doctrine lock — six questions, every statement
+
+- [x] Every major statement on every card / section answers all six:
+  1. What does this mean?
+  2. Why does it matter?
+  3. What should I do?
+  4. What happens if it changes?
+  5. Risk in DOLLARS first, points second?
+  6. Healthy vs Caution vs Danger vs Invalidation explicit?
+
+### Dollar-first risk language
+
+- [x] Every Dark Horse v5 candidate carries a `💲 Dollar risk this trade` field.
+- [x] Every Market Intel v2 reaction path carries dollar-impact ranges (no pips-first).
+- [x] Risk escalation zones carry dollar drawdown per zone.
+- [x] Pip / point references appear ONLY as parenthetical context, never as the lead.
+
+### Hyperlink stubs on unexplained terms
+
+- [x] Dark Horse v5 hyperlinks: `Long ▲`, `Short ▼`, `Trigger Level`, `Risk-Off`, `Invalidation`, `Entry Zone`, `Watch Level`, `Caution Zone`, `Cycle Rank`, `Market Mood`, `Breakout`, `Pullback`.
+- [x] Market Intel v2 hyperlinks: `CPI`, `hawkish`, `dovish`, `risk-on`, `risk-off`, `yield spread`, `VIX`, `DXY`, `front-end yields`, `initial-direction reversal`, `Market Mood`.
+- [x] Anchor-slug form (`#term-slug`) until the glossary site is wired — Discord renders Markdown links in its native cyan link colour either way.
+
+### NEW badge lifecycle (Dark Horse v5)
+
+- [x] **FRESH** = solid red filled with white text (first-appearance this scan).
+- [x] **STILL ACTIVE** = outlined red (1+ day, still trending).
+- [x] **FADING** = outlined orange (late-stage / mature).
+- [x] Renderer-side CSS (`.new-badge.badge-fresh / .badge-active / .badge-fading`). Discord-native text cannot fill backgrounds; full Discord delivery requires the rendered-card-image surface lane (TRC-20260513-006 family).
+
+### Rendered ATLAS chart-card primitive
+
+- [x] `scripts/_foh_renderer.js` exposes `renderChartCardSvg(spec)` that emits an SVG using the CLAUDE.md locked colour palette: `#00ff00` up candles, `#ff0015` down candles, `#131722` background, `#FFD600` HIGH (black text), `#00FF5A` CURRENT (black), `#FF9100` ENTRY (black), `#00B0FF` LOW (white).
+- [x] Every Dark Horse v5 candidate embed carries a `chartCard` field (rendered inline above the field grid).
+- [x] Market Intel v2 event card + event-day reference carry chart cards.
+- [x] Prototype-only — real chart-snapshot wiring captured as TRC-20260513-006.
+
+### Multi-colour FOH section hierarchy
+
+- [x] 6-colour ANSI palette: GOLD (primary banners), CYAN (subheadings/references), MAGENTA (educational callouts), GREEN (healthy/valid), RED (danger/invalidation), BLUE (info/event context).
+- [x] Section banners pick accent by purpose (BUILDING uses MAGENTA, RISK ESCALATION uses RED, reference cards use CYAN, MAJOR EVENTS uses BLUE, etc.) — not uniform gold.
+
+### Market Intel v2 wording overhaul
+
+- [x] "CPI prints" replaced with "CPI announced HIGHER / LOWER / IN-LINE with forecast" across every reaction path.
+- [x] "Whipsaw" replaced with "Initial-direction reversal" + inline definition.
+- [x] Reaction paths follow 4-outcome doctrine: HIGHER / LOWER / IN-LINE / CONFLICTING.
+- [x] Every reaction path lists: affected markets · expected behaviour · dollar impact · what you should do (✘ + ✓ items).
+- [x] "Cut size" guidance explains WHICH position, BY HOW MUCH, WHY (dollar-quantified).
+- [x] "What Traders Should Watch" — every indicator row ends with concrete `Action:` instruction.
+
+### Acceptance artefacts (Gate 1)
+
+- [x] Dark Horse v5: `docs/screenshots/dh-foh-v5.{png,pdf,html}` + per-section + detail crops + inline gallery `dh-foh-v5-gallery.md` (13 artefacts).
+- [x] Market Intel v2: `docs/screenshots/market-intel-foh-v2.{png,pdf,html}` + per-section + detail crops + inline gallery `market-intel-foh-v2-gallery.md` (16 artefacts).
+
+### Wire-up status (HELD)
+
+- v3 wire-up of `darkHorseFoh.buildDarkHorseFohPayload` is current on the branch.
+- v4 + v5 changes are NOT yet wired. Wire-up requires operator visual sign-off on the v5 prototype.
+- Market Intel runtime is NOT touched. Wire-up requires operator visual sign-off on the v2 prototype.
+
+---
+
 ## Pack 8.11 — Acceptance language (verbatim)
 
 > Front-of-house presentation PR reviewed against FOH.1.0.1. Merge

@@ -115,8 +115,31 @@ function renderContent(content) {
       else                        inner = escapeHtml(p.value);
       return `<pre class="fence">${inner}</pre>`;
     }
-    const escaped = escapeHtml(p.value)
+    // Translate the [[NEW_BADGE:label|state]] token to a styled
+    // HTML badge BEFORE escaping. Operator-directed lifecycle:
+    // FRESH = solid red filled; ACTIVE = outlined red; FADING =
+    // outlined orange. The literal token form keeps the renderer
+    // self-contained — no special markdown rule required.
+    let raw = p.value.replace(
+      /\[\[NEW_BADGE:([^\|\]]+)\|(fresh|active|fading)\]\]/g,
+      (_m, label, state) => 'NEWBADGE' + label + '' + state + ''
+    );
+    // Markdown links [text](url) — render as cyan styled anchors.
+    raw = raw.replace(
+      /\[([^\]]+)\]\((https?:\/\/[^)]+|#[^)]+)\)/g,
+      (_m, t, href) => 'LINK' + t + '' + href + ''
+    );
+    let escaped = escapeHtml(raw)
       .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    // Substitute placeholder tokens with HTML
+    escaped = escaped.replace(
+      /NEWBADGE([^]+)(fresh|active|fading)/g,
+      (_m, label, state) => renderNewBadge(label, state)
+    );
+    escaped = escaped.replace(
+      /LINK([^]+)([^]+)/g,
+      (_m, t, href) => `<a class="term-link" href="${href}" title="${href}">${t}</a>`
+    );
     return escaped.replace(/\n/g, '<br>');
   }).join('');
 }
@@ -140,9 +163,18 @@ function renderEmbed(e) {
       if (/^🔴\s+(INVALID|DANGER|EXIT|STOP)/.test(line))       return `<span class="stop">${line}</span>`;
       if (/^⚠️\s+/.test(line))                                  return `<span class="warn">${line}</span>`;
       if (/^🔵\s+/.test(line))                                  return `<span class="info-line">${line}</span>`;
+      if (/^💲\s+/.test(line))                                  return `<span class="money-line">${line}</span>`;
       return line;
     }).join('<br>');
-    const withChips = lines.replace(/(\[[^\]]+\])/g, '<span class="term-chip">$1</span>');
+    // Markdown link → cyan-blue link styling (matches Discord native
+    // link colour). [text](href) becomes a styled span. The href is
+    // captured but not actually linked in the preview — operator can
+    // see the URL in the title attribute on hover.
+    let withLinks = lines.replace(
+      /\[([^\]]+)\]\((https?:\/\/[^)]+|#[^)]+)\)/g,
+      (m, t, href) => `<a class="term-link" href="${escapeHtml(href)}" title="${escapeHtml(href)}">${escapeHtml(t)}</a>`
+    );
+    const withChips = withLinks.replace(/(\[[^\]]+\])(?!\()/g, '<span class="term-chip">$1</span>');
     return `
       <div class="embed-field ${f.inline ? 'inline' : 'block'}">
         <div class="embed-field-name">${escapeHtml(f.name)}</div>
@@ -152,12 +184,165 @@ function renderEmbed(e) {
   const footer = e.footer && e.footer.text
     ? `<div class="embed-footer">${escapeHtml(e.footer.text)}</div>`
     : '';
+  // ATLAS-styled chart card support — when an embed carries
+  // `chartCard`, we render it as an SVG snapshot inside the embed
+  // above the fields. This replaces ASCII art with a chart-shaped
+  // visual using the locked ATLAS colour palette.
+  const chart = e.chartCard ? renderChartCardSvg(e.chartCard) : '';
   return `
     <div class="embed" style="border-left-color:${colour}">
       ${title}${desc}
+      ${chart}
       <div class="embed-fields">${fields}</div>
       ${footer}
     </div>`;
+}
+
+// ── ATLAS-styled chart card (SVG) ──────────────────────────
+// Renders a faux-chart visual that mirrors the ATLAS dashboard
+// style: #131722 background, locked candle colours (#00ff00 /
+// #ff0015), and the 4-colour price box label system (HIGH yellow,
+// CURRENT green, ENTRY orange, LOW blue) from CLAUDE.md.
+// Used by Dark Horse v5 candidate cards and Market Intel v2
+// event-day reference card. Replaces the ASCII art placeholder
+// with a styled chart-shape image embedded in the embed.
+//
+// Spec:
+//   { symbol, currentPrice, highPrice, lowPrice, entryHigh,
+//     entryLow, watch, invalidation, candles: [{o,h,l,c}],
+//     direction: 'Bullish'|'Bearish' }
+function renderChartCardSvg(spec) {
+  const W = 540, H = 220;
+  const PADL = 12, PADR = 90, PADT = 14, PADB = 18;
+  const innerW = W - PADL - PADR, innerH = H - PADT - PADB;
+
+  const candles = Array.isArray(spec.candles) ? spec.candles : [];
+  if (candles.length === 0) return '';
+
+  // Find the price range from the candles + zone levels so every
+  // line stays in-frame.
+  const allPrices = [];
+  for (const c of candles) {
+    if (Number.isFinite(c.h)) allPrices.push(c.h);
+    if (Number.isFinite(c.l)) allPrices.push(c.l);
+    if (Number.isFinite(c.o)) allPrices.push(c.o);
+    if (Number.isFinite(c.c)) allPrices.push(c.c);
+  }
+  for (const v of [spec.entryHigh, spec.entryLow, spec.watch, spec.invalidation, spec.currentPrice]) {
+    if (Number.isFinite(v)) allPrices.push(v);
+  }
+  const maxP = Math.max.apply(null, allPrices);
+  const minP = Math.min.apply(null, allPrices);
+  const rng = maxP === minP ? 1 : (maxP - minP) * 1.1;
+  const midP = (maxP + minP) / 2;
+  const minScale = midP - rng / 2;
+  const maxScale = midP + rng / 2;
+  function yFor(p) {
+    if (!Number.isFinite(p)) return PADT;
+    return PADT + innerH - ((p - minScale) / (maxScale - minScale)) * innerH;
+  }
+  function xFor(i) {
+    const cw = innerW / Math.max(1, candles.length);
+    return PADL + cw * (i + 0.5);
+  }
+  const candleW = Math.max(2, Math.floor((innerW / candles.length) * 0.6));
+
+  // Candles
+  let candlesSvg = '';
+  for (let i = 0; i < candles.length; i++) {
+    const c = candles[i];
+    const cx = xFor(i);
+    const oY = yFor(c.o), cY = yFor(c.c), hY = yFor(c.h), lY = yFor(c.l);
+    const up = c.c >= c.o;
+    const fill = up ? '#00ff00' : '#ff0015';
+    const bodyTop = Math.min(oY, cY);
+    const bodyH = Math.max(1, Math.abs(oY - cY));
+    candlesSvg += `<line x1="${cx}" y1="${hY}" x2="${cx}" y2="${lY}" stroke="${fill}" stroke-width="1"/>`;
+    candlesSvg += `<rect x="${cx - candleW / 2}" y="${bodyTop}" width="${candleW}" height="${bodyH}" fill="${fill}"/>`;
+  }
+
+  // Zone bands — translucent fills layered behind candles
+  function zoneBand(price1, price2, fillRgba) {
+    if (!Number.isFinite(price1) || !Number.isFinite(price2)) return '';
+    const y1 = yFor(Math.max(price1, price2));
+    const y2 = yFor(Math.min(price1, price2));
+    return `<rect x="${PADL}" y="${y1}" width="${innerW}" height="${y2 - y1}" fill="${fillRgba}" />`;
+  }
+  let zones = '';
+  // Entry zone (green translucent)
+  if (Number.isFinite(spec.entryHigh) && Number.isFinite(spec.entryLow)) {
+    zones += zoneBand(spec.entryHigh, spec.entryLow, 'rgba(35,165,90,0.18)');
+  }
+  // Watch level — single line (yellow)
+  if (Number.isFinite(spec.watch)) {
+    const y = yFor(spec.watch);
+    zones += `<line x1="${PADL}" y1="${y}" x2="${PADL + innerW}" y2="${y}" stroke="#F1C40F" stroke-width="1" stroke-dasharray="4 4"/>`;
+    zones += `<text x="${PADL + 6}" y="${y - 3}" fill="#F1C40F" font-family="Consolas, monospace" font-size="11">watch</text>`;
+  }
+  // Invalidation — red dashed line
+  if (Number.isFinite(spec.invalidation)) {
+    const y = yFor(spec.invalidation);
+    zones += `<line x1="${PADL}" y1="${y}" x2="${PADL + innerW}" y2="${y}" stroke="#ED4245" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+    zones += `<text x="${PADL + 6}" y="${y + 13}" fill="#ED4245" font-family="Consolas, monospace" font-size="11">invalidation</text>`;
+  }
+
+  // ATLAS price-label boxes (right side)
+  function priceLabel(p, bg, fg, name, y) {
+    if (!Number.isFinite(p)) return '';
+    const x = W - PADR + 4;
+    const lblW = PADR - 8;
+    const txt = (Math.abs(p) >= 1000 ? p.toFixed(2) : Math.abs(p) >= 10 ? p.toFixed(2) : p.toFixed(4));
+    return `
+      <rect x="${x}" y="${y - 10}" width="${lblW}" height="20" rx="3" fill="${bg}"/>
+      <text x="${x + 6}" y="${y + 4}" fill="${fg}" font-family="Consolas, monospace" font-size="11" font-weight="700">${escapeHtml(name)} ${escapeHtml(txt)}</text>
+    `;
+  }
+  // Stack: HIGH yellow, CURRENT green, ENTRY orange, LOW blue
+  // (CLAUDE.md locked colours)
+  const labelY_HIGH = yFor(spec.highPrice);
+  const labelY_CUR  = yFor(spec.currentPrice);
+  const labelY_ENT  = yFor((spec.entryHigh + spec.entryLow) / 2);
+  const labelY_LOW  = yFor(spec.lowPrice);
+  const labels =
+    priceLabel(spec.highPrice,    '#FFD600', '#000', 'HIGH',    labelY_HIGH) +
+    priceLabel(spec.currentPrice, '#00FF5A', '#000', 'CURRENT', labelY_CUR) +
+    priceLabel((spec.entryHigh + spec.entryLow) / 2, '#FF9100', '#000', 'ENTRY', labelY_ENT) +
+    priceLabel(spec.lowPrice,     '#00B0FF', '#FFF', 'LOW',     labelY_LOW);
+
+  // Title row + footer caption
+  const symbolText = escapeHtml(spec.symbol || '');
+  const captionText = escapeHtml(spec.caption || 'ATLAS chart card preview · prototype render');
+
+  return `
+    <div class="chart-card">
+      <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="${W}" height="${H}" fill="#131722"/>
+        ${zones}
+        ${candlesSvg}
+        ${labels}
+        <text x="${PADL}" y="${PADT - 2}" fill="#DCDDDE" font-family="gg sans, sans-serif" font-size="12" font-weight="700">${symbolText}</text>
+      </svg>
+      <div class="chart-card-caption">${captionText}</div>
+    </div>`;
+}
+
+// ── NEW badge HTML (renderer-side, doctrine lifecycle) ─────
+// Replaces the plain text "─── NEW ───" or even a ```diff red bar.
+// Operator directive: FRESH = solid red filled box with white
+// text; STILL ACTIVE (≥1 day) = outlined red box; FADING = outlined
+// orange box. The HTML form lives in message-content where we
+// translate a special token `[[NEW_BADGE:label|state]]` into the
+// styled HTML element. Plain Discord cannot render filled
+// backgrounds, so this is a renderer-only visual goal — captured
+// for the rendered-card surface lane (future Discord delivery via
+// attached image).
+function renderNewBadge(label, state) {
+  const cls = state === 'fresh' ? 'badge-fresh'
+            : state === 'active' ? 'badge-active'
+            : state === 'fading' ? 'badge-fading'
+            : 'badge-fresh';
+  const labelHtml = escapeHtml(label || 'NEW');
+  return `<span class="new-badge ${cls}">${labelHtml}</span>`;
 }
 
 function renderMessage(m, idx, channelName, displayName) {
@@ -289,6 +474,15 @@ function buildHtml(messages, opts) {
       font-weight: 700;
       letter-spacing: 0.3px;
     }
+    .embed-field-value .money-line { color: #FAA61A; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .term-link,
+    .message-content .term-link {
+      color: #5BC0DE;
+      text-decoration: underline;
+      text-decoration-color: rgba(91,192,222,0.55);
+      text-underline-offset: 2px;
+      font-weight: 600;
+    }
     .embed-footer {
       color: #72767D;
       font-size: 13px;
@@ -296,6 +490,43 @@ function buildHtml(messages, opts) {
       margin-top: 14px;
       padding-top: 12px;
       border-top: 1px solid #40444B;
+    }
+    /* ─ NEW badge lifecycle variants ────────────────────────
+       FRESH (solid red filled, white text) for first-appearance
+       on a scan; STILL ACTIVE (outlined red) for 1+ day still
+       trending; FADING (outlined orange) for late-stage / older
+       candidates. Renderer-only visual — full Discord delivery
+       requires the rendered-card-image surface lane.            */
+    .new-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-family: Consolas, monospace;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 1px;
+      line-height: 1.2;
+      vertical-align: middle;
+      margin: 0 4px;
+    }
+    .new-badge.badge-fresh  { background:#ED4245; color:#FFF; border:1px solid #ED4245; }
+    .new-badge.badge-active { background:transparent; color:#ED4245; border:2px solid #ED4245; }
+    .new-badge.badge-fading { background:transparent; color:#E67E22; border:2px solid #E67E22; }
+    /* ─ Chart card (ATLAS-styled SVG snapshot) ───────────── */
+    .chart-card {
+      background: #131722;
+      border: 1px solid #2B313C;
+      border-radius: 6px;
+      margin: 12px 0 14px;
+      padding: 4px 4px 0;
+    }
+    .chart-card svg { display: block; width: 100%; height: auto; border-radius: 4px; }
+    .chart-card-caption {
+      color: #72767D;
+      font-size: 12px;
+      font-family: Consolas, monospace;
+      padding: 6px 8px 8px;
+      text-align: center;
     }
   `;
   const messagesHtml = messages.map((m, i) => renderMessage(m, i, channelName, displayName)).join('');
@@ -425,4 +656,6 @@ module.exports = {
   renderDiffBlock,
   renderContent,
   renderEmbed,
+  renderChartCardSvg,
+  renderNewBadge,
 };

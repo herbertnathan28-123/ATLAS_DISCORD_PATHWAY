@@ -256,6 +256,160 @@ canonical artefact.
 
 ---
 
+## TRC-20260513-012 — ATLAS wording doctrine lock (six-question rule)
+
+```json
+{
+  "id": "TRC-20260513-012",
+  "topic": "Every important ATLAS statement must answer six questions",
+  "source_section": "All FOH surfaces (Dark Horse + Market Intel) · wording layer",
+  "why_it_matters": "The doctrine answers: (1) What does this mean? (2) Why does it matter? (3) What should I do? (4) What happens if it changes? (5) Risk in dollars first, not pips? (6) Healthy vs caution vs danger vs invalidation? When ATLAS makes a statement without answering these six, the trader is left guessing. Guessing is how accounts get blown up.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Writing 'bullish setup weakens' without telling the trader (a) at what level, (b) what that means for their position, (c) what they should do about it, (d) what the dollar drawdown is, (e) when the trade becomes hard-invalidated. The reader cannot act on incomplete information.",
+  "suggested_module": "atlas-six-question-doctrine-101",
+  "related_terminology": ["entry_point", "invalidation_level", "risk_management", "position_sizing"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-013 — Dollar-first risk language
+
+```json
+{
+  "id": "TRC-20260513-013",
+  "topic": "ATLAS risk language is dollars-first, points-second",
+  "source_section": "All FOH surfaces · Where to Act + Dollar risk this trade",
+  "why_it_matters": "Traders manage accounts in dollars, not pips. Saying 'a 50-pip move' tells the trader nothing about real risk to their account. Saying '$500 risk on $100k notional EURUSD' tells them exactly what's at stake. ATLAS leads every risk discussion with the dollar figure and uses pip/point context only as a secondary footnote.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Sizing in based on pip distance without converting to dollar exposure. A 50-pip stop is $500 on $100k EURUSD but $1,000 on $200k or $250 on $50k. The pip number is the same; the account impact is different.",
+  "suggested_module": "dollar-first-risk-sizing-101",
+  "related_terminology": ["position_sizing", "stop_loss", "risk_management"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-014 — NEW badge lifecycle variants (renderer-side)
+
+```json
+{
+  "id": "TRC-20260513-014",
+  "topic": "NEW badge lifecycle — FRESH solid red, STILL ACTIVE outlined red, FADING outlined orange",
+  "source_section": "Dark Horse v5 · per-candidate red NEW BADGE separator",
+  "why_it_matters": "The badge tells the trader at a glance whether a candidate is brand new (highest reward + highest uncertainty) or has been running across multiple scans (more reliable) or is fading (skip). FRESH = solid red filled with white text; STILL ACTIVE (1+ day, still trending) = outlined red; FADING (late-stage, mature) = outlined orange. The visual variant is rendered locally in HTML/CSS. Discord cannot render filled backgrounds via text — full Discord delivery requires the rendered-card-image surface lane (TRC-20260513-006 family).",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": false,
+  "common_mistake": "Treating a FADING candidate the same as a FRESH one. Sizing into NVDA on its 4th cycle when the easy reward has already been earned.",
+  "suggested_module": "candidate-lifecycle-visual-cues-101",
+  "related_terminology": ["mover_stage_1", "conviction", "late_entry_risk"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-015 — Hyperlink-stub system (Expanded Terminology Hyperlinks)
+
+```json
+{
+  "id": "TRC-20260513-015",
+  "topic": "Hyperlink stubs on every unexplained domain term",
+  "source_section": "All FOH surfaces · inline terminology + Expanded Terminology Hyperlinks row",
+  "why_it_matters": "A beginner-readable surface cannot leave terms like Long, Short, Hawkish, Risk-Off, CPI, VIX, DXY, Whipsaw, Yield Spread, Invalidation unexplained. v5/v2 wraps every such term in a Markdown link [term](#term-slug). Discord renders these in its native cyan link colour. Once the glossary site exists, the anchor slugs map to permanent definition pages. Until then the bracketed form serves as an inline marker that the term IS explained somewhere, and the visual treatment is preserved.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Leaving 'hawkish' or 'whipsaw' unexplained on the assumption the reader knows. Most readers do not.",
+  "suggested_module": "expanded-terminology-glossary-routing",
+  "related_terminology": ["bias", "conviction"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-016 — Rendered ATLAS chart-card primitive (SVG)
+
+```json
+{
+  "id": "TRC-20260513-016",
+  "topic": "Rendered ATLAS chart-card preview — SVG using locked palette",
+  "source_section": "Dark Horse v5 · per-candidate embed · chartCard field; Market Intel v2 · event-day reference",
+  "why_it_matters": "The operator flagged the simplified ASCII reference cards as interim — final acceptance requires rendered chart imagery. v5 introduces an SVG chart-card primitive in scripts/_foh_renderer.js that renders candles + four zones (entry green band + watch dashed yellow + invalidation red dashed) + ATLAS-style price-label boxes (HIGH yellow / CURRENT green / ENTRY orange / LOW blue) using the locked CLAUDE.md colour palette (#00ff00 / #ff0015 / #131722 / etc). It is NOT a real chart render — that requires renderer.js wiring which is OFF LIMITS for FOH. This primitive is the proxy that proves the visual goal until the real chart-render lane is approved separately.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Confusing the SVG chart-card prototype with a real ATLAS chart render. The prototype shows what the visual goal looks like; the real-data render is a future wire-up.",
+  "suggested_module": "rendered-chart-card-pipeline",
+  "related_terminology": ["entry_zone", "invalidation_level", "watch_level"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-017 — Multi-colour FOH section hierarchy
+
+```json
+{
+  "id": "TRC-20260513-017",
+  "topic": "Section banners use different colours by purpose, not single gold",
+  "source_section": "All FOH surfaces · section banners + subheadings",
+  "why_it_matters": "Operator directive: 'use different bold colours for different sections where helpful, not one generic orange for everything.' v5/v2 introduces a 6-colour ANSI palette: GOLD (primary banners), CYAN (subheadings / references), MAGENTA (educational callouts), GREEN (healthy/valid), RED (danger/invalidation), BLUE (info/event context). Section banner accent is chosen by purpose, not by reflex.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": false,
+  "common_mistake": "Using gold for everything makes the eye skim. Multi-colour means the reader can identify section type at a glance.",
+  "suggested_module": "foh-section-colour-language",
+  "related_terminology": ["traffic_light_state"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
+## TRC-20260513-018 — Market Intel reaction-path doctrine (4 outcomes)
+
+```json
+{
+  "id": "TRC-20260513-018",
+  "topic": "Every macro event surfaces 4 reaction paths: HIGHER / LOWER / IN-LINE / CONFLICTING",
+  "source_section": "Market Intel v2 · Possible Market Reaction Paths section",
+  "why_it_matters": "Beginners need to know what to do in EVERY outcome, not just the most likely one. v2 surfaces all 4 paths per major event. Each path names: affected markets, expected behaviour per market, dollar impact range (no pips), what you should do (✘ DO NOT + ✓ DO items). The CONFLICTING path (renamed from 'whipsaw') is the most-punishing outcome and gets the most detailed action guidance.",
+  "trader_level": 1,
+  "visual_needed": false,
+  "example_chart_needed": false,
+  "common_mistake": "Only preparing for the consensus outcome. When an event surprises the other way, the unprepared trader is blown up by the move they didn't model.",
+  "suggested_module": "macro-event-4-reaction-paths",
+  "related_terminology": ["hawkish", "dovish", "in_line_print", "initial_direction_reversal"],
+  "status": "flagged",
+  "created_at": "2026-05-13T15:00:00Z",
+  "flagged_by": "operator-via-claude-code"
+}
+```
+
+---
+
 ## Suppression / promotion discipline (operator-side reference)
 
 These rows are not in the per-row JSON registry but apply to every
