@@ -35,6 +35,126 @@
 
 const rank = require('./darkHorseRanking');
 
+// ── ANSI / DIFF STYLE PRIMITIVES (Pack 2 — visual surface) ──
+// Discord renders ESC[XXm sequences inside ```ansi fences with
+// real colour. The single-character ESC byte (0x1B) is what
+// triggers the SGR parse. We expose helpers for each of the
+// visual primitives the FOH surface uses.
+const ESC = '';
+const STYLE = {
+  GOLD_BOLD: `${ESC}[33;1m`,  // gold/orange section banners + subheadings
+  CYAN_BOLD: `${ESC}[36;1m`,  // teal terminology chips + reference-card prose labels
+  GREEN:     `${ESC}[32m`,    // chart art — uptrend / buyers
+  RED:       `${ESC}[31m`,    // chart art — broken-level marker
+  RESET:     `${ESC}[0m`,
+};
+
+// Top-of-scan red NEW divider — 5 lines inside ```diff. Discord
+// renders `-` lines red, so the whole bar reads as a "change of
+// scene" marker between the previous scan and the new one.
+function redNewDividerTop(scanTimestamp, universeSize) {
+  return [
+    '```diff',
+    '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '- ▼ ▼ ▼   N E W   D A R K   H O R S E   S C A N   ▼ ▼ ▼',
+    '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    `- 🆕   ${scanTimestamp} · ${universeSize} markets scanned   🆕`,
+    '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '```',
+  ].join('\n');
+}
+
+// Per-message red NEW badge — single-line ```diff so every new
+// candidate / surface change carries its own red marker, not just
+// a plain text divider. Lighter than the top divider but still red.
+function newBadgeSeparator(label) {
+  return [
+    '```diff',
+    `- 🆕  ${label}`,
+    '```',
+  ].join('\n');
+}
+
+// Gold section heading box — bold gold ASCII inside ```ansi. The
+// heading reads as a banner across the channel.
+function goldSectionBox(headingText) {
+  const inner = String(headingText).padEnd(46, ' ');
+  return [
+    '```ansi',
+    `${STYLE.GOLD_BOLD}╔══════════════════════════════════════════════════╗`,
+    `${STYLE.GOLD_BOLD}║   ${inner}║`,
+    `${STYLE.GOLD_BOLD}╚══════════════════════════════════════════════════╝${STYLE.RESET}`,
+    '```',
+  ].join('\n');
+}
+
+// Bold-gold subheading inline — used for "▸ Today's read" /
+// "▸ Market mood" / "▸ Risk reminder" rows under the banner.
+function goldSubheading(text) {
+  return [
+    '```ansi',
+    `${STYLE.GOLD_BOLD}▸  ${text}${STYLE.RESET}`,
+    '```',
+  ].join('\n');
+}
+
+// Teal/cyan terminology chip row. When `urlMap` carries real
+// URLs for any term, we emit Markdown links (Discord auto-styles
+// links in its native link colour, no fence required). Otherwise
+// we fall back to ```ansi bold-cyan chips so the visual treatment
+// is still present even before the glossary site is wired.
+function tealTerminologyRow(terms, urlMap) {
+  const map = urlMap && typeof urlMap === 'object' ? urlMap : {};
+  const hasUrls = terms.some(t => typeof map[t] === 'string' && /^https?:\/\//.test(map[t]));
+  if (hasUrls) {
+    return terms.map(t => {
+      const url = map[t];
+      return (typeof url === 'string' && /^https?:\/\//.test(url))
+        ? `[${t}](${url})`
+        : `[${t}]`;
+    }).join(' · ');
+  }
+  const inner = terms.map(t => `${STYLE.CYAN_BOLD}[${t}]${STYLE.RESET}`).join('  ');
+  return [
+    '```ansi',
+    inner,
+    '```',
+  ].join('\n');
+}
+
+// Visual reference card (simplified, per operator: keep simplified
+// for prototype wire-up; rendered ATLAS chart-reference cards are
+// the NEXT evolution flagged in docs/training-capture/).
+// Gold banner + green/red ASCII chart + 2 cyan-headed prose sections.
+function visualReferenceCard() {
+  return [
+    '```ansi',
+    `${STYLE.GOLD_BOLD}╔══════════════════════════════════════════════════╗`,
+    `${STYLE.GOLD_BOLD}║   📚  CLEAN BULLISH BREAKOUT — REFERENCE         ║`,
+    `${STYLE.GOLD_BOLD}╚══════════════════════════════════════════════════╝${STYLE.RESET}`,
+    '',
+    `${STYLE.GREEN}   ▲ price${STYLE.RESET}`,
+    `${STYLE.GREEN}   │                            ╭──── higher still${STYLE.RESET}`,
+    `${STYLE.GREEN}   │                      ╭──╮ ╱${STYLE.RESET}`,
+    `${STYLE.RED}   │   ─────────────────●──╯  ●${STYLE.RESET}   ← buyers defended`,
+    `${STYLE.RED}   │   ceiling, now a floor${STYLE.RESET}`,
+    `${STYLE.GREEN}   │          ╭──╮${STYLE.RESET}`,
+    `${STYLE.GREEN}   │    ╭──╮ ╱    ╲ ╱   ← pushed up through the ceiling${STYLE.RESET}`,
+    `${STYLE.GREEN}   │ ╱╲╱   ╲╱      V${STYLE.RESET}`,
+    `${STYLE.GREEN}   └──────────────────────────────────────▶ time${STYLE.RESET}`,
+    '',
+    `${STYLE.CYAN_BOLD}   ▸  The story${STYLE.RESET}`,
+    '       Price pushed through a level that capped it for weeks,',
+    '       then came back to test the same level. Buyers stepped',
+    '       in to defend it. The ceiling has flipped into a floor.',
+    '',
+    `${STYLE.CYAN_BOLD}   ▸  How a trader acts${STYLE.RESET}`,
+    '       Buy the pullback to the floor. Place the risk-off just',
+    '       under it. If the floor breaks, the idea is off.',
+    '```',
+  ].join('\n');
+}
+
 // ── COLOUR MAP (Pack §0.1 — decimal RGB for Discord embeds) ──
 const COLOUR = {
   STRONG_BULL: 3066993,    // #2ECC71
@@ -136,10 +256,13 @@ function convictionScale(score, badge) {
 }
 
 // ── DIRECTION + MOVE TYPE + STAGE ──────────────────────────
+// Direction field value — beginner-readable. The icon + label is
+// the at-a-glance read; the parenthetical is the beginner anchor
+// so a Level-1 reader gets what each direction MEANS.
 function directionField(direction) {
-  if (direction === 'Bullish') return '▲ Long';
-  if (direction === 'Bearish') return '▼ Short';
-  return '▶ Sideways';
+  if (direction === 'Bullish') return '▲ Long  (rising bias)';
+  if (direction === 'Bearish') return '▼ Short  (falling bias)';
+  return '▶ Sideways  (no clear bias)';
 }
 
 // Move type — derived from move phase + structure read. Spec
@@ -175,28 +298,35 @@ function timeframeField(r) {
   return 'Swing (1–5d)';
 }
 
-// ── TRIGGER + WHERE TO ACT ─────────────────────────────────
-// Trigger field surfaces the trigger price + state. The state
-// uses the approved replacement wording from Pack 2.7:
-//   - confirmed (when chart-evidence anchor is wired and breakoutClose set)
-//   - awaiting trigger (when level exists but no breakout candle yet)
-//   - setup developing (when level exists but no confirmation yet)
-// "pending" / "pending confirmation" / "unavailable" / "N/A" are
-// BANNED — never reach a user-facing field.
+// ── TRIGGER LEVEL + WHERE TO ACT ───────────────────────────
+// "Trigger level" is the level the candidate just moved through
+// (the level the trader checks the chart for). Wording is
+// beginner-readable per operator refinement: "Cleared 1.0950
+// cleanly" / "Below 2398 cleanly" / "Above 925.40 — waiting for
+// the next push". No "pending" / "unavailable" / "N/A" / backend
+// state leaks.
 function triggerField(r) {
   const ev = r && r.evidenceAnchors;
-  if (!ev || ev.availability === 'pending') return null;  // suppress field
+  if (!ev || ev.availability === 'pending') return null;
   const dir = r && r.direction;
   const anchor = dir === 'Bearish' ? ev.recentLow : ev.recentHigh;
   if (!anchor || !anchor.priceText) return null;
-  if (ev.breakoutClose) return `${anchor.priceText} confirmed`;
-  return `${anchor.priceText} · awaiting trigger`;
+  if (ev.breakoutClose) {
+    return dir === 'Bearish'
+      ? `Below ${anchor.priceText} — already broken and held`
+      : `Above ${anchor.priceText} — already broken and held`;
+  }
+  return dir === 'Bearish'
+    ? `Below ${anchor.priceText} — waiting for the next push`
+    : `Above ${anchor.priceText} — waiting for the next push`;
 }
 
-// Where to Act — colour-coded text matching (Pack §0.4).
-// Format: 🟢 ENTRY POINT: <level> · 🛑 STOP LOSS: <level>
-// When evidence-anchor data is missing the entire field is
-// suppressed (no "pending" leak).
+// Where to Act — multi-line value with BUY/SELL line + RISK-OFF
+// line. Discord renders `\n` in field values as line breaks,
+// so each action gets its own colour-banded row on mobile.
+// Beginner-readable wording: "if price dips back here and holds"
+// instead of "on the dip-and-hold"; "exit the idea if this level
+// fails" instead of "level flips back to ceiling".
 function whereToActField(r) {
   const ev = r && r.evidenceAnchors;
   if (!ev || ev.availability === 'pending') return null;
@@ -205,31 +335,45 @@ function whereToActField(r) {
   const inv = ev.invalidation;
   if (!anchor || !anchor.priceText) return null;
   if (!inv || !inv.priceText) return null;
-  const verb = dir === 'Bearish' ? 'Sell on retest of' : 'Buy on retest of';
-  return `🟢 ENTRY POINT: ${anchor.priceText} · 🛑 STOP LOSS: ${inv.priceText} · ${verb} ${anchor.priceText}`;
+  const isShort = dir === 'Bearish';
+  const entryVerb = isShort ? 'SELL' : 'BUY';
+  const entryHint = isShort
+    ? 'if price bounces back here and stalls'
+    : 'if price dips back here and holds';
+  const stopHint = 'exit the idea if this level fails';
+  const lines = [
+    `🟢 ${entryVerb} at ${anchor.priceText}  —  ${entryHint}`,
+    `🛑 RISK-OFF at ${inv.priceText}  —  ${stopHint}`,
+  ];
+  // Late-stage / exhaustion phase carries an explicit caveat row
+  // so the trader doesn't size in like an early-stage card.
+  if (r.movePhase === 'late' || r.movePhase === 'exhaustion') {
+    lines.push('⚠️  Size small — the move is late in its cycle');
+  }
+  return lines.join('\n');
 }
 
 // ── DESCRIPTION — trader-voice one-liner ───────────────────
-// No backend wording. No "pending" / "unavailable". Approved
-// trader voice patterns from Pack 2.5.
+// ATLAS-grade conversational voice. No banned wording, no
+// abbreviation jargon. The reader hears what happened on the
+// chart in plain English.
 function descriptionLine(r) {
   const phase = r && r.movePhase;
   const dir = r && r.direction;
-  const stage = moverStage(r);
   if (phase === 'exhaustion') {
-    return 'Trend exhaustion at major level. Reversal risk rising.';
+    return 'Trend exhaustion at a major level. Reversal risk is rising.';
   }
   if (dir === 'Bullish') {
-    if (phase === 'early') return `Multi-day breakout retested cleanly. Mover stage ${stage}.`;
-    if (phase === 'mid')   return `Bullish structure intact, momentum expanding. Mover stage ${stage}.`;
-    if (phase === 'late')  return `Mature uptrend. Late-entry risk rising.`;
+    if (phase === 'early') return 'Pushed above a multi-week ceiling and held the level cleanly. The move is fresh.';
+    if (phase === 'mid')   return 'Bullish structure intact and momentum is expanding. The move has room.';
+    if (phase === 'late')  return 'Mature uptrend. Reward is shrinking — wait for the next test, do not chase.';
   }
   if (dir === 'Bearish') {
-    if (phase === 'early') return `Multi-day breakdown retested cleanly. Mover stage ${stage}.`;
-    if (phase === 'mid')   return `Bearish pressure building, sellers in control. Mover stage ${stage}.`;
-    if (phase === 'late')  return `Mature downtrend. Late-entry risk rising.`;
+    if (phase === 'early') return 'Broke under a multi-week floor. Sellers are now in control of the structure.';
+    if (phase === 'mid')   return 'Bearish pressure is building and sellers are in control. The move has room.';
+    if (phase === 'late')  return 'Mature downtrend. Reward is shrinking — wait for the next test, do not chase.';
   }
-  return `Sideways pressure, decision near. Mover stage ${stage}.`;
+  return 'Sideways pressure, a decision is near. Watch the next break either side.';
 }
 
 // ── PACK 4 TERMINOLOGY HYPERLINK ROWS ──────────────────────
@@ -257,23 +401,73 @@ function _fmtUtcDate(ms) {
   return `${d.getUTCFullYear()}-${_pad2(d.getUTCMonth() + 1)}-${_pad2(d.getUTCDate())}`;
 }
 
-function buildBanner(promotedCount, nowMs) {
-  const dateStr = _fmtUtcDate(nowMs);
+// Build the full banner-message content. This is what message-1
+// carries above the first candidate embed:
+//   1. Red NEW DARK HORSE SCAN divider (top)
+//   2. Gold "🐎 DARK HORSE — GLOBAL MOVER RADAR" section box
+//   3. Italic scan summary line (markets / standouts / mood)
+//   4. 📘 EXPANDED TERMINOLOGY HYPERLINKS row (teal cyan or
+//      Markdown links when `urlMap` carries URLs)
+//   5. ▸ Today's read  (gold subheading + prose)
+//   6. ▸ Market mood   (gold subheading + prose)
+//   7. ⭐ STANDOUTS — TODAY'S STRONGEST MOVERS  (gold section box)
+//   8. Red NEW STANDOUT #1 of N badge (immediately above the first
+//      candidate embed in the same message)
+function buildBanner(opts) {
+  opts = opts || {};
+  const nowMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now();
+  const promotedCount = Number.isFinite(opts.promotedCount) ? opts.promotedCount : 0;
+  const universeSize = Number.isFinite(opts.universeSize) ? opts.universeSize : promotedCount;
+  const volatilityLabel = (opts.volatilityLabel || '').trim();
+  const urlMap = opts.terminologyUrls || null;
   const scanStr = _fmtUtcStamp(nowMs);
-  const candidateWord = promotedCount === 1 ? 'candidate promoted' : 'candidates promoted';
-  return [
-    '═══════════════════════════════════════════',
-    '🐎 DARK HORSE — GLOBAL MOVER RADAR',
-    `${dateStr} · ${promotedCount} ${candidateWord} · scan: ${scanStr}`,
-    '═══════════════════════════════════════════',
-    '',
-    renderBracketedTerms(TERMINOLOGY_BANNER),
-  ].join('\n');
+
+  const movedWord = promotedCount === 1 ? 'standout' : 'standouts';
+  const summaryLine = promotedCount > 0
+    ? `_${promotedCount} ${movedWord} found this cycle._`
+    : '_Quiet cycle — markets are warming up below standout grade._';
+  const moodLine = volatilityLabel
+    ? `_Broader market mood: ${volatilityLabel}._`
+    : '';
+
+  const sections = [];
+  sections.push(redNewDividerTop(scanStr, universeSize));
+  sections.push('');
+  sections.push(goldSectionBox('🐎  DARK HORSE — GLOBAL MOVER RADAR'));
+  sections.push('');
+  sections.push(summaryLine);
+  if (moodLine) sections.push(moodLine);
+  sections.push('');
+  sections.push('📘 **EXPANDED TERMINOLOGY HYPERLINKS**');
+  sections.push(tealTerminologyRow(TERMINOLOGY_BANNER, urlMap));
+  sections.push('');
+  sections.push(goldSubheading('Today\'s read'));
+  sections.push(opts.todaysReadLine || _defaultTodaysRead(promotedCount));
+  sections.push('');
+  sections.push(goldSubheading('Market mood'));
+  sections.push(opts.marketMoodLine || _defaultMarketMood(volatilityLabel));
+  if (promotedCount > 0) {
+    sections.push('');
+    sections.push(goldSectionBox('⭐  STANDOUTS — TODAY\'S STRONGEST MOVERS'));
+    sections.push('');
+    sections.push(newBadgeSeparator(`STANDOUT #1 of ${promotedCount}`));
+  }
+  return sections.join('\n');
 }
 
-// Between-candidate separator (Pack 2.4). Two blank lines either
-// side baked into the content string.
-const NEW_SEPARATOR = '\n\n─── NEW ───\n\n';
+function _defaultTodaysRead(promotedCount) {
+  if (promotedCount === 0) return 'No markets are standing out yet. The pre-radar surface below carries what is warming up.';
+  if (promotedCount === 1) return 'One market is showing real strength today. Full read in the card below.';
+  return `${promotedCount} markets are showing real strength today. Full reads in the cards below.`;
+}
+function _defaultMarketMood(volatilityLabel) {
+  if (!volatilityLabel) return 'Reading is steady across the broader market.';
+  const lower = volatilityLabel.toLowerCase();
+  if (lower.includes('elevated')) return 'Elevated risk — the broader market is moving fast, so size positions with care.';
+  if (lower.includes('extreme'))  return 'Extreme volatility — keep size very small and expect whippy levels.';
+  if (lower.includes('quiet'))    return 'Quiet across the broader market — clean structure is easier to read in this mood.';
+  return 'Reading is steady across the broader market.';
+}
 
 // ── PROMOTION FILTER ────────────────────────────────────────
 // Spec discipline: "If a field has no value, the candidate
@@ -295,7 +489,13 @@ function filterPromotedCandidates(top10) {
   });
 }
 
-// ── EMBED BUILDER (Pack 2.2) ───────────────────────────────
+// ── EMBED BUILDER (Pack 2.2 + v3 wire-up) ───────────────────
+// Field names refined per operator: "Trigger" → "Trigger level"
+// (clearer to beginners), "Standing" → "Today's rank". Per-card
+// "Terms" / "In ATLAS terms" field removed — banner-level
+// terminology row covers it. Multi-line Where to Act baked in via
+// whereToActField(). Stage-aware caveat row appears inside Where
+// to Act for late / exhaustion candidates.
 function buildCandidateEmbed(r, idx, total, scanStampUtc) {
   const badge = classifyStateBadge(r);
   const colour = badgeColour(badge);
@@ -306,26 +506,30 @@ function buildCandidateEmbed(r, idx, total, scanStampUtc) {
   const tf = timeframeField(r);
   const trigger = triggerField(r);
   const whereToAct = whereToActField(r);
+  // Stage label "early stage" / "mid stage" / "late stage" reads
+  // more naturally than "Stage 1 / 2 / 3" for beginners.
+  const stageWord = stage === 1 ? 'early stage' : stage === 2 ? 'mid stage' : 'late stage';
+  const rankOrdinal = (idx + 1) === 1 ? '1st' : (idx + 1) === 2 ? '2nd' : `${idx + 1}th`;
+  const rankValue = total === 1
+    ? '1st of today\'s standouts'
+    : `${rankOrdinal} of today's ${total} standouts`;
+
   const fields = [
-    { name: 'Move Type',  value: `${type} · Stage ${stage}`, inline: true },
-    { name: 'Direction',  value: direction,                  inline: true },
-    { name: 'Conviction', value: conviction,                 inline: true },
+    { name: 'Move Type',     value: `${type} · ${stageWord}`,    inline: true },
+    { name: 'Direction',     value: direction,                    inline: true },
+    { name: 'Conviction',    value: conviction,                   inline: true },
   ];
-  if (trigger)    fields.push({ name: 'Trigger',     value: trigger,    inline: true });
-  fields.push({ name: 'Timeframe', value: tf, inline: true });
+  if (trigger)    fields.push({ name: 'Trigger Level', value: trigger,        inline: true });
+  fields.push({ name: 'Horizon',     value: tf,         inline: true });
+  fields.push({ name: 'Today\'s Rank', value: rankValue, inline: true });
   if (whereToAct) fields.push({ name: 'Where to Act', value: whereToAct, inline: false });
-  fields.push({
-    name: 'Terms',
-    value: renderBracketedTerms(TERMINOLOGY_CANDIDATE),
-    inline: false,
-  });
 
   return {
     color: colour,
-    title: `🐎 ${r.symbol} · ${badge}`,
+    title: `🐎  ${r.symbol}  ·  ${badge}`,
     description: descriptionLine(r),
     fields,
-    footer: { text: `Dark Horse Radar · scan ${scanStampUtc} · ${idx + 1}/${total} candidates` },
+    footer: { text: `Dark Horse Radar  ·  ${scanStampUtc}  ·  standout ${idx + 1} of ${total}` },
   };
 }
 
@@ -354,47 +558,82 @@ function buildDarkHorseFohPayload(ranking, volatility, opts) {
   const scanStampUtc = _fmtUtcStamp(nowMs);
   const messages = [];
 
-  if (promoted.length === 0) {
-    // No promotable candidates → no FOH messages emitted.
-    return {
-      kind: 'movement_digest_foh_v1_0',
-      messages: [],
-      embedCount: 0,
-      candidateCount: 0,
-      filteredOut,
-      linkRoutingStatus: 'pending',
+  const universeSize = Number.isFinite(opts.universeSize)
+    ? opts.universeSize
+    : Number.isFinite(ranking && ranking.allCount)
+      ? ranking.allCount
+      : promoted.length;
+  const volatilityLabel = (volatility && typeof volatility.level === 'string')
+    ? volatility.level
+    : '';
+  const urlMap = (opts.terminologyUrls && typeof opts.terminologyUrls === 'object')
+    ? opts.terminologyUrls
+    : null;
+  const linkRoutingStatus = (urlMap && TERMINOLOGY_BANNER.some(t =>
+    typeof urlMap[t] === 'string' && /^https?:\/\//.test(urlMap[t])
+  )) ? 'partial' : 'pending';
+
+  // Build the candidate embeds. The last one's footer carries the
+  // "next review" stamp.
+  const embeds = promoted.map((r, i) => buildCandidateEmbed(r, i, promoted.length, scanStampUtc));
+  if (embeds.length > 0) {
+    const nextReviewMs = Number.isFinite(opts.nextReviewMs)
+      ? opts.nextReviewMs
+      : nowMs + (Number.isFinite(opts.intervalMs) ? opts.intervalMs : 15 * 60 * 1000);
+    const last = embeds[embeds.length - 1];
+    last.footer = {
+      text: `Dark Horse Radar  ·  ${scanStampUtc}  ·  standout ${embeds.length} of ${embeds.length}  ·  next review ${_fmtUtcStamp(nextReviewMs)}`,
     };
   }
 
-  // Build the per-candidate embeds first so we know the total
-  // for the "k/N candidates" footer.
-  const embeds = promoted.map((r, i) => buildCandidateEmbed(r, i, promoted.length, scanStampUtc));
-
-  // Bake the next-review timestamp into the LAST embed's footer
-  // (Pack 1.7 spirit: information not actionable yet stays in
-  // a footer rather than its own field).
-  const nextReviewMs = Number.isFinite(opts.nextReviewMs)
-    ? opts.nextReviewMs
-    : nowMs + (Number.isFinite(opts.intervalMs) ? opts.intervalMs : 15 * 60 * 1000);
-  const lastEmbed = embeds[embeds.length - 1];
-  lastEmbed.footer = {
-    text: `Dark Horse Radar · scan ${scanStampUtc} · ${promoted.length}/${promoted.length} candidates · next review ${_fmtUtcStamp(nextReviewMs)}`,
-  };
-
-  // Message 1: banner + first candidate embed.
-  const banner = buildBanner(promoted.length, nowMs);
-  messages.push({
-    content: banner + NEW_SEPARATOR.replace(/^\n\n/, '\n\n'),
-    embeds: [embeds[0]],
+  // Message 1: banner + first candidate embed (or banner alone
+  // when no candidates promote — the reference-card tail message
+  // still carries the educational surface).
+  const banner = buildBanner({
+    nowMs,
+    promotedCount: promoted.length,
+    universeSize,
+    volatilityLabel,
+    terminologyUrls: urlMap,
   });
+  if (embeds.length > 0) {
+    messages.push({ content: banner, embeds: [embeds[0]] });
+  } else {
+    messages.push({ content: banner });
+  }
 
-  // Messages 2..N: separator + candidate embed.
+  // Messages 2..N: red NEW BADGE separator + candidate embed.
+  // Each separator carries the candidate's rank label so the
+  // reader sees "STANDOUT #2 of 3" in red, not a plain dashed line.
   for (let i = 1; i < embeds.length; i++) {
     messages.push({
-      content: NEW_SEPARATOR.trim(),  // "─── NEW ───" with surrounding blank handled by Discord
+      content: newBadgeSeparator(`STANDOUT #${i + 1} of ${embeds.length}`),
       embeds: [embeds[i]],
     });
   }
+
+  // Tail message: BUILDING / pre-radar gold heading + teal chips +
+  // prose + visual reference card + ▸ Risk reminder. Always emitted
+  // so even a quiet scan ships a useful educational surface.
+  // Per operator: "Visual reference/card area included even during
+  // quiet scans" + "At least one useful visual/educational
+  // reference card in the generated output."
+  const tailContent = [
+    newBadgeSeparator('BUILDING  &  CHART REFERENCE'),
+    '',
+    goldSectionBox('📡  BUILDING — MARKETS WARMING UP'),
+    '',
+    tealTerminologyRow(['Pre-Radar', 'Momentum', 'Structure'], urlMap),
+    '',
+    '_These aren\'t ready to act on yet. They\'re close, and worth keeping on the chart._',
+    '_If structure firms by the next cycle, they\'ll graduate into a standout._',
+    '',
+    visualReferenceCard(),
+    '',
+    goldSubheading('Risk reminder'),
+    '_Even a strong standout is a plan, not a guarantee. Cross-check each card against live price before acting. ATLAS reviews again at the next scan._',
+  ].join('\n');
+  messages.push({ content: tailContent });
 
   return {
     kind: 'movement_digest_foh_v1_0',
@@ -402,7 +641,7 @@ function buildDarkHorseFohPayload(ranking, volatility, opts) {
     embedCount: embeds.length,
     candidateCount: promoted.length,
     filteredOut,
-    linkRoutingStatus: 'pending',
+    linkRoutingStatus,
   };
 }
 
@@ -565,7 +804,16 @@ module.exports = {
   TERMINOLOGY_BANNER,
   TERMINOLOGY_CANDIDATE,
   FOH_BANNED_PATTERNS,
-  NEW_SEPARATOR,
   DISCORD_EMBED_TOTAL_LIMIT,
   DISCORD_CONTENT_LIMIT,
+  // v3 visual primitives — exported for the qa:dh-foh harness and
+  // for callers wiring future surfaces (rendered ATLAS chart-
+  // reference cards, etc.) against the same primitives.
+  STYLE,
+  redNewDividerTop,
+  newBadgeSeparator,
+  goldSectionBox,
+  goldSubheading,
+  tealTerminologyRow,
+  visualReferenceCard,
 };

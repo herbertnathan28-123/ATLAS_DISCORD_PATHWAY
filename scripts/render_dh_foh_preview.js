@@ -579,12 +579,61 @@ function buildHtml(messages) {
 </body></html>`;
 }
 
+// ── --from-engine mode ─────────────────────────────────────
+// When invoked with `--from-engine`, build the FOH payload via the
+// actual darkHorseFoh.buildDarkHorseFohPayload() against a synthetic
+// ranking, instead of using the static SAMPLE_MESSAGES above. This
+// is the proof artefact for the v3 wire-up: the rendered preview
+// shows what the engine will produce in live Discord.
+function buildFromEngineMessages() {
+  const rank = require(path.join(__dirname, '..', 'darkHorseRanking.js'));
+  const foh  = require(path.join(__dirname, '..', 'darkHorseFoh.js'));
+  function daily(n, base) {
+    const out = []; let p = base;
+    const t = Math.floor(Date.parse('2026-05-01T00:00:00Z') / 1000);
+    for (let i = 0; i < n; i++) {
+      const o = p, c = p + 0.6, h = c + 0.4, l = o - 0.3;
+      out.push({ open: o, high: h, low: l, close: c, time: t + i * 86400 });
+      p = c;
+    }
+    return out;
+  }
+  function row(symbol, score, dir, sec, base) {
+    const e = rank.enrichCandidate(
+      { symbol, score, direction: dir, summary: 'higher highs and higher lows', reasons: ['structure 2/2'] },
+      daily(25, base), 6, { watchThreshold: 8 }
+    );
+    e.section = sec; e.sectionLabel = rank.SECTION_LABEL[sec];
+    return e;
+  }
+  const top10 = [
+    row('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,   1.10),
+    row('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES, 2400),
+    row('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,    900),
+  ];
+  // Force-set move phases so the rendered sample covers early /
+  // mid / late states for the screenshot. This is presentation-
+  // only data shaping; the engine still computes its own phases
+  // at scan time.
+  top10[0].movePhase = 'early';
+  top10[1].movePhase = 'early';
+  top10[2].movePhase = 'late';
+  const built = foh.buildDarkHorseFohPayload(
+    { top10, allCount: 33 },
+    { level: 'elevated', vixLevel: 'Elevated' },
+    { now: Date.parse('2026-05-13T12:00:00Z'), intervalMs: 15 * 60 * 1000 }
+  );
+  return built.messages;
+}
+
 async function main() {
+  const fromEngine = process.argv.includes('--from-engine');
   const outDir = path.join(__dirname, '..', 'docs', 'screenshots');
   fs.mkdirSync(outDir, { recursive: true });
 
-  const html = buildHtml(SAMPLE_MESSAGES);
-  const version = process.env.FOH_PREVIEW_VERSION || 'v3';
+  const messages = fromEngine ? buildFromEngineMessages() : SAMPLE_MESSAGES;
+  const html = buildHtml(messages);
+  const version = process.env.FOH_PREVIEW_VERSION || (fromEngine ? 'v3-from-engine' : 'v3');
   const htmlPath = path.join(outDir, `dh-foh-prototype-${version}.html`);
   fs.writeFileSync(htmlPath, html, 'utf8');
 

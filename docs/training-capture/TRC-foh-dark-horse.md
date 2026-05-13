@@ -123,6 +123,29 @@ canonical artefact.
 
 ---
 
+## TRC-20260513-006 — Rendered ATLAS chart-reference cards (NEXT EVOLUTION)
+
+```json
+{
+  "id": "TRC-20260513-006",
+  "topic": "Rendered ATLAS chart-reference cards — next evolution after FOH v3 wire-up",
+  "source_section": "Dark Horse · Visual reference card lane",
+  "why_it_matters": "The FOH v3 wire-up keeps the simplified ASCII chart art for the BUILDING / reference-card lane. The operator has flagged the next required evolution: replace the ASCII art with rendered ATLAS chart-reference images (real chart snapshots styled in ATLAS colours, with the breakout / retest / hold annotated visually). The simplified card carries the wire-up; the rendered card carries the long-term standard.",
+  "trader_level": 1,
+  "visual_needed": true,
+  "example_chart_needed": true,
+  "common_mistake": "Treating the simplified ASCII reference as the final form. The FOH v3 wire-up explicitly accepts the simplified card as an interim placeholder; final acceptance requires rendered ATLAS chart-reference cards in their place.",
+  "suggested_module": "rendered-chart-reference-cards-v1",
+  "related_terminology": ["breakout", "retest", "invalidation_level", "mover_stage_1", "trend"],
+  "status": "flagged",
+  "created_at": "2026-05-13T12:30:00Z",
+  "flagged_by": "operator-via-claude-code",
+  "scope_notes": "Pack 7 (visual learning card copy) defines the multi-surface card structure. Rendered ATLAS chart-reference cards extend Pack 7 by adding real chart imagery on the hero zone, replacing the ASCII art placeholder. The renderer.js stack is OFF-LIMITS for FOH (Pack 8.10 hard rule); a separate FOH-side image producer (puppeteer + ATLAS-styled HTML or canvas) should be designed for the reference cards. This is the next evolution after FOH v3 ships, NOT part of v3 wire-up."
+}
+```
+
+---
+
 ## Suppression / promotion discipline (operator-side reference)
 
 These rows are not in the per-row JSON registry but apply to every
