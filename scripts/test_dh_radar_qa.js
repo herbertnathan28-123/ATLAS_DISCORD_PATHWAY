@@ -125,72 +125,89 @@ const renderedCardRe = /\*\*[⭐\s]*#\d+ — [A-Z0-9]+/g;
 const renderedCardCount = (content.match(renderedCardRe) || []).length;
 
 // ============================================================
-// T1 — criteria paragraph present
+// T1 — FOH atmosphere banner present, legacy criteria paragraph
+// suppressed (operator directive 2026-05-13).
 // ============================================================
-console.log('\n[T1] Dark Horse criteria paragraph present');
+console.log('\n[T1] FOH atmosphere banner present + legacy criteria paragraph absent');
 {
-  ok('digest carries **Dark Horse criteria:**',
-     /\*\*Dark Horse criteria:\*\*/.test(content));
-  ok('criteria paragraph mentions 15-minute scan cadence',
-     /every 15 minutes/.test(content));
-  ok('criteria paragraph explains ⭐ as standout marker',
-     /⭐ marks the strongest standouts/.test(content));
+  ok('digest carries the FOH digest-version line',
+     /_Digest version:_\s*v1\.2-foh/.test(content));
+  ok('digest carries the FOH market-atmosphere line',
+     /_Market atmosphere:_/.test(content));
+  ok('digest carries the FOH scan-state line',
+     /_Scan state:_/.test(content));
+  ok('legacy "**Dark Horse criteria:**" paragraph is NOT emitted',
+     !/\*\*Dark Horse criteria:\*\*/.test(content));
+  ok('legacy "ATLAS FX regularly scans" wording is NOT emitted',
+     !/ATLAS FX regularly scans/.test(content));
 }
 
 // ============================================================
-// T2 — candidates grouped by section in canonical order
+// T2 — section radar headers carry the FOH color glyph in
+// canonical section order.
 // ============================================================
-console.log('\n[T2] Section grouping in canonical order');
+console.log('\n[T2] Section radar headers carry color glyph in canonical order');
 {
+  // FOH section headers look like "### 🟢 FX Majors" — match by
+  // section label appearing after one of the color glyphs.
+  const ZONE_GLYPHS = ['🟢', '🟡', '🟠', '🔴', '🔵', '⚪'];
+  const escLbl = lbl => lbl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const sectionHeaderRe = lbl => new RegExp('### (?:' + ZONE_GLYPHS.join('|') + ')\\s+' + escLbl(lbl), 'u');
   const sections = [];
   for (const sec of rank.SECTION_DISPLAY_ORDER) {
     const lbl = rank.SECTION_LABEL[sec];
-    if (content.includes(`### ${lbl}`)) sections.push(lbl);
+    if (sectionHeaderRe(lbl).test(content)) sections.push(lbl);
   }
-  ok('at least 4 sections rendered', sections.length >= 4, { sections });
+  ok('at least 4 FOH section radar blocks rendered', sections.length >= 4, { sections });
 
-  // Section headers must appear in canonical order in the body.
   let lastIdx = -1;
   for (const lbl of sections) {
-    const idx = content.indexOf(`### ${lbl}`);
+    const m = content.match(sectionHeaderRe(lbl));
+    const idx = m ? content.indexOf(m[0]) : -1;
     ok(`section "${lbl}" appears after prior section`, idx > lastIdx, { lbl, idx, lastIdx });
     lastIdx = idx;
   }
 }
 
 // ============================================================
-// T3 — max two candidates per section
+// T3 — at most two candidate cards per section (the ranking
+// pipeline caps at 2; this guard ensures the FOH renderer does
+// not bypass the cap).
 // ============================================================
-console.log('\n[T3] Max two candidates per section');
+console.log('\n[T3] At most two candidate cards per section in the FOH cards block');
 {
-  // Each rendered candidate begins with "**…#N — SYMBOL …**" — count
-  // those between consecutive "### " section markers.
-  const SECTION_RE = /### (?!⭐)([^\n]+)\n\n/g;
-  const headerMatches = [...content.matchAll(SECTION_RE)];
-  for (let i = 0; i < headerMatches.length; i++) {
-    const start = headerMatches[i].index + headerMatches[i][0].length;
-    const end   = (i + 1 < headerMatches.length) ? headerMatches[i + 1].index : content.length;
-    const segment = content.slice(start, end);
-    const candidateCount = (segment.match(/\*\*[⭐\s]*#\d+ — /g) || []).length;
-    ok(`section "${headerMatches[i][1].trim()}" has ≤ 2 candidates (saw ${candidateCount})`,
-       candidateCount <= 2, { section: headerMatches[i][1].trim(), candidateCount });
+  // Slice from the "CANDIDATE CARDS" separator to end of digest
+  // and group cards by their per-card section label line.
+  const cardsStart = content.indexOf('🔴 CANDIDATE CARDS');
+  const cardsRegion = cardsStart >= 0 ? content.slice(cardsStart) : '';
+  const cardHeaderRe = /\*\*[⭐\s]*#\d+ — ([A-Z0-9]+)\s*[↑↓→]\*\*\s*·\s*([^·\n]+?)\s*·\s*[🟢🟡🟠🔴🔵⚪]/g;
+  const counts = {};
+  let m;
+  while ((m = cardHeaderRe.exec(cardsRegion)) !== null) {
+    const section = m[2].trim();
+    counts[section] = (counts[section] || 0) + 1;
+  }
+  ok('at least one section was counted', Object.keys(counts).length > 0, { counts });
+  for (const [section, n] of Object.entries(counts)) {
+    ok(`section "${section}" has ≤ 2 cards (saw ${n})`, n <= 2, { section, n });
   }
 }
 
 // ============================================================
-// T4 — ⭐ on exactly two overall standouts
+// T4 — ⭐ marks exactly two cards inline (FOH layout has no
+// separate "standouts list" block — promotion is marked on the
+// card header itself).
 // ============================================================
-console.log('\n[T4] ⭐ standouts');
+console.log('\n[T4] ⭐ standouts marked inline on exactly two cards');
 {
-  // The standouts block lists "⭐ #1 …" and "⭐ #2 …" lines.
-  const ranked = (content.match(/^- ⭐ #\d+ /gm) || []);
-  ok('standouts block lists exactly 2 ⭐ entries', ranked.length === 2, { ranked });
-
-  // Each section block also marks the standout's expanded card
-  // with the ⭐ marker. Count expanded cards carrying ⭐.
   const starredCards = (content.match(/\*\*⭐ #\d+ — /g) || []);
-  ok('section blocks carry exactly 2 ⭐-marked expanded cards',
+  ok('exactly 2 cards carry the ⭐ inline standout marker',
      starredCards.length === 2, { starredCards });
+  // Also confirm the legacy "- ⭐ #1 / #2" standalone bullet list
+  // was retired.
+  const legacyStandoutList = (content.match(/^- ⭐ #\d+ /gm) || []);
+  ok('legacy "- ⭐ #N" standalone standouts bullet list is NOT emitted',
+     legacyStandoutList.length === 0, { legacyStandoutList });
 }
 
 // ============================================================
@@ -225,33 +242,51 @@ console.log('\n[T5] Standout tie-break — early > mid > late, lower late-entry-
 }
 
 // ============================================================
-// T6 — Trend age per shown candidate
+// T6 — FOH card "Identity" + "Move phase" appears for each card.
+// Replaces legacy "Trend age:" / "Trend phase:" labels with
+// plain-English FOH equivalents.
 // ============================================================
-console.log('\n[T6] Trend age appears for each shown candidate');
+console.log('\n[T6] FOH _Identity:_ block appears for each card');
 {
-  const ageLines = (content.match(/^Trend age:/gm) || []).length;
-  ok(`Trend age: appears once per shown candidate (${renderedCardCount} cards, ${ageLines} lines)`,
-     ageLines === renderedCardCount, { ageLines, cards: renderedCardCount });
+  const identityCount = (content.match(/_Identity:_/g) || []).length;
+  ok('every card carries an _Identity:_ block', identityCount === renderedCardCount,
+     { identityCount, cards: renderedCardCount });
+  ok('legacy "Trend age:" label NOT emitted',
+     (content.match(/^Trend age:/gm) || []).length === 0);
+  ok('legacy "Trend phase:" label NOT emitted',
+     (content.match(/^Trend phase:/gm) || []).length === 0);
 }
 
 // ============================================================
-// T7 — Trend phase per shown candidate
+// T7 — FOH "What happened" / "Where it matters" / "Why ATLAS is
+// watching" sentences appear for every card.
 // ============================================================
-console.log('\n[T7] Trend phase appears for each shown candidate');
+console.log('\n[T7] FOH 3-question opener present for every card');
 {
-  const phaseLines = (content.match(/^Trend phase:/gm) || []).length;
-  ok(`Trend phase: appears once per shown candidate (${phaseLines} lines)`,
-     phaseLines === renderedCardCount, { phaseLines, cards: renderedCardCount });
+  const whatN  = (content.match(/_What happened:_/g) || []).length;
+  const whereN = (content.match(/_Where it matters:_/g) || []).length;
+  const whyN   = (content.match(/_Why ATLAS is watching:_/g) || []).length;
+  ok('every card carries _What happened:_ block', whatN === renderedCardCount, { whatN });
+  ok('every card carries _Where it matters:_ block', whereN === renderedCardCount, { whereN });
+  ok('every card carries _Why ATLAS is watching:_ block', whyN === renderedCardCount, { whyN });
 }
 
 // ============================================================
-// T8 — Continuation window per shown candidate
+// T8 — FOH healthy / caution / danger / invalidation zone cues
+// appear on every card.
 // ============================================================
-console.log('\n[T8] Continuation window appears for each shown candidate');
+console.log('\n[T8] FOH zone cues present on every card');
 {
-  const continLines = (content.match(/^Continuation window:/gm) || []).length;
-  ok(`Continuation window: appears once per shown candidate (${continLines} lines)`,
-     continLines === renderedCardCount, { continLines, cards: renderedCardCount });
+  const healthyN = (content.match(/🟢 _Healthy zone:_/g) || []).length;
+  const cautionN = (content.match(/🟡 _Caution zone:_/g) || []).length;
+  const dangerN  = (content.match(/🟠 _Danger zone:_/g) || []).length;
+  const invalN   = (content.match(/🔴 _Invalidation:_/g) || []).length;
+  ok('every card carries the 🟢 Healthy zone cue', healthyN === renderedCardCount, { healthyN });
+  ok('every card carries the 🟡 Caution zone cue', cautionN === renderedCardCount, { cautionN });
+  ok('every card carries the 🟠 Danger zone cue',  dangerN  === renderedCardCount, { dangerN });
+  ok('every card carries the 🔴 Invalidation cue', invalN   === renderedCardCount, { invalN });
+  ok('legacy "Continuation window:" label NOT emitted',
+     (content.match(/^Continuation window:/gm) || []).length === 0);
 }
 
 // ============================================================

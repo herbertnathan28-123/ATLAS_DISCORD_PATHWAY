@@ -1150,7 +1150,26 @@ function buildCompactDetail(rank, idx) {
   return `${idx + 1}. **${rank.symbol}** ${arrowFor(rank.direction)} — ${rank.sectionLabel} · ${rank.score}/10 · ${rank.whyFlagged} · ${rank.whyNotWatch}`;
 }
 
+// PUBLIC ENTRY — delegates to the FOH live formatter by default
+// (operator directive 2026-05-13). Legacy radar-template body is
+// preserved as a fallback ONLY behind ATLAS_DARKHORSE_LEGACY=1 so
+// the engine never loses a heartbeat if the FOH path needs to be
+// quickly disabled in an incident. Default live Discord output is
+// FOH-native.
 function buildRankedMovementDigestPayload(ranking, volatility, opts) {
+  if (process.env.ATLAS_DARKHORSE_LEGACY === '1') {
+    return _buildLegacyRankedMovementDigestPayload(ranking, volatility, opts);
+  }
+  const foh = require('./darkHorseFohFormatter');
+  return foh.buildFohMovementDigestPayload(ranking, volatility, opts);
+}
+
+// Legacy radar-template body — retained as a fallback only. Do not
+// call directly from new code. The FOH renderer above is the live
+// path. This function is the verbatim pre-2026-05-13 body and
+// remains untouched to keep the fallback identical to the previous
+// production output.
+function _buildLegacyRankedMovementDigestPayload(ranking, volatility, opts) {
   opts = opts || {};
   const top = Array.isArray(ranking && ranking.top10) ? ranking.top10 : [];
 
@@ -1442,4 +1461,8 @@ module.exports = {
   buildWaitingForBlock,
   buildUniverseCoverageBlock,
   SECTION_DISPLAY_ORDER,
+  // New-scan boundary helper — exported 2026-05-13 so the FOH
+  // formatter can reuse the canonical Part-1 prefix without
+  // duplicating timestamp formatting.
+  buildNewScanBoundary,
 };

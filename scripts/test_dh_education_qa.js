@@ -352,50 +352,52 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
     sectionCapsApplied: [], allCount: 4,
   };
 
-  // 10a — Plain-term default (URL map not provided)
+  // 10a — FOH: terminology row replaces the legacy Learning Links
+  // row. Plain text only when URL map is absent; no fake URLs.
+  // Position: after the global market read, before the section
+  // radar separator (so the reader sees terminology near the top).
   const payloadPlain = rank.buildRankedMovementDigestPayload(ranking, { level: 'elevated', vixLevel: 'Elevated' }, { now: Date.parse('2026-05-12T04:00:00Z') });
   const c = payloadPlain.content;
-  ok('Learning Links row present', /\*\*Learning links:\*\*/.test(c), c.slice(0, 400));
-  // Position check: between the 🐎 header and the criteria paragraph.
-  const idxHeader   = c.indexOf('🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**');
-  const idxLinks    = c.indexOf('**Learning links:**');
-  const idxCriteria = c.indexOf('**Dark Horse criteria:**');
-  ok('header found',   idxHeader   >= 0);
-  ok('links found',    idxLinks    >  0);
-  ok('criteria found', idxCriteria >  0);
-  ok('Learning Links sits BETWEEN header and criteria paragraph',
-     idxHeader < idxLinks && idxLinks < idxCriteria,
-     { idxHeader, idxLinks, idxCriteria });
-  // Content: all 9 user-specified terms present in the row.
-  for (const term of rank.DH_LEARNING_LINKS_TERMS) {
-    ok('learning row carries term "' + term + '"',
-       c.includes(term),
-       { sample: c.slice(idxLinks, idxLinks + 400) });
-  }
-  ok('plain-term default — no Markdown link syntax in the row when URL map absent',
-     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(c.slice(idxLinks, idxLinks + 400)),
-     'a [text](url) pattern appears in the Learning Links row');
+  // FOH terminology row is plain text, no Markdown links by default.
+  ok('FOH terminology row present', /🟦 _Expanded terminology:_/.test(c), c.slice(0, 400));
+  const idxHeader     = c.indexOf('🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.2 · FOH)**');
+  const idxGlobalRead = c.indexOf('### 🌐 Global market read');
+  const idxTerminology = c.indexOf('🟦 _Expanded terminology:_');
+  const idxSepSection = c.indexOf('🔴 SECTION RADAR');
+  ok('FOH header found',       idxHeader      >= 0);
+  ok('global-read found',      idxGlobalRead  >  idxHeader);
+  ok('terminology row found',  idxTerminology >  idxGlobalRead);
+  ok('terminology row sits BEFORE the section radar separator',
+     idxSepSection > idxTerminology,
+     { idxGlobalRead, idxTerminology, idxSepSection });
+  ok('plain-term default — no Markdown [text](url) patterns in the terminology row when URL map absent',
+     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(c.slice(idxTerminology, idxTerminology + 400)),
+     'a [text](url) pattern appears in the terminology row');
   ok('linkRoutingStatus reported as pending',
      payloadPlain.linkRoutingStatus === 'pending');
+  // Legacy criteria paragraph must be absent under FOH.
+  ok('legacy "**Dark Horse criteria:**" paragraph NOT emitted',
+     !/\*\*Dark Horse criteria:\*\*/.test(c));
 
   // 10b — Body text stays clean: no INLINE markdown hyperlinks
-  // scattered through the paragraph text below the Learning Links
-  // row. We sample everything between the criteria paragraph and
-  // the next-review footer line and assert zero [text](http…)
-  // patterns. (Anchor changed 2026-05-13 — the legacy glossary
-  // block that used to sit between body and footer is suppressed.)
-  const idxNextReview = c.indexOf('⏭️ Next review:');
-  ok('next-review footer anchor found', idxNextReview > idxCriteria);
+  // scattered through the paragraph text below the terminology
+  // row. We sample everything between the terminology row and
+  // the FOH next-review block and assert zero [text](http…)
+  // patterns. (Anchor changed 2026-05-13 — legacy glossary block
+  // suppressed and replaced by FOH closing block.)
+  const idxNextReview = c.indexOf('### 🔚 Next review');
+  ok('FOH next-review block anchor found', idxNextReview > idxTerminology);
   ok('legacy glossary anchor is NOT present',
      c.indexOf('### Glossary') < 0);
-  const body = c.slice(idxCriteria, idxNextReview);
+  const body = c.slice(idxTerminology, idxNextReview);
   ok('no inline [text](url) patterns in body paragraphs',
      !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(body),
      'an inline link appears in the body');
 
-  // 10c — partial-URL form: rule 4 says use Markdown links only when
-  // URLs exist; rule 6 says do not invent fakes. Pass a partial
-  // urlMap and confirm only the keyed terms get linkified.
+  // 10c — partial-URL form: when a urlMap is supplied via opts,
+  // the FOH terminology row swaps to the underlying
+  // buildLearningLinksBlock output so wired terms are linkified
+  // (and only wired terms — no fake URLs).
   const payloadPartial = rank.buildRankedMovementDigestPayload(
     ranking,
     { level: 'elevated', vixLevel: 'Elevated' },
@@ -405,11 +407,8 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
     }
   );
   ok('partial-URL form linkifies only the wired term',
-     /\[Calm retest\]\(https:\/\/example\.com\/calm-retest\)/.test(payloadPartial.content),
-     payloadPartial.content.slice(payloadPartial.content.indexOf('**Learning links:**'), payloadPartial.content.indexOf('**Learning links:**') + 400));
+     /\[Calm retest\]\(https:\/\/example\.com\/calm-retest\)/.test(payloadPartial.content));
   ok('partial-URL form leaves un-wired terms plain (no fake URLs)',
-     // "Breakout" is in the term list but no URL was provided →
-     // must render as plain text, not "[Breakout](…)".
      /·\s*Breakout\s*·/.test(payloadPartial.content)
      && !/\[Breakout\]\(https?/.test(payloadPartial.content),
      'Breakout was either linkified with a fake URL or stripped');
@@ -507,24 +506,36 @@ console.log('\n[T11] Live-leak regression guard — every named substring absent
        m ? { hit: m[0], context: content.slice(Math.max(0, content.indexOf(m[0]) - 30), content.indexOf(m[0]) + m[0].length + 60) } : undefined);
   }
 
-  // Positive checks — the replacement wording IS present.
-  ok('criteria paragraph uses "markets and instruments"',
-     /identify markets and instruments/.test(content));
-  ok('"Displayed candidates:" header present',
-     /\*\*Displayed candidates:\*\* \d+/.test(content));
-  ok('footer ends with "Reassess against the per-candidate confirmation criteria at the next review."',
-     /Reassess against the per-candidate confirmation criteria at the next review\./.test(content));
-  ok('chart-evidence pending note uses "Chart confirmation remains pending until 15m/5m anchor wiring is added"',
-     /Chart confirmation remains pending until 15m\/5m anchor wiring is added/.test(content));
-  ok('jargon translated: "higher highs and higher lows" appears',
-     /higher highs and higher lows/.test(content));
-  ok('jargon translated: "× the prior-bar average" appears',
+  // Positive checks — FOH-equivalent wording IS present.
+  // (Operator directive 2026-05-13 — the legacy criteria paragraph,
+  // "Displayed candidates:" header, footer "Reassess…" line and
+  // standout-reason prose were retired with the legacy radar
+  // template. Their FOH replacements are asserted here.)
+  ok('FOH atmosphere statement is present',
+     /Market energy is/.test(content));
+  ok('FOH _Publication state:_ line is present',
+     /_Publication state:_/.test(content));
+  ok('FOH next-review block carries an advisory closing sentence',
+     /ATLAS remains in monitoring mode/.test(content));
+  ok('FOH chart-evidence pending fallback uses the universal-reference doctrine wording',
+     /Replay reference unavailable in this scan packet/.test(content)
+     || /Timeframe wired:/.test(content));
+  ok('FOH movement wording uses "× the prior-bar average" when speed is present',
      /×\s*the prior-bar average/.test(content));
-  ok('jargon translated: "section average" appears',
+  ok('FOH relative-strength wording uses "section average"',
      /section average\b/.test(content));
-  // Standout reason now includes structure read + sequence detail.
-  ok('standout reason carries enriched evidence, not generic phase line',
-     /because\s+\w+\s+stage,\s*score\s+\d+\/10;\s+structure read:/.test(content));
+  // Standout reason prose retired in FOH — standouts are marked
+  // inline on the card header instead. Assert at least one card
+  // carries the inline ⭐ marker.
+  ok('FOH inline standout marker present on at least one card',
+     /\*\*⭐ #\d+ — /.test(content));
+  // Legacy wordings that must be absent under FOH.
+  ok('legacy "**Dark Horse criteria:**" paragraph NOT emitted',
+     !/\*\*Dark Horse criteria:\*\*/.test(content));
+  ok('legacy "**Displayed candidates:** N" header NOT emitted',
+     !/\*\*Displayed candidates:\*\*/.test(content));
+  ok('legacy "Reassess against the per-candidate confirmation criteria" footer NOT emitted',
+     !/Reassess against the per-candidate confirmation criteria/.test(content));
 }
 
 // ============================================================
@@ -730,10 +741,16 @@ console.log('\n[T14] Bare "unavailable" absent + "Sections scanned: unavailable"
   ok('empty digest does NOT contain bare "unavailable" in user-facing body',
      !/\bunavailable\b/i.test(cEmpty),
      cEmpty.match(/[^\n]*\bunavailable\b[^\n]*/));
-  ok('VIX-missing wording uses "reading pending", not "unavailable"',
-     /market fear \/ volatility gauge \(VIX\) reading pending/.test(cEmpty));
-  ok('Volatility level fallback uses "reading pending", not "unavailable"',
-     /\*\*Volatility:\*\* reading pending/.test(cEmpty));
+  // FOH no longer carries the legacy "market fear / volatility
+  // gauge (VIX) …" or "**Volatility:** …" lines verbatim. Instead
+  // the atmosphere banner exposes _Market atmosphere:_ <level>
+  // and the global-read block opens with a regime-appropriate
+  // sentence. Assert the FOH equivalents emit a "pending" reading
+  // rather than the banned "unavailable" wording.
+  ok('FOH _Market atmosphere:_ exists in the empty-universe digest',
+     /_Market atmosphere:_/.test(cEmpty));
+  ok('FOH atmosphere fallback uses "pending" wording, not "unavailable"',
+     /reading is pending/.test(cEmpty) || /reading pending/.test(cEmpty));
 
   // Populated path — ensure VIX line uses the level when present
   // and no "unavailable" leaks anywhere.
@@ -764,12 +781,17 @@ console.log('\n[T15] Learning-link routing status — plain text default; Markdo
   );
   ok('no urlMap → linkRoutingStatus reports "pending"',
      payloadPlain.linkRoutingStatus === 'pending');
+  // FOH (operator directive 2026-05-13): when no URL map is wired,
+  // the live formatter emits the plain FOH terminology row instead
+  // of the legacy Learning Links row. No Markdown links should be
+  // present anywhere in that row.
+  const termIdx = payloadPlain.content.indexOf('🟦 _Expanded terminology:_');
+  ok('no urlMap → FOH terminology row present (plain text)',
+     termIdx >= 0);
   ok('no urlMap → row carries NO Markdown [text](url) patterns',
-     !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(
-       payloadPlain.content.slice(
-         payloadPlain.content.indexOf('**Learning links:**'),
-         payloadPlain.content.indexOf('**Learning links:**') + 400
-       )
+     termIdx < 0
+     || !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(
+       payloadPlain.content.slice(termIdx, termIdx + 400)
      ));
 
   // Future-state: when a wired URL is passed, the row gains the
@@ -826,10 +848,17 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
     { level: 'quiet', vixLevel: 'Normal' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('empty digest — state uses "publication threshold not met this cycle."',
-     /\*\*State:\*\* Monitoring only · publication threshold not met this cycle\./.test(pEmpty.content),
-     pEmpty.content.match(/\*\*State:\*\*[^\n]+/));
-  ok('empty digest — state does NOT carry the contradictory "no confirmed watch candidate" wording',
+  // FOH state wording (operator directive 2026-05-13):
+  //   - empty top10                  → "Publication threshold not met this cycle"
+  //                                    AND "Monitoring only — publication threshold not met this cycle."
+  //   - top10 has one developing     → "1 developing standout surfaced — none confirmed"
+  //   - top10 has many developing    → "N developing standouts surfaced — none confirmed"
+  ok('empty digest — _Publication state:_ reads "Publication threshold not met this cycle"',
+     /_Publication state:_\s*Publication threshold not met this cycle/.test(pEmpty.content),
+     pEmpty.content.match(/_Publication state:_[^\n]+/));
+  ok('empty digest — closing block carries "publication threshold not met this cycle."',
+     /Monitoring only — publication threshold not met this cycle\./.test(pEmpty.content));
+  ok('empty digest — no legacy contradictory "no confirmed watch candidate" wording',
      !/no confirmed watch candidate/.test(pEmpty.content));
 
   // 16b — One developing standout (singular grammar)
@@ -839,9 +868,9 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
     { level: 'quiet', vixLevel: 'Normal' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('1 standout — state reads "1 developing standout is being tracked for confirmation."',
-     /\*\*State:\*\* Monitoring only · no fully confirmed watch candidate this cycle, but 1 developing standout is being tracked for confirmation\./.test(pOne.content),
-     pOne.content.match(/\*\*State:\*\*[^\n]+/));
+  ok('1 standout — _Publication state:_ reads "1 developing standout surfaced — none confirmed"',
+     /_Publication state:_\s*1 developing standout surfaced — none confirmed/.test(pOne.content),
+     pOne.content.match(/_Publication state:_[^\n]+/));
 
   // 16c — Multiple developing standouts (plural grammar)
   const pMany = rank.buildRankedMovementDigestPayload(
@@ -853,15 +882,14 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
     { level: 'elevated', vixLevel: 'Elevated' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('3 standouts — state reads "3 developing standouts are being tracked for confirmation."',
-     /\*\*State:\*\* Monitoring only · no fully confirmed watch candidate this cycle, but 3 developing standouts are being tracked for confirmation\./.test(pMany.content),
-     pMany.content.match(/\*\*State:\*\*[^\n]+/));
+  ok('3 standouts — _Publication state:_ reads "3 developing standouts surfaced — none confirmed"',
+     /_Publication state:_\s*3 developing standouts surfaced — none confirmed/.test(pMany.content),
+     pMany.content.match(/_Publication state:_[^\n]+/));
 
-  // 16d — State line contradiction guard (regression): never emit
-  // the old static contradictory wording.
+  // 16d — Legacy state-line wording must be absent.
   for (const sample of [pEmpty.content, pOne.content, pMany.content]) {
-    ok('no legacy "Monitoring only · no confirmed watch candidate this cycle." line',
-       !/\*\*State:\*\* Monitoring only · no confirmed watch candidate this cycle\.\s*$/m.test(sample));
+    ok('no legacy "**State:** Monitoring only" line',
+       !/\*\*State:\*\*/m.test(sample));
   }
 }
 
@@ -870,7 +898,7 @@ console.log('\n[T16] State line — context-aware wording; no contradiction with
 //   with "move is only just starting to confirm" for clarity to
 //   greenhorn readers (operator directive 2026-05-12).
 // ============================================================
-console.log('\n[T17] Standout reason — "is only just starting to confirm" replaces "just confirming"');
+console.log('\n[T17] Inline ⭐ standout marker on cards (FOH replacement for the legacy standout-reason prose)');
 {
   function daily(n, base) {
     const out = []; let p = base;
@@ -878,24 +906,23 @@ console.log('\n[T17] Standout reason — "is only just starting to confirm" repl
     for (let i = 0; i < n; i++) { const o = p, c = p + 0.6, h = c + 0.4, l = o - 0.3; out.push({ open: o, high: h, low: l, close: c, time: t + i * 86400 }); p = c; }
     return out;
   }
-  // moveAge = 0 triggers the "just starting to confirm" branch.
   const cand = rank.enrichCandidate(
     { symbol: 'XAUUSD', score: 7, direction: 'Bearish', summary: 'pressure building', reasons: ['breakout 1/2'] },
     daily(25, 1800), 6, { watchThreshold: 8 }
   );
   cand.section = rank.SECTIONS.COMMODITIES;
   cand.sectionLabel = rank.SECTION_LABEL[rank.SECTIONS.COMMODITIES];
-  cand.moveAge = 0;  // force the "just starting" branch
   const payload = rank.buildRankedMovementDigestPayload(
     { top10: [cand], sectionsScanned: ['commodities'], sectionCapsApplied: [], allCount: 1 },
     { level: 'quiet', vixLevel: 'Normal' },
     { internal: [], ignored: [], universeSize: 33, now: Date.parse('2026-05-12T18:01:00Z') }
   );
-  ok('standout reason uses "is only just starting to confirm"',
-     /bearish move is only just starting to confirm/.test(payload.content),
-     payload.content.match(/standouts[\s\S]{0,300}/)[0]);
-  ok('standout reason does NOT carry the old "move just confirming" wording',
+  ok('FOH inline standout marker present on the single card',
+     /\*\*⭐ #1 — XAUUSD/.test(payload.content));
+  ok('legacy standout-reason prose retired — no "move just confirming"',
      !/\bmove just confirming\b/.test(payload.content));
+  ok('legacy standout-reason prose retired — no "starting to confirm" line either',
+     !/is only just starting to confirm/.test(payload.content));
 }
 
 // ============================================================
