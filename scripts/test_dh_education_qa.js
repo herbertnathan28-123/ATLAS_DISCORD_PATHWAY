@@ -318,10 +318,13 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
   // 10a — Plain-term default (URL map not provided)
   const payloadPlain = rank.buildRankedMovementDigestPayload(ranking, { level: 'elevated', vixLevel: 'Elevated' }, { now: Date.parse('2026-05-12T04:00:00Z') });
   const c = payloadPlain.content;
-  ok('Learning Links row present', /\*\*Learning links:\*\*/.test(c), c.slice(0, 400));
+  ok('Expanded Terminology Hyperlinks row present',
+     /\*\*Expanded Terminology Hyperlinks:\*\*/.test(c), c.slice(0, 400));
+  ok('legacy "**Learning links:**" label removed across DH output',
+     !/\*\*Learning links:\*\*/.test(c));
   // Position check: between the 🐎 header and the criteria paragraph.
   const idxHeader   = c.indexOf('🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**');
-  const idxLinks    = c.indexOf('**Learning links:**');
+  const idxLinks    = c.indexOf('**Expanded Terminology Hyperlinks:**');
   const idxCriteria = c.indexOf('**Dark Horse criteria:**');
   ok('header found',   idxHeader   >= 0);
   ok('links found',    idxLinks    >  0);
@@ -365,7 +368,7 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
   );
   ok('partial-URL form linkifies only the wired term',
      /\[Calm retest\]\(https:\/\/example\.com\/calm-retest\)/.test(payloadPartial.content),
-     payloadPartial.content.slice(payloadPartial.content.indexOf('**Learning links:**'), payloadPartial.content.indexOf('**Learning links:**') + 400));
+     payloadPartial.content.slice(payloadPartial.content.indexOf('**Expanded Terminology Hyperlinks:**'), payloadPartial.content.indexOf('**Expanded Terminology Hyperlinks:**') + 400));
   ok('partial-URL form leaves un-wired terms plain (no fake URLs)',
      // "Breakout" is in the term list but no URL was provided →
      // must render as plain text, not "[Breakout](…)".
@@ -378,7 +381,7 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
   // 10d — buildLearningLinksBlock unit checks (URL routing edge cases)
   const blockEmpty = rank.buildLearningLinksBlock();
   ok('empty call returns plain-term row',
-     /\*\*Learning links:\*\* Dark Horse candidate · WATCH candidate · /.test(blockEmpty.text));
+     /\*\*Expanded Terminology Hyperlinks:\*\* Dark Horse candidate · WATCH candidate · /.test(blockEmpty.text));
   const blockFake = rank.buildLearningLinksBlock({ 'Calm retest': 'not-a-real-url' });
   ok('non-https URL is rejected (term stays plain)',
      /·\s*Calm retest\s*·/.test(blockFake.text)
@@ -636,34 +639,38 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
   );
   ok('payload carries firstChunkPrefix field',
      typeof payload.firstChunkPrefix === 'string' && payload.firstChunkPrefix.length > 0);
-  // Lane 2 visual-learning-prototype boundary: stronger 🔴-bordered
-  // separator + 🆕 NEW badge. The legacy "━━━" horizontal-bar string
-  // is still embedded inside the new separator so chunker boundary
-  // checks that grep for "━━━" keep firing.
-  ok('boundary uses 🔴 red-bordered separator',
-     /🔴━━━+🔴/.test(payload.firstChunkPrefix));
-  ok('boundary still carries ━ horizontal-bar embed',
+  // Lane 2 visual-QA-fix boundary (operator directive 2026-05-13):
+  // ```diff code-block separator (renders RED in Discord) + H3
+  // NEW DARK HORSE SCAN header (visual weight). The legacy "━━━"
+  // horizontal-bar string is preserved inside the diff fence so
+  // chunker boundary-checks that grep for "━━━" keep firing.
+  ok('boundary uses ```diff code-block separator (renders RED in Discord)',
+     (payload.firstChunkPrefix.match(/```diff/g) || []).length === 2);
+  ok('boundary still carries ━ horizontal-bar embed (chunker compat)',
      /━━━━━━━━━━━━━━━━━━━━/.test(payload.firstChunkPrefix));
-  ok('boundary header reads "🆕 🐎 **NEW DARK HORSE SCAN**"',
-     /🆕 🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(payload.firstChunkPrefix));
+  ok('boundary header reads "### 🆕 🐎 **NEW DARK HORSE SCAN**" (H3 for visual weight)',
+     /### 🆕 🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(payload.firstChunkPrefix));
   ok('boundary header still matches legacy NEW DARK HORSE SCAN regex',
      /🐎 \*\*NEW DARK HORSE SCAN\*\*/.test(payload.firstChunkPrefix));
   ok('boundary includes UTC + AWST timestamps',
      /Scan time: \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC \/ \d{4}-\d{2}-\d{2} \d{2}:\d{2} AWST/.test(payload.firstChunkPrefix));
   // Bearish presence (XAUUSD in this fixture) triggers the visual-
-  // learning-prototype top-of-output links row. Routes to the
-  // bearish LH/LL learning path (Lane 1 catalogue).
+  // QA-fix top-of-output Expanded Terminology Hyperlinks row.
   // Doctrine (post-PR-#64 review): row is PLAIN TEXT — no Markdown
   // link syntax, no `#<slug>` anchor fragments. Lane 1 library
   // still supports link form for future real-URL wiring.
-  ok('Lane 2 — bearish present → visual learning links row appended',
-     /📘 Learn: /.test(payload.firstChunkPrefix));
+  // Operator directive 2026-05-13: row label renamed from
+  // "📘 Learn:" to "📘 Expanded Terminology Hyperlinks:".
+  ok('Lane 2 — bearish present → 📘 Expanded Terminology Hyperlinks row appended',
+     /📘 Expanded Terminology Hyperlinks: /.test(payload.firstChunkPrefix));
+  ok('Lane 2 — legacy "📘 Learn:" prefix absent',
+     !/📘 Learn: /.test(payload.firstChunkPrefix));
   ok('Lane 2 — row contains "Lower High / Lower Low" plain term',
-     /📘 Learn: [\s\S]*?Lower High \/ Lower Low/.test(payload.firstChunkPrefix));
+     /📘 Expanded Terminology Hyperlinks: [\s\S]*?Lower High \/ Lower Low/.test(payload.firstChunkPrefix));
   ok('Lane 2 — row contains NO Markdown link syntax',
-     !/📘 Learn: [\s\S]*?\[[^\]]+\]\([^)]+\)/.test(payload.firstChunkPrefix));
+     !/📘 Expanded Terminology Hyperlinks: [\s\S]*?\[[^\]]+\]\([^)]+\)/.test(payload.firstChunkPrefix));
   ok('Lane 2 — row contains NO "#<slug>" anchor-fragment leaks',
-     !/📘 Learn:[^\n]*#[a-z][a-z0-9-]*/.test(payload.firstChunkPrefix));
+     !/📘 Expanded Terminology Hyperlinks:[^\n]*#[a-z][a-z0-9-]*/.test(payload.firstChunkPrefix));
 
   // Chunker pass-through: Part 1 gets the boundary, Parts 2..N do not.
   const chunks = engine._dhChunkDigest(payload.content, {
@@ -671,18 +678,17 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
     firstChunkPrefix: payload.firstChunkPrefix,
   });
   ok('chunker produces at least 1 chunk', chunks.length >= 1);
-  ok('Part 1 starts with the 🔴 boundary block',
-     chunks[0].startsWith('🔴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━🔴\n🆕 🐎 **NEW DARK HORSE SCAN**'),
-     { head: chunks[0].slice(0, 160) });
-  // Lane 2: the visual learning row sits between the boundary and
-  // the v1.1 header on bearish digests, so the v1.1 header is no
-  // longer adjacent to the boundary. We assert the v1.1 header
-  // sits BELOW the boundary (allowing for the 📘 Learn row in
-  // between).
-  ok('Part 1 has the v1.1 header BELOW the boundary + learning row',
-     /🔴━━━+🔴[\s\S]*?\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part 1\/\d+/.test(chunks[0]));
-  ok('Part 1 has the 📘 Learn row BETWEEN the boundary and the v1.1 header',
-     /🔴━━━+🔴\n📘 Learn: [\s\S]*?\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\*/.test(chunks[0]));
+  ok('Part 1 starts with the ```diff boundary block',
+     chunks[0].startsWith('```diff\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n```\n### 🆕 🐎 **NEW DARK HORSE SCAN**'),
+     { head: chunks[0].slice(0, 220) });
+  // The Expanded Terminology Hyperlinks row sits between the
+  // boundary (closing ``` fence) and the v1.1 header on bearish
+  // digests. We assert the v1.1 header sits BELOW the boundary
+  // (allowing for the row in between).
+  ok('Part 1 has the v1.1 header BELOW the boundary + Terminology row',
+     /```\n[\s\S]*?\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part 1\/\d+/.test(chunks[0]));
+  ok('Part 1 has the 📘 Expanded Terminology Hyperlinks row BETWEEN the closing fence and the v1.1 header',
+     /```\n\n📘 Expanded Terminology Hyperlinks: [\s\S]*?\n\n🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\*/.test(chunks[0]));
   for (let i = 1; i < chunks.length; i++) {
     ok(`Part ${i + 1}/${chunks.length} does NOT carry the new-scan boundary`,
        !/NEW DARK HORSE SCAN/.test(chunks[i]),
@@ -755,8 +761,8 @@ console.log('\n[T15] Learning-link routing status — plain text default; Markdo
   ok('no urlMap → row carries NO Markdown [text](url) patterns',
      !/\[[^\]]+\]\(https?:\/\/[^)]+\)/.test(
        payloadPlain.content.slice(
-         payloadPlain.content.indexOf('**Learning links:**'),
-         payloadPlain.content.indexOf('**Learning links:**') + 400
+         payloadPlain.content.indexOf('**Expanded Terminology Hyperlinks:**'),
+         payloadPlain.content.indexOf('**Expanded Terminology Hyperlinks:**') + 400
        )
      ));
 
