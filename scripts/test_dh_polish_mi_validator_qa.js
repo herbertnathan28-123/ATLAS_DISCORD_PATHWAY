@@ -92,11 +92,17 @@ console.log('\n[T2] plainTrendAge moveAge=0 fallback — no "confirmed confirmed
      !/'confirmed bar in that direction on the higher timeframe yet'/.test(src));
 }
 
-// ── T3: Pre-Radar phase / momentum "reading pending" ───────────
-console.log('\n[T3] Pre-Radar phase/momentum fallback uses "reading pending"');
+// ── T3: Pre-Radar phase / momentum suppression ───────────
+//
+// Operator directive 2026-05-13 (full DH rewrite): the
+// "phase reading pending" / "momentum reading pending" fallback
+// wording has been REMOVED. When phase or speed is null, the
+// corresponding meta-line entry is SUPPRESSED instead of
+// printing a system-limitation note.
+console.log('\n[T3] Pre-Radar suppresses phase/momentum when data missing (no "reading pending" leak)');
 {
   const pr = rank.selectPreRadarCandidates([
-    // movePhase null + moveSpeed null forces the fallback branch.
+    // movePhase null + moveSpeed null forces the suppression branch.
     { symbol: 'EURUSD', score: 5, direction: 'Bullish', summary: 'pressure building', moveSpeed: null, movePhase: null },
   ]);
   const block = rank.buildPreRadarBlock(pr);
@@ -106,8 +112,13 @@ console.log('\n[T3] Pre-Radar phase/momentum fallback uses "reading pending"');
   ok('Pre-Radar block does NOT carry "momentum speed pending"',
      !/momentum speed pending/.test(block),
      block);
-  ok('Pre-Radar block uses "phase reading pending" / "momentum reading pending"',
-     /phase reading pending/.test(block) && /momentum reading pending/.test(block),
+  ok('Pre-Radar block does NOT leak legacy "reading pending" fallback wording',
+     !/phase reading pending/.test(block) && !/momentum reading pending/.test(block),
+     block);
+  // The Pre-Radar entry still renders with the symbol + score +
+  // section (just no phase/momentum meta when those are null).
+  ok('Pre-Radar block still renders the candidate row (symbol + score)',
+     /\*\*EURUSD\*\*[\s\S]*?score 5\/10/.test(block),
      block);
 }
 
