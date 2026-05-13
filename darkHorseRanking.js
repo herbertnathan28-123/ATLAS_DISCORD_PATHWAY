@@ -650,19 +650,36 @@ function _fmtScanTimeBoundary(nowMs) {
   const awstText = `${awst.getUTCFullYear()}-${pad(awst.getUTCMonth() + 1)}-${pad(awst.getUTCDate())} ${pad(awst.getUTCHours())}:${pad(awst.getUTCMinutes())} AWST`;
   return { utc: utcText, awst: awstText };
 }
-// Scan boundary — operator directive 2026-05-12 (Lane 2 visual
-// learning prototype): replace the thin double-line boundary with a
-// stronger 🔴 red-bordered separator and add a 🆕 NEW badge in front
-// of the header. The existing 🐎 prefix + "**NEW DARK HORSE SCAN**"
-// string stays so downstream log scrapes and chunker boundary-checks
-// continue to fire.
+// Scan boundary — operator directive 2026-05-13 (Lane 2 visual
+// QA fix). The previous 🔴━━━🔴 design rendered as small inline
+// emoji icons with default-coloured ━ chars — Discord does NOT
+// colour the bar. The fix uses `diff` code-block syntax
+// highlighting: lines starting with `-` inside a ```diff fence
+// render in RED in Discord. That produces a genuinely visible
+// red separator that the operator can spot across the channel.
+// The existing 🐎 prefix + "**NEW DARK HORSE SCAN**" string is
+// preserved on its own line OUTSIDE the diff fence so the
+// emoji + bold render correctly (emoji and markdown formatting
+// don't render inside code blocks). The `━━━` substring is also
+// preserved inside the fence so chunker boundary-check regexes
+// that grep for "━━━" keep firing. ### prefix renders the
+// header as an H3 in Discord for additional visual weight.
+//
+// Layout: top diff fence (red bar) → H3 header line →
+// scan-time line → bottom diff fence (red bar). The whole
+// block sits ABOVE the Part 1/N v1.1 header on Part 1 only;
+// chunker places it via firstChunkPrefix (Part 1 only).
 function buildNewScanBoundary(nowMs) {
   const t = _fmtScanTimeBoundary(nowMs);
   return [
-    '🔴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━🔴',
-    '🆕 🐎 **NEW DARK HORSE SCAN**',
+    '```diff',
+    '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '```',
+    '### 🆕 🐎 **NEW DARK HORSE SCAN**',
     `Scan time: ${t.utc} / ${t.awst}`,
-    '🔴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━🔴',
+    '```diff',
+    '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+    '```',
   ].join('\n');
 }
 
@@ -724,7 +741,11 @@ function buildVisualLearningLinksRow(ranking, opts) {
     // "Lower High / Lower Low" in the row.
     .map((p) => p.name.replace(/\s*\(.*?\)\s*$/, '').trim());
   if (names.length === 0) return '';
-  return `📘 Learn: ${names.join(' · ')}`;
+  // Operator directive 2026-05-13 (Lane 2 visual QA fix):
+  // rename "📘 Learn:" → "📘 Expanded Terminology Hyperlinks:"
+  // across Dark Horse output. The compact-row position directly
+  // under the title/header is preserved.
+  return `📘 Expanded Terminology Hyperlinks: ${names.join(' · ')}`;
 }
 
 // Full chart-pattern glossary (ATLAS education-layer doctrine
@@ -1023,11 +1044,16 @@ function buildLearningLinksBlock(urlMap) {
     return typeof u === 'string' && /^https?:\/\//.test(u);
   });
   // Internal pending note when no URLs are wired — operator-only,
-  // not shown to users. The visible row is just "Learning links: …"
-  // with the term list. Definitions live in the footer glossary
-  // (and behind URLs once wired).
+  // not shown to users. The visible row reads
+  // "**Expanded Terminology Hyperlinks:** …" with the term list.
+  // Definitions live in the footer glossary (and behind URLs
+  // once wired).
+  //
+  // Operator directive 2026-05-13 (Lane 2 visual QA fix): renamed
+  // from "Learning links" to "Expanded Terminology Hyperlinks"
+  // across Dark Horse output.
   return {
-    text: `**Learning links:** ${rendered}`,
+    text: `**Expanded Terminology Hyperlinks:** ${rendered}`,
     linkRoutingStatus: anyWired ? 'partial' : 'pending',
   };
 }
@@ -1375,10 +1401,16 @@ function buildRankedMovementDigestPayload(ranking, volatility, opts) {
   // block on Part 1 only. When no Bearish candidates exist the
   // row is suppressed so monitoring-only / bullish-only scans
   // aren't padded with an unrelated education row.
+  //
+  // Operator directive 2026-05-13 (Lane 2 visual QA fix): use a
+  // blank-line separator (\n\n) between the boundary and the
+  // top-of-output Terminology Hyperlinks row so old-scan vs
+  // new-scan separation is instantly clear. Chunker still
+  // places the entire block on Part 1 only.
   let firstChunkPrefix = buildNewScanBoundary(opts.now);
   const visualLearningRow = buildVisualLearningLinksRow(ranking, opts);
   if (visualLearningRow) {
-    firstChunkPrefix = firstChunkPrefix + '\n' + visualLearningRow;
+    firstChunkPrefix = firstChunkPrefix + '\n\n' + visualLearningRow;
   }
 
   // Volatility level fallback — "unavailable" is banned from
