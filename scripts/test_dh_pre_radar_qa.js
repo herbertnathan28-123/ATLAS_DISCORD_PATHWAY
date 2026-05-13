@@ -294,8 +294,15 @@ console.log('\n[T9] Monitoring-only digest — supporting layer replaces standou
   const c = payload.content;
   ok('Pre-Radar block rendered',  /### .* Pre-Radar.* Building pressure/.test(c));
   ok('Near-Miss block rendered',  /### .* Near-Miss/.test(c));
-  ok('Why-no-standout block rendered', /### .* Why no standout published/.test(c));
-  ok('Waiting For block rendered', /### .* What ATLAS is waiting for/.test(c));
+  // FOH layout (operator directive 2026-05-13) consolidates the
+  // legacy "Why no standout published" and "What ATLAS is waiting
+  // for" blocks into the FOH "Why ATLAS is not promoting yet" /
+  // "Operator note" / "What ATLAS avoided" surface. Assert the
+  // FOH equivalents are emitted.
+  ok('FOH watch-explanation block rendered',
+     /### ⏳ Why ATLAS is not promoting yet/.test(c));
+  ok('FOH operator-note block rendered',
+     /### 🎙️ Operator note/.test(c));
   ok('Universe coverage block rendered', /### .* Universe coverage/.test(c));
   ok('Redundant "_No qualifying standouts this scan._" SUPPRESSED in monitoring-only',
      !/_No qualifying standouts this scan\._/.test(c),
@@ -332,23 +339,31 @@ console.log('\n[T10] Populated digest — supporting layer renders below main se
     { internal, ignored: [], universeSize: 33, now: Date.parse('2026-05-12T04:00:00Z') }
   );
   const c = payload.content;
-  const idxStandouts  = c.indexOf('### ⭐ Current standouts');
-  const idxFxMajors   = c.indexOf('### FX Majors');
-  const idxPreRadar   = c.indexOf('### 🛰️ Pre-Radar');
-  const idxNearMiss   = c.indexOf('### 🎯 Near-Miss');
-  // Operator directive 2026-05-13 — legacy glossary suppressed.
-  // The footer anchor is now the next-review line, not "### Glossary".
-  const idxNextReview = c.indexOf('⏭️ Next review:');
-  ok('standouts block still rendered when top10 has content', idxStandouts > 0);
-  ok('main section radar still rendered (FX Majors)', idxFxMajors > 0);
-  ok('Pre-Radar appears AFTER main section radar (supporting position)',
-     idxPreRadar > idxFxMajors,
-     { idxFxMajors, idxPreRadar });
-  ok('Near-Miss appears AFTER main section radar',
-     idxNearMiss > idxFxMajors,
-     { idxFxMajors, idxNearMiss });
+  // FOH (operator directive 2026-05-13): standouts are marked
+  // inline on candidate cards (no separate "Current standouts"
+  // block) and section headers carry a color-zone glyph. Re-pin
+  // the layout checks to FOH structure.
+  const idxFohCards    = c.indexOf('🔴 CANDIDATE CARDS');
+  const idxFxMajorsFoh = c.search(/### [🟢🟡🟠🔴🔵⚪]\s+FX Majors/u);
+  const idxPreRadar    = c.indexOf('### 🛰️ Pre-Radar');
+  const idxNearMiss    = c.indexOf('### 🎯 Near-Miss');
+  // FOH footer anchor — next-review block (no "⏭️" glyph, uses
+  // "### 🔚 Next review" heading).
+  const idxNextReview = c.indexOf('### 🔚 Next review');
+  ok('FOH candidate-cards block rendered when top10 has content',
+     idxFohCards > 0, { idxFohCards });
+  ok('FOH section radar (FX Majors) rendered',
+     idxFxMajorsFoh > 0, { idxFxMajorsFoh });
+  ok('FOH inline standout marker appears on at least one card',
+     /\*\*⭐ #\d+ — /.test(c));
+  ok('Pre-Radar appears AFTER the FX Majors section radar',
+     idxPreRadar > idxFxMajorsFoh,
+     { idxFxMajorsFoh, idxPreRadar });
+  ok('Near-Miss appears AFTER the FX Majors section radar',
+     idxNearMiss > idxFxMajorsFoh,
+     { idxFxMajorsFoh, idxNearMiss });
   ok('legacy glossary block NOT emitted', c.indexOf('### Glossary') === -1);
-  ok('next-review footer sits AFTER the supporting blocks',
+  ok('FOH next-review footer sits AFTER the supporting blocks',
      idxNextReview > idxNearMiss);
 }
 
@@ -367,15 +382,21 @@ console.log('\n[T11] Approved vocabulary present in supporting blocks');
     { internal, ignored: [], universeSize: 33 }
   );
   const c = payload.content;
+  // FOH operational vocabulary (operator directive 2026-05-13).
+  // Legacy phrases ("Confirmation pending", "pressure visible
+  // but incomplete", "Awaiting confirmation") were trader
+  // shorthand emitted by the legacy Pre-Radar / Near-Miss
+  // renderers; the FOH renderers replace them with operational
+  // sentences. Assert the FOH equivalents.
   const APPROVED = [
     /building/i,
     /monitoring/i,
     /Not promoted/i,
-    /Confirmation pending/i,
-    /pressure visible but incomplete/i,
     /publication threshold/i,
     /Worth monitoring/i,
-    /Awaiting confirmation/i,
+    /internal radar/i,
+    /reference area/i,
+    /publication bar/i,
   ];
   for (const re of APPROVED) {
     ok(`approved vocabulary present: ${re}`,

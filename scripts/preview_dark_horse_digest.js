@@ -3,21 +3,35 @@
 'use strict';
 
 /**
- * Preview the live Dark Horse digest output AFTER the legacy
- * chart-pattern glossary suppression (operator directive 2026-05-13).
+ * Preview the live Dark Horse digest output AFTER the FOH-native
+ * live formatter is wired (operator directive 2026-05-13).
  *
- * Goes through the live formatter path:
- *   buildRankedMovementDigestPayload  →  _dhChunkDigest
+ * Live path exercised:
+ *   buildRankedMovementDigestPayload (now delegates to FOH)
+ *     → _dhChunkDigest (Discord chunk transport)
  *
- * Then asserts that the resulting chunks no longer contain any of
- * the operator-flagged legacy phrases ANYWHERE in the digest tail
- * (the region where the old glossary used to sit), nor the legacy
- * "### Glossary — chart-pattern terms used above" header anywhere.
+ * The preview confirms:
+ *   - The legacy chart-pattern glossary block / banned tail wording
+ *     is absent from the chunked digest.
+ *   - The FOH layout pieces (atmosphere banner, NEW separators,
+ *     section radar with zone glyphs, candidate cards with the 7
+ *     FOH questions, terminology row, operator note, avoided-risk
+ *     attribution, universe coverage, closing block, advisory tail)
+ *     are present.
+ *   - Discord chunk-size limits are respected.
+ *
+ * Use --legacy to render through the legacy fallback for a
+ * before/after comparison (sets ATLAS_DARKHORSE_LEGACY=1 for the
+ * duration of the run only).
  *
  * Usage:
  *   node scripts/preview_dark_horse_digest.js          # summary
  *   node scripts/preview_dark_horse_digest.js --full   # dump every chunk
+ *   node scripts/preview_dark_horse_digest.js --legacy # legacy fallback (before)
  */
+if (process.argv.includes('--legacy')) {
+  process.env.ATLAS_DARKHORSE_LEGACY = '1';
+}
 
 const rank   = require('../darkHorseRanking');
 const engine = require('../darkHorseEngine');
@@ -81,7 +95,9 @@ const idxNextReview = joined.lastIndexOf('⏭️ Next review:');
 const tailStart = idxNextReview >= 0 ? Math.max(0, idxNextReview - 1200) : Math.max(0, joined.length - 1500);
 const tail = joined.slice(tailStart);
 
+const isLegacyRun = process.argv.includes('--legacy');
 const checks = [
+  // Legacy-suppression guards — operator directive 2026-05-13.
   ['DH_CHART_GLOSSARY constant is empty',
     rank.DH_CHART_GLOSSARY === ''],
   ['legacy glossary heading absent in joined digest',
@@ -110,6 +126,56 @@ const checks = [
     !/\bread\s+weakens\b/i.test(tail)],
 ];
 
+// FOH-presence checks — only meaningful on the live (FOH) run.
+// Under --legacy these are skipped because the legacy radar
+// template does not emit them.
+if (!isLegacyRun) {
+  checks.push(
+    ['FOH digest-version line present',
+      /_Digest version:_\s*v1\.2-foh/.test(joined)],
+    ['FOH _Market atmosphere:_ line present',
+      /_Market atmosphere:_/.test(joined)],
+    ['FOH _Publication state:_ line present',
+      /_Publication state:_/.test(joined)],
+    ['FOH 🔴 NEW separator present',
+      /━━━━━━━━━━ 🔴/.test(joined)],
+    ['FOH global market read section present',
+      /### 🌐 Global market read/.test(joined)],
+    ['FOH section radar uses color glyphs',
+      /### [🟢🟡🟠🔴🔵⚪]\s+/u.test(joined)],
+    ['FOH terminology row present',
+      /🟦 _Expanded terminology:_/.test(joined)],
+    ['FOH cards expose 🟢 Healthy zone cue',
+      /🟢 _Healthy zone:_/.test(joined)],
+    ['FOH cards expose 🟡 Caution zone cue',
+      /🟡 _Caution zone:_/.test(joined)],
+    ['FOH cards expose 🟠 Danger zone cue',
+      /🟠 _Danger zone:_/.test(joined)],
+    ['FOH cards expose 🔴 Invalidation cue',
+      /🔴 _Invalidation:_/.test(joined)],
+    ['FOH _What ATLAS needs next:_ block present',
+      /_What ATLAS needs next:_/.test(joined)],
+    ['FOH operator-note block present',
+      /### 🎙️ Operator note/.test(joined)],
+    ['FOH watch-explanation block present',
+      /### ⏳ Why ATLAS is not promoting yet/.test(joined)],
+    ['FOH universe-coverage block present',
+      /### 📊 Universe coverage/.test(joined)],
+    ['FOH closing block present',
+      /### 🔚 Next review/.test(joined)],
+    ['FOH advisory tail present',
+      /⚠️ Advisory only/.test(joined)],
+    ['No legacy "**Dark Horse criteria:**" paragraph',
+      !/\*\*Dark Horse criteria:\*\*/.test(joined)],
+    ['No legacy "**Displayed candidates:**" header',
+      !/\*\*Displayed candidates:\*\*/.test(joined)],
+    ['No legacy "Conditions are moving but entry quality is not confirmed." footer',
+      !/Conditions are moving but entry quality is not confirmed/.test(joined)],
+    ['Every chunk ≤ Discord 2000-char hard limit',
+      chunks.every(c => c.length <= 2000)],
+  );
+}
+
 console.log('=== DARK HORSE PREVIEW — legacy glossary suppression ===');
 console.log(`Chunks produced: ${chunks.length}`);
 console.log(`Total digest length: ${joined.length} chars`);
@@ -136,9 +202,46 @@ if (process.argv.includes('--full')) {
   }
 }
 
+// ────────────────────────────────────────────────────────────
+// Semantic-translator grep proof — count occurrences of the
+// legacy trader-shorthand phrases across the joined digest.
+// The FOH path should show zero (or vastly reduced) hits versus
+// the legacy fallback. Phrases tracked:
+//   - "moderate-to-high" / "low-to-moderate" raw risk labels
+//   - "HH/HL" / "LH/LL" raw structure shorthand
+//   - "× baseline" raw speed multiplier
+//   - "Confirmation pending" / "Awaiting confirmation"
+//   - "structure 2/2" / "promotion trigger" / "window narrowing"
+//   - "higher-timeframe close" / "confirmed structure"
+// ────────────────────────────────────────────────────────────
 console.log('');
-console.log(allPass
-  ? '[PREVIEW RESULT] PASS — live formatter no longer emits the legacy glossary block or banned tail wording.'
+console.log('--- SEMANTIC GREP — legacy trader-shorthand occurrence counts ---');
+const GREP_TERMS = [
+  ['moderate-to-high',         /\bmoderate-to-high\b/gi],
+  ['low-to-moderate',          /\blow-to-moderate\b/gi],
+  ['HH/HL',                    /\bHH\/HL\b/g],
+  ['LH/LL',                    /\bLH\/LL\b/g],
+  ['× baseline',               /×\s*baseline\b/gi],
+  ['Confirmation pending',     /\bConfirmation pending\b/gi],
+  ['Awaiting confirmation',    /\bAwaiting confirmation\b/gi],
+  ['structure 2/2',            /\bstructure 2\/2\b/gi],
+  ['promotion trigger',        /\bpromotion trigger\b/gi],
+  ['window narrowing',         /\bwindow narrowing\b/gi],
+  ['higher-timeframe close',   /\bhigher-timeframe close\b/gi],
+  ['confirmed structure',      /\bconfirmed structure\b/gi],
+  ['confirmed higher-timeframe close', /\bconfirmed higher-timeframe close\b/gi],
+];
+let grepPass = true;
+for (const [label, re] of GREP_TERMS) {
+  const hits = (joined.match(re) || []).length;
+  const tag = hits === 0 ? 'PASS' : 'FAIL';
+  if (hits !== 0) grepPass = false;
+  console.log(`[${tag}] "${label}" — ${hits} occurrences on the live FOH surface`);
+}
+
+console.log('');
+console.log(allPass && grepPass
+  ? '[PREVIEW RESULT] PASS — FOH semantic translator strips legacy trader shorthand from the live surface.'
   : '[PREVIEW RESULT] FAIL — at least one legacy phrase still reaches the digest.');
 
-process.exit(allPass ? 0 : 1);
+process.exit(allPass && grepPass ? 0 : 1);

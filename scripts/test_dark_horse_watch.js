@@ -402,21 +402,29 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
 
     bannedSweep('T10 v1.1 digest', c);
 
-    ok('row label "Promotion criteria:" present',
-       /\bPromotion criteria:\s/.test(c), c);
-    ok('row label "Promotion trigger:" REMOVED',
+    // FOH layout (operator directive 2026-05-13) — the legacy
+    // "Promotion criteria:" / "Invalidation condition:" per-card
+    // rows are retired. FOH cards expose the same intent under the
+    // 🟢/🟡/🟠/🔴 zone cues + "What ATLAS needs next" block. The
+    // protective negative checks (no legacy "Promotion trigger:" /
+    // "Invalidation trigger:" leakage) stay in place.
+    ok('FOH invalidation cue (🔴 _Invalidation:_) appears on every top-3 card',
+       (c.match(/🔴 _Invalidation:_/g) || []).length >= 3,
+       { count: (c.match(/🔴 _Invalidation:_/g) || []).length });
+    ok('FOH "What ATLAS needs next:" block appears on every top-3 card',
+       (c.match(/_What ATLAS needs next:_/g) || []).length >= 3,
+       { count: (c.match(/_What ATLAS needs next:_/g) || []).length });
+    ok('legacy row label "Promotion trigger:" REMOVED',
        !/\bPromotion trigger:/.test(c));
-    ok('row label "Invalidation trigger:" REMOVED',
+    ok('legacy row label "Invalidation trigger:" REMOVED',
        !/\bInvalidation trigger:/.test(c));
+    ok('legacy row label "Promotion criteria:" NOT emitted under FOH',
+       !/\bPromotion criteria:\s/.test(c));
+    ok('legacy row label "Invalidation condition:" NOT emitted under FOH',
+       !/\bInvalidation condition:/.test(c));
 
-    // Current invalidation template carries no numeric price → must
-    // emit "Invalidation condition:" + the "Reference level not
-    // published in this digest yet." sub-row.
-    const condCount = (c.match(/Invalidation condition:/g) || []).length;
     const refCount  = (c.match(/Reference level not published in this digest yet\./g) || []).length;
     const lvlCount  = (c.match(/Invalidation level:/g) || []).length;
-    ok('Invalidation condition: appears once per top-3 candidate',
-       condCount === 3, { condCount });
     // Operator directive 2026-05-12 — the "Reference level not
     // published in this digest yet." sub-row is now SUPPRESSED.
     // The Chart evidence block above already publishes a
@@ -436,9 +444,13 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
     // Operator directive 2026-05-12 — footer rewritten to ask the
     // reader to reassess at the next review window rather than the
     // older "wait … before acting" wording.
-    ok('single advisory tail present',
-       /Conditions are moving but entry quality is not confirmed/.test(c) &&
-       /Reassess against the per-candidate confirmation criteria at the next review\./.test(c), c);
+    // FOH closing tail (operator directive 2026-05-13): replaces
+    // the legacy "Conditions are moving … Reassess at next review"
+    // line with the advisory FOH closing sentence + the explicit
+    // "⚠️ Advisory only" footer.
+    ok('FOH advisory tail present',
+       /ATLAS remains in monitoring mode/.test(c)
+       && /⚠️ Advisory only/.test(c), c);
 
     // Numeric-level branch: feed a synthetic invalidation text that
     // includes a price. The renderer must switch to "Invalidation level:"
