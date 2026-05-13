@@ -202,9 +202,46 @@ if (process.argv.includes('--full')) {
   }
 }
 
+// ────────────────────────────────────────────────────────────
+// Semantic-translator grep proof — count occurrences of the
+// legacy trader-shorthand phrases across the joined digest.
+// The FOH path should show zero (or vastly reduced) hits versus
+// the legacy fallback. Phrases tracked:
+//   - "moderate-to-high" / "low-to-moderate" raw risk labels
+//   - "HH/HL" / "LH/LL" raw structure shorthand
+//   - "× baseline" raw speed multiplier
+//   - "Confirmation pending" / "Awaiting confirmation"
+//   - "structure 2/2" / "promotion trigger" / "window narrowing"
+//   - "higher-timeframe close" / "confirmed structure"
+// ────────────────────────────────────────────────────────────
 console.log('');
-console.log(allPass
-  ? '[PREVIEW RESULT] PASS — live formatter no longer emits the legacy glossary block or banned tail wording.'
+console.log('--- SEMANTIC GREP — legacy trader-shorthand occurrence counts ---');
+const GREP_TERMS = [
+  ['moderate-to-high',         /\bmoderate-to-high\b/gi],
+  ['low-to-moderate',          /\blow-to-moderate\b/gi],
+  ['HH/HL',                    /\bHH\/HL\b/g],
+  ['LH/LL',                    /\bLH\/LL\b/g],
+  ['× baseline',               /×\s*baseline\b/gi],
+  ['Confirmation pending',     /\bConfirmation pending\b/gi],
+  ['Awaiting confirmation',    /\bAwaiting confirmation\b/gi],
+  ['structure 2/2',            /\bstructure 2\/2\b/gi],
+  ['promotion trigger',        /\bpromotion trigger\b/gi],
+  ['window narrowing',         /\bwindow narrowing\b/gi],
+  ['higher-timeframe close',   /\bhigher-timeframe close\b/gi],
+  ['confirmed structure',      /\bconfirmed structure\b/gi],
+  ['confirmed higher-timeframe close', /\bconfirmed higher-timeframe close\b/gi],
+];
+let grepPass = true;
+for (const [label, re] of GREP_TERMS) {
+  const hits = (joined.match(re) || []).length;
+  const tag = hits === 0 ? 'PASS' : 'FAIL';
+  if (hits !== 0) grepPass = false;
+  console.log(`[${tag}] "${label}" — ${hits} occurrences on the live FOH surface`);
+}
+
+console.log('');
+console.log(allPass && grepPass
+  ? '[PREVIEW RESULT] PASS — FOH semantic translator strips legacy trader shorthand from the live surface.'
   : '[PREVIEW RESULT] FAIL — at least one legacy phrase still reaches the digest.');
 
-process.exit(allPass ? 0 : 1);
+process.exit(allPass && grepPass ? 0 : 1);

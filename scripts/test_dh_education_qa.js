@@ -517,13 +517,21 @@ console.log('\n[T11] Live-leak regression guard — every named substring absent
      /_Publication state:_/.test(content));
   ok('FOH next-review block carries an advisory closing sentence',
      /ATLAS remains in monitoring mode/.test(content));
+  // FOH semantic translator (operator directive 2026-05-13)
+  // renders the Universal Reference Doctrine block via either
+  // the "Replay reference unavailable …" honest fallback or the
+  // partial 1D anchor wording ("Timeframe wired this cycle:").
   ok('FOH chart-evidence pending fallback uses the universal-reference doctrine wording',
      /Replay reference unavailable in this scan packet/.test(content)
-     || /Timeframe wired:/.test(content));
-  ok('FOH movement wording uses "× the prior-bar average" when speed is present',
-     /×\s*the prior-bar average/.test(content));
-  ok('FOH relative-strength wording uses "section average"',
-     /section average\b/.test(content));
+     || /Timeframe wired this cycle:/.test(content));
+  // FOH translator narrates pace as "above / in line with the
+  // recent average" instead of the raw "× baseline" multiplier.
+  ok('FOH pace wording uses "the recent average" phrasing',
+     /the recent average/.test(content));
+  // FOH translator narrates relative strength as "outpacing /
+  // lagging <section>" instead of raw "× section avg".
+  ok('FOH relative-strength wording uses operational "outpacing / lagging" voice',
+     /outpacing\b/.test(content) || /lagging\b/.test(content) || /modestly outpacing/.test(content));
   // Standout reason prose retired in FOH — standouts are marked
   // inline on the card header instead. Assert at least one card
   // carries the inline ⭐ marker.

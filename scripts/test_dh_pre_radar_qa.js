@@ -382,15 +382,21 @@ console.log('\n[T11] Approved vocabulary present in supporting blocks');
     { internal, ignored: [], universeSize: 33 }
   );
   const c = payload.content;
+  // FOH operational vocabulary (operator directive 2026-05-13).
+  // Legacy phrases ("Confirmation pending", "pressure visible
+  // but incomplete", "Awaiting confirmation") were trader
+  // shorthand emitted by the legacy Pre-Radar / Near-Miss
+  // renderers; the FOH renderers replace them with operational
+  // sentences. Assert the FOH equivalents.
   const APPROVED = [
     /building/i,
     /monitoring/i,
     /Not promoted/i,
-    /Confirmation pending/i,
-    /pressure visible but incomplete/i,
     /publication threshold/i,
     /Worth monitoring/i,
-    /Awaiting confirmation/i,
+    /internal radar/i,
+    /reference area/i,
+    /publication bar/i,
   ];
   for (const re of APPROVED) {
     ok(`approved vocabulary present: ${re}`,

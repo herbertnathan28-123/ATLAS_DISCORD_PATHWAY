@@ -278,11 +278,14 @@ console.log('\n[T7] FOH 3-question opener present for every card');
 console.log('\n[T8] FOH zone cues present on every card');
 {
   const healthyN = (content.match(/🟢 _Healthy zone:_/g) || []).length;
-  const cautionN = (content.match(/🟡 _Caution zone:_/g) || []).length;
+  // FOH translator now picks the caution glyph based on
+  // late-entry tone (🟢 healthy / 🟡 building / 🟠 elevated /
+  // 🔵 pending). Accept any of the four for the caution line.
+  const cautionN = (content.match(/[🟢🟡🟠🔵] _Caution zone:_/gu) || []).length;
   const dangerN  = (content.match(/🟠 _Danger zone:_/g) || []).length;
   const invalN   = (content.match(/🔴 _Invalidation:_/g) || []).length;
   ok('every card carries the 🟢 Healthy zone cue', healthyN === renderedCardCount, { healthyN });
-  ok('every card carries the 🟡 Caution zone cue', cautionN === renderedCardCount, { cautionN });
+  ok('every card carries a Caution zone cue (🟢/🟡/🟠/🔵)', cautionN === renderedCardCount, { cautionN });
   ok('every card carries the 🟠 Danger zone cue',  dangerN  === renderedCardCount, { dangerN });
   ok('every card carries the 🔴 Invalidation cue', invalN   === renderedCardCount, { invalN });
   ok('legacy "Continuation window:" label NOT emitted',
