@@ -1,0 +1,282 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>FOH.1.0.1 Dark Horse — Visual Prototype v3</title>
+<style>
+    body {
+      margin: 0; padding: 28px 20px;
+      background: #36393F;
+      color: #DCDDDE;
+      font-family: "gg sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 18px;
+      line-height: 1.55;
+    }
+    .channel {
+      max-width: 780px;
+      margin: 0 auto;
+      background: #36393F;
+    }
+    .channel-header {
+      border-bottom: 1px solid #2F3136;
+      padding-bottom: 16px;
+      margin-bottom: 28px;
+      color: #B9BBBE;
+      font-size: 15px;
+      display: flex; gap: 10px; align-items: center;
+    }
+    .channel-header .hash { color: #72767D; font-size: 26px; font-weight: 600; }
+    .channel-header .name { color: #FFFFFF; font-weight: 600; font-size: 17px; }
+    .message {
+      padding: 14px 0 14px 68px;
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .message::before {
+      content: ""; position: absolute; left: 12px; top: 14px;
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, #5865F2, #EB459E);
+    }
+    .message::after {
+      content: "ATLAS  ·  Dark Horse Radar";
+      position: absolute; left: 68px; top: -2px;
+      color: #FFFFFF; font-weight: 600; font-size: 16px;
+    }
+    .message-content {
+      margin-top: 22px;
+      color: #DCDDDE;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .message-content pre.fence {
+      background: #2F3136;
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin: 10px 0;
+      font-family: Consolas, "Andale Mono WT", "Andale Mono", "Lucida Console", "Lucida Sans Typewriter", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Liberation Mono", "Nimbus Mono L", Monaco, "Courier New", Courier, monospace;
+      font-size: 15px;
+      line-height: 1.55;
+      color: #B9BBBE;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .new-sep {
+      display: block;
+      text-align: center;
+      color: #ED4245;
+      font-weight: 700;
+      letter-spacing: 2px;
+      margin: 22px 0;
+      font-family: Consolas, monospace;
+      font-size: 16px;
+    }
+    .embed {
+      max-width: 620px;
+      margin-top: 14px;
+      background: #2F3136;
+      border-left: 5px solid #4F545C;
+      border-radius: 6px;
+      padding: 16px 20px 18px;
+    }
+    .embed-title {
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 19px;
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+    .embed-desc {
+      color: #DCDDDE;
+      font-size: 16px;
+      line-height: 1.55;
+      margin-bottom: 14px;
+    }
+    .embed-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 24px;
+    }
+    .embed-field.block { grid-column: 1 / -1; }
+    .embed-field.inline { grid-column: span 1; }
+    .embed-field-name {
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .embed-field-value {
+      color: #DCDDDE;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .embed-field-value .entry { color: #23A55A; font-weight: 700; display: block; margin: 2px 0; }
+    .embed-field-value .stop  { color: #ED4245; font-weight: 700; display: block; margin: 2px 0; }
+    .embed-field-value .term-chip {
+      color: #5BC0DE;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .embed-footer {
+      color: #72767D;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #40444B;
+    }
+  </style></head>
+<body>
+<div class="channel">
+  <div class="channel-header">
+    <span class="hash">#</span>
+    <span class="name">dark-horse-radar</span>
+    <span style="margin-left:auto;color:#72767D">FOH.1.0.1 prototype v3 · sample data · comfort + scale pass</span>
+  </div>
+  
+    <div class="message" data-idx="0">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color:#ED4245">- ▼ ▼ ▼   N E W   D A R K   H O R S E   S C A N   ▼ ▼ ▼</span>
+<span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color:#ED4245">- 🆕   Tuesday 13 May · 12:00 UTC · 33 markets scanned   🆕</span>
+<span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   🐎  DARK HORSE — GLOBAL MOVER RADAR           ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br>_The standout movers ATLAS found this cycle._<br>_Three strong moves. Two bullish, one bearish. Broader market mood is jumpy — keep size measured._<br><br>📘 <strong>EXPANDED TERMINOLOGY HYPERLINKS</strong><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">[Breakout]</span>  <span style="color:#5BC0DE;font-weight:700">[Retest]</span>  <span style="color:#5BC0DE;font-weight:700">[Continuation]</span>  <span style="color:#5BC0DE;font-weight:700">[Mover Stage 1]</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Today's read</span></pre><br>Three markets are showing real strength. The full picture is below.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Market mood</span></pre><br>Elevated risk — broad market is moving fast, so size positions with care.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   ⭐  STANDOUTS — TODAY'S STRONGEST MOVERS       ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br><span class="new-sep">─── NEW ───</span></div>
+      
+    <div class="embed" style="border-left-color:#2ecc71">
+      <div class="embed-title">🐎  EURUSD  ·  STRONG BULLISH</div><div class="embed-desc">Pushed above a multi-week ceiling and held the level cleanly. The move is fresh.</div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">Move Type</div>
+        <div class="embed-field-value">Breakout · early stage</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Direction</div>
+        <div class="embed-field-value">▲ Long</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Conviction</div>
+        <div class="embed-field-value">🟢🟢🟢🟢 / 5 · High</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">The Setup</div>
+        <div class="embed-field-value">Above 1.0950 — broken cleanly</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Horizon</div>
+        <div class="embed-field-value">Days, not minutes</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Standing</div>
+        <div class="embed-field-value">Standout #1 of 3</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Where to Act</div>
+        <div class="embed-field-value"><span class="entry">🟢 BUY 1.0925 — on the dip-and-hold</span><br><span class="stop">🛑 RISK-OFF 1.0895 — if the floor fails, level flips back to ceiling</span></div>
+      </div></div>
+      <div class="embed-footer">Dark Horse Radar  ·  12:00 UTC  ·  standout 1 of 3</div>
+    </div>
+    </div>
+    <div class="message" data-idx="1">
+      <div class="message-content"><span class="new-sep">─── NEW ───</span></div>
+      
+    <div class="embed" style="border-left-color:#e74c3c">
+      <div class="embed-title">🐎  XAUUSD  ·  STRONG BEARISH</div><div class="embed-desc">Gold has broken under a multi-week floor. Sellers are now in control of the structure.</div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">Move Type</div>
+        <div class="embed-field-value">Breakdown · early stage</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Direction</div>
+        <div class="embed-field-value">▼ Short</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Conviction</div>
+        <div class="embed-field-value">🔴🔴🔴🔴 / 5 · High</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">The Setup</div>
+        <div class="embed-field-value">Below 2398.20 — broken cleanly</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Horizon</div>
+        <div class="embed-field-value">Days, not minutes</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Standing</div>
+        <div class="embed-field-value">Standout #2 of 3</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Where to Act</div>
+        <div class="embed-field-value"><span class="entry">🟢 SELL 2401.50 — on the bounce-and-stall</span><br><span class="stop">🛑 RISK-OFF 2410.30 — if it reclaims, the bear thesis is off</span></div>
+      </div></div>
+      <div class="embed-footer">Dark Horse Radar  ·  12:00 UTC  ·  standout 2 of 3</div>
+    </div>
+    </div>
+    <div class="message" data-idx="2">
+      <div class="message-content"><span class="new-sep">─── NEW ───</span></div>
+      
+    <div class="embed" style="border-left-color:#f1c40f">
+      <div class="embed-title">🐎  NVDA  ·  DEVELOPING WATCH</div><div class="embed-desc">NVIDIA's uptrend is mature. Reward is shrinking — wait for the next test, do not chase.</div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">Move Type</div>
+        <div class="embed-field-value">Continuation · late stage</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Direction</div>
+        <div class="embed-field-value">▲ Long</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Conviction</div>
+        <div class="embed-field-value">🟡🟡🟡🟡 / 5 · High</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">The Setup</div>
+        <div class="embed-field-value">Above 925.40 — waiting on the next push</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Horizon</div>
+        <div class="embed-field-value">Hours, not days</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Standing</div>
+        <div class="embed-field-value">Standout #3 of 3</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Where to Act</div>
+        <div class="embed-field-value"><span class="entry">🟢 BUY 921.10 — only on a pullback that holds</span><br><span class="stop">🛑 RISK-OFF 912.80 — if it fails, the late-stage idea is off</span><br>⚠️  Size small — the move is late in its cycle.</div>
+      </div></div>
+      <div class="embed-footer">Dark Horse Radar  ·  12:00 UTC  ·  standout 3 of 3  ·  next review 12:15 UTC</div>
+    </div>
+    </div>
+    <div class="message" data-idx="3">
+      <div class="message-content"><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   📡  BUILDING — MARKETS WARMING UP             ║
+</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre><br><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">[Pre-Radar]</span>  <span style="color:#5BC0DE;font-weight:700">[Momentum]</span>  <span style="color:#5BC0DE;font-weight:700">[Structure]</span></pre><br><br>_These aren't ready to act on yet. They're close, and worth keeping on the chart._<br>_If structure firms by the next cycle, they'll graduate into a standout._<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔════════════════════════════════════════════════╗
+</span><span style="color:#FAA61A;font-weight:700">║   📚  CLEAN BULLISH BREAKOUT — REFERENCE       ║
+</span><span style="color:#FAA61A;font-weight:700">╚════════════════════════════════════════════════╝</span>
+
+<span style="color:#23A55A">   ▲ price</span>
+<span style="color:#23A55A">   │                            ╭──── higher still</span>
+<span style="color:#23A55A">   │                      ╭──╮ ╱</span>
+<span style="color:#ED4245">   │   ─────────────────●──╯  ●</span>   ← buyers defended
+<span style="color:#ED4245">   │   ceiling, now a floor</span>
+<span style="color:#23A55A">   │          ╭──╮</span>
+<span style="color:#23A55A">   │    ╭──╮ ╱    ╲ ╱   ← pushed up through the ceiling</span>
+<span style="color:#23A55A">   │ ╱╲╱   ╲╱      V</span>
+<span style="color:#23A55A">   └──────────────────────────────────────▶ time</span>
+
+<span style="color:#5BC0DE;font-weight:700">   ▸  The story</span>
+       Price pushed through a level that capped it for weeks,
+       then came back to test the same level. Buyers stepped
+       in to defend it. The ceiling has flipped into a floor.
+
+<span style="color:#5BC0DE;font-weight:700">   ▸  How a trader acts</span>
+       Buy the pullback to the floor. Place the risk-off just
+       under it. If the floor breaks, the idea is off.</pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Risk reminder</span></pre><br>_Even a strong standout is a plan, not a guarantee. Cross-check each card against live price before acting. ATLAS reviews again at 12:15 UTC._</div>
+      
+    </div>
+</div>
+</body></html>

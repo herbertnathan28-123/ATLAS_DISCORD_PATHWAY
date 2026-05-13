@@ -47,23 +47,23 @@ function ansi(code, text) { return `${ESC}[${code}m${text}${ESC}[0m`; }
 // `-` prefixed lines red inside ```diff fences.
 const RED_NEW_DIVIDER = [
   '```diff',
-  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
   '- ▼ ▼ ▼   N E W   D A R K   H O R S E   S C A N   ▼ ▼ ▼',
-  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-  '- 🆕   Tuesday 13 May  ·  12:00 UTC  ·  33 markets scanned   🆕',
-  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+  '- 🆕   Tuesday 13 May · 12:00 UTC · 33 markets scanned   🆕',
+  '- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
   '```',
 ].join('\n');
 
 function goldSectionBox(headingText) {
-  // Gold ASCII box for major section headings. ESC[33;1m =
-  // bold gold inside ```ansi. Page-width box so the heading
-  // reads as a banner, not an inline label.
+  // v3 — narrower, page-stable box (52 cols) so it fits cleanly on
+  // iPad portrait without horizontal scroll, while still reading as
+  // a banner. Bold gold (ESC[33;1m) inside ```ansi.
   return [
     '```ansi',
-    `${ESC}[33;1m╔════════════════════════════════════════════════════════════╗`,
-    `${ESC}[33;1m║   ${headingText.padEnd(56, ' ')}║`,
-    `${ESC}[33;1m╚════════════════════════════════════════════════════════════╝${ESC}[0m`,
+    `${ESC}[33;1m╔══════════════════════════════════════════════════╗`,
+    `${ESC}[33;1m║   ${headingText.padEnd(46, ' ')}║`,
+    `${ESC}[33;1m╚══════════════════════════════════════════════════╝${ESC}[0m`,
     '```',
   ].join('\n');
 }
@@ -89,37 +89,38 @@ function tealTerminologyRow(terms) {
 }
 
 function visualReferenceCard() {
-  // Bullish breakout + retest reference. Plain-English prose only —
-  // no "body close", no "retest holds", no "confirms". Gold heading
-  // box + green/red ASCII chart + cyan trader-voice annotations.
+  // v3 — comfort + scale pass on the reference card.
+  //   - Section box narrower (50 cols, fits iPad portrait)
+  //   - Larger spacing between chart and prose
+  //   - Reduced from 3 cyan-headed prose sections to 2 (collapsed
+  //     "What you're seeing" + "How ATLAS reads it" into a single
+  //     "The story" block so the card reads in a glance, then a
+  //     "How to act" block for the practical step). Operator
+  //     directive: simplify dense sections slightly.
   return [
     '```ansi',
-    `${ESC}[33;1m╔════════════════════════════════════════════════════════════╗`,
-    `${ESC}[33;1m║   📚  WHAT A CLEAN BULLISH BREAKOUT LOOKS LIKE             ║`,
-    `${ESC}[33;1m╚════════════════════════════════════════════════════════════╝${ESC}[0m`,
+    `${ESC}[33;1m╔════════════════════════════════════════════════╗`,
+    `${ESC}[33;1m║   📚  CLEAN BULLISH BREAKOUT — REFERENCE       ║`,
+    `${ESC}[33;1m╚════════════════════════════════════════════════╝${ESC}[0m`,
     '',
-    `${ESC}[32m  ▲ price${ESC}[0m`,
-    `${ESC}[32m  │                                  ╭──── higher still${ESC}[0m`,
-    `${ESC}[32m  │                          ╭──╮ ╱${ESC}[0m`,
-    `${ESC}[31m  │   ─────────────────────●──╯  ●${ESC}[0m  ← buyers defended the level`,
-    `${ESC}[31m  │   ceiling — now a floor${ESC}[0m`,
-    `${ESC}[32m  │            ╭──╮${ESC}[0m`,
-    `${ESC}[32m  │     ╭──╮  ╱    ╲ ╱  ← price pushed up through the ceiling${ESC}[0m`,
-    `${ESC}[32m  │  ╱╲╱   ╲╱      V${ESC}[0m`,
-    `${ESC}[32m  └────────────────────────────────────────▶ time${ESC}[0m`,
+    `${ESC}[32m   ▲ price${ESC}[0m`,
+    `${ESC}[32m   │                            ╭──── higher still${ESC}[0m`,
+    `${ESC}[32m   │                      ╭──╮ ╱${ESC}[0m`,
+    `${ESC}[31m   │   ─────────────────●──╯  ●${ESC}[0m   ← buyers defended`,
+    `${ESC}[31m   │   ceiling, now a floor${ESC}[0m`,
+    `${ESC}[32m   │          ╭──╮${ESC}[0m`,
+    `${ESC}[32m   │    ╭──╮ ╱    ╲ ╱   ← pushed up through the ceiling${ESC}[0m`,
+    `${ESC}[32m   │ ╱╲╱   ╲╱      V${ESC}[0m`,
+    `${ESC}[32m   └──────────────────────────────────────▶ time${ESC}[0m`,
     '',
-    `${ESC}[36;1m  What you're seeing${ESC}[0m`,
-    '    Price punched above a level that capped it for weeks,',
-    '    then dipped back to test that same level. Buyers came in',
-    '    to defend it. The market kept moving higher from there.',
+    `${ESC}[36;1m   ▸  The story${ESC}[0m`,
+    '       Price pushed through a level that capped it for weeks,',
+    '       then came back to test the same level. Buyers stepped',
+    '       in to defend it. The ceiling has flipped into a floor.',
     '',
-    `${ESC}[36;1m  How ATLAS reads it${ESC}[0m`,
-    '    The ceiling has flipped into a floor. While that floor',
-    '    holds, the path of least resistance is up.',
-    '',
-    `${ESC}[36;1m  How a trader acts on it${ESC}[0m`,
-    '    Buy the pullback to the floor, place the risk-off just',
-    '    under it. If the floor breaks, the idea is off.',
+    `${ESC}[36;1m   ▸  How a trader acts${ESC}[0m`,
+    '       Buy the pullback to the floor. Place the risk-off just',
+    '       under it. If the floor breaks, the idea is off.',
     '```',
   ].join('\n');
 }
@@ -151,8 +152,8 @@ const SAMPLE_MESSAGES = [
     ].join('\n'),
     embeds: [{
       color: 0x2ECC71,
-      title: '🐎 EURUSD · STRONG BULLISH',
-      description: 'EURUSD has pushed above a multi-week ceiling and held the level cleanly. The move is fresh.',
+      title: '🐎  EURUSD  ·  STRONG BULLISH',
+      description: 'Pushed above a multi-week ceiling and held the level cleanly. The move is fresh.',
       fields: [
         { name: 'Move Type',   value: 'Breakout · early stage',                                  inline: true  },
         { name: 'Direction',   value: '▲ Long',                                                   inline: true  },
@@ -160,10 +161,17 @@ const SAMPLE_MESSAGES = [
         { name: 'The Setup',   value: 'Above 1.0950 — broken cleanly',                            inline: true  },
         { name: 'Horizon',     value: 'Days, not minutes',                                        inline: true  },
         { name: 'Standing',    value: 'Standout #1 of 3',                                         inline: true  },
-        { name: 'Where to Act', value: '🟢 BUY the dip into 1.0925 if it holds  ·  🛑 RISK-OFF if 1.0895 fails  ·  level flips back to ceiling', inline: false },
-        { name: 'In ATLAS terms', value: '[Breakout]  [Retest]  [Continuation]  [Mover Stage 1]', inline: false },
+        // Multi-line value — Discord renders \n in field values as
+        // line breaks. Each action carries its own colour-coded line
+        // for mobile readability.
+        { name: 'Where to Act',
+          value: [
+            '🟢 BUY 1.0925 — on the dip-and-hold',
+            '🛑 RISK-OFF 1.0895 — if the floor fails, level flips back to ceiling',
+          ].join('\n'),
+          inline: false },
       ],
-      footer: { text: 'Dark Horse Radar · 12:00 UTC · standout 1 of 3' },
+      footer: { text: 'Dark Horse Radar  ·  12:00 UTC  ·  standout 1 of 3' },
     }],
   },
 
@@ -172,7 +180,7 @@ const SAMPLE_MESSAGES = [
     content: '─── NEW ───',
     embeds: [{
       color: 0xE74C3C,
-      title: '🐎 XAUUSD · STRONG BEARISH',
+      title: '🐎  XAUUSD  ·  STRONG BEARISH',
       description: 'Gold has broken under a multi-week floor. Sellers are now in control of the structure.',
       fields: [
         { name: 'Move Type',   value: 'Breakdown · early stage',                                  inline: true  },
@@ -181,10 +189,14 @@ const SAMPLE_MESSAGES = [
         { name: 'The Setup',   value: 'Below 2398.20 — broken cleanly',                           inline: true  },
         { name: 'Horizon',     value: 'Days, not minutes',                                        inline: true  },
         { name: 'Standing',    value: 'Standout #2 of 3',                                         inline: true  },
-        { name: 'Where to Act', value: '🟢 SELL the bounce into 2401.50 if it stalls  ·  🛑 RISK-OFF if 2410.30 reclaims  ·  the bear thesis is off', inline: false },
-        { name: 'In ATLAS terms', value: '[Breakout]  [Retest]  [Continuation]  [Mover Stage 1]', inline: false },
+        { name: 'Where to Act',
+          value: [
+            '🟢 SELL 2401.50 — on the bounce-and-stall',
+            '🛑 RISK-OFF 2410.30 — if it reclaims, the bear thesis is off',
+          ].join('\n'),
+          inline: false },
       ],
-      footer: { text: 'Dark Horse Radar · 12:00 UTC · standout 2 of 3' },
+      footer: { text: 'Dark Horse Radar  ·  12:00 UTC  ·  standout 2 of 3' },
     }],
   },
 
@@ -193,8 +205,8 @@ const SAMPLE_MESSAGES = [
     content: '─── NEW ───',
     embeds: [{
       color: 0xF1C40F,
-      title: '🐎 NVDA · DEVELOPING WATCH',
-      description: 'NVIDIA\'s uptrend is mature. The room for fresh reward is shrinking — wait for the next test, do not chase.',
+      title: '🐎  NVDA  ·  DEVELOPING WATCH',
+      description: 'NVIDIA\'s uptrend is mature. Reward is shrinking — wait for the next test, do not chase.',
       fields: [
         { name: 'Move Type',   value: 'Continuation · late stage',                                inline: true  },
         { name: 'Direction',   value: '▲ Long',                                                    inline: true  },
@@ -202,10 +214,15 @@ const SAMPLE_MESSAGES = [
         { name: 'The Setup',   value: 'Above 925.40 — waiting on the next push',                  inline: true  },
         { name: 'Horizon',     value: 'Hours, not days',                                          inline: true  },
         { name: 'Standing',    value: 'Standout #3 of 3',                                         inline: true  },
-        { name: 'Where to Act', value: '🟢 BUY only on a pullback to 921.10 that holds  ·  🛑 RISK-OFF if 912.80 fails  ·  size small, the move is late', inline: false },
-        { name: 'In ATLAS terms', value: '[Breakout]  [Retest]  [Continuation]  [Mover Stage 1]', inline: false },
+        { name: 'Where to Act',
+          value: [
+            '🟢 BUY 921.10 — only on a pullback that holds',
+            '🛑 RISK-OFF 912.80 — if it fails, the late-stage idea is off',
+            '⚠️  Size small — the move is late in its cycle.',
+          ].join('\n'),
+          inline: false },
       ],
-      footer: { text: 'Dark Horse Radar · 12:00 UTC · standout 3 of 3 · ATLAS reviews again at 12:15 UTC' },
+      footer: { text: 'Dark Horse Radar  ·  12:00 UTC  ·  standout 3 of 3  ·  next review 12:15 UTC' },
     }],
   },
 
@@ -366,14 +383,22 @@ function renderEmbed(e) {
   const title = e.title ? `<div class="embed-title">${escapeHtml(e.title)}</div>` : '';
   const desc = e.description ? `<div class="embed-desc">${escapeHtml(e.description)}</div>` : '';
   const fields = (e.fields || []).map(f => {
-    const value = (f.value || '')
-      .replace(/^(🟢 ENTRY POINT:.*)$/m, '<span class="entry">$1</span>')
-      .replace(/(🛑 STOP LOSS:[^·]+)/g, '<span class="stop">$1</span>')
-      .replace(/(\[[^\]]+\])/g, '<span class="term-chip">$1</span>');
+    // Render line breaks in field values (Discord renders \n in field
+    // values as actual line breaks; we match that for multi-line
+    // Where-to-Act surfaces). Colour-code BUY (green) and RISK-OFF
+    // (red) lines on a per-line basis so each gets its own visual
+    // band on mobile.
+    const escaped = escapeHtml(f.value || '');
+    const lines = escaped.split('\n').map(line => {
+      if (/^🟢\s+(BUY|SELL|ENTRY)/.test(line)) return `<span class="entry">${line}</span>`;
+      if (/^🛑\s+(RISK-OFF|STOP)/.test(line))   return `<span class="stop">${line}</span>`;
+      return line;
+    }).join('<br>');
+    const withChips = lines.replace(/(\[[^\]]+\])/g, '<span class="term-chip">$1</span>');
     return `
       <div class="embed-field ${f.inline ? 'inline' : 'block'}">
         <div class="embed-field-name">${escapeHtml(f.name)}</div>
-        <div class="embed-field-value">${value}</div>
+        <div class="embed-field-value">${withChips}</div>
       </div>`;
   }).join('');
   const footer = e.footer && e.footer.text
@@ -398,58 +423,75 @@ function renderMessage(m, idx) {
 }
 
 function buildHtml(messages) {
+  // v3 — comfort + readability refinement pass. Direction (red NEW
+  // divider, gold section boxes, teal terminology, state-coloured
+  // embeds, visual reference card) is LOCKED — no rollback.
+  // Comfort knobs tuned:
+  //   - base font 16 → 18px
+  //   - line-height 1.4 → 1.55
+  //   - embed max-width 520 → 620px
+  //   - embed padding 10/14/12 → 16/20/18
+  //   - title 15 → 17px / desc 14 → 16px / fields 13–14 → 15–16px /
+  //     footer 12 → 13px
+  //   - fence font 13.5 → 15px, line-height 1.35 → 1.55
+  //   - per-message vertical spacing 4 → 16px
+  //   - inline-field grid relaxed: 1fr 1fr 1fr → 1fr 1fr on narrower
+  //     viewports + larger gap so 2-up reads at iPad portrait scale
+  //   - the entry/stop colour bands break to their own line for
+  //     mobile readability
   const css = `
     body {
-      margin: 0; padding: 20px;
+      margin: 0; padding: 28px 20px;
       background: #36393F;
       color: #DCDDDE;
       font-family: "gg sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
-      font-size: 16px; line-height: 1.4;
+      font-size: 18px;
+      line-height: 1.55;
     }
     .channel {
-      max-width: 720px;
+      max-width: 780px;
       margin: 0 auto;
       background: #36393F;
     }
     .channel-header {
       border-bottom: 1px solid #2F3136;
-      padding-bottom: 12px;
-      margin-bottom: 24px;
+      padding-bottom: 16px;
+      margin-bottom: 28px;
       color: #B9BBBE;
-      font-size: 14px;
-      display: flex; gap: 8px; align-items: center;
+      font-size: 15px;
+      display: flex; gap: 10px; align-items: center;
     }
-    .channel-header .hash { color: #72767D; font-size: 22px; font-weight: 600; }
-    .channel-header .name { color: #FFFFFF; font-weight: 600; }
+    .channel-header .hash { color: #72767D; font-size: 26px; font-weight: 600; }
+    .channel-header .name { color: #FFFFFF; font-weight: 600; font-size: 17px; }
     .message {
-      padding: 8px 0 8px 56px;
+      padding: 14px 0 14px 68px;
       position: relative;
-      margin-bottom: 4px;
+      margin-bottom: 16px;
     }
     .message::before {
-      content: ""; position: absolute; left: 12px; top: 8px;
-      width: 32px; height: 32px; border-radius: 50%;
+      content: ""; position: absolute; left: 12px; top: 14px;
+      width: 40px; height: 40px; border-radius: 50%;
       background: linear-gradient(135deg, #5865F2, #EB459E);
     }
     .message::after {
       content: "ATLAS  ·  Dark Horse Radar";
-      position: absolute; left: 56px; top: -4px;
-      color: #FFFFFF; font-weight: 600; font-size: 15px;
+      position: absolute; left: 68px; top: -2px;
+      color: #FFFFFF; font-weight: 600; font-size: 16px;
     }
     .message-content {
-      margin-top: 18px;
+      margin-top: 22px;
       color: #DCDDDE;
       white-space: normal;
       word-break: break-word;
     }
     .message-content pre.fence {
       background: #2F3136;
-      border-radius: 4px;
-      padding: 8px 10px;
-      margin: 6px 0;
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin: 10px 0;
       font-family: Consolas, "Andale Mono WT", "Andale Mono", "Lucida Console", "Lucida Sans Typewriter", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Liberation Mono", "Nimbus Mono L", Monaco, "Courier New", Courier, monospace;
-      font-size: 13.5px;
-      line-height: 1.35;
+      font-size: 15px;
+      line-height: 1.55;
       color: #B9BBBE;
       white-space: pre;
       overflow-x: auto;
@@ -460,69 +502,77 @@ function buildHtml(messages) {
       color: #ED4245;
       font-weight: 700;
       letter-spacing: 2px;
-      margin: 14px 0;
+      margin: 22px 0;
       font-family: Consolas, monospace;
+      font-size: 16px;
     }
     .embed {
-      max-width: 520px;
-      margin-top: 8px;
+      max-width: 620px;
+      margin-top: 14px;
       background: #2F3136;
-      border-left: 4px solid #4F545C;
-      border-radius: 4px;
-      padding: 10px 14px 12px;
+      border-left: 5px solid #4F545C;
+      border-radius: 6px;
+      padding: 16px 20px 18px;
     }
     .embed-title {
       color: #FFFFFF;
       font-weight: 700;
-      font-size: 15px;
-      margin-bottom: 6px;
+      font-size: 19px;
+      margin-bottom: 8px;
+      line-height: 1.35;
     }
     .embed-desc {
       color: #DCDDDE;
-      font-size: 14px;
-      margin-bottom: 8px;
+      font-size: 16px;
+      line-height: 1.55;
+      margin-bottom: 14px;
     }
     .embed-fields {
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
-      gap: 8px 16px;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 24px;
     }
     .embed-field.block { grid-column: 1 / -1; }
     .embed-field.inline { grid-column: span 1; }
     .embed-field-name {
       color: #FFFFFF;
       font-weight: 700;
-      font-size: 13px;
-      margin-bottom: 2px;
+      font-size: 14px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
     }
     .embed-field-value {
       color: #DCDDDE;
-      font-size: 14px;
+      font-size: 16px;
+      line-height: 1.5;
     }
-    .embed-field-value .entry { color: #23A55A; font-weight: 700; }
-    .embed-field-value .stop { color: #ED4245; font-weight: 700; }
+    .embed-field-value .entry { color: #23A55A; font-weight: 700; display: block; margin: 2px 0; }
+    .embed-field-value .stop  { color: #ED4245; font-weight: 700; display: block; margin: 2px 0; }
     .embed-field-value .term-chip {
       color: #5BC0DE;
       font-weight: 700;
+      letter-spacing: 0.3px;
     }
     .embed-footer {
       color: #72767D;
-      font-size: 12px;
-      margin-top: 8px;
-      padding-top: 8px;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-top: 14px;
+      padding-top: 12px;
       border-top: 1px solid #40444B;
     }
   `;
   const messagesHtml = messages.map(renderMessage).join('');
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>FOH.1.0.1 Dark Horse — Visual Prototype v1</title>
+<html><head><meta charset="utf-8"><title>FOH.1.0.1 Dark Horse — Visual Prototype v3</title>
 <style>${css}</style></head>
 <body>
 <div class="channel">
   <div class="channel-header">
     <span class="hash">#</span>
     <span class="name">dark-horse-radar</span>
-    <span style="margin-left:auto;color:#72767D">FOH.1.0.1 prototype · sample data</span>
+    <span style="margin-left:auto;color:#72767D">FOH.1.0.1 prototype v3 · sample data · comfort + scale pass</span>
   </div>
   ${messagesHtml}
 </div>
@@ -534,7 +584,7 @@ async function main() {
   fs.mkdirSync(outDir, { recursive: true });
 
   const html = buildHtml(SAMPLE_MESSAGES);
-  const version = process.env.FOH_PREVIEW_VERSION || 'v2';
+  const version = process.env.FOH_PREVIEW_VERSION || 'v3';
   const htmlPath = path.join(outDir, `dh-foh-prototype-${version}.html`);
   fs.writeFileSync(htmlPath, html, 'utf8');
 
