@@ -408,12 +408,12 @@ console.log('\n[T10] Movement digest v1.1 — label rename + tail consolidation'
     // 🟢/🟡/🟠/🔴 zone cues + "What ATLAS needs next" block. The
     // protective negative checks (no legacy "Promotion trigger:" /
     // "Invalidation trigger:" leakage) stay in place.
-    ok('FOH invalidation cue (🔴 _Invalidation:_) appears on every top-3 card',
-       (c.match(/🔴 _Invalidation:_/g) || []).length >= 3,
-       { count: (c.match(/🔴 _Invalidation:_/g) || []).length });
-    ok('FOH "What ATLAS needs next:" block appears on every top-3 card',
-       (c.match(/_What ATLAS needs next:_/g) || []).length >= 3,
-       { count: (c.match(/_What ATLAS needs next:_/g) || []).length });
+    ok('FOH v1.3 INVALIDATION cue (❌ **INVALIDATION**) appears on every top-3 card',
+       (c.match(/❌ \*\*INVALIDATION\*\*/g) || []).length >= 3,
+       { count: (c.match(/❌ \*\*INVALIDATION\*\*/g) || []).length });
+    ok('FOH v1.3 WHAT ATLAS NEEDS NEXT block appears on every top-3 card',
+       (c.match(/📡 \*\*WHAT ATLAS NEEDS NEXT\*\*/g) || []).length >= 3,
+       { count: (c.match(/📡 \*\*WHAT ATLAS NEEDS NEXT\*\*/g) || []).length });
     ok('legacy row label "Promotion trigger:" REMOVED',
        !/\bPromotion trigger:/.test(c));
     ok('legacy row label "Invalidation trigger:" REMOVED',

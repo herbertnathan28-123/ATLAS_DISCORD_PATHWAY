@@ -578,6 +578,11 @@ function _dhExcerptResponse(result) {
 // ============================================================
 const DH_CHUNK_MAX_DEFAULT = 1800;
 const DH_CHUNK_DISCORD_HARD_LIMIT = 2000;
+// Strip any legacy v1.1 outer banner from the body before the
+// chunker injects the per-Part transport label. v1.3 FOH bodies
+// open with an HR + premium FOH OPERATOR SURFACE block which is
+// intentionally NOT stripped — it is the dominant visible header
+// on Part 1.
 const _DH_DIGEST_HEADER_RE = /^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\*[ \t]*\n+/;
 
 // Split `text` on `re`, keeping the separator attached to the
@@ -624,8 +629,14 @@ function _dhChunkDigest(content, opts) {
   const max = Number.isFinite(opts.max) && opts.max > 200
     ? opts.max
     : DH_CHUNK_MAX_DEFAULT;
+  // Per-Part transport label (operator directive 2026-05-13).
+  // Default updated from the legacy v1.1 "GLOBAL MOVER RADAR"
+  // wording to the FOH transport label so the legacy identity
+  // does not visually dominate every Discord message. Callers
+  // can still override via opts.headerTemplate (legacy fallback
+  // payload supplies its own template).
   const headerTemplate = opts.headerTemplate ||
-    '🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)** — Part {x}/{y}\n\n';
+    '**🐎 ATLAS · DARK HORSE FOH** — Part {x}/{y}\n\n';
 
   // Strip the outer header, then protect any ``` code fences from
   // mid-block splits. The fence-token substitution preserves byte

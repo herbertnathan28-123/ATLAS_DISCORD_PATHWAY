@@ -576,6 +576,193 @@ function narrateClosingBlock(ctx) {
   ].join('\n');
 }
 
+// ============================================================
+// OPERATOR-SURFACE NARRATION (v1.3)
+// Compact, fast-read sentences for the premium FOH operator
+// panel, atmosphere substructure, section upgrade/downgrade
+// lines, and closing upgrade/downgrade pair. Used by the
+// formatter v1.3 layout so the digest visually communicates
+// priority within ~2 seconds at the top.
+// ============================================================
+
+// One-sentence "Immediate read" headline. Sits under the
+// premium banner so the operator gets a single-line summary
+// before the body starts.
+function narrateImmediateRead(ctx) {
+  const top = (ctx && ctx.top10Count) | 0;
+  const lvl = String((ctx && ctx.volatility && ctx.volatility.level) || '').toLowerCase();
+  if (top === 0) {
+    if (lvl === 'quiet') {
+      return 'A quiet cycle. ATLAS is not asking for action — the next useful read arrives at the next scan, not in the current candle.';
+    }
+    if (lvl === 'elevated') {
+      return 'A watchful cycle. Real movement is present, but the cleanest part of the move has not yet asked the market to prove acceptance.';
+    }
+    if (lvl === 'extreme') {
+      return 'A stretched cycle. Range is expanding faster than structure can settle, and late-stage reversals become more likely from here.';
+    }
+    return 'A monitoring cycle. Conditions are forming, but nothing is asking for publication-grade attention yet.';
+  }
+  if (top === 1) {
+    return 'One developing standout is being tracked — it is information, not yet a setup.';
+  }
+  return top + ' developing standouts are being tracked — they are information, not yet setups.';
+}
+
+// "Best area" / "risk tone" / "publication" tags for the
+// operator panel. Each returns { glyph, tag, text }.
+function operatorStateTag(ctx) {
+  const top = (ctx && ctx.top10Count) | 0;
+  if (top === 0) return { glyph: '🟡', tag: 'STATE', text: 'Monitoring only' };
+  if (top === 1) return { glyph: '🟡', tag: 'STATE', text: 'Monitoring · 1 developing standout tracked' };
+  return { glyph: '🟡', tag: 'STATE', text: 'Monitoring · ' + top + ' developing standouts tracked' };
+}
+function operatorEnergyTag(ctx) {
+  const lvl = String((ctx && ctx.volatility && ctx.volatility.level) || '').toLowerCase();
+  if (lvl === 'quiet')    return { glyph: '🔵', tag: 'ENERGY', text: 'Quiet · liquidity thin, conviction low' };
+  if (lvl === 'elevated') return { glyph: '🟡', tag: 'ENERGY', text: 'Elevated · structure not yet settled' };
+  if (lvl === 'extreme')  return { glyph: '🟠', tag: 'ENERGY', text: 'Extreme · range expanding faster than structure' };
+  return { glyph: '🔵', tag: 'ENERGY', text: 'Reading pending · regime undefined this cycle' };
+}
+function operatorBestAreaTag(ctx) {
+  const sectionAvgs = (ctx && ctx.sectionAvgs) || {};
+  const sectionLabels = (ctx && ctx.sectionLabels) || {};
+  const entries = Object.entries(sectionAvgs).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return { glyph: '⚪', tag: 'BEST AREA', text: 'No active section this cycle' };
+  const [key, avg] = entries[0];
+  const label = sectionLabels[key] || key;
+  let glyph = '🔵';
+  if (avg >= 8) glyph = '🟢';
+  else if (avg >= 6.5) glyph = '🟡';
+  else if (avg >= 5) glyph = '🟠';
+  return { glyph, tag: 'BEST AREA', text: label + ' · avg ' + avg.toFixed(1) + '/10' };
+}
+function operatorRiskToneTag(ctx) {
+  const ranking = (ctx && ctx.ranking) || {};
+  const top10 = Array.isArray(ranking.top10) ? ranking.top10 : [];
+  // If any top candidate is late or exhaustion, surface the highest tone.
+  let tone = 'developing';
+  let glyph = '🔵';
+  for (const r of top10) {
+    const ph = String(r && r.movePhase || '').toLowerCase();
+    if (ph === 'exhaustion') { tone = 'Stretched · late-entry pressure pronounced'; glyph = '🔴'; break; }
+    if (ph === 'late')       { tone = 'Late-stage · late-entry pressure visible';   glyph = '🟠'; }
+    else if (ph === 'mid' && tone === 'developing') { tone = 'Mid-stage · clean participation window'; glyph = '🟡'; }
+    else if (ph === 'early' && tone === 'developing') { tone = 'Early-stage · runway remaining'; glyph = '🟢'; }
+  }
+  if (top10.length === 0) {
+    tone = 'No active risk to attribute · monitoring only';
+    glyph = '🔵';
+  }
+  return { glyph, tag: 'RISK TONE', text: tone };
+}
+function operatorPublicationTag(ctx) {
+  const atThreshold = (ctx && ctx.atThresholdCount) | 0;
+  if (atThreshold === 0) return { glyph: '🔴', tag: 'PUBLICATION', text: 'Threshold not met this cycle' };
+  if (atThreshold === 1) return { glyph: '🟢', tag: 'PUBLICATION', text: '1 candidate at publication-grade' };
+  return { glyph: '🟢', tag: 'PUBLICATION', text: atThreshold + ' candidates at publication-grade' };
+}
+function operatorNextReviewTag(ctx) {
+  return { glyph: '⏳', tag: 'NEXT REVIEW', text: (ctx && ctx.nextReview) || 'pending' };
+}
+function buildOperatorPanelTags(ctx) {
+  return [
+    operatorStateTag(ctx),
+    operatorEnergyTag(ctx),
+    operatorBestAreaTag(ctx),
+    operatorRiskToneTag(ctx),
+    operatorPublicationTag(ctx),
+    operatorNextReviewTag(ctx),
+  ];
+}
+
+// Atmosphere block substructure — pressure / why-not-promoting /
+// trader-mistake-avoided / state-change.
+function narratePressureBuilding(ctx) {
+  const sectionAvgs = (ctx && ctx.sectionAvgs) || {};
+  const sectionLabels = (ctx && ctx.sectionLabels) || {};
+  const entries = Object.entries(sectionAvgs).filter(([_, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return 'Across the universe — no single section is doing measurable work this cycle.';
+  if (entries.length === 1) {
+    return 'Inside ' + (sectionLabels[entries[0][0]] || entries[0][0]) + ' — the only section currently asking for attention.';
+  }
+  const a = sectionLabels[entries[0][0]] || entries[0][0];
+  const b = sectionLabels[entries[1][0]] || entries[1][0];
+  return 'Primarily inside ' + a + ', with secondary pressure inside ' + b + '. The rest of the universe is background.';
+}
+function narrateWhyNotPromoting(ctx) {
+  const top = (ctx && ctx.top10Count) | 0;
+  const atThreshold = (ctx && ctx.atThresholdCount) | 0;
+  if (top === 0) {
+    return 'Movement is present in places, but no candidate has been tested at the next reference area and held there. Speed without acceptance is not publication-grade.';
+  }
+  if (atThreshold === 0) {
+    return 'Developing standouts are visible, but the publication bar requires acceptance at the next reference area. None of the visible standouts have produced that yet.';
+  }
+  return 'Publication-grade candidates exist this cycle and are surfaced below — they are tracked, not endorsed. ATLAS does not issue trade directives.';
+}
+function narrateAvoidedTraderMistake(ctx) {
+  const lvl = String((ctx && ctx.volatility && ctx.volatility.level) || '').toLowerCase();
+  if (lvl === 'quiet') {
+    return 'Overreacting to small moves in thin liquidity — when participants are reading the same small candle as conviction, the candle is usually noise.';
+  }
+  if (lvl === 'elevated') {
+    return 'Mistaking speed for direction — adding risk into a fast bar that has not yet been asked to defend itself at the next reference area.';
+  }
+  if (lvl === 'extreme') {
+    return 'Chasing the loudest bar — in extreme regimes the loudest bar is typically the one that ends the move rather than the one that extends it.';
+  }
+  return 'Acting on the first read available — the first read is rarely the right read in an undefined regime.';
+}
+function narrateStateChange(ctx) {
+  const top = (ctx && ctx.top10Count) | 0;
+  if (top === 0) {
+    return 'A candidate reaching the publication threshold (score ≥ 8/10) with clean acceptance at the next reference area — that is the upgrade path.';
+  }
+  return 'Any of the current standouts producing clean acceptance at the next reference area without an immediate reversal — once that happens the read upgrades from movement to structure.';
+}
+
+// Section radar — upgrade / downgrade narration.
+function narrateSectionUpgrade(sectionKey, sectionAvg, rows) {
+  const strongest = (rows && rows.length) ? rows.slice().sort((a, b) => (b.score || 0) - (a.score || 0))[0] : null;
+  if (!strongest) return 'A candidate emerging at score ≥ 5/10 with clean direction would put this section back on the active board.';
+  if (sectionAvg >= 8) {
+    return 'A second candidate producing acceptance at its next reference area would push this section from publication-grade to thematic conviction.';
+  }
+  if (sectionAvg >= 6.5) {
+    return 'The strongest candidate clearing the publication bar (≥ 8/10) and surviving its first revisit would upgrade this section from building to active.';
+  }
+  return 'A candidate inside this section rising into the near-threshold band and holding its next reference area would lift this section from context to building.';
+}
+function narrateSectionDowngrade(sectionKey, sectionAvg, rows) {
+  if (sectionAvg >= 8) {
+    return 'A sharp rejection at the next reference area on either candidate would drop this section from publication-grade back into building.';
+  }
+  if (sectionAvg >= 6.5) {
+    return 'A return through the prior reference on the strongest candidate would drop this section from building back into context only.';
+  }
+  return 'A loss of pace or contraction across the section would push it from context into a quiet cycle.';
+}
+
+// Closing block — upgrade / downgrade pair (FOH 1.3).
+function narrateClosingUpgrade(ctx) {
+  const top = (ctx && ctx.top10Count) | 0;
+  if (top === 0) {
+    return 'A candidate emerging into the publication band (score ≥ 8/10) and producing clean acceptance at its next reference area — that is the upgrade path that would change the read by the next scan.';
+  }
+  return 'Any of the current standouts producing clean acceptance at the next reference area, paired with steady (not impulsive) follow-through, would upgrade the read from monitoring to structural confirmation by the next scan.';
+}
+function narrateClosingDowngrade(ctx) {
+  const top = (ctx && ctx.top10Count) | 0;
+  if (top === 0) {
+    return 'A loss of pace across the near-threshold band would push the read from monitoring into a quiet cycle — the next useful information becomes the scan after that.';
+  }
+  return 'A sharp rejection on the first revisit of the next reference area would push the strongest standouts from developing to late chase, and the read would downgrade from monitoring to caution by the next scan.';
+}
+function narrateMonitoringInstruction(ctx) {
+  return 'ATLAS remains in monitoring mode; the next upgrade requires acceptance at the active reference area without an immediate rejection, otherwise the move stays vulnerable to late-stage reversal.';
+}
+
 // ── Public entry: translate a candidate into a narration bag ─
 function translateCandidate(r, ctx) {
   return {
@@ -641,4 +828,23 @@ module.exports = {
   narrateNearMissRecord,
   buildFohPreRadarBlock,
   buildFohNearMissBlock,
+
+  // Operator-surface narration (v1.3)
+  narrateImmediateRead,
+  operatorStateTag,
+  operatorEnergyTag,
+  operatorBestAreaTag,
+  operatorRiskToneTag,
+  operatorPublicationTag,
+  operatorNextReviewTag,
+  buildOperatorPanelTags,
+  narratePressureBuilding,
+  narrateWhyNotPromoting,
+  narrateAvoidedTraderMistake,
+  narrateStateChange,
+  narrateSectionUpgrade,
+  narrateSectionDowngrade,
+  narrateClosingUpgrade,
+  narrateClosingDowngrade,
+  narrateMonitoringInstruction,
 };

@@ -302,8 +302,8 @@ console.log('\n[T9] Monitoring-only digest — supporting layer replaces standou
   ok('FOH watch-explanation block rendered',
      /### ⏳ Why ATLAS is not promoting yet/.test(c));
   ok('FOH operator-note block rendered',
-     /### 🎙️ Operator note/.test(c));
-  ok('Universe coverage block rendered', /### .* Universe coverage/.test(c));
+     /🎙️ OPERATOR NOTE/.test(c));
+  ok('Universe coverage block rendered', /📊 UNIVERSE COVERAGE/.test(c));
   ok('Redundant "_No qualifying standouts this scan._" SUPPRESSED in monitoring-only',
      !/_No qualifying standouts this scan\._/.test(c),
      'placeholder still appears');
@@ -343,19 +343,18 @@ console.log('\n[T10] Populated digest — supporting layer renders below main se
   // inline on candidate cards (no separate "Current standouts"
   // block) and section headers carry a color-zone glyph. Re-pin
   // the layout checks to FOH structure.
-  const idxFohCards    = c.indexOf('🔴 CANDIDATE CARDS');
+  // v1.3 layout markers
+  const idxFohCards    = c.indexOf('🎴 CANDIDATE CARDS');
   const idxFxMajorsFoh = c.search(/### [🟢🟡🟠🔴🔵⚪]\s+FX Majors/u);
   const idxPreRadar    = c.indexOf('### 🛰️ Pre-Radar');
   const idxNearMiss    = c.indexOf('### 🎯 Near-Miss');
-  // FOH footer anchor — next-review block (no "⏭️" glyph, uses
-  // "### 🔚 Next review" heading).
-  const idxNextReview = c.indexOf('### 🔚 Next review');
+  const idxNextReview  = c.indexOf('🔚 NEXT REVIEW');
   ok('FOH candidate-cards block rendered when top10 has content',
      idxFohCards > 0, { idxFohCards });
   ok('FOH section radar (FX Majors) rendered',
      idxFxMajorsFoh > 0, { idxFxMajorsFoh });
   ok('FOH inline standout marker appears on at least one card',
-     /\*\*⭐ #\d+ — /.test(c));
+     /━{6,}\s+⭐ [A-Z0-9]+ /.test(c));
   ok('Pre-Radar appears AFTER the FX Majors section radar',
      idxPreRadar > idxFxMajorsFoh,
      { idxFxMajorsFoh, idxPreRadar });
@@ -483,11 +482,11 @@ console.log('\n[T13] Chunker passes on longer Pre-Radar / Near-Miss output');
   }
   // Supporting blocks survive across chunks.
   const joined = chunks.map(x =>
-    x.replace(/^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part \d+\/\d+\n\n/, '')
+    x.replace(/^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part \d+\/\d+\n\n/, '')
   ).join('');
   ok('Pre-Radar block survives across chunks',  /### .* Pre-Radar/.test(joined));
   ok('Near-Miss block survives across chunks',  /### .* Near-Miss/.test(joined));
-  ok('Universe coverage block survives across chunks', /### .* Universe coverage/.test(joined));
+  ok('Universe coverage block survives across chunks', /📊 UNIVERSE COVERAGE/.test(joined));
 }
 
 // ============================================================

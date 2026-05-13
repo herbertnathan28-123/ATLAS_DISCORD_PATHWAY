@@ -151,6 +151,11 @@ function buildLongDigestContent() {
     `10. **AUDUSD** ↓ — FX · 5/10 · risk-proxy weakness vs USD strength — equity-correlated drift lower · structure intact, no HL holding on 4H yet`,
   ].join('\n');
   return (
+    // Fixture preserves the legacy v1.1 outer body banner so the
+    // chunker's strip-legacy-banner behaviour is still exercised
+    // by this test. The live FOH formatter no longer emits this
+    // banner — its v1.3 OPERATOR SURFACE banner is a different
+    // multi-line block that intentionally survives chunking.
     `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
     `**State:** Monitoring only · no confirmed watch candidate this cycle.\n` +
     `**Volatility:** elevated · market fear / volatility gauge (VIX) is moderate\n` +
@@ -167,6 +172,11 @@ function buildLongDigestContent() {
 
 function buildShortDigestContent() {
   return (
+    // Fixture preserves the legacy v1.1 outer body banner so the
+    // chunker's strip-legacy-banner behaviour is still exercised
+    // by this test. The live FOH formatter no longer emits this
+    // banner — its v1.3 OPERATOR SURFACE banner is a different
+    // multi-line block that intentionally survives chunking.
     `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
     `**State:** Monitoring only · no confirmed watch candidate this cycle.\n` +
     `**Volatility:** quiet · market fear / volatility gauge (VIX) is low\n` +
@@ -178,7 +188,7 @@ function buildShortDigestContent() {
   );
 }
 
-const PART_LABEL_RE = /^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\* — Part (\d+)\/(\d+)\n\n/;
+const PART_LABEL_RE = /^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part (\d+)\/(\d+)\n\n/;
 
 function stripPartHeader(chunk) {
   return chunk.replace(PART_LABEL_RE, '');
@@ -196,7 +206,7 @@ console.log('\n[T1] Short digest fits in one chunk');
   ok('chunk has Part 1/1 label',               /Part 1\/1\n\n/.test(chunks[0]), chunks[0].slice(0, 100));
   // Confirm the original 🐎 header in the body was stripped (no
   // duplication alongside the Part 1/1 label).
-  const headerCount = (chunks[0].match(/🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\*/g) || []).length;
+  const headerCount = (chunks[0].match(/\*\*🐎 ATLAS · DARK HORSE FOH\*\*/g) || []).length;
   ok('no header duplication on Part 1',        headerCount === 1, { headerCount });
   ok('chunk under hard 2000-char limit',       chunks[0].length <= dh.DH_CHUNK_DISCORD_HARD_LIMIT);
 }
@@ -243,6 +253,9 @@ console.log('\n[T3] Candidate atomicity — "──" separators preserved');
 console.log('\n[T4] Content fidelity — every char preserved');
 {
   const content = buildLongDigestContent();
+  // Match whichever banner the fixture uses at the top of `content`
+  // before the chunker strips it. The long-digest fixture preserves
+  // the legacy v1.1 banner so this assertion exercises the strip.
   const headerRe = /^🐎 \*\*DARK HORSE — GLOBAL MOVER RADAR \(v1\.1\)\*\*[ \t]*\n+/;
   const sourceBody = content.replace(headerRe, '');
   // Strip Part X/Y headers from each chunk and concatenate.

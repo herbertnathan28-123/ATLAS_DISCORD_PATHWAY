@@ -1,24 +1,39 @@
 'use strict';
 
 // ============================================================
-// DARK HORSE — FOH LIVE FORMATTER (layout only)
+// DARK HORSE — FOH LIVE FORMATTER (v1.3 · operator surface)
 //
-// Operator directive 2026-05-13. The formatter is now strictly
-// a layout / assembly module: it sequences the FOH digest
-// blocks, applies the chunker contract, and returns the payload
-// to darkHorseEngine. ALL user-facing narration sentences are
-// produced by darkHorseFohSemanticTranslator — the formatter
-// must not paste raw engine fields like `r.structureState`,
-// `r.lateEntryRisk`, `r.whyNotWatch`, `r.promotionTrigger`,
-// or `r.summary` directly into Discord. If a piece of text
-// needs to be added, route it through the translator so the
-// live surface speaks one voice.
+// Operator directive 2026-05-13. Pure layout / assembly module.
+// All user-facing narration is produced by
+// darkHorseFohSemanticTranslator — this file never pastes raw
+// engine fields directly into Discord.
+//
+// v1.3 changes (vs v1.2):
+//   - Premium banner ("ATLAS · DARK HORSE — FOH OPERATOR
+//     SURFACE") replaces the legacy "GLOBAL MOVER RADAR" feel
+//     on the body. (The chunker's per-Part transport label
+//     stays unchanged for backward compatibility.)
+//   - Compact OPERATOR PANEL tag block immediately under the
+//     banner so first-glance readability is < 2 seconds.
+//   - 🔴 CURRENT LIVE READ separator near the top.
+//   - Atmosphere block with substructure (pressure building /
+//     why not promoting / trader mistake avoided / state
+//     change conditions).
+//   - 🟦 EXPANDED TERMINOLOGY row (renamed from Learning Links).
+//   - Section radar with status tags (HEALTHY / BUILDING /
+//     CAUTION / DANGER / CONTEXT) and upgrade/downgrade lines.
+//   - Banner-separated candidate cards with the FOH 7 questions
+//     visually distinct (status badge, path conditions,
+//     forward read, replay reference).
+//   - Avoided-risk attribution as a dedicated section.
+//   - Universe coverage redesigned as a compact tag panel.
+//   - Closing block with upgrade / downgrade pair.
 //
 // Strict scope (locked):
-//   - Layout / formatting only.
-//   - Does NOT touch Corey, Jane, Spidey, Macro, ranking maths,
-//     scoring, thresholds, scheduler cadence, webhook transport,
-//     cooldown, the symbol universe, or candidate selection.
+//   - Layout / assembly only. No change to Corey, Jane,
+//     Spidey, Macro, ranking maths, scoring, thresholds,
+//     scheduler cadence, webhook transport, cooldown, the
+//     symbol universe, or candidate selection.
 // ============================================================
 
 function _rank() { return require('./darkHorseRanking'); }
@@ -42,157 +57,286 @@ function fmtAwstStamp(ms) {
 }
 
 // ── Discord-safe separators ──────────────────────────────────
+const HR = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+const SUB = '━━━━━━━━━━';
 function buildNewSeparator(label) {
   const safeLabel = label || 'CURRENT LIVE READ';
-  return '━━━━━━━━━━ 🔴 ' + safeLabel + ' ━━━━━━━━━━';
+  return SUB + ' 🔴 ' + safeLabel + ' ' + SUB;
+}
+function buildSectionSeparator(label, glyph) {
+  return SUB + ' ' + (glyph || '📡') + ' ' + label + ' ' + SUB;
+}
+function buildCardBanner(symbol, arrow, score, sectionLabel, isStandout) {
+  const star = isStandout ? '⭐ ' : '';
+  return '━━━━━━━━ ' + star + symbol + ' ' + arrow + ' · ' + score + '/10 · ' + (sectionLabel || 'Section pending') + ' ━━━━━━━━';
 }
 
-// ── Atmosphere banner (header) ───────────────────────────────
+// ── Section status tag (HEALTHY / BUILDING / CAUTION / etc.) ─
+function sectionStatusTag(avg, rows) {
+  if (!rows || rows.length === 0) return { glyph: '⚪', tag: 'QUIET' };
+  // Danger = at least one exhaustion-phase candidate in the section.
+  for (const r of rows) {
+    const ph = String(r && r.movePhase || '').toLowerCase();
+    if (ph === 'exhaustion') return { glyph: '🔴', tag: 'DANGER' };
+  }
+  if (avg >= 8)    return { glyph: '🟢', tag: 'HEALTHY' };
+  if (avg >= 6.5)  return { glyph: '🟡', tag: 'BUILDING' };
+  if (avg >= 5)    return { glyph: '🟠', tag: 'CAUTION' };
+  return { glyph: '🔵', tag: 'CONTEXT' };
+}
+function cardStatusTag(record) {
+  const ph = String(record && record.movePhase || '').toLowerCase();
+  const score = Number.isFinite(record && record.score) ? record.score : 0;
+  if (ph === 'exhaustion') return { glyph: '🔴', tag: 'DANGER · stretched move' };
+  if (ph === 'late')       return { glyph: '🟠', tag: 'CAUTION · late-stage move' };
+  if (score >= 8)          return { glyph: '🟢', tag: 'HEALTHY · publication-grade attention' };
+  if (score >= 6)          return { glyph: '🟡', tag: 'BUILDING · pressure visible' };
+  return                     { glyph: '🔵', tag: 'CONTEXT · informational only' };
+}
+
+// ── Premium banner + headline read ───────────────────────────
 function buildAtmosphereBanner(ctx) {
+  const foh = _foh();
   const { nowMs, volatility, top10Count, internalCount, ignoredCount, universeSize } = ctx;
   const lvl = (volatility && volatility.level) || 'reading pending';
-  const scanState = top10Count >= 1 ? 'Tracking developing standouts' : 'Monitoring only';
-  const pubState = top10Count === 0
-    ? 'Publication threshold not met this cycle'
-    : (top10Count + ' developing standout' + (top10Count === 1 ? '' : 's') + ' surfaced — none confirmed');
+  const bestArea = foh.operatorBestAreaTag(ctx);
+  const scanCondition = top10Count === 0
+    ? 'Monitoring only · publication threshold not met'
+    : (top10Count + ' developing standout' + (top10Count === 1 ? '' : 's') + ' surfaced · none confirmed');
+  const pubCondition = (ctx.atThresholdCount | 0) > 0
+    ? (ctx.atThresholdCount + ' at publication-grade')
+    : 'Not promoted this cycle';
   return [
-    '🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.2 · FOH)**',
+    HR,
+    '🐎 **ATLAS · DARK HORSE · FOH OPERATOR SURFACE**',
+    '*v1.3 — operator edition*',
+    HR,
     '',
-    '_Digest version:_ v1.2-foh',
-    '_Timestamp:_ ' + fmtUtcStamp(nowMs) + ' / ' + fmtAwstStamp(nowMs),
-    '_Market atmosphere:_ ' + lvl,
-    '_Scan state:_ ' + scanState,
-    '_Publication state:_ ' + pubState,
-    '_Universe scanned:_ ' + universeSize + ' symbols · watch ≥ 8/10: ' + (ctx.atThresholdCount || 0)
-      + ' · near-threshold 5–7: ' + internalCount
-      + ' · below 5: ' + ignoredCount,
+    '📍 **Scan time:** ' + fmtUtcStamp(nowMs) + ' · ' + fmtAwstStamp(nowMs),
+    '🌐 **Atmosphere:** ' + lvl,
+    '🎯 **Scan condition:** ' + scanCondition,
+    '🔭 **Publication condition:** ' + pubCondition,
+    '⭐ **Strongest live area:** ' + bestArea.text,
+    '🛰️ **Near-threshold count:** ' + internalCount + ' of ' + universeSize + ' scanned',
+    '',
+    '> _Immediate read:_ ' + foh.narrateImmediateRead(ctx),
   ].join('\n');
 }
 
-// ── Global market read (delegated to translator) ─────────────
-function buildGlobalRead(ctx) {
+// ── Operator panel (fast-read tag list) ──────────────────────
+function buildOperatorPanel(ctx) {
   const foh = _foh();
-  return [
-    '### 🌐 Global market read',
-    '',
-    foh.narrateGlobalMarketRead(ctx),
-  ].join('\n');
-}
-
-// ── Section radar block (delegated to translator) ────────────
-function buildSectionRadar(sectionKey, rows, sectionAvg) {
-  const rank = _rank();
-  const foh  = _foh();
-  const label = rank.SECTION_LABEL[sectionKey] || sectionKey;
-  const energy = foh.translateSectionEnergy(sectionAvg, rows.length);
-  const sorted = rows.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
-  const strongest = sorted[0] || null;
-  const weakest   = sorted.length > 1 ? sorted[sorted.length - 1] : null;
+  const tags = foh.buildOperatorPanelTags(ctx);
   const lines = [
-    '### ' + energy.glyph + ' ' + label,
+    SUB + ' ⚡ OPERATOR PANEL ' + SUB,
     '',
-    '_Section energy:_ ' + energy.text,
-    '_Cycle average across active candidates:_ ' + sectionAvg.toFixed(1) + '/10 across ' + sorted.length + ' candidate' + (sorted.length === 1 ? '' : 's') + '.',
   ];
-  if (strongest) {
-    const ph = foh.translatePhase(strongest.movePhase);
-    lines.push('_Strongest active:_ ' + strongest.symbol + ' — score ' + (strongest.score || 0) + '/10, sitting at ' + ph.terse + ' stage of the move.');
-  }
-  if (weakest && weakest !== strongest) {
-    const ph = foh.translatePhase(weakest.movePhase);
-    lines.push('_Weakest active:_ ' + weakest.symbol + ' — score ' + (weakest.score || 0) + '/10, ' + ph.terse + ' stage; surfaced for context, not promotion.');
-  }
-  if (sorted.length && sorted[0].score >= 8) {
-    lines.push('_What this section is doing:_ at least one candidate is carrying both pace and structural weight in the same direction, which is what publication-grade attention looks like in practice.');
-    lines.push('_Why it earned publication-grade attention:_ the section is moving with concentrated direction, not just isolated noise.');
-  } else if (sorted.length) {
-    lines.push('_What this section is doing:_ pressure is building toward the publication bar but the cleanest acceptance has not landed yet — the section is asking for proof rather than granting it.');
-    lines.push('_Why it has not earned promotion:_ acceptance at the next reference area has not been tested yet, and ATLAS does not promote a move that has only travelled, not been respected.');
-  } else {
-    lines.push('_What this section is doing:_ no active candidate this cycle — the section is on the bench and surfaces here for completeness.');
+  for (const t of tags) {
+    lines.push(t.glyph + ' **' + t.tag + '** · ' + t.text);
   }
   return lines.join('\n');
 }
 
-// ── Candidate card (delegated to translator) ─────────────────
+// ── Market atmosphere block (substructured) ──────────────────
+function buildGlobalRead(ctx) {
+  const foh = _foh();
+  return [
+    '### 🌐 Market atmosphere',
+    '',
+    foh.translateAtmosphere(String((ctx && ctx.volatility && ctx.volatility.level) || '').toLowerCase()),
+    '',
+    '🔭 **Where pressure is building:** ' + foh.narratePressureBuilding(ctx),
+    '🤔 **Why ATLAS is not promoting yet:** ' + foh.narrateWhyNotPromoting(ctx),
+    '🛡️ **Trader mistake ATLAS is refusing to make:** ' + foh.narrateAvoidedTraderMistake(ctx),
+    '🔁 **What would change the state:** ' + foh.narrateStateChange(ctx),
+  ].join('\n');
+}
+
+// ── Expanded terminology row ─────────────────────────────────
+function buildTerminologyRow(learningLinks) {
+  // When the URL map is wired, surface the Markdown-link form
+  // from buildLearningLinksBlock so wired terms become real
+  // hyperlinks — but always rebranded as "Expanded Terminology".
+  if (learningLinks && learningLinks.linkRoutingStatus === 'partial' && typeof learningLinks.text === 'string') {
+    // Replace the legacy "Learning links:" label with the FOH label.
+    const tailIdx = learningLinks.text.indexOf(':');
+    const tail = tailIdx >= 0 ? learningLinks.text.slice(tailIdx + 1).trim() : learningLinks.text;
+    return '🟦 **Expanded Terminology** · ' + tail;
+  }
+  return '🟦 **Expanded Terminology** · structure acceptance · structure rejection · late-entry quality · continuation runway · reference area · monitoring vs publication-grade.';
+}
+
+// ── Section radar block (visual hierarchy) ───────────────────
+function buildSectionRadar(sectionKey, rows, sectionAvg) {
+  const rank = _rank();
+  const foh  = _foh();
+  const label = rank.SECTION_LABEL[sectionKey] || sectionKey;
+  const status = sectionStatusTag(sectionAvg, rows);
+  const energy = foh.translateSectionEnergy(sectionAvg, rows.length);
+  const sorted = rows.slice().sort((a, b) => (b.score || 0) - (a.score || 0));
+  const strongest = sorted[0] || null;
+  const lines = [
+    '### ' + status.glyph + ' ' + label + ' · **' + status.tag + '**',
+    '',
+    '📊 **Average:** ' + sectionAvg.toFixed(1) + '/10 across ' + sorted.length + ' active candidate' + (sorted.length === 1 ? '' : 's'),
+  ];
+  if (strongest) {
+    const ph = foh.translatePhase(strongest.movePhase);
+    lines.push('⭐ **Strongest:** ' + strongest.symbol + ' — ' + (strongest.score || 0) + '/10 · ' + ph.terse + ' stage');
+  }
+  lines.push('🔥 **Energy read:** ' + energy.text);
+  if (sorted.length && sorted[0].score >= 8) {
+    lines.push('🧠 **Why it matters:** at least one candidate is carrying pace and direction together — the kind of read ATLAS surfaces for monitoring rather than narrative.');
+  } else if (sorted.length) {
+    lines.push('🧠 **Why it matters:** pressure is building toward the publication bar but the cleanest acceptance has not landed; the section is asking for proof, not granting it.');
+  } else {
+    lines.push('🧠 **Why it matters:** the section is quiet — useful as context but not as basis for action.');
+  }
+  lines.push('🟢 **What would upgrade it:** ' + foh.narrateSectionUpgrade(sectionKey, sectionAvg, rows));
+  lines.push('🔴 **What would downgrade it:** ' + foh.narrateSectionDowngrade(sectionKey, sectionAvg, rows));
+  return lines.join('\n');
+}
+
+// ── Candidate card (premium visual hierarchy) ────────────────
 function buildCandidateCard(r, idx, isStandout, ctx) {
   const foh = _foh();
-  const star = isStandout ? '⭐ ' : '';
   const arrow = foh.arrowFor(r.direction);
+  const score = Number.isFinite(r.score) ? r.score : '?';
   const narration = foh.translateCandidate(r, ctx);
+  const status = cardStatusTag(r);
 
-  // Identity block — every line is translated. No raw engine
-  // shorthand reaches the user surface.
-  const identity = [
-    '_Identity:_',
-    '• Direction the move is asking the trader to consider: ' + (r.direction || 'undefined'),
-    '• ATLAS score: ' + (Number.isFinite(r.score) ? r.score : '?') + '/10.',
-    '• Move stage: ' + narration.phase.plain + '.',
-    '• Late-entry assessment: ' + narration.lateEntry.plain,
-    '• Pace: ' + narration.speed + '.',
-    '• Position vs section peers: ' + narration.relativeStrength + '.',
-    '• Publication state: ' + narration.publication,
-  ].join('\n');
-
-  // Zone glyphs sit on the same line as their narration so the
-  // reader sees the cue + consequence together.
-  const cautionGlyph = narration.lateEntry.glyph || '🟡';
-  const header = '**' + star + '#' + (idx + 1) + ' — ' + r.symbol + ' ' + arrow + '**  ·  '
-    + (r.sectionLabel || 'Section pending')
-    + '  ·  ' + cautionGlyph + ' ' + (narration.lateEntry.tone || 'tone pending');
+  const banner = buildCardBanner(r.symbol, arrow, score, r.sectionLabel, isStandout);
 
   const lines = [
-    header,
+    banner,
     '',
-    identity,
+    status.glyph + ' **STATUS** · ' + status.tag,
+    '🧬 **Phase** · ' + narration.phase.plain,
+    '⚡ **Movement quality** · ' + narration.speed + '; ' + narration.relativeStrength + '.',
     '',
-    '_What happened:_',
+    '📍 **WHAT HAPPENED**',
     narration.whatHappened,
     '',
-    '_Where it matters:_',
+    '🎯 **WHERE IT MATTERS**',
     narration.whereItMatters,
     '',
-    '_Why ATLAS is watching:_',
+    '🧠 **WHY ATLAS IS WATCHING**',
     narration.whyAtlasCares,
     '',
-    '🟢 _Healthy zone:_ ' + narration.healthyZone,
-    cautionGlyph + ' _Caution zone:_ ' + narration.cautionZone,
-    '🟠 _Danger zone:_ ' + narration.dangerZone,
-    '🔴 _Invalidation:_ ' + narration.invalidation,
+    SUB + ' Path conditions ' + SUB,
     '',
-    '_What ATLAS needs next:_',
+    '🟢 **HEALTHY PATH**',
+    narration.healthyZone,
+    '',
+    (narration.lateEntry.glyph || '🟡') + ' **CAUTION PATH**',
+    narration.cautionZone,
+    '',
+    '🟠 **DANGER PATH**',
+    narration.dangerZone,
+    '',
+    '❌ **INVALIDATION**',
+    narration.invalidation,
+    '',
+    SUB + ' Forward read ' + SUB,
+    '',
+    '📡 **WHAT ATLAS NEEDS NEXT**',
     narration.whatNext,
+    '',
+    '🎙️ **OPERATOR NOTE**',
+    narration.behaviouralNote,
     '',
     '_Trader guidance (advisory only):_',
     narration.traderGuidance.map(s => '• ' + s).join('\n'),
     '',
-    '_Behavioural note:_',
-    narration.behaviouralNote,
-    '',
     narration.consequenceTrail,
     '',
-    narration.replayReference.join('\n'),
+    '🗂️ **REPLAY REFERENCE**',
+    narration.replayReference.slice(1).join('\n'), // drop the heading line — banner already labels it
   ];
   return lines.join('\n');
 }
 
 // ── Watch / Avoided-risk / Operator-note / Universe / Close ──
-function buildWatchExplanation(ctx) { return _foh().narrateWatchExplanation(ctx); }
+function buildWatchExplanation(ctx) {
+  // Operator directive 2026-05-13 — keep the existing FOH watch
+  // explanation block (it's already operational + consequence-
+  // first under the translator). Promote the heading style so it
+  // matches the v1.3 visual hierarchy.
+  return _foh().narrateWatchExplanation(ctx);
+}
 function buildAvoidedRisk(ctx) {
-  return ['### 🛡️ What ATLAS avoided by not promoting', '', _foh().narrateAvoidedRisk(ctx)].join('\n');
+  return [
+    SUB + ' 🛡️ WHAT ATLAS REFUSED TO PROMOTE ' + SUB,
+    '',
+    _foh().narrateAvoidedRisk(ctx),
+  ].join('\n');
 }
 function buildOperatorNote(ctx) {
-  return ['### 🎙️ Operator note', '', _foh().narrateOperatorNote(ctx)].join('\n');
+  return [
+    SUB + ' 🎙️ OPERATOR NOTE ' + SUB,
+    '',
+    _foh().narrateOperatorNote(ctx),
+  ].join('\n');
 }
-function buildUniverseCoverage(ctx) { return _foh().narrateUniverseCoverage(ctx); }
-function buildClosingBlock(ctx)     { return _foh().narrateClosingBlock(ctx); }
 
-// ── Terminology row (plain text default — no fake links) ─────
-function buildTerminologyRow(learningLinks) {
-  if (learningLinks && learningLinks.linkRoutingStatus === 'partial' && typeof learningLinks.text === 'string') {
-    return learningLinks.text;
+// Redesigned universe coverage — compact tag block, not table.
+function buildUniverseCoverage(ctx) {
+  const rank = _rank();
+  const ranking = (ctx && ctx.ranking) || {};
+  const top10 = Array.isArray(ranking.top10) ? ranking.top10 : [];
+  const sectionAvgs = (ctx && ctx.sectionAvgs) || {};
+  const atThreshold = top10.filter(r => (r.score || 0) >= 8).length;
+  const universe = (ctx && ctx.universeSize) | 0;
+  const internal = (ctx && ctx.internalCount) | 0;
+  const ignored = (ctx && ctx.ignoredCount) | 0;
+  const entries = Object.entries(sectionAvgs).sort((a, b) => b[1] - a[1]);
+  const sectionLabels = (ctx && ctx.sectionLabels) || {};
+  const strongest = entries[0]
+    ? (sectionLabels[entries[0][0]] || entries[0][0]) + ' (avg ' + entries[0][1].toFixed(1) + '/10)'
+    : 'no active section this cycle';
+  const weakest = entries.length > 1
+    ? (sectionLabels[entries[entries.length - 1][0]] || entries[entries.length - 1][0]) + ' (avg ' + entries[entries.length - 1][1].toFixed(1) + '/10)'
+    : 'no second active section this cycle';
+  let concentration;
+  if (entries.length === 0) {
+    concentration = 'Quiet across sections';
+  } else if (entries.length === 1) {
+    concentration = 'Concentrated in ' + (sectionLabels[entries[0][0]] || entries[0][0]);
+  } else {
+    const spread = entries[0][1] - entries[entries.length - 1][1];
+    concentration = spread > 2
+      ? 'Concentrated in ' + (sectionLabels[entries[0][0]] || entries[0][0])
+      : 'Broad across sections';
   }
-  return '🟦 _Expanded terminology:_ structure acceptance · structure rejection · late-entry quality · continuation runway · reference area · monitoring vs publication-grade.';
+  return [
+    SUB + ' 📊 UNIVERSE COVERAGE ' + SUB,
+    '',
+    '🛰️ **Scanned this cycle** · ' + universe + ' symbols',
+    '⚪ **Quiet / context only (< 5/10)** · ' + ignored,
+    '🟡 **Building (5–7/10)** · ' + internal,
+    '🟢 **Publication-grade (≥ 8/10)** · ' + atThreshold,
+    '⭐ **Strongest active area** · ' + strongest,
+    '🔵 **Weakest active area** · ' + weakest,
+    '🌐 **Cross-section concentration** · ' + concentration,
+  ].join('\n');
+}
+
+// Redesigned closing block — upgrade / downgrade pair.
+function buildClosingBlock(ctx) {
+  const foh = _foh();
+  const top = (ctx && ctx.top10Count) | 0;
+  const stateLine = top === 0
+    ? 'Monitoring only — publication threshold not met this cycle'
+    : 'Monitoring only — developing standouts surfaced, no confirmed publication-grade setup this cycle';
+  return [
+    SUB + ' 🔚 NEXT REVIEW ' + SUB,
+    '',
+    '⏳ **Next review (UTC)** · ' + (ctx && ctx.nextReview ? ctx.nextReview : 'pending'),
+    '🎯 **Current operator state** · ' + stateLine,
+    '🟢 **What could upgrade by next scan** · ' + foh.narrateClosingUpgrade(ctx),
+    '🔴 **What could downgrade by next scan** · ' + foh.narrateClosingDowngrade(ctx),
+    '🎙️ **Monitoring instruction** · ' + foh.narrateMonitoringInstruction(ctx),
+  ].join('\n');
 }
 
 // ============================================================
@@ -238,10 +382,6 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
 
   const learningLinks = rank.buildLearningLinksBlock(opts.learningLinkUrls);
 
-  // Pre-Radar / Near-Miss — FOH-native renderers (no legacy
-  // pass-through). The legacy buildPreRadarBlock /
-  // buildNearMissBlock that used to render raw `summary`
-  // strings are no longer called from the live path.
   const preRadarRecords = rank.selectPreRadarCandidates(internalArr);
   const nearMissRecords = rank.selectNearMissCandidates(internalArr);
   const preRadarBlock = foh.buildFohPreRadarBlock(preRadarRecords);
@@ -267,55 +407,87 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
   }
 
   const blocks = [];
+
+  // 1. Premium banner + immediate read
   blocks.push(buildAtmosphereBanner(ctx));
+
+  // 2. Operator panel (fast-read tag list)
+  blocks.push(buildOperatorPanel(ctx));
+
+  // 3. 🔴 CURRENT LIVE READ separator
   blocks.push(buildNewSeparator('CURRENT LIVE READ'));
+
+  // 4. Market atmosphere with substructure
   blocks.push(buildGlobalRead(ctx));
+
+  // 5. Expanded terminology row (placed early so the reader has
+  //    vocabulary before the section radar / cards land).
   blocks.push(buildTerminologyRow(learningLinks));
 
+  // 6. Section radar
   if (sectionBlocks.length) {
-    blocks.push(buildNewSeparator('SECTION RADAR'));
+    blocks.push(buildSectionSeparator('SECTION RADAR', '📡'));
     blocks.push(sectionBlocks.join('\n\n'));
   }
 
+  // 7. Candidate cards (banner-separated, premium hierarchy)
   if (cards.length) {
-    blocks.push(buildNewSeparator('CANDIDATE CARDS'));
-    blocks.push(cards.join('\n\n──\n\n'));
+    blocks.push(buildSectionSeparator('CANDIDATE CARDS', '🎴'));
+    blocks.push(cards.join('\n\n'));
   }
 
+  // 8. Supporting intelligence (FOH-native Pre-Radar / Near-Miss)
   if (preRadarBlock || nearMissBlock) {
-    blocks.push(buildNewSeparator('SUPPORTING INTELLIGENCE'));
+    blocks.push(buildSectionSeparator('SUPPORTING INTELLIGENCE', '🛰️'));
     if (preRadarBlock) blocks.push(preRadarBlock);
     if (nearMissBlock) blocks.push(nearMissBlock);
   }
 
+  // 9. Why ATLAS is not promoting yet (operational, not checklist)
   blocks.push(buildWatchExplanation(ctx));
+
+  // 10. Avoided-risk attribution — present when no
+  //     publication-grade promotion fired this cycle.
   if (ctx.atThresholdCount === 0) blocks.push(buildAvoidedRisk(ctx));
+
+  // 11. Operator behavioural note
   blocks.push(buildOperatorNote(ctx));
+
+  // 12. Universe coverage (visual tag panel)
   blocks.push(buildUniverseCoverage(ctx));
+
+  // 13. Closing block — next review + upgrade / downgrade pair
   blocks.push(buildClosingBlock(ctx));
+
+  // 14. Advisory tail (no permission / directive wording)
   blocks.push(
     '⚠️ Advisory only — ATLAS surfaces conditions and reference areas; '
     + 'it does not issue trading directives. Late-entry quality varies '
-    + 'by phase per candidate; reassess against the per-candidate criteria '
-    + 'at the next scan.'
+    + 'by phase per candidate.'
   );
 
   const content = blocks.join('\n\n');
-  const firstChunkPrefix = rank.buildNewScanBoundary(opts.now);
-
+  // firstChunkPrefix retired in v1.3 — the FOH OPERATOR SURFACE
+  // banner block at the top of `content` carries the scan-time
+  // identity directly on Part 1. The chunker still strips the
+  // legacy v1.1 banner if present, so legacy fallback content
+  // continues to work unchanged.
   return {
     content,
-    kind: 'movement_digest_v1_2_foh',
+    kind: 'movement_digest_v1_3_foh',
     linkRoutingStatus: learningLinks.linkRoutingStatus,
-    firstChunkPrefix,
+    firstChunkPrefix: null,
   };
 }
 
 module.exports = {
   buildFohMovementDigestPayload,
-  // Helpers exported for the qa harness.
+  // Helpers exported for QA / preview harnesses.
   buildAtmosphereBanner,
+  buildOperatorPanel,
   buildNewSeparator,
+  buildSectionSeparator,
+  buildCardBanner,
   buildGlobalRead,
   buildSectionRadar,
   buildCandidateCard,
@@ -325,6 +497,8 @@ module.exports = {
   buildTerminologyRow,
   buildUniverseCoverage,
   buildClosingBlock,
+  sectionStatusTag,
+  cardStatusTag,
   fmtUtcStamp,
   fmtAwstStamp,
 };
