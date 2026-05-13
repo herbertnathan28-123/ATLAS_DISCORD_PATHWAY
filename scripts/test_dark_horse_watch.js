@@ -221,7 +221,7 @@ console.log('\n[T4] Bearish candidate — payload + banned sweep');
   ok('confirm line uses "close below <price> on 1D"',
      /close below \d+(?:\.\d+)?\s+on\s+1D/i.test(c), c);
   // cancel line uses "close above" (cancellation of bearish thesis)
-  ok('cancel line uses "close above \\d+(?:\\.\\d+)? on 1D"',
+  ok('cancel line uses "close above <price> on 1D"',
      /close above \d+(?:\.\d+)?\s+on\s+1D/i.test(c), c);
   bannedSweep('T4 bearish payload', c);
 }
