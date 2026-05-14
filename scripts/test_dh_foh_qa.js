@@ -394,6 +394,14 @@ console.log('\n[T12] Banner — red NEW divider + gold DARK HORSE banner + EXPAN
   ok('banner has ⭐ STANDOUTS banner',  /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(banner));
   // No legacy v1.2.1 subheading
   ok('NO v1.2.1 "▸  Today\'s read" subheading',  !/▸  Today's read/.test(banner));
+
+  const liveCountOut = foh.buildDarkHorseFohPayload({ top10, allCount: 4 }, { level: 'elevated' }, {
+    now: Date.parse('2026-05-13T12:00:00Z'),
+    universeSize: 33,
+  });
+  ok('banner uses engine universeSize over ranking.allCount for "markets scanned"',
+     /33 markets scanned/.test(liveCountOut.messages[0].content)
+     && !/4 markets scanned/.test(liveCountOut.messages[0].content));
 }
 
 // ============================================================
