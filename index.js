@@ -606,7 +606,7 @@ function buildTradeStatus(sym, jane, corey, htf, ltf) {
     `**WHEN TO ACT**`,
     blocked
       ? 'Only once the listed conflict clears AND lower-timeframe structure rebuilds AND a fresh entry zone forms.'
-      : 'Only once lower-timeframe structure confirms the direction shown above (BOS or CHoCH on at least the 1H), AND price is inside the planned entry zone.',
+      : 'Only once lower-timeframe structure confirms the direction shown above ([Structure Break] on at least the 1H), AND price is inside the planned entry zone.',
     ``,
     `**WHEN TO STAND ASIDE**`,
     'If confirmation does not appear inside the current session, if macro alignment weakens further, or if any catalyst in the Events & Catalysts tab crosses its threshold. No trade is always a valid decision.',
@@ -678,9 +678,9 @@ function buildForwardExpectation(sym, jane, corey, htf, ltf, candlesByTf) {
 
   // What the trader is waiting for — exact, not generic.
   const waitingFor = (() => {
-    if (jane.doNotTrade) return `The named conflict above to clear AND a fresh structural break (BOS or CHoCH) on at least the 1H AND a fresh ${bias === BIAS.BULLISH ? 'demand zone or bullish imbalance' : bias === BIAS.BEARISH ? 'supply zone or bearish imbalance' : 'directional zone'} below/above current price.`;
-    if (bias === BIAS.NEUTRAL) return 'A confirmed bullish OR bearish break (BOS / CHoCH) on the 1H or higher with a candle close beyond the break level.';
-    return `A ${bias.toLowerCase()} BOS or CHoCH on at least the 1H (candle close beyond the break level), followed by a pullback into the resulting ${bias === BIAS.BULLISH ? 'demand zone or imbalance' : 'supply zone or imbalance'}.`;
+    if (jane.doNotTrade) return `The named conflict above to clear AND a fresh [Structure Break] on at least the 1H AND a fresh ${bias === BIAS.BULLISH ? 'demand zone or bullish imbalance' : bias === BIAS.BEARISH ? 'supply zone or bearish imbalance' : 'directional zone'} below/above current price.`;
+    if (bias === BIAS.NEUTRAL) return 'A confirmed bullish OR bearish [Structure Break] on the 1H or higher with a candle close beyond the break level.';
+    return `A ${bias.toLowerCase()} [Structure Break] on at least the 1H (candle close beyond the break level), followed by a pullback into the resulting ${bias === BIAS.BULLISH ? 'demand zone or imbalance' : 'supply zone or imbalance'}.`;
   })();
 
   return [
@@ -748,7 +748,7 @@ function buildTriggerMap(sym, jane, htf, ltf) {
     `Price between ${noTradeLow} and ${noTradeHigh} with no confirmed 1H break in either direction = NO TRADE. The asset remains untradable inside this band until a confirmed 1H structure break with candle-close confirmation forms.`,
     ``,
     `**ATLAS SEQUENCE (mandatory order)**`,
-    `Liquidity → structure break (BOS / CHoCH) → candle close → identify fresh supply/demand zone or imbalance → pullback into zone → confirmation/entry plan → invalidation → target. A break above or below a level is NEVER an entry by itself.`
+    `Liquidity → [Structure Break] → candle close → identify fresh supply/demand zone or imbalance → pullback into zone → confirmation/entry plan → invalidation → target. A break above or below a level is NEVER an entry by itself.`
   ].join('\n');
 }
 
@@ -856,8 +856,8 @@ function buildPriceTable(sym, jane, htf, ltf) {
 
   const st = structureTimeline(htf, ltf);
   const bosLine = st.bos
-    ? `Last BOS: **${st.bos.tf}** ${String(st.bos.direction || '').toLowerCase() || 'directional'} ${st.bos.kind} ${Number.isFinite(st.bos.level) ? `at ${fmtPrice(st.bos.level, sym)}` : ''}`.trim()
-    : 'Last BOS: none on the tracked timeframes — structure is not yet confirmed in either direction.';
+    ? `Last [Structure Break]: **${st.bos.tf}** ${String(st.bos.direction || '').toLowerCase() || 'directional'} ${st.bos.kind} ${Number.isFinite(st.bos.level) ? `at ${fmtPrice(st.bos.level, sym)}` : ''}`.trim()
+    : 'Last [Structure Break]: none on the tracked timeframes — structure is not yet confirmed in either direction.';
   const zoneLine = st.zone
     ? `Zone origin: **${st.zone.tf}** ${st.zone.kind} between ${fmtPrice(st.zone.low, sym)} and ${fmtPrice(st.zone.high, sym)}${st.zoneTimeMs ? ` (formed ${fmtUtcShort(st.zoneTimeMs)})` : ''}`
     : 'Zone origin: no qualifying zone on the tracked timeframes yet.';
@@ -1255,8 +1255,8 @@ function buildExecutionLogic(sym, jane, corey) {
       ``,
       `**ENTRY REQUIREMENT**`,
       corey.combinedBias === BIAS.NEUTRAL
-        ? `Because macro direction is neutral, no directional execution path is authorised yet. A new plan only starts once price prints a confirmed bullish or bearish structure break (BOS or CHoCH) on at least the 1H, AND the macro layer no longer conflicts. Prior levels are not re-usable — rebuild from the new structure.`
-        : `Wait for a fresh structural break in the ${corey.combinedBias.toLowerCase()} direction. Required: BOS or CHoCH on at least the 1H, candle-close confirmation, fresh ${corey.combinedBias === BIAS.BULLISH ? 'demand' : 'supply'} zone or imbalance left by the displacement. Prior levels are not re-usable — rebuild the plan from the new structure.`,
+        ? `Because macro direction is neutral, no directional execution path is authorised yet. A new plan only starts once price prints a confirmed bullish or bearish [Structure Break] on at least the 1H, AND the macro layer no longer conflicts. Prior levels are not re-usable — rebuild from the new structure.`
+        : `Wait for a fresh [Structure Break] in the ${corey.combinedBias.toLowerCase()} direction. Required: [Structure Break] on at least the 1H, candle-close confirmation, fresh ${corey.combinedBias === BIAS.BULLISH ? 'demand' : 'supply'} zone or imbalance left by the displacement. Prior levels are not re-usable — rebuild the plan from the new structure.`,
       ``,
       `**ALTERNATIVE SCENARIO — ONLY IF CONFIRMED**`,
       `This block only has one valid path until structure confirms. Any directional idea becomes valid only if the higher timeframe prints a confirmed break in that direction and holds it on close.`,
