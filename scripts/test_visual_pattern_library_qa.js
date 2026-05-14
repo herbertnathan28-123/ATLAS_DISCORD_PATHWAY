@@ -238,7 +238,7 @@ ok('custom prefix applied', /^Quick refs → /.test(rowCustom));
 ok('custom separator applied', / \| /.test(rowCustom));
 
 const rowCapped = lib.renderLearningLinksRow(['bos', 'choch', 'breakout', 'calm_retest', 'failed_retest', 'liquidity_sweep', 'inducement', 'exhaustion'], { maxItems: 3 });
-ok('maxItems cap applies', (rowCapped.match(/\[[^\]]+\]\([^)]+\)/g) || []).length === 3);
+ok('maxItems cap applies', (rowCapped.match(/\[+[^\]]+\]+\([^)]+\)/g) || []).length === 3);
 
 // -----------------------------------------------------------------
 // T8 — renderDeepGlossaryEntry behaviour
