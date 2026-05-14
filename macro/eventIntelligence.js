@@ -59,14 +59,20 @@ function build(input) {
   return lines.join('\n');
 }
 
+// Sentiment scale — 5-disc traffic-light per operator doctrine
+// (PR #74 v6 canon: same `🟢🟢🟢🟢⚫ 4/5 — Label` shape used on the
+// Dark Horse Market Mood surface; ⚫ inactive disc, same-family
+// active discs, never rainbow). Per CLAUDE.md §3 "Sentiment system:
+// Dominant bias on 1–5 dot scale" — the dot scale stays 5-wide; only
+// the glyph family changes.
 function sentimentFromTilt(t) {
   const a = Math.abs(t);
-  const dots = (filled) => '●'.repeat(filled) + '○'.repeat(5 - filled);
-  if (a >= 0.45) return { label: t > 0 ? 'STRONG RISK-ON' : 'STRONG RISK-OFF', dotScale: dots(5), mixed: false };
-  if (a >= 0.30) return { label: t > 0 ? 'RISK-ON'        : 'RISK-OFF',        dotScale: dots(4), mixed: false };
-  if (a >= 0.15) return { label: t > 0 ? 'MILD RISK-ON'   : 'MILD RISK-OFF',   dotScale: dots(3), mixed: false };
-  if (a >= 0.05) return { label: 'MIXED', dotScale: dots(2), mixed: true };
-  return { label: 'NEUTRAL', dotScale: dots(1), mixed: true };
+  const scale = (filled, glyph) => glyph.repeat(filled) + '⚫'.repeat(5 - filled);
+  if (a >= 0.45) return { label: t > 0 ? 'STRONG RISK-ON' : 'STRONG RISK-OFF', dotScale: scale(5, t > 0 ? '🟢' : '🔴'), mixed: false };
+  if (a >= 0.30) return { label: t > 0 ? 'RISK-ON'        : 'RISK-OFF',        dotScale: scale(4, t > 0 ? '🟢' : '🔴'), mixed: false };
+  if (a >= 0.15) return { label: t > 0 ? 'MILD RISK-ON'   : 'MILD RISK-OFF',   dotScale: scale(3, t > 0 ? '🟢' : '🟠'), mixed: false };
+  if (a >= 0.05) return { label: 'MIXED', dotScale: scale(2, '🟡'), mixed: true };
+  return { label: 'NEUTRAL', dotScale: scale(1, '🟡'), mixed: true };
 }
 
 function describeDriver(ctx) {
