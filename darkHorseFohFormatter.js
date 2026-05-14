@@ -94,6 +94,140 @@ function cardStatusTag(record) {
   return                     { glyph: '🔵', tag: 'CONTEXT · informational only' };
 }
 
+// ============================================================
+// Visual primitives (v1.4 polish — A–G)
+// Layout-only helpers. No engine fields read directly; price
+// text comes from r.evidenceAnchors (already produced by the
+// ranking pipeline and surfaced through the translator).
+// ============================================================
+
+// A. Market Mood disc scale — five discs + label, anchored to
+//    ctx.volatility.level. Used in the atmosphere banner.
+const _MOOD_DISC = {
+  quiet:    { discs: '🟢🟢🟢⚪⚪', label: 'CALM' },
+  elevated: { discs: '🟡🟡🟡🟡⚪', label: 'ACTIVE' },
+  extreme:  { discs: '🔴🔴🔴🔴🔴', label: 'STORM' },
+  pending:  { discs: '⚪⚪⚪⚪⚪', label: 'READING PENDING' },
+};
+function buildMarketMoodScale(volatility) {
+  const lvl = String((volatility && volatility.level) || 'pending').toLowerCase();
+  const mood = _MOOD_DISC[lvl] || _MOOD_DISC.pending;
+  return mood.discs + ' · **' + mood.label + '**';
+}
+
+// B. Lifecycle badge — single-glyph phase-of-move identity.
+//    Sits at the top of every candidate card so the reader sees
+//    where in the move's lifecycle the candidate is before any
+//    narration lands.
+function buildLifecycleBadge(movePhase) {
+  switch (String(movePhase || '').toLowerCase()) {
+    case 'early':       return '🌱 **EARLY** · move just forming';
+    case 'mid':         return '🌿 **MID** · move established and carrying weight';
+    case 'late':        return '🍂 **LATE** · move stretched, room thinning';
+    case 'exhaustion':  return '💀 **EXHAUSTION** · move running out of fuel';
+    default:            return '⚪ **UNCLASSIFIED** · phase reading still developing';
+  }
+}
+
+// C. What-this-means wrapper — bolds a short label, then appends
+//    an operator translation in one consistent sentence form so
+//    every metric earns its space on the card. Optional glyph
+//    preserves the visual identity of the row.
+function buildWhatThisMeans(label, plain, glyph) {
+  const prefix = glyph ? glyph + ' ' : '';
+  return prefix + '**' + label + '** — what this means: ' + plain;
+}
+
+// D. Long / Short plain-English explanation — the read translated
+//    into "who is in control" so the operator never has to map
+//    direction to behaviour themselves.
+function buildLongShortExplanation(direction) {
+  const d = String(direction || '').toLowerCase();
+  if (d === 'bullish') {
+    return '**Long bias (↑)** — ATLAS reads the path of least resistance as UP. Buyers are setting the rhythm; sellers are reactive. The constructive read is to stay with the move while structure agrees, not to chase the most stretched bars.';
+  }
+  if (d === 'bearish') {
+    return '**Short bias (↓)** — ATLAS reads the path of least resistance as DOWN. Sellers are setting the rhythm; buyers are reactive. The constructive read is to stay with the move while structure agrees, not to chase the most stretched bars.';
+  }
+  return '**No directional bias (→)** — ATLAS reads no committed leadership. Neither buyers nor sellers are setting the rhythm. The candidate is context, not a basis for participation.';
+}
+
+// E. Exact price-zone block — turns r.evidenceAnchors into a
+//    four-band visual map (healthy / caution / danger / invalid)
+//    with literal price text inline. Falls back to descriptive
+//    placeholders when the anchors haven't landed yet.
+function buildPriceZoneBlock(record) {
+  const ev  = (record && record.evidenceAnchors) || null;
+  const dir = String((record && record.direction) || '').toLowerCase();
+  const hi  = ev && ev.recentHigh && ev.recentHigh.priceText;
+  const lo  = ev && ev.recentLow  && ev.recentLow.priceText;
+  const inv = ev && ev.invalidation && ev.invalidation.priceText;
+  const hiTxt  = hi  || 'recent high (pending wiring)';
+  const loTxt  = lo  || 'recent low (pending wiring)';
+  const invTxt = inv || 'the structural invalidation level (pending wiring)';
+  const lines = ['📍 **PRICE ZONES (live read)**'];
+  if (dir === 'bullish') {
+    lines.push('├─ 🟢 **HEALTHY** · holding above ' + hiTxt);
+    lines.push('├─ 🟡 **CAUTION** · drifting back into the ' + loTxt + ' – ' + hiTxt + ' chop band');
+    lines.push('├─ 🟠 **DANGER**  · slipping below ' + loTxt);
+    lines.push('└─ ❌ **INVALID**  · full 1D close back through ' + invTxt);
+  } else if (dir === 'bearish') {
+    lines.push('├─ 🟢 **HEALTHY** · holding below ' + loTxt);
+    lines.push('├─ 🟡 **CAUTION** · drifting back into the ' + loTxt + ' – ' + hiTxt + ' chop band');
+    lines.push('├─ 🟠 **DANGER**  · lifting above ' + hiTxt);
+    lines.push('└─ ❌ **INVALID**  · full 1D close back through ' + invTxt);
+  } else {
+    lines.push('├─ 🟢 **HEALTHY** · acceptance forming inside ' + loTxt + ' – ' + hiTxt);
+    lines.push('├─ 🟡 **CAUTION** · range repeatedly tested without commitment');
+    lines.push('├─ 🟠 **DANGER**  · expansion in either direction without structure agreement');
+    lines.push('└─ ❌ **INVALID**  · price leaves the range and immediately reverses through ' + invTxt);
+  }
+  return lines.join('\n');
+}
+
+// F. How-a-trader-acts block — translates the price-zone map
+//    into four behavioural responses so the operator surface is
+//    self-contained.
+function buildHowTraderActsBlock(record) {
+  const dir = String((record && record.direction) || '').toLowerCase();
+  const ph  = String((record && record.movePhase) || '').toLowerCase();
+  const sideWord = dir === 'bullish' ? 'with buyers' : dir === 'bearish' ? 'with sellers' : 'with whichever side leads';
+  const stretched = ph === 'late' || ph === 'exhaustion';
+  const tail = stretched
+    ? ' *(Phase is already ' + ph + ' — reaction risk is elevated; smaller hands and tighter rules win here.)*'
+    : '';
+  return [
+    '🎯 **HOW A TRADER ACTS ON THIS** *(advisory only)*',
+    '• **If price holds the healthy zone** → keep monitoring ' + sideWord + '; do not add risk into already-stretched bars.',
+    '• **If price drifts into the caution band** → step back and wait for the next clean acceptance instead of chasing.',
+    '• **If price slides into the danger zone** → the read has changed; standing aside costs nothing here.',
+    '• **If invalidation prints** → the setup is dead, reset to zero, do not average into the failure.' + tail,
+  ].join('\n');
+}
+
+// G. Risk-off / invalidation explanation — explicit "when does
+//    this read die, and what does that mean."
+function buildInvalidationExplanation(record) {
+  const ev  = (record && record.evidenceAnchors) || null;
+  const inv = ev && ev.invalidation && ev.invalidation.priceText;
+  const dir = String((record && record.direction) || '').toLowerCase();
+  const side  = dir === 'bullish' ? 'below' : dir === 'bearish' ? 'above' : 'through';
+  const what  = dir === 'bullish'
+    ? 'the breakout area failed to hold'
+    : dir === 'bearish'
+      ? 'the breakdown area failed to hold'
+      : 'the range boundary failed to hold';
+  const level = inv || 'the invalidation level (pending wiring)';
+  return '**Risk-off explanation** — this read dies if price closes ' + side + ' ' + level
+    + ' on the 1D timeframe. That close means ' + what + ', the path resets to neutral, and any continuation thesis built on top of it is no longer valid until structure reforms.';
+}
+
+// Panel framer — wraps a titled sub-block in the sub-rule so
+// related primitives read as a single panel rather than a list.
+function buildPanelFramer(title, lines) {
+  return [SUB + ' ' + title + ' ' + SUB, '', lines.join('\n')].join('\n');
+}
+
 // ── Premium banner + headline read ───────────────────────────
 function buildAtmosphereBanner(ctx) {
   const foh = _foh();
@@ -114,6 +248,7 @@ function buildAtmosphereBanner(ctx) {
     '',
     '📍 **Scan time:** ' + fmtUtcStamp(nowMs) + ' · ' + fmtAwstStamp(nowMs),
     '🌐 **Atmosphere:** ' + lvl,
+    '🎚️ **Market mood:** ' + buildMarketMoodScale(volatility),
     '🎯 **Scan condition:** ' + scanCondition,
     '🔭 **Publication condition:** ' + pubCondition,
     '⭐ **Strongest live area:** ' + bestArea.text,
@@ -211,6 +346,10 @@ function buildCandidateCard(r, idx, isStandout, ctx) {
     banner,
     '',
     status.glyph + ' **STATUS** · ' + status.tag,
+    buildLifecycleBadge(r.movePhase),
+    '',
+    buildLongShortExplanation(r.direction),
+    '',
     '🧬 **Phase** · ' + narration.phase.plain,
     '⚡ **Movement quality** · ' + narration.speed + '; ' + narration.relativeStrength + '.',
     '',
@@ -222,6 +361,8 @@ function buildCandidateCard(r, idx, isStandout, ctx) {
     '',
     '🧠 **WHY ATLAS IS WATCHING**',
     narration.whyAtlasCares,
+    '',
+    buildPanelFramer('Price zones', [buildPriceZoneBlock(r)]),
     '',
     SUB + ' Path conditions ' + SUB,
     '',
@@ -236,6 +377,10 @@ function buildCandidateCard(r, idx, isStandout, ctx) {
     '',
     '❌ **INVALIDATION**',
     narration.invalidation,
+    '',
+    buildInvalidationExplanation(r),
+    '',
+    buildHowTraderActsBlock(r),
     '',
     SUB + ' Forward read ' + SUB,
     '',
@@ -501,4 +646,13 @@ module.exports = {
   cardStatusTag,
   fmtUtcStamp,
   fmtAwstStamp,
+  // v1.4 visual primitives (A–G)
+  buildMarketMoodScale,
+  buildLifecycleBadge,
+  buildWhatThisMeans,
+  buildLongShortExplanation,
+  buildPriceZoneBlock,
+  buildHowTraderActsBlock,
+  buildInvalidationExplanation,
+  buildPanelFramer,
 };
