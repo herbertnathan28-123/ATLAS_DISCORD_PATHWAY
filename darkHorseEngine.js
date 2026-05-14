@@ -505,6 +505,11 @@ function _dhBuildWebhookBody(payload) {
 
   const jsonPayload = Object.assign({}, payload);
   delete jsonPayload.files;
+  const existingAttachments = Array.isArray(jsonPayload.attachments) ? jsonPayload.attachments : [];
+  jsonPayload.attachments = existingAttachments.concat(files.map((file, idx) => ({
+    id: idx,
+    filename: file.name,
+  })));
   const boundary = 'atlas-dh-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
   const chunks = [];
   function push(s) { chunks.push(Buffer.from(s, 'utf8')); }

@@ -222,11 +222,20 @@ async function runT8() {
   }, { wait: true });
   const rec = _recordedRequests[0] || {};
   const bodyText = rec.body ? rec.body.toString('utf8') : '';
+  const payloadMatch = bodyText.match(/name="payload_json"\r\nContent-Type: application\/json\r\n\r\n([\s\S]*?)\r\n--/);
+  let payloadJson = null;
+  try { payloadJson = payloadMatch ? JSON.parse(payloadMatch[1]) : null; } catch (_e) {}
   ok('ok=true on multipart 200', r && r.ok === true);
   ok('Content-Type is multipart/form-data', /multipart\/form-data; boundary=/.test((rec.headers && rec.headers['Content-Type']) || ''), rec.headers);
   ok('multipart body includes payload_json part', /name="payload_json"/.test(bodyText), bodyText.slice(0, 200));
   ok('multipart body includes files[0] filename', /name="files\[0\]"; filename="dh-foh-test.png"/.test(bodyText), bodyText.slice(0, 400));
   ok('multipart body preserves attachment image URL in payload_json', /attachment:\/\/dh-foh-test\.png/.test(bodyText), bodyText.slice(0, 400));
+  ok('payload_json includes Discord attachments metadata for files[0]',
+     payloadJson && Array.isArray(payloadJson.attachments)
+     && payloadJson.attachments[0]
+     && payloadJson.attachments[0].id === 0
+     && payloadJson.attachments[0].filename === 'dh-foh-test.png',
+     payloadJson);
   return summary();
 }
 
