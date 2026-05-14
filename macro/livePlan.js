@@ -38,7 +38,8 @@ function build(input) {
   lines.push('**Why:** ' + whyParagraph(corey, spidey, evOverride));
   lines.push('');
   const readiness = readinessScoreFromComposite(jane.composite);
-  lines.push('**Read Maturity:** ' + readiness + '/10 — ' + readinessExplain(readiness));
+  const readinessDisc = readinessDiscScale(readiness);
+  lines.push('**Read Maturity:** ' + readiness + '/10  ·  ' + readinessDisc + ' — ' + readinessExplain(readiness));
   lines.push('');
 
   // Verdict strip — five locked fields.
@@ -205,6 +206,18 @@ function whyParagraph(corey, spidey, evOverride) {
   return parts.join('; ') + '.';
 }
 function readinessScoreFromComposite(c) { return Math.max(0, Math.min(10, Math.round(Math.abs(c) * 10))); }
+// 1-5 dot scale alongside the /10 score per CLAUDE.md §3 ("Sentiment
+// system: Dominant bias on 1–5 dot scale"). Same v6 traffic-light
+// glyph family as the Dark Horse FOH Market Mood + the macro
+// eventIntelligence Sentiment header — keeps every Pack-3 surface
+// visually consistent. Mapping: 0-1 → 1/5, 2-3 → 2/5, 4-5 → 3/5,
+// 6-7 → 4/5, 8-10 → 5/5.
+function readinessDiscScale(readinessOutOf10) {
+  const r = Math.max(0, Math.min(10, Number(readinessOutOf10) || 0));
+  const active = r >= 8 ? 5 : r >= 6 ? 4 : r >= 4 ? 3 : r >= 2 ? 2 : 1;
+  const glyph = active >= 4 ? '🟢' : active === 3 ? '🟠' : active === 2 ? '🟡' : '🔴';
+  return glyph.repeat(active) + '⚫'.repeat(5 - active) + ' ' + active + '/5';
+}
 function readinessExplain(r) {
   if (r >= 8) return 'institutional-grade — most ATLAS conditions satisfied.';
   if (r >= 6) return 'actionable with discipline — majority of ATLAS conditions satisfied.';
