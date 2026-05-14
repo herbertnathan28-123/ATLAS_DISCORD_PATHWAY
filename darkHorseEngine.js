@@ -474,11 +474,70 @@ function buildSummaryLine(struct, mom, brk, clean, cont, direction) {
 // Discord returns the message body (and message ID) on success
 // instead of 204 No Content. Required for delivery proof.
 // ============================================================
+function _dhNormaliseWebhookFiles(files) {
+  if (!Array.isArray(files)) return [];
+  return files.map((f, idx) => {
+    const name = String((f && f.name) || ('attachment-' + idx + '.bin')).replace(/[^\w.\-]+/g, '_');
+    const raw = f && (f.data || f.buffer || f.content);
+    const data = Buffer.isBuffer(raw) ? raw : Buffer.from(raw == null ? '' : raw);
+    return {
+      name,
+      data,
+      contentType: String((f && f.contentType) || (f && f.type) || 'application/octet-stream'),
+    };
+  }).filter(f => f.data.length > 0);
+}
+
+function _dhBuildWebhookBody(payload) {
+  const files = _dhNormaliseWebhookFiles(payload && payload.files);
+  if (files.length === 0) {
+    const body = JSON.stringify(payload || {});
+    return {
+      body: Buffer.from(body, 'utf8'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+        'User-Agent': 'ATLAS-FX-DarkHorse/2.0',
+      },
+      fileCount: 0,
+    };
+  }
+
+  const jsonPayload = Object.assign({}, payload);
+  delete jsonPayload.files;
+  const boundary = 'atlas-dh-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+  const chunks = [];
+  function push(s) { chunks.push(Buffer.from(s, 'utf8')); }
+  push('--' + boundary + '\r\n');
+  push('Content-Disposition: form-data; name="payload_json"\r\n');
+  push('Content-Type: application/json\r\n\r\n');
+  push(JSON.stringify(jsonPayload));
+  push('\r\n');
+  files.forEach((file, idx) => {
+    push('--' + boundary + '\r\n');
+    push('Content-Disposition: form-data; name="files[' + idx + ']"; filename="' + file.name + '"\r\n');
+    push('Content-Type: ' + file.contentType + '\r\n\r\n');
+    chunks.push(file.data);
+    push('\r\n');
+  });
+  push('--' + boundary + '--\r\n');
+  const body = Buffer.concat(chunks);
+  return {
+    body,
+    headers: {
+      'Content-Type': 'multipart/form-data; boundary=' + boundary,
+      'Content-Length': body.length,
+      'User-Agent': 'ATLAS-FX-DarkHorse/2.0',
+    },
+    fileCount: files.length,
+  };
+}
+
 function dhSendWebhook(webhookUrl, payload, opts) {
   opts = opts || {};
   return new Promise((resolve, reject) => {
     if (!webhookUrl) { resolve(null); return; }
-    const body = JSON.stringify(payload);
+    const prepared = _dhBuildWebhookBody(payload);
     let urlStr = webhookUrl;
     if (opts.wait) {
       urlStr += (urlStr.indexOf('?') >= 0) ? '&wait=true' : '?wait=true';
@@ -488,7 +547,7 @@ function dhSendWebhook(webhookUrl, payload, opts) {
       hostname: url.hostname,
       path:     url.pathname + url.search,
       method:   'POST',
-      headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'User-Agent': 'ATLAS-FX-DarkHorse/2.0' },
+      headers:  prepared.headers,
       timeout:  10000,
     };
     const startedAt = Date.now();
@@ -521,7 +580,7 @@ function dhSendWebhook(webhookUrl, payload, opts) {
     });
     req.on('error',   reject);
     req.on('timeout', () => { req.destroy(); reject(new Error('Webhook timeout')); });
-    req.write(body);
+    req.write(prepared.body);
     req.end();
   });
 }
@@ -1379,16 +1438,17 @@ async function runDarkHorseScan(universeOrOpts) {
           // Sanitiser walker — wraps the existing fomo.sanitize so
           // banned phrases are scrubbed from every embed string field.
           const sanitisedPayload = foh.sanitiseFohMessages(fohPayload.messages, fomo.sanitize);
+          const renderedFoh = await foh.renderChartCardAttachments(sanitisedPayload.messages);
           const digestId = 'dh' + Date.now().toString(36);
           dhLog('INFO', `[DH-CHANNEL-DEBUG] kind=${fohPayload.kind} digest_id=${digestId} ` +
                          `candidateCount=${fohPayload.candidateCount} embedCount=${fohPayload.embedCount} ` +
-                         `filteredOut=${fohPayload.filteredOut} messageCount=${sanitisedPayload.messages.length} ` +
-                         `sanitized=${sanitisedPayload.replaced ? 'true' : 'false'}`);
+                         `filteredOut=${fohPayload.filteredOut} messageCount=${renderedFoh.messages.length} ` +
+                         `chartCardCount=${renderedFoh.chartCardCount} sanitized=${sanitisedPayload.replaced ? 'true' : 'false'}`);
           // Hard guard — refuse to send if any message would exceed
           // Discord limits (content > 2000 or embed total > 6000).
           let oversize = -1;
-          for (let i = 0; i < sanitisedPayload.messages.length; i++) {
-            const meas = foh.measureMessage(sanitisedPayload.messages[i]);
+          for (let i = 0; i < renderedFoh.messages.length; i++) {
+            const meas = foh.measureMessage(renderedFoh.messages[i]);
             if (meas.contentLen > foh.DISCORD_CONTENT_LIMIT) { oversize = i; break; }
             if (meas.embedTotals.some(t => t > foh.DISCORD_EMBED_TOTAL_LIMIT)) { oversize = i; break; }
           }
@@ -1399,15 +1459,16 @@ async function runDarkHorseScan(universeOrOpts) {
             // Chain aborts on the first non-ok send.
             const sends = [];
             let aborted = false, failedAt = -1;
-            for (let i = 0; i < sanitisedPayload.messages.length; i++) {
-              const m = sanitisedPayload.messages[i];
-              const partLabel = `${i + 1}/${sanitisedPayload.messages.length}`;
+            for (let i = 0; i < renderedFoh.messages.length; i++) {
+              const m = renderedFoh.messages[i];
+              const partLabel = `${i + 1}/${renderedFoh.messages.length}`;
               const body = { content: m.content || '' };
               if (Array.isArray(m.embeds) && m.embeds.length) body.embeds = m.embeds;
+              if (Array.isArray(m.files) && m.files.length) body.files = m.files;
               const send = await dhSendWebhook(DH_WEBHOOK_URL, body, { wait: true });
               sends.push(send);
               if (send && send.ok) {
-                dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${fohPayload.kind} digest_id=${digestId} part=${partLabel} status=${send.status} discord_msg_id=${send.messageId || 'n/a'} embedCount=${(m.embeds||[]).length} bodyLen=${send.bodyLen} durationMs=${send.durationMs}`);
+                dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=${fohPayload.kind} digest_id=${digestId} part=${partLabel} status=${send.status} discord_msg_id=${send.messageId || 'n/a'} embedCount=${(m.embeds||[]).length} fileCount=${(m.files||[]).length} bodyLen=${send.bodyLen} durationMs=${send.durationMs}`);
               } else {
                 failedAt = i; aborted = true;
                 dhLog('ERROR', `[WEBHOOK] FOH digest aborted at part ${partLabel}. Cooldown NOT armed.`);

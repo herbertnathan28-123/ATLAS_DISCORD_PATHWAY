@@ -1,0 +1,505 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>ATL-6 Dark Horse FOH v6 — current live-path proof</title>
+<style>
+    body {
+      margin: 0; padding: 28px 20px;
+      background: #36393F;
+      color: #DCDDDE;
+      font-family: "gg sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 18px;
+      line-height: 1.55;
+    }
+    .channel {
+      max-width: 780px;
+      margin: 0 auto;
+      background: #36393F;
+    }
+    .channel-header {
+      border-bottom: 1px solid #2F3136;
+      padding-bottom: 16px;
+      margin-bottom: 28px;
+      color: #B9BBBE;
+      font-size: 15px;
+      display: flex; gap: 10px; align-items: center;
+    }
+    .channel-header .hash { color: #72767D; font-size: 26px; font-weight: 600; }
+    .channel-header .name { color: #FFFFFF; font-weight: 600; font-size: 17px; }
+    .message {
+      padding: 14px 0 14px 68px;
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .message::before {
+      content: ""; position: absolute; left: 12px; top: 14px;
+      width: 40px; height: 40px; border-radius: 50%;
+      background: linear-gradient(135deg, #5865F2, #EB459E);
+    }
+    .message::after {
+      content: "ATLAS  ·  Dark Horse Radar";
+      position: absolute; left: 68px; top: -2px;
+      color: #FFFFFF; font-weight: 600; font-size: 16px;
+    }
+    .message-content {
+      margin-top: 22px;
+      color: #DCDDDE;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .message-content pre.fence {
+      background: #2F3136;
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin: 10px 0;
+      font-family: Consolas, "Andale Mono WT", "Andale Mono", "Lucida Console", "Lucida Sans Typewriter", "DejaVu Sans Mono", "Bitstream Vera Sans Mono", "Liberation Mono", "Nimbus Mono L", Monaco, "Courier New", Courier, monospace;
+      font-size: 15px;
+      line-height: 1.55;
+      color: #B9BBBE;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    .embed {
+      max-width: 620px;
+      margin-top: 14px;
+      background: #2F3136;
+      border-left: 5px solid #4F545C;
+      border-radius: 6px;
+      padding: 16px 20px 18px;
+    }
+    .embed-title {
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 19px;
+      margin-bottom: 8px;
+      line-height: 1.35;
+    }
+    .embed-desc {
+      color: #DCDDDE;
+      font-size: 16px;
+      line-height: 1.55;
+      margin-bottom: 14px;
+    }
+    .embed-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px 24px;
+    }
+    .embed-field.block { grid-column: 1 / -1; }
+    .embed-field.inline { grid-column: span 1; }
+    .embed-field-name {
+      color: #FFFFFF;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .embed-field-value {
+      color: #DCDDDE;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+    .embed-field-value .entry    { color: #23A55A; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .stop     { color: #ED4245; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .caution  { color: #F1C40F; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .marginal { color: #E67E22; font-weight: 700; display: block; margin: 4px 0; }
+    .embed-field-value .warn     { color: #F1C40F; font-weight: 600; display: block; margin: 4px 0; }
+    .embed-field-value .info-line { color: #5BC0DE; font-weight: 600; display: block; margin: 4px 0; }
+    .embed-field-value .term-chip {
+      color: #5BC0DE;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .embed-field-value .money-line { color: #FAA61A; font-weight: 700; display: block; margin: 4px 0; }
+    /* Operator doctrine colour-coded price tokens. Watch yellow,
+       caution orange, invalidation red, entry green, money gold.
+       Used via {{entry:1.0925}} {{watch:1.0900}} etc. in field
+       values so the price reads in the doctrine colour wherever it
+       appears in prose. */
+    .embed-field-value .px-entry   { color: #23A55A; font-weight: 700; }
+    .embed-field-value .px-watch   { color: #F1C40F; font-weight: 700; }
+    .embed-field-value .px-caution { color: #E67E22; font-weight: 700; }
+    .embed-field-value .px-invalid { color: #ED4245; font-weight: 700; }
+    .embed-field-value .px-money   { color: #FAA61A; font-weight: 700; }
+    .message-content .px-entry     { color: #23A55A; font-weight: 700; }
+    .message-content .px-watch     { color: #F1C40F; font-weight: 700; }
+    .message-content .px-caution   { color: #E67E22; font-weight: 700; }
+    .message-content .px-invalid   { color: #ED4245; font-weight: 700; }
+    .message-content .px-money     { color: #FAA61A; font-weight: 700; }
+    .embed-field-value .term-link,
+    .message-content .term-link {
+      color: #5BC0DE;
+      text-decoration: underline;
+      text-decoration-color: rgba(91,192,222,0.55);
+      text-underline-offset: 2px;
+      font-weight: 600;
+    }
+    .embed-footer {
+      color: #72767D;
+      font-size: 13px;
+      line-height: 1.5;
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #40444B;
+    }
+    /* ─ NEW badge lifecycle variants ────────────────────────
+       FRESH (solid red filled, white text) for first-appearance
+       on a scan; STILL ACTIVE (outlined red) for 1+ day still
+       trending; FADING (outlined orange) for late-stage / older
+       candidates. Renderer-only visual — full Discord delivery
+       requires the rendered-card-image surface lane.            */
+    .new-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-family: Consolas, monospace;
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: 1px;
+      line-height: 1.2;
+      vertical-align: middle;
+      margin: 0 4px;
+    }
+    .new-badge.badge-fresh  { background:#ED4245; color:#FFF; border:1px solid #ED4245; }
+    .new-badge.badge-active { background:transparent; color:#ED4245; border:2px solid #ED4245; }
+    .new-badge.badge-fading { background:transparent; color:#E67E22; border:2px solid #E67E22; }
+    /* ─ Chart card (ATLAS-styled SVG snapshot) ───────────── */
+    .chart-card {
+      background: #131722;
+      border: 1px solid #2B313C;
+      border-radius: 6px;
+      margin: 12px 0 14px;
+      padding: 4px 4px 0;
+    }
+    .chart-card svg { display: block; width: 100%; height: auto; border-radius: 4px; }
+    .chart-card-caption {
+      color: #72767D;
+      font-size: 12px;
+      font-family: Consolas, monospace;
+      padding: 6px 8px 8px;
+      text-align: center;
+    }
+  </style></head>
+<body>
+<div class="channel">
+  <div class="channel-header">
+    <span class="hash">#</span>
+    <span class="name">dark-horse-radar-staging</span>
+    <span style="margin-left:auto;color:#72767D">ATL-6 live-path staged output · v6 prototype parity proof</span>
+  </div>
+  
+    <div class="message" data-idx="0">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color:#ED4245">- ▼ ▼ ▼   N E W   D A R K   H O R S E   S C A N   ▼ ▼ ▼</span>
+<span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color:#ED4245">-   🆕   2026-05-13 12:00 UTC   ·   20:00 AWST   ·   33 markets scanned   🆕</span>
+<span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span></pre><br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔════════════════════════════════════════════════════╗</span>
+<span style="color:#FAA61A;font-weight:700">║ 🐎  DARK HORSE — GLOBAL MOVER RADAR                ║</span>
+<span style="color:#FAA61A;font-weight:700">╚════════════════════════════════════════════════════╝</span></pre><br><br>_3 standouts found this cycle._<br>_1 fresh (new this scan)  ·  1 still active (1+ day)  ·  1 fading._<br><br>📘 <strong>EXPANDED TERMINOLOGY HYPERLINKS</strong><br>[[Breakout]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Pullback]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Market Mood  ·  🟠🟠🟠🟠⚫ 4/5 — Elevated</span></pre><br><br>_What [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) means right now:_<br>   broad market moving fast — bigger swings either side.<br><br>_Dollars-first guidance for today:_<br>   🟢 Position size — if your normal risk is $500 on a $10k account,<br>       reduce to ~$300 (60%) for the next 6 hours.<br>   🟡 Exit-points — give the trade more room. Tight exits get hit<br>       before direction confirms.<br>   🟠 Marginal setups — skip them. Only act when the trigger breaks<br>       AND the next candle closes beyond it (the confirmed<br>       directional structure test).<br>   🛑 Do NOT chase already-extended moves. Wait for the structural<br>       test — the floor that was the ceiling.<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔════════════════════════════════════════════════════╗</span>
+<span style="color:#FAA61A;font-weight:700">║ ⭐  STANDOUTS — TODAY'S STRONGEST MOVERS            ║</span>
+<span style="color:#FAA61A;font-weight:700">╚════════════════════════════════════════════════════╝</span></pre></div>
+      
+    </div>
+    <div class="message" data-idx="1">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span>
+<span style="color:#ED4245">-   🆕   FRESH   ·   STANDOUT #1 of 3   ·   EURUSD — just appeared on this scan</span>
+<span style="color:#ED4245">- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span></pre><br><strong>FRESH</strong>  ·  STANDOUT #1 of 3  ·  EURUSD — just appeared on this scan</div>
+      
+    <div class="embed" style="border-left-color:#2ecc71">
+      <div class="embed-title">🐎  EURUSD  ·  STRONG BULLISH</div><div class="embed-desc">EURUSD pushed above 1.1064 — a level that had capped price for the prior multi-session window — and held the level cleanly on the close. The move is new this scan.</div>
+      
+    <div class="chart-card">
+      <svg viewBox="0 0 540 220" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="540" height="220" fill="#131722"/>
+        <rect x="12" y="139.09300520139362" width="438" height="6.651757707070175" fill="rgba(35,165,90,0.18)" /><line x1="12" y1="155.72239946906905" x2="450" y2="155.72239946906905" stroke="#F1C40F" stroke-width="1" stroke-dasharray="4 4"/><text x="18" y="152.72239946906905" fill="#F1C40F" font-family="Consolas, monospace" font-size="11">watch</text><line x1="12" y1="186.76393543540837" x2="450" y2="186.76393543540837" stroke="#ED4245" stroke-width="1.5" stroke-dasharray="6 4"/><text x="18" y="199.76393543540837" fill="#ED4245" font-family="Consolas, monospace" font-size="11">invalidation</text>
+        <line x1="55.8" y1="137.88077275137505" x2="55.8" y2="193.45454545455033" stroke="#00ff00" stroke-width="1"/><rect x="29.799999999999997" y="155.72239946906905" width="52" height="19.89051926778731" fill="#00ff00"/><line x1="143.39999999999998" y1="91.12420724156074" x2="143.39999999999998" y2="173.56402618676302" stroke="#00ff00" stroke-width="1"/><rect x="117.39999999999998" y="108.96583395925472" width="52" height="46.75656550981432" fill="#00ff00"/><line x1="231" y1="24.218107050230685" x2="231" y2="126.80746067694871" stroke="#00ff00" stroke-width="1"/><rect x="205" y="42.059733767924655" width="52" height="66.90610019133007" fill="#00ff00"/><line x1="318.59999999999997" y1="22.545454545449644" x2="318.59999999999997" y2="139.63112988029965" stroke="#ff0015" stroke-width="1"/><rect x="292.59999999999997" y="42.059733767924655" width="52" height="78.0571168899" fill="#ff0015"/><line x1="406.2" y1="84.43359722243669" x2="406.2" y2="149.10949407407065" stroke="#00ff00" stroke-width="1"/><rect x="380.2" y="102.27522394013069" width="52" height="28.992643416245997" fill="#00ff00"/>
+        
+      <rect x="454" y="12.545454545449644" width="82" height="20" rx="3" fill="#FFD600"/>
+      <text x="460" y="26.545454545449644" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">HIGH 1.1079</text>
+    
+      <rect x="454" y="110.11685065782466" width="82" height="20" rx="3" fill="#00FF5A"/>
+      <text x="460" y="124.11685065782466" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">CURRENT 1.1067</text>
+    
+      <rect x="454" y="132.4188840549287" width="82" height="20" rx="3" fill="#FF9100"/>
+      <text x="460" y="146.4188840549287" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">ENTRY 1.1064</text>
+    
+      <rect x="454" y="183.45454545455033" width="82" height="20" rx="3" fill="#00B0FF"/>
+      <text x="460" y="197.45454545455033" fill="#FFF" font-family="Consolas, monospace" font-size="11" font-weight="700">LOW 1.1058</text>
+    
+        <text x="12" y="12" fill="#DCDDDE" font-family="gg sans, sans-serif" font-size="12" font-weight="700">EURUSD · 1H</text>
+      </svg>
+      <div class="chart-card-caption">ATLAS chart card · EURUSD · entry 1.1064–1.1065 · watch 1.1063 · invalidation 1.1059</div>
+    </div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">Move Type</div>
+        <div class="embed-field-value">Breakout · early stage</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Direction</div>
+        <div class="embed-field-value"><span class="term-chip">[[Long ▲]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) — expecting price to keep moving up</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Conviction</div>
+        <div class="embed-field-value">🟢🟢🟢🟢🟢 5/5 — Very High<br>_Why Very High: trigger level broke + momentum increased + retest held + the broken level is now defended by buyers (all 4 criteria met)._</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Trigger Level</div>
+        <div class="embed-field-value"><span class="term-chip">[[Trigger Level]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **1.1064**<br>_Why it matters: 1.1064 capped every push for multiple sessions._<br>_It is now the ceiling that flipped into a floor — buyers/sellers treat it as Support._</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Expected Duration</div>
+        <div class="embed-field-value"><span class="term-chip">[[Expected Duration]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): Swing — days, not minutes</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Today's Rank</div>
+        <div class="embed-field-value"><span class="term-chip">[[Cycle Rank]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): 1st of today's 3 standouts</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Where to Act</div>
+        <div class="embed-field-value"><span class="entry">🟢 ENTRY zone  **1.1064 – 1.1065**</span><br>   What this means: price has pulled back into the tight band where<br>   buyers stepped in the last time the level was tested.<br>   Required price behaviour: a 5-minute candle that opens inside the<br>   band AND closes above the band low (this is the<br>   confirmed directional structure test).<br>   Action: BUY on that candle close — start with the position<br>   rule below (**~$150** planned risk).<br><br><span class="caution">🟡 WATCH level  **1.1063**</span><br>   What this means: buyers are losing initial control. The<br>   first warning sign that the move is weakening.<br>   💲 If price closes below **1.1063** on the 1H,<br>   the position is typically down 30–50% of planned risk<br>   (**~$60** of the **~$150** at risk).<br>   Action: hold what you have, do NOT add more.<br><br><span class="marginal">🟠 CAUTION zone  1.1063 – 1.1060</span><br>   What this means: the other side is in control inside this band.<br>   Holding from here means fighting the structure — exit risk<br>   is now real, not theoretical.<br>   💲 Position drawdown 50–80% of planned risk<br>   (**~$98** of the **~$150**).<br>   Action: scratch the trade for a small loss now. Re-read at next scan.<br><br>🔴 <span class="term-chip">[[Invalidation]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  **1.1059**<br>   What this means: the bullish idea is OFF entirely.<br>   💲 Full planned risk taken: **$150** on the recommended size.<br>   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for<br>   a fresh structure on a later scan.<br><br><span class="info-line">🔵 Next review  2026-05-13 12:15 UTC</span><br>   ATLAS re-reads every zone at the next scan.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">💲 Dollar risk this trade — half size for FRESH</div>
+        <div class="embed-field-value"><span class="money-line">💲 Standard plan: **$300 risk on 1 lot EURUSD** (30-point exit on a 0.0030 move).</span><br><span class="money-line">💲 Recommended for this card (FRESH · half size for FRESH): **~$150**.</span><br><span class="money-line">💲 If Market Mood drops to Quiet (1/5) you can scale up to full size after a clean re-read.</span><br><span class="money-line">💲 Reward target on a clean follow-through: **~$855** on the recommended size · **5.7R**.</span></div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What this means</div>
+        <div class="embed-field-value">The path of least resistance is up while **1.1059** holds. Buying the dip into the tight green entry band is the trade ATLAS would take.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">WHAT TO DO NOW</div>
+        <div class="embed-field-value">① Wait for a 5-min candle to open inside **1.1064 – 1.1065**.<br>② BUY that candle's close — **$150 on the recommended size**.<br>③ Place the exit-point at **1.1059** (**$150 risk**).<br>④ If **1.1063** closes below on 1H, exit half (freeing **~$75**) and hold the rest with the exit-point unchanged.<br>⑤ Full exit at **1.1059** if reached — the bullish idea is OFF.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What confirms the idea</div>
+        <div class="embed-field-value">A 5m close above **1.1065** after pulling back into the entry band — the confirmed directional structure test (price closes past the trigger AND the next candle holds beyond it).</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What cancels the idea</div>
+        <div class="embed-field-value">A 1H close below **1.1059**. At that point the ceiling-to-floor flip has failed and the move is rolled over.</div>
+      </div></div>
+      <div class="embed-footer">ATLAS · Dark Horse · standout 1 of 3 · fresh lifecycle</div>
+    </div>
+    </div>
+    <div class="message" data-idx="2">
+      <div class="message-content"><pre class="fence"><span style="color:#ED4245;font-weight:700">──────────────────────────────────────────────────</span>
+<span style="color:#ED4245;font-weight:700">  🟧   STILL ACTIVE   ·   STANDOUT #2 of 3   ·   XAUUSD — trending across multiple cycles</span>
+<span style="color:#ED4245;font-weight:700">──────────────────────────────────────────────────</span></pre><br><strong>STILL ACTIVE</strong>  ·  STANDOUT #2 of 3  ·  XAUUSD — trending across multiple cycles</div>
+      
+    <div class="embed" style="border-left-color:#c0392b">
+      <div class="embed-title">🐎  XAUUSD  ·  BEARISH PRESSURE</div><div class="embed-desc">XAUUSD broke below 2414.10 on the close. Sellers are still in control and the broken level has held as a ceiling on every bounce since. The move is new this scan.</div>
+      
+    <div class="chart-card">
+      <svg viewBox="0 0 540 220" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="540" height="220" fill="#131722"/>
+        <rect x="12" y="104.26196097924124" width="438" height="7.476078041517525" fill="rgba(35,165,90,0.18)" /><line x1="12" y1="93.04784391698217" x2="450" y2="93.04784391698217" stroke="#F1C40F" stroke-width="1" stroke-dasharray="4 4"/><text x="18" y="90.04784391698217" fill="#F1C40F" font-family="Consolas, monospace" font-size="11">watch</text><line x1="12" y1="58.15947972329104" x2="450" y2="58.15947972329104" stroke="#ED4245" stroke-width="1.5" stroke-dasharray="6 4"/><text x="18" y="71.15947972329104" fill="#ED4245" font-family="Consolas, monospace" font-size="11">invalidation</text>
+        <line x1="55.8" y1="32.79999999999313" x2="55.8" y2="87.78372214754555" stroke="#00ff00" stroke-width="1"/><rect x="29.799999999999997" y="51.030303030300956" width="52" height="18.523116086936767" fill="#00ff00"/><line x1="143.39999999999998" y1="22.545454545451435" x2="143.39999999999998" y2="193.45454545454857" stroke="#ff0015" stroke-width="1"/><rect x="117.39999999999998" y="51.030303030300956" width="52" height="113.93939393939809" fill="#ff0015"/><line x1="231" y1="78.37575757574551" x2="231" y2="183.20000000000687" stroke="#00ff00" stroke-width="1"/><rect x="205" y="96.60606060605333" width="52" height="68.36363636364571" fill="#00ff00"/><line x1="318.59999999999997" y1="78.37575757574551" x2="318.59999999999997" y2="160.41212121213067" stroke="#ff0015" stroke-width="1"/><rect x="292.59999999999997" y="96.60606060605333" width="52" height="45.57575757576954" fill="#ff0015"/><line x1="406.2" y1="110.27878787879277" x2="406.2" y2="183.20000000000687" stroke="#ff0015" stroke-width="1"/><rect x="380.2" y="128.5090909091006" width="52" height="36.46060606059845" fill="#ff0015"/>
+        
+      <rect x="454" y="12.545454545451435" width="82" height="20" rx="3" fill="#FFD600"/>
+      <text x="460" y="26.545454545451435" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">HIGH 2416.36</text>
+    
+      <rect x="454" y="132.18181818182288" width="82" height="20" rx="3" fill="#00FF5A"/>
+      <text x="460" y="146.18181818182288" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">CURRENT 2413.19</text>
+    
+      <rect x="454" y="98" width="82" height="20" rx="3" fill="#FF9100"/>
+      <text x="460" y="112" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">ENTRY 2414.10</text>
+    
+      <rect x="454" y="183.45454545454857" width="82" height="20" rx="3" fill="#00B0FF"/>
+      <text x="460" y="197.45454545454857" fill="#FFF" font-family="Consolas, monospace" font-size="11" font-weight="700">LOW 2411.84</text>
+    
+        <text x="12" y="12" fill="#DCDDDE" font-family="gg sans, sans-serif" font-size="12" font-weight="700">XAUUSD · 1H</text>
+      </svg>
+      <div class="chart-card-caption">ATLAS chart card · XAUUSD · entry 2414.00–2414.20 · watch 2414.50 · invalidation 2415.42</div>
+    </div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">Move Type</div>
+        <div class="embed-field-value">Continuation · mid stage</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Direction</div>
+        <div class="embed-field-value"><span class="term-chip">[[Short ▼]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) — expecting price to keep moving down</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Conviction</div>
+        <div class="embed-field-value">🔴🔴🔴🔴⚫ 4/5 — High<br>_Why High: trigger level broke + sellers defended every retest across 2 cycles + momentum holding (3 of 4 criteria met)._</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Trigger Level</div>
+        <div class="embed-field-value"><span class="term-chip">[[Trigger Level]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **2414.10**<br>_Why it matters: 2414.10 was the floor that held for the prior multi-session window._<br>_It is now the floor that flipped into a ceiling — buyers/sellers defend every bounce._</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Expected Duration</div>
+        <div class="embed-field-value"><span class="term-chip">[[Expected Duration]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): Swing — days, not minutes</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Today's Rank</div>
+        <div class="embed-field-value"><span class="term-chip">[[Cycle Rank]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): 2nd of today's 3 standouts</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Where to Act</div>
+        <div class="embed-field-value"><span class="entry">🟢 ENTRY zone  **2414.00 – 2414.20**</span><br>   What this means: price has pulled back into the tight band where<br>   sellers stepped in the last time the level was tested.<br>   Required price behaviour: a 5-minute candle that opens inside the<br>   band AND closes below the band high (this is the<br>   confirmed directional structure test).<br>   Action: SELL on that candle close — start with the position<br>   rule below (**~$945** planned risk).<br><br><span class="caution">🟡 WATCH level  **2414.50**</span><br>   What this means: sellers are losing initial control. The<br>   first warning sign that the move is weakening.<br>   💲 If price closes above **2414.50** on the 1H,<br>   the position is typically down 30–50% of planned risk<br>   (**~$378** of the **~$945** at risk).<br>   Action: hold what you have, do NOT add more.<br><br><span class="marginal">🟠 CAUTION zone  2414.50 – 2415.22</span><br>   What this means: the other side is in control inside this band.<br>   Holding from here means fighting the structure — exit risk<br>   is now real, not theoretical.<br>   💲 Position drawdown 50–80% of planned risk<br>   (**~$614** of the **~$945**).<br>   Action: scratch the trade for a small loss now. Re-read at next scan.<br><br>🔴 <span class="term-chip">[[Invalidation]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  **2415.42**<br>   What this means: the bearish idea is OFF entirely.<br>   💲 Full planned risk taken: **$945** on the recommended size.<br>   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for<br>   a fresh structure on a later scan.<br><br><span class="info-line">🔵 Next review  2026-05-13 12:15 UTC</span><br>   ATLAS re-reads every zone at the next scan.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">💲 Dollar risk this trade — full size allowed (STILL ACTIVE)</div>
+        <div class="embed-field-value"><span class="money-line">💲 Standard plan: **$1,350 risk on 1 lot XAUUSD (100 oz)** ($13.50/oz × 100 oz on a $13.50 move).</span><br><span class="money-line">💲 Recommended for this card (STILL ACTIVE · full size × Market Mood Elevated reduction): **~$945**.</span><br><span class="money-line">💲 If Market Mood drops back to Quiet, scale up to full size after a clean re-read.</span><br><span class="money-line">💲 Reward target on a clean follow-through: **~$2835** on the recommended size · **3.0R**.</span></div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What this means</div>
+        <div class="embed-field-value">The path of least resistance is down while **2415.42** holds. Selling rallies into the tight green entry band is the trade ATLAS would take.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">WHAT TO DO NOW</div>
+        <div class="embed-field-value">① Wait for a 5-min candle to open inside **2414.00 – 2414.20**.<br>② SELL that candle's close — **$945 on the recommended size**.<br>③ Place the exit-point at **2415.42** (**$945 risk**).<br>④ If **2414.50** closes above on 1H, exit half (freeing **~$473**) and hold the rest with the exit-point unchanged.<br>⑤ Full exit at **2415.42** if reached — the bearish idea is OFF.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What confirms the idea</div>
+        <div class="embed-field-value">A 5m close below **2414.00** after rallying into the entry band — the confirmed directional structure test (price closes past the trigger AND the next candle holds beyond it).</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What cancels the idea</div>
+        <div class="embed-field-value">A 1H close above **2415.42**. At that point the broken floor has been reclaimed.</div>
+      </div></div>
+      <div class="embed-footer">ATLAS · Dark Horse · standout 2 of 3 · still active lifecycle</div>
+    </div>
+    </div>
+    <div class="message" data-idx="3">
+      <div class="message-content"><pre class="fence"><span style="color:#FAA61A;font-weight:700">· · · · · · · · · · · · · · · · · · · · · · · · ·</span>
+<span style="color:#FAA61A;font-weight:700">  ⚪   FADING   ·   STANDOUT #3 of 3   ·   NVDA — older mover, late-stage caution</span>
+<span style="color:#FAA61A;font-weight:700">· · · · · · · · · · · · · · · · · · · · · · · · ·</span></pre><br><strong>FADING</strong>  ·  STANDOUT #3 of 3  ·  NVDA — older mover, late-stage caution</div>
+      
+    <div class="embed" style="border-left-color:#e67e22">
+      <div class="embed-title">🐎  NVDA  ·  DEVELOPING WATCH</div><div class="embed-desc">NVDA pushed above 920.56 — a level that had capped price for the prior multi-session window — and held the level cleanly on the close. The move is new this scan.</div>
+      
+    <div class="chart-card">
+      <svg viewBox="0 0 540 220" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="540" height="220" fill="#131722"/>
+        <rect x="12" y="82.28766120891038" width="438" height="14.27321889239687" fill="rgba(35,165,90,0.18)" /><line x1="12" y1="117.97070843991482" x2="450" y2="117.97070843991482" stroke="#F1C40F" stroke-width="1" stroke-dasharray="4 4"/><text x="18" y="114.97070843991482" fill="#F1C40F" font-family="Consolas, monospace" font-size="11">watch</text><line x1="12" y1="184.57906327111857" x2="450" y2="184.57906327111857" stroke="#ED4245" stroke-width="1.5" stroke-dasharray="6 4"/><text x="18" y="197.57906327111857" fill="#ED4245" font-family="Consolas, monospace" font-size="11">invalidation</text>
+        <line x1="55.8" y1="102.8739410369858" x2="55.8" y2="193.45454545454768" stroke="#00ff00" stroke-width="1"/><rect x="29.799999999999997" y="117.97070843991482" width="52" height="60.387069611703836" fill="#00ff00"/><line x1="143.39999999999998" y1="58.95784163577798" x2="143.39999999999998" y2="129.7732818007397" stroke="#00ff00" stroke-width="1"/><rect x="117.39999999999998" y="70.76041499660286" width="52" height="47.210293443311954" fill="#00ff00"/><line x1="231" y1="23.478647328378855" x2="231" y2="80.71447134780891" stroke="#00ff00" stroke-width="1"/><rect x="205" y="33.43270367958485" width="52" height="37.327711317018014" fill="#00ff00"/><line x1="318.59999999999997" y1="22.545454545452316" x2="318.59999999999997" y2="87.86894935023538" stroke="#ff0015" stroke-width="1"/><rect x="292.59999999999997" y="33.43270367958485" width="52" height="43.54899653651796" fill="#ff0015"/><line x1="406.2" y1="57.07358751369074" x2="406.2" y2="93.15704178680876" stroke="#00ff00" stroke-width="1"/><rect x="380.2" y="67.02764386489679" width="52" height="16.17534157070594" fill="#00ff00"/>
+        
+      <rect x="454" y="12.545454545452316" width="82" height="20" rx="3" fill="#FFD600"/>
+      <text x="460" y="26.545454545452316" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">HIGH 921.80</text>
+    
+      <rect x="454" y="66.98170021610281" width="82" height="20" rx="3" fill="#00FF5A"/>
+      <text x="460" y="80.98170021610281" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">CURRENT 920.79</text>
+    
+      <rect x="454" y="79.42427065510881" width="82" height="20" rx="3" fill="#FF9100"/>
+      <text x="460" y="93.42427065510881" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">ENTRY 920.56</text>
+    
+      <rect x="454" y="183.45454545454768" width="82" height="20" rx="3" fill="#00B0FF"/>
+      <text x="460" y="197.45454545454768" fill="#FFF" font-family="Consolas, monospace" font-size="11" font-weight="700">LOW 918.64</text>
+    
+        <text x="12" y="12" fill="#DCDDDE" font-family="gg sans, sans-serif" font-size="12" font-weight="700">NVDA · 1H</text>
+      </svg>
+      <div class="chart-card-caption">ATLAS chart card · NVDA · entry 920.43–920.69 · watch 920.03 · invalidation 918.80</div>
+    </div>
+      <div class="embed-fields">
+      <div class="embed-field inline">
+        <div class="embed-field-name">Move Type</div>
+        <div class="embed-field-value">Continuation · late stage</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Direction</div>
+        <div class="embed-field-value"><span class="term-chip">[[Long ▲]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) — expecting price to keep moving up</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Conviction</div>
+        <div class="embed-field-value">🟠🟠🟠🟠⚫ 4/5 — High<br>_Why High: trigger level still valid + buyers still defending — BUT each new high is smaller than the last, and the move is 25 cycles old (2 of 4 criteria met, 2 weakening)._</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Trigger Level</div>
+        <div class="embed-field-value"><span class="term-chip">[[Trigger Level]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **920.56**<br>_Why it matters: 920.56 is the structural level the move rotates around._<br>_It is now the ceiling that flipped into a floor — buyers/sellers treat it as Support._</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Expected Duration</div>
+        <div class="embed-field-value"><span class="term-chip">[[Expected Duration]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): Intraday — hours, not days</div>
+      </div>
+      <div class="embed-field inline">
+        <div class="embed-field-name">Today's Rank</div>
+        <div class="embed-field-value"><span class="term-chip">[[Cycle Rank]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): 3rd of today's 3 standouts</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Where to Act</div>
+        <div class="embed-field-value"><span class="entry">🟢 ENTRY zone  **920.43 – 920.69**</span><br>   What this means: price has pulled back into the tight band where<br>   buyers stepped in the last time the level was tested.<br>   Required price behaviour: a 5-minute candle that opens inside the<br>   band AND closes above the band low (this is the<br>   confirmed directional structure test).<br>   Action: BUY on that candle close — start with the position<br>   rule below (**~$465** planned risk).<br><br><span class="caution">🟡 WATCH level  **920.03**</span><br>   What this means: buyers are losing initial control. The<br>   first warning sign that the move is weakening.<br>   💲 If price closes below **920.03** on the 1H,<br>   the position is typically down 30–50% of planned risk<br>   (**~$186** of the **~$465** at risk).<br>   Action: hold what you have, do NOT add more.<br><br><span class="marginal">🟠 CAUTION zone  920.03 – 919.06</span><br>   What this means: the other side is in control inside this band.<br>   Holding from here means fighting the structure — exit risk<br>   is now real, not theoretical.<br>   💲 Position drawdown 50–80% of planned risk<br>   (**~$302** of the **~$465**).<br>   Action: scratch the trade for a small loss now. Re-read at next scan.<br><br>🔴 <span class="term-chip">[[Invalidation]</span>](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  **918.80**<br>   What this means: the bullish idea is OFF entirely.<br>   💲 Full planned risk taken: **$465** on the recommended size.<br>   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for<br>   a fresh structure on a later scan.<br><br><span class="info-line">🔵 Next review  2026-05-13 12:15 UTC</span><br>   ATLAS re-reads every zone at the next scan.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">💲 Dollar risk this trade — QUARTER size only (FADING)</div>
+        <div class="embed-field-value"><span class="money-line">💲 Standard plan: **$1,860 risk on 100 shares NVDA** ($18.60/share × 100 shares).</span><br><span class="money-line">💲 Recommended for this card (FADING · quarter size for FADING): **~$465**.</span><br><span class="money-line">💲 Reward target on a clean follow-through: **~$605** on the recommended size · **1.3R**.</span><br><span class="warn">⚠️ Reward-to-risk is below 2R — only take this card if no FRESH or STILL ACTIVE setups are available.</span></div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What this means</div>
+        <div class="embed-field-value">The path of least resistance is up while **918.80** holds. Buying the dip into the tight green entry band is the trade ATLAS would take.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">WHAT TO DO NOW</div>
+        <div class="embed-field-value">① QUARTER size at most — this is not a primary entry. **$465 risk**.<br>② Only buy a clean pullback into **920.43 – 920.69** that prints a strong defensive 5-min close.<br>③ Place the exit-point at **918.80** (**$465 risk**).<br>④ If **920.03** closes below on 1H, exit ALL — late-stage cards do not give second chances.<br>⑤ Skip this card entirely if the FRESH or STILL ACTIVE standouts above offer a cleaner setup today.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What confirms the idea</div>
+        <div class="embed-field-value">A 5m close above **920.69** after pulling back into the entry band — the confirmed directional structure test (price closes past the trigger AND the next candle holds beyond it).</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">What cancels the idea</div>
+        <div class="embed-field-value">A 1H close below **918.80**. At that point the ceiling-to-floor flip has failed and the move is rolled over.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">⚠️  Late-stage caveat</div>
+        <div class="embed-field-value">Size quarter — the move is late. The reward is small. Skip if better setups exist.</div>
+      </div></div>
+      <div class="embed-footer">ATLAS · Dark Horse · standout 3 of 3 · fading lifecycle · next review 2026-05-13 12:15 UTC</div>
+    </div>
+    </div>
+    <div class="message" data-idx="4">
+      <div class="message-content"><strong>BUILDING</strong>  ·  CHART REFERENCE<br><br><pre class="fence"><span style="color:#EB459E;font-weight:700">╔════════════════════════════════════════════════════╗</span>
+<span style="color:#EB459E;font-weight:700">║ 📡  BUILDING — WARMING UP BELOW STANDOUT GRADE     ║</span>
+<span style="color:#EB459E;font-weight:700">╚════════════════════════════════════════════════════╝</span></pre><br><br>[[Pullback]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Support / Resistance]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Reversal]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)<br><br>_Two markets are close to the standout bar but not there yet._<br>_Re-reading every 15 minutes — if either firms up by the next scan,_<br>_they graduate into a standout card with full execution detail._<br><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">╔════════════════════════════════════════════════════╗</span>
+<span style="color:#5BC0DE;font-weight:700">║ 📚  CHART REFERENCE — HOW TO READ THE FOUR ZONES   ║</span>
+<span style="color:#5BC0DE;font-weight:700">╚════════════════════════════════════════════════════╝</span></pre></div>
+      
+    <div class="embed" style="border-left-color:#5bc0de">
+      <div class="embed-title">📚  Clean Bullish Breakout — Reference</div><div class="embed-desc">Every Dark Horse candidate above is the same pattern in different markets. This is what it looks like on the chart, and what a trader actually does at each zone.</div>
+      
+    <div class="chart-card">
+      <svg viewBox="0 0 540 220" width="100%" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="540" height="220" fill="#131722"/>
+        <rect x="12" y="90.9090909090909" width="438" height="34.18181818181817" fill="rgba(35,165,90,0.18)" /><line x1="12" y1="159.27272727272728" x2="450" y2="159.27272727272728" stroke="#F1C40F" stroke-width="1" stroke-dasharray="4 4"/><text x="18" y="156.27272727272728" fill="#F1C40F" font-family="Consolas, monospace" font-size="11">watch</text><line x1="12" y1="193.45454545454547" x2="450" y2="193.45454545454547" stroke="#ED4245" stroke-width="1.5" stroke-dasharray="6 4"/><text x="18" y="206.45454545454547" fill="#ED4245" font-family="Consolas, monospace" font-size="11">invalidation</text>
+        <line x1="55.8" y1="142.1818181818182" x2="55.8" y2="193.45454545454547" stroke="#00ff00" stroke-width="1"/><rect x="29.799999999999997" y="167.8181818181818" width="52" height="8.545454545454561" fill="#00ff00"/><line x1="143.39999999999998" y1="125.09090909090908" x2="143.39999999999998" y2="176.36363636363637" stroke="#00ff00" stroke-width="1"/><rect x="117.39999999999998" y="159.27272727272728" width="52" height="8.545454545454533" fill="#00ff00"/><line x1="231" y1="90.9090909090909" x2="231" y2="167.8181818181818" stroke="#00ff00" stroke-width="1"/><rect x="205" y="99.45454545454547" width="52" height="59.81818181818181" fill="#00ff00"/><line x1="318.59999999999997" y1="48.18181818181816" x2="318.59999999999997" y2="133.63636363636363" stroke="#ff0015" stroke-width="1"/><rect x="292.59999999999997" y="99.45454545454547" width="52" height="25.636363636363612" fill="#ff0015"/><line x1="406.2" y1="22.545454545454533" x2="406.2" y2="125.09090909090908" stroke="#00ff00" stroke-width="1"/><rect x="380.2" y="31.090909090909093" width="52" height="93.99999999999999" fill="#00ff00"/>
+        
+      <rect x="454" y="-4.5454545454545325" width="82" height="20" rx="3" fill="#FFD600"/>
+      <text x="460" y="9.454545454545467" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">HIGH 110.00</text>
+    
+      <rect x="454" y="80.9090909090909" width="82" height="20" rx="3" fill="#00FF5A"/>
+      <text x="460" y="94.9090909090909" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">CURRENT 100.00</text>
+    
+      <rect x="454" y="98" width="82" height="20" rx="3" fill="#FF9100"/>
+      <text x="460" y="112" fill="#000" font-family="Consolas, monospace" font-size="11" font-weight="700">ENTRY 98.00</text>
+    
+      <rect x="454" y="183.45454545454547" width="82" height="20" rx="3" fill="#00B0FF"/>
+      <text x="460" y="197.45454545454547" fill="#FFF" font-family="Consolas, monospace" font-size="11" font-weight="700">LOW 88.00</text>
+    
+        <text x="12" y="12" fill="#DCDDDE" font-family="gg sans, sans-serif" font-size="12" font-weight="700">REFERENCE · pattern</text>
+      </svg>
+      <div class="chart-card-caption">ATLAS chart card · reference pattern · four-zone read</div>
+    </div>
+      <div class="embed-fields">
+      <div class="embed-field block">
+        <div class="embed-field-name">The story</div>
+        <div class="embed-field-value">Price pushed through a level that had capped it for weeks (the old high). It came back to test the same level. Buyers stepped in to defend it. The ceiling has flipped into a floor.</div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">How a trader acts (concrete, dollars-first)</div>
+        <div class="embed-field-value"><span class="entry">🟢 BUY the pullback into the **green ENTRY band** — ONLY if the next 5-min candle opens inside the band AND closes above the band low.</span><br>🔴 Place the exit-point just below the **dashed red INVALIDATION line**. If price closes below it on the 1H, exit immediately.<br><span class="money-line">💲 Dollar risk = (entry price − exit price) × position size × $/point. Size the trade so this number ≤ 1% of your account (**$100 on $10k**, **$250 on $25k**, **$1,000 on $100k**).</span></div>
+      </div>
+      <div class="embed-field block">
+        <div class="embed-field-name">Rendered ATLAS chart card</div>
+        <div class="embed-field-value">The attached chart image shows the same four zones used above: green entry band, yellow watch level, red invalidation line, and ATLAS price boxes.</div>
+      </div></div>
+      <div class="embed-footer">ATLAS · Chart reference · rendered four-zone card</div>
+    </div>
+    </div>
+    <div class="message" data-idx="5">
+      <div class="message-content"><pre class="fence"><span style="color:#FAA61A;font-weight:700">▸  Risk reminder</span></pre><br>_Every zone above is what ATLAS sees right now. Live price moves, the_<br>_zones move with it. Cross-check the current price against the zone_<br>_before acting. ATLAS reviews again at 2026-05-13 12:15 UTC._<br><br><pre class="fence"><span style="color:#5BC0DE;font-weight:700">▸  Briefing summary</span></pre><br>_3 standouts today (1 FRESH, 1 STILL ACTIVE, 1 FADING). Market Mood 🟠🟠🟠🟠⚫ 4/5 — Elevated._<br>_The FRESH EURUSD card is the cleanest reward-to-risk: <strong>~$150 risk</strong> · target <strong>5.7R</strong>._<br>_The STILL ACTIVE XAUUSD card is the highest-conviction continuation: <strong>~$945 risk</strong> · target <strong>3.0R</strong>._<br>_The FADING NVDA card is the late-stage scalp: <strong>~$465 risk</strong> · target <strong>1.3R</strong>._<br>_Next scan 2026-05-13 12:15 UTC._</div>
+      
+    </div>
+</div>
+</body></html>

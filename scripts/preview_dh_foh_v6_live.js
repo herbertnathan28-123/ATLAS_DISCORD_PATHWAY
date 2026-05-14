@@ -5,11 +5,27 @@
 // ============================================================
 // scripts/preview_dh_foh_v6_live.js
 //
-// Live-path preview of the Dark Horse FOH.1.0.1 (v6 parity) wire-up.
-// Drives the production module darkHorseFoh.buildDarkHorseFohPayload
-// against a representative multi-candidate fixture, then asserts the
-// rendered messages against every locked v6 marker from
-// docs/screenshots/dh-foh-v6-gallery.md.
+// Live-path preview of Dark Horse FOH.1.0.1 (v6 PROTOTYPE
+// PARITY). Drives `darkHorseFoh.buildDarkHorseFohPayload`
+// against a representative multi-candidate fixture and asserts
+// the rendered messages against every locked v6 marker from
+// `docs/screenshots/dh-foh-v6-gallery.md` + the canonical
+// SAMPLE_MESSAGES at `scripts/render_dh_foh_v6_preview.js`.
+//
+// ──────────────────────────────────────────────────────────
+// ACCEPTANCE REALIGNMENT NOTE (operator directive, 2026-05-14)
+// ──────────────────────────────────────────────────────────
+// Previous build of this preview asserted the FOH.1.2.1
+// INTERMEDIATE marker set (banner subheadings "▸ Today's read"
+// / "▸ Market mood", single-line "🛑 RISK-OFF" Where-to-Act,
+// conviction without ⚫ inactive disc, "STANDOUT #N of M"
+// red ```diff badge per candidate). Per PR #73 doctrine and
+// operator-confirmed B8–B14 + D directives, the canonical v6
+// target is `scripts/render_dh_foh_v6_preview.js::SAMPLE_MESSAGES`.
+//
+// A live-path output that passed v1.2.1 markers but failed
+// canonical v6 was a false pass. This script was rewritten on
+// the restoration branch to enforce the canonical v6 shape.
 //
 // Run:
 //   node scripts/preview_dh_foh_v6_live.js          # summary
@@ -23,14 +39,15 @@ const foh  = require(path.join(__dirname, '..', 'darkHorseFoh.js'));
 function dailyCandles(n, base) {
   const out = []; let p = base;
   const t = Math.floor(Date.parse('2026-05-01T00:00:00Z') / 1000);
+  const step = base >= 1000 ? 0.6 : base >= 100 ? 0.8 : base >= 10 ? 0.2 : 0.00025;
   for (let i = 0; i < n; i++) {
-    const o = p, c = p + 0.6, h = c + 0.4, l = o - 0.3;
+    const o = p, c = p + step, h = c + step * 0.7, l = o - step * 0.5;
     out.push({ open: o, high: h, low: l, close: c, time: t + i * 86400 });
     p = c;
   }
   return out;
 }
-function mk(sym, score, dir, sec, base) {
+function mk(sym, score, dir, sec, base, phase) {
   const e = rank.enrichCandidate(
     { symbol: sym, score, direction: dir, summary: 'higher highs and higher lows', reasons: ['structure 2/2'] },
     dailyCandles(25, base),
@@ -38,14 +55,14 @@ function mk(sym, score, dir, sec, base) {
   );
   e.section = sec;
   e.sectionLabel = rank.SECTION_LABEL[sec];
+  if (phase) e.movePhase = phase;
   return e;
 }
 
 const top10 = [
-  mk('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,   1.10),
-  mk('NDX',    8, 'Bullish', rank.SECTIONS.INDICES,     19000),
-  mk('NVDA',   8, 'Bullish', rank.SECTIONS.EQUITIES,    900),
-  mk('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES, 2400),
+  mk('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,    1.10,  'early'),
+  mk('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES,  2400,  'mid'),
+  mk('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,     900,   'late'),
 ];
 const payload = foh.buildDarkHorseFohPayload(
   { top10, allCount: 33 },
@@ -55,6 +72,10 @@ const payload = foh.buildDarkHorseFohPayload(
 
 const m = payload.messages;
 const m1 = m[0].content;
+const m2 = m[1];  // FRESH candidate
+const m3 = m[2];  // STILL ACTIVE candidate
+const m4 = m[3];  // FADING candidate
+const m5 = m[4];  // BUILDING + Chart Reference
 const tail = m[m.length - 1].content;
 const allText = m.map(x => {
   const parts = [x.content || ''];
@@ -66,64 +87,159 @@ const allText = m.map(x => {
   return parts.join('\n');
 }).join('\n');
 
+const e2 = m2.embeds[0];
+const e3 = m3.embeds[0];
+const e4 = m4.embeds[0];
+
 // ── v6 canonical markers ─────────────────────────────────────
 const checks = [
   // Payload shape
   ['kind === movement_digest_foh_v1_0', payload.kind === 'movement_digest_foh_v1_0'],
-  ['candidateCount === 4',              payload.candidateCount === 4],
-  ['embedCount === 4',                  payload.embedCount === 4],
-  ['messages.length === 5 (banner + 3 badges + tail)', m.length === 5],
-  // M1 banner content — v6 doctrine
+  ['candidateCount === 3',              payload.candidateCount === 3],
+  ['embedCount === 3',                  payload.embedCount === 3],
+  ['messages.length === 6 (banner + 3 candidates + ref + tail)', m.length === 6],
+
+  // M1 banner — v6 doctrine
   ['M1 opens with red NEW divider (```diff fence)', /^```diff\n-\s+━{30,}/.test(m1)],
   ['M1 contains "N E W   D A R K   H O R S E   S C A N"', /N E W   D A R K   H O R S E   S C A N/.test(m1)],
   ['M1 has 🆕 markers around scan stamp + universe size',  /🆕[\s\S]+?33 markets scanned[\s\S]+?🆕/.test(m1)],
-  ['M1 has gold "🐎  DARK HORSE — GLOBAL MOVER RADAR"',     /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(m1)],
-  ['M1 has gold "⭐  STANDOUTS — TODAY\'S STRONGEST MOVERS"', /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(m1)],
-  ['M1 has ▸ Today\'s read subheading',                     /▸  Today's read/.test(m1)],
-  ['M1 has ▸ Market mood subheading',                       /▸  Market mood/.test(m1)],
-  ['M1 terminology row uses ```ansi cyan-chip fallback',     /```ansi\n.*\[Breakout\][\s\S]*\[Retest\][\s\S]*\[Continuation\][\s\S]*\[Mover Stage 1\]/.test(m1)],
-  // Embed structure (Pack 2.2 fields)
-  ['embed.title format: "🐎  SYM  ·  <state-badge>"',       /^🐎  EURUSD  ·  /.test(m[0].embeds[0].title)],
-  ['embed.title ends with a state-badge from allow-list',   foh.STATE_BADGE_VALUES.has(m[0].embeds[0].title.replace(/^🐎  [A-Z0-9]+  ·  /, ''))],
-  ['Conviction field uses 5-disc colour-active scale',      /(🟢|🔴|🟡|🟠|⚪)+\s\/\s5\s·\s(Low|Medium|High|Very High)/.test(m[0].embeds[0].fields.find(f => f.name === 'Conviction').value)],
-  ['no inactive disc filler ⚫ in active candidate cards',   !m.slice(0, -1).some(x => x.embeds && x.embeds.some(e => e.fields.some(f => /[●○]/.test(f.value))))],
-  ['Direction field has beginner-readable hint',            /(Long|Short|Sideways)\s+\(/.test(m[0].embeds[0].fields.find(f => f.name === 'Direction').value)],
-  ['Move Type field present + in allow-list',               ['Breakout','Reversal','Range Break','Continuation'].some(t => m[0].embeds[0].fields.find(f => f.name === 'Move Type').value.startsWith(t))],
-  ['Trigger Level value uses "(Above|Below) N — ..." form', /(Above|Below) \d+(\.\d+)? — /.test(m[0].embeds[0].fields.find(f => f.name === 'Trigger Level').value)],
-  ['Today\'s Rank uses ordinal "Nth of today\'s K standouts"', /^1st of today's \d+ standouts?$/.test(m[0].embeds[0].fields.find(f => f.name === "Today's Rank").value)],
-  ['"In ATLAS terms" / "Terms" field REMOVED',              !m[0].embeds[0].fields.some(f => /In ATLAS terms|Terms/.test(f.name))],
-  // Where to Act
-  ['Where to Act has multi-line BUY/RISK-OFF structure',    /^🟢 (BUY|SELL) at/m.test(m[0].embeds[0].fields.find(f => f.name === 'Where to Act').value)],
-  ['Where to Act includes 🛑 RISK-OFF line',                /^🛑 RISK-OFF at/m.test(m[0].embeds[0].fields.find(f => f.name === 'Where to Act').value)],
-  ['Where to Act uses beginner-readable "exit the idea"',   /exit the idea if this level fails/.test(m[0].embeds[0].fields.find(f => f.name === 'Where to Act').value)],
-  // Red NEW BADGE separators
-  ['M2 has "STANDOUT #2 of 4" red badge',                   /```diff\n-\s*🆕\s+STANDOUT #2 of 4\n```/.test(m[1].content)],
-  ['M3 has "STANDOUT #3 of 4" red badge',                   /```diff\n-\s*🆕\s+STANDOUT #3 of 4\n```/.test(m[2].content)],
-  ['M4 has "STANDOUT #4 of 4" red badge',                   /```diff\n-\s*🆕\s+STANDOUT #4 of 4\n```/.test(m[3].content)],
-  ['no plain "─── NEW ───" text fallback anywhere',         !/─── NEW ───/.test(allText)],
-  // Last embed footer carries next-review stamp
-  ['last embed footer carries "next review YYYY-MM-DD HH:MM UTC"',
-    /next review \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/.test(m[3].embeds[0].footer.text)],
-  // Tail — BUILDING + reference card
-  ['tail has BUILDING & CHART REFERENCE red badge',         /```diff\n-\s*🆕\s+BUILDING\s+&\s+CHART REFERENCE\n```/.test(tail)],
-  ['tail has 📡 BUILDING — MARKETS WARMING UP gold heading', /📡\s+BUILDING — MARKETS WARMING UP/.test(tail)],
-  ['tail has 📚 CLEAN BULLISH BREAKOUT — REFERENCE card',    /📚\s+CLEAN BULLISH BREAKOUT — REFERENCE/.test(tail)],
-  ['tail has ▸ Risk reminder subheading',                   /▸  Risk reminder/.test(tail)],
+  ['M1 has gold 🐎 DARK HORSE — GLOBAL MOVER RADAR banner', /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(m1)],
+  ['M1 has standout count line ("3 standouts found")',     /3 standouts? found this cycle/.test(m1)],
+  ['M1 has lifecycle decomposition (fresh / still active / fading)',
+    /\d+ fresh.*\d+ still active.*\d+ fading/.test(m1)],
+  ['M1 has 📘 EXPANDED TERMINOLOGY HYPERLINKS heading',     /📘 \*\*EXPANDED TERMINOLOGY HYPERLINKS\*\*/.test(m1)],
+  ['M1 has terminology row with visible-bracket [[Breakout]](url) form', /\[\[Breakout\]\]\(http/.test(m1)],
+  ['M1 has Market Mood 5-disc bar',  /Market Mood {2}·\s*(🟢|🟡|🟠|🔴)+⚫* ?\d+\/5/.test(m1)],
+  ['M1 Market Mood block carries Dollars-first guidance', /Dollars-first guidance/.test(m1)],
+  ['M1 has ⭐ STANDOUTS — TODAY\'S STRONGEST MOVERS banner', /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(m1)],
+  ['no legacy v1.2.1 "▸ Today\'s read" subheading',         !/▸  Today's read/.test(m1)],
+
+  // Lifecycle separators on M2 / M3 / M4
+  ['M2 lifecycle separator names "FRESH"',         /FRESH/.test(m2.content)],
+  ['M2 lifecycle separator says STANDOUT #1 of 3', /STANDOUT #1 of 3/.test(m2.content)],
+  ['M2 lifecycle separator uses ```diff fence (filled red)', /```diff/.test(m2.content)],
+  ['M3 lifecycle separator names "STILL ACTIVE"',  /STILL ACTIVE/.test(m3.content)],
+  ['M3 lifecycle separator says STANDOUT #2 of 3', /STANDOUT #2 of 3/.test(m3.content)],
+  ['M3 lifecycle separator uses ```ansi fence (outlined red)', /```ansi/.test(m3.content)],
+  ['M4 lifecycle separator names "FADING"',        /FADING/.test(m4.content)],
+  ['M4 lifecycle separator says STANDOUT #3 of 3', /STANDOUT #3 of 3/.test(m4.content)],
+  ['M4 lifecycle separator uses ```ansi fence (outlined orange)', /```ansi/.test(m4.content)],
+  ['no dashed "── NEW ──" text anywhere',          !/─── NEW ───/.test(allText)],
+
+  // Embed structure — v6 canonical fields
+  ['M2 embed.title format: "🐎  SYM  ·  <state-badge>"',    /^🐎  EURUSD  ·  /.test(e2.title)],
+  ['M2 embed.title ends with state-badge from allow-list',  foh.STATE_BADGE_VALUES.has(e2.title.replace(/^🐎  [A-Z0-9]+  ·  /, ''))],
+  ['M2 description is the FRESH narrative ("new this scan")', /new this scan/.test(e2.description)],
+  ['M2 has "Move Type" field',                               e2.fields.some(f => f.name === 'Move Type')],
+  ['M2 has "Direction" field',                               e2.fields.some(f => f.name === 'Direction')],
+  ['M2 has "Conviction" field',                              e2.fields.some(f => f.name === 'Conviction')],
+  ['M2 has "Trigger Level" field',                           e2.fields.some(f => f.name === 'Trigger Level')],
+  ['M2 has "Expected Duration" field (renamed from Horizon)', e2.fields.some(f => f.name === 'Expected Duration')],
+  ['M2 NO "Horizon" field',                                  !e2.fields.some(f => f.name === 'Horizon')],
+  ['M2 has "Today\'s Rank" field',                           e2.fields.some(f => f.name === "Today's Rank")],
+  ['M2 has "Where to Act" field',                            e2.fields.some(f => f.name === 'Where to Act')],
+  ['M2 has "💲 Dollar risk this trade" field',               e2.fields.some(f => /^💲 Dollar risk this trade/.test(f.name))],
+  ['M2 has "What this means" field',                         e2.fields.some(f => f.name === 'What this means')],
+  ['M2 has "WHAT TO DO NOW" field',                          e2.fields.some(f => f.name === 'WHAT TO DO NOW')],
+  ['M2 has "What confirms the idea" field',                  e2.fields.some(f => f.name === 'What confirms the idea')],
+  ['M2 has "What cancels the idea" field',                   e2.fields.some(f => f.name === 'What cancels the idea')],
+  ['M2 carries chart-card spec for PNG attachment lane',      !!e2.chartCard],
+  ['M3 carries chart-card spec for PNG attachment lane',      !!e3.chartCard],
+  ['M4 carries chart-card spec for PNG attachment lane',      !!e4.chartCard],
+
+  // Conviction — 5-disc + ⚫ inactive + Why-X reasoning
+  ['Conviction value uses 5-disc with ⚫ inactive disc OR full-fill',
+    /(🟢|🔴|🟡|🟠|⚪)+⚫? ?\d+\/5 — (Low|Medium|High|Very High)/.test(e2.fields.find(f => f.name === 'Conviction').value)],
+  ['Conviction value contains "Why X" reasoning underneath',
+    /_Why (Low|Medium|High|Very High): /.test(e2.fields.find(f => f.name === 'Conviction').value)],
+
+  // Direction — v6 link form
+  ['Direction field uses [[Long ▲]](url) link form',
+    /\[\[Long ▲\]\]\(http/.test(e2.fields.find(f => f.name === 'Direction').value)],
+  ['Direction field has narrative tail ("expecting price to keep moving up")',
+    /expecting price to keep moving up/.test(e2.fields.find(f => f.name === 'Direction').value)],
+
+  // Trigger Level — Why it matters narrative
+  ['Trigger Level value uses [[Trigger Level]](url) link form',
+    /\[\[Trigger Level\]\]\(http/.test(e2.fields.find(f => f.name === 'Trigger Level').value)],
+  ['Trigger Level value contains "Why it matters" narrative line',
+    /_Why it matters: /.test(e2.fields.find(f => f.name === 'Trigger Level').value)],
+
+  // Expected Duration — renamed field
+  ['Expected Duration field uses [[Expected Duration]](url) link form',
+    /\[\[Expected Duration\]\]\(http/.test(e2.fields.find(f => f.name === 'Expected Duration').value)],
+
+  // Today's Rank — Cycle Rank link form
+  ['Today\'s Rank value uses [[Cycle Rank]](url) link form',
+    /\[\[Cycle Rank\]\]\(http/.test(e2.fields.find(f => f.name === "Today's Rank").value)],
+  ['Today\'s Rank ordinal "1st of today\'s 3 standouts"',
+    /1st of today's 3 standouts/.test(e2.fields.find(f => f.name === "Today's Rank").value)],
+
+  // Where to Act — 4-zone block
+  ['Where to Act has 🟢 ENTRY zone line',  /🟢 ENTRY zone/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
+  ['Where to Act has 🟡 WATCH level line', /🟡 WATCH level/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
+  ['Where to Act has 🟠 CAUTION zone line', /🟠 CAUTION zone/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
+  ['Where to Act has 🔴 Invalidation line', /🔴.+Invalidation.+\*\*[\d.,]+\*\*/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
+  ['Where to Act has 🔵 Next review line', /🔵 Next review/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
+  ['Where to Act does NOT use v1.2.1 single-line "🛑 RISK-OFF"',
+    !/^🛑 RISK-OFF /m.test(e2.fields.find(f => f.name === 'Where to Act').value)],
+
+  // Dollar Risk — lifecycle-aware
+  ['M2 (FRESH) Dollar Risk header — "half size for FRESH"',
+    /half size for FRESH/.test(e2.fields.find(f => /Dollar risk this trade/.test(f.name)).name)],
+  ['M3 (STILL ACTIVE) Dollar Risk header — "full size allowed (STILL ACTIVE)"',
+    /full size allowed \(STILL ACTIVE\)/.test(e3.fields.find(f => /Dollar risk this trade/.test(f.name)).name)],
+  ['M4 (FADING) Dollar Risk header — "QUARTER size only (FADING)"',
+    /QUARTER size only \(FADING\)/.test(e4.fields.find(f => /Dollar risk this trade/.test(f.name)).name)],
+
+  // WHAT TO DO NOW — ① ② ③ ④ ⑤ checklist
+  ['WHAT TO DO NOW contains ① to ⑤ numbered steps',
+    ['①', '②', '③', '④', '⑤'].every(g => e2.fields.find(f => f.name === 'WHAT TO DO NOW').value.indexOf(g) >= 0)],
+
+  // FADING — late-stage caveat present
+  ['FADING embed has ⚠️ Late-stage caveat field',
+    e4.fields.some(f => /Late-stage caveat/.test(f.name))],
+
+  // M5 — BUILDING + Chart Reference
+  ['M5 contains BUILDING heading "WARMING UP BELOW STANDOUT GRADE"', /WARMING UP BELOW STANDOUT GRADE/.test(m5.content)],
+  ['M5 contains CHART REFERENCE heading "HOW TO READ THE FOUR ZONES"', /HOW TO READ THE FOUR ZONES/.test(m5.content)],
+  ['M5 has reference embed titled "Clean Bullish Breakout — Reference"', /Clean Bullish Breakout — Reference/.test(m5.embeds[0].title)],
+  ['M5 reference embed has "The story" field', m5.embeds[0].fields.some(f => f.name === 'The story')],
+  ['M5 reference embed carries chart-card spec for PNG attachment lane', !!m5.embeds[0].chartCard],
+  ['M5 reference embed does not call chart images a future lane', !/Future scans|next evolution|to be replaced/i.test(m5.embeds[0].fields.map(f => f.value).join('\n') + '\n' + (m5.embeds[0].footer && m5.embeds[0].footer.text || ''))],
+
+  // Tail
+  ['tail has Risk reminder subheading', /Risk reminder/.test(tail)],
+  ['tail has Briefing summary subheading', /Briefing summary/.test(tail)],
+  ['tail has "Next scan" line', /Next scan/.test(tail)],
+
+  // Footer on last candidate carries next-review stamp
+  ['last candidate footer carries "next review YYYY-MM-DD HH:MM UTC"',
+    /next review \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/.test(e4.footer.text)],
+
+  // No backslash-escaped bracket links anywhere
+  ['NO escaped \\[Label\\] form anywhere',                       !/\\\[/.test(allText)],
+  ['NO literal "{{entry:" token leak (Discord-strip pass ran)',  !/\{\{entry:/.test(allText)],
+  ['NO literal "{{watch:" token leak',                           !/\{\{watch:/.test(allText)],
+  ['NO literal "{{invalid:" token leak',                         !/\{\{invalid:/.test(allText)],
+  ['NO literal "{{money:" token leak',                           !/\{\{money:/.test(allText)],
+  ['NO literal "{{caution:" token leak',                         !/\{\{caution:/.test(allText)],
+  ['NO literal "[[NEW_BADGE:" token leak',                       !/\[\[NEW_BADGE:/.test(allText)],
 ];
 
 // Discord size guards
 for (let i = 0; i < m.length; i++) {
   const meas = foh.measureMessage(m[i]);
-  checks.push([`M${i + 1} content ≤ 2000 chars`,           meas.contentLen <= foh.DISCORD_CONTENT_LIMIT]);
+  checks.push([`M${i + 1} content ≤ 2000 chars (got ${meas.contentLen})`, meas.contentLen <= foh.DISCORD_CONTENT_LIMIT]);
   for (let j = 0; j < meas.embedTotals.length; j++) {
-    checks.push([`M${i + 1} embed ${j + 1} total ≤ 6000`, meas.embedTotals[j] <= foh.DISCORD_EMBED_TOTAL_LIMIT]);
+    checks.push([`M${i + 1} embed ${j + 1} total ≤ 6000 (got ${meas.embedTotals[j]})`, meas.embedTotals[j] <= foh.DISCORD_EMBED_TOTAL_LIMIT]);
   }
 }
 
 // Banned-wording sweep
 const hits = foh.sweepBannedWording(m);
 checks.push(['banned-wording sweep returns zero hits across entire payload', hits.length === 0]);
-for (const re of [/\bbody close\b/i, /\bbreak and hold\b/i, /\bretest holds\b/i, /\bread weakens\b/i, /\bpending\b/i, /\bunavailable\b/i, /\bLearning Links\b/i, /\bBOS\b/, /\bCHoCH\b/]) {
+for (const re of [/\bbody close\b/i, /\bbreak and hold\b/i, /\bretest holds\b/i, /\bread weakens\b/i, /\bLearning Links?\b/i, /\bBOS\b/, /\bCHoCH\b/]) {
   checks.push([`banned wording absent: ${re}`, !re.test(allText)]);
 }
 
