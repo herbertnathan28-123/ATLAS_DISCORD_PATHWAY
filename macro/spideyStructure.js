@@ -116,7 +116,7 @@ function buildSpideyStructure({ symbol, htf = {}, ltf = {}, coverage = null }) {
       lines.push('');
       lines.push(`STRUCTURE READ UNAVAILABLE — ${reason || 'no structural timeframes loaded'}.`);
       if (missingTimeframes.length) lines.push(`Missing timeframes: ${missingTimeframes.join(', ')}`);
-      lines.push('No swing levels, no BOS reference, no pullback or invalidation level can be issued safely until structure is restored.');
+      lines.push('No swing levels, no [Structure Break] reference, no pullback or invalidation level can be issued safely until structure is restored.');
       return lines.join('\n');
     }
     if (state === 'PARTIAL') {
@@ -127,8 +127,8 @@ function buildSpideyStructure({ symbol, htf = {}, ltf = {}, coverage = null }) {
     lines.push('');
     if (prevSwingHigh) lines.push(`• Previous swing HIGH (${prevSwingHigh.tf}): ${fmtNum(prevSwingHigh.price, 2)} · ${fmtTime(prevSwingHigh.time)}`);
     if (prevSwingLow)  lines.push(`• Previous swing LOW (${prevSwingLow.tf}):  ${fmtNum(prevSwingLow.price, 2)} · ${fmtTime(prevSwingLow.time)}`);
-    if (bullishBOS)    lines.push(`• Bullish BOS reference (${bullishBOS.tf}): ${fmtNum(bullishBOS.price, 2)}${bullishBOS.derived ? ' _(derived from ' + bullishBOS.derived + ')_' : ''}`);
-    if (bearishBOS)    lines.push(`• Bearish BOS reference (${bearishBOS.tf}): ${fmtNum(bearishBOS.price, 2)}${bearishBOS.derived ? ' _(derived from ' + bearishBOS.derived + ')_' : ''}`);
+    if (bullishBOS)    lines.push(`• Bullish [Structure Break] reference (${bullishBOS.tf}): ${fmtNum(bullishBOS.price, 2)}${bullishBOS.derived ? ' _(derived from ' + bullishBOS.derived + ')_' : ''}`);
+    if (bearishBOS)    lines.push(`• Bearish [Structure Break] reference (${bearishBOS.tf}): ${fmtNum(bearishBOS.price, 2)}${bearishBOS.derived ? ' _(derived from ' + bearishBOS.derived + ')_' : ''}`);
     lines.push('');
     lines.push(`• Body-close rule: ${bodyCloseRequirement}`);
     lines.push(`• Wick-not-enough: ${wickNotEnough}`);

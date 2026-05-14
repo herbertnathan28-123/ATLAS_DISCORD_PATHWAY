@@ -188,7 +188,7 @@ function ok(name, cond, info) {
   ok('(H) Spidey renderForDiscord shows state line',                /state: PARTIAL/.test(text), text.slice(0,200));
   ok('(H) Spidey render shows STRUCTURE READ PARTIAL banner',       /STRUCTURE READ PARTIAL/.test(text));
   ok('(H) Spidey render shows previous swing HIGH/LOW lines',       /Previous swing HIGH/.test(text) && /Previous swing LOW/.test(text));
-  ok('(H) Spidey render shows BOS reference',                       /BOS reference/.test(text));
+  ok('(H) Spidey render shows [Structure Break] reference',         /\[Structure Break\] reference/.test(text));
   ok('(H) Spidey render shows body-close + wick-not-enough rules',  /Body-close rule/.test(text) && /Wick-not-enough/.test(text));
 
   // UNAVAILABLE case
