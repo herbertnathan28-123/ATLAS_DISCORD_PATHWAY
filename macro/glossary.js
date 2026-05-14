@@ -28,6 +28,21 @@ const TERMS = {
 
 function lookup(tag) { return TERMS[tag] || null; }
 
+// Pack-4 visible-bracket hyperlink helper. Returns the operator-
+// doctrine `[[Label]](url)` form (no backslash escapes, no
+// `\[Label\]` form). The `url` defaults to the locked Notion
+// glossary fallback used throughout the repo; callers may pass an
+// override via opts.glossaryUrl. Matches the PR #74 v6 hyperlink
+// pattern on `darkHorseFoh.js` so macro + DH speak the same surface
+// dialect.
+const NOTION_GLOSSARY_URL = 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
+function termLink(label, opts) {
+  const url = (opts && typeof opts.glossaryUrl === 'string' && /^https?:\/\//.test(opts.glossaryUrl))
+    ? opts.glossaryUrl
+    : NOTION_GLOSSARY_URL;
+  return '[[' + String(label) + ']](' + url + ')';
+}
+
 // Operator-facing glossary surface. The previous full-block footer
 // claimed it was "collapsible" but Discord cannot collapse a message
 // section, so the wording was misleading. Default behaviour: emit a
@@ -48,4 +63,4 @@ function footer(tagsUsed) {
   ].join('\n');
 }
 
-module.exports = { TERMS, lookup, footer };
+module.exports = { TERMS, lookup, footer, termLink };

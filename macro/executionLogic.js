@@ -4,6 +4,8 @@
 // lived in TRIGGER MAP (now deleted as a standalone section).
 // Operator-facing wording — no AUTHORISED / TRIGGER / BLOCKED.
 
+const { termLink } = require('./glossary');
+
 function build(input) {
   const { structure, calendar, ctx, tagsUsed, symbol } = input;
   if (tagsUsed) tagsUsed.push('confirmation', 'stop_loss', 'BOS', 'CHoCH');
@@ -48,7 +50,7 @@ function build(input) {
   if (structure?.stopLoss != null) {
     lines.push(`| IF price closes through ${structure.stopLoss} on the primary timeframe | THEN exit at market — the read is invalidated |`);
   } else {
-    lines.push(`| IF stop loss is not yet defined | THEN entry is not yet supported — the operational risk standard requires a defined stop-loss before risk can be priced. |`);
+    lines.push(`| IF ${termLink('Stop Loss')} is not yet defined | THEN entry is not yet supported — the operational risk standard requires a defined ${termLink('Stop Loss')} before risk can be priced. |`);
   }
 
   // Targets row
