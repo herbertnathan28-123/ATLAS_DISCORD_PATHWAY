@@ -10,8 +10,8 @@
 // `confirmation` instead.
 
 const TERMS = {
-  BOS: 'Break of Structure — price closes beyond a prior swing high/low, marking a structural shift.',
-  CHoCH: 'Change of Character — first counter-trend break that signals momentum has flipped.',
+  BOS: '[Structure Break] — price closes beyond a prior swing high/low, marking a structural shift.',
+  CHoCH: '[Initial-direction reversal] — first counter-trend break that signals momentum has flipped.',
   liquidity_sweep: 'Liquidity Sweep — wick takes out a known cluster of stops then immediately reverses.',
   imbalance: 'Imbalance / FVG — a candle range with no overlap from neighbours; price often returns to fill it.',
   supply: 'Supply — origin candle of a strong down move; sellers expected on retest.',
