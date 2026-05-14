@@ -744,7 +744,9 @@ function _marketMoodBlock(volatility, urlMap) {
 // ── Banner content (M1 — first message) ─────────────────────
 function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
   const nowMs = (opts && Number.isFinite(opts.now)) ? opts.now : Date.now();
-  const universeSize = (ranking && Number.isFinite(ranking.allCount))
+  const universeSize = (opts && Number.isFinite(opts.universeSize))
+    ? opts.universeSize
+    : (ranking && Number.isFinite(ranking.allCount))
     ? ranking.allCount
     : ((ranking && ranking.top10 && ranking.top10.length) || 0);
   const promoted = ctx.promotedCount;
