@@ -78,7 +78,17 @@ const UNIVERSAL_BAN = [
   /\bstructure engine'?s?\s+packet\b/gi,
   /\bmacro engine\b/gi,
   /\bstructure engine\b/gi,
-  /\bhistorical engine\b/gi
+  /\bhistorical engine\b/gi,
+  // Doctrine: keep BOS / CHoCH internal-only. Surface emits must read
+  // `[Structure Break]` and `[Initial-direction reversal]`. PRs #76,
+  // #77, #78, #79, #80, #82 translated every macro-side user-facing
+  // emit; this regression-guard ban catches any future leak through
+  // macro/index.js::buildMacroV3's strict scrub path. Note: `index.js`
+  // does NOT call macro/language.scrub, so the buildForwardBlock
+  // fallback at index.js:1648 (covered by separate PR #81) is not
+  // affected by this ban — it lives outside the macro v3 scrub path.
+  /\bBOS\b/,
+  /\bCHoCH\b/
 ];
 
 // Patterns banned only for non-FX asset classes. The FX path is permitted to
