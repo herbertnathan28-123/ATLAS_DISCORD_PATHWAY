@@ -186,18 +186,27 @@ function buildPriceZoneBlock(record) {
 }
 
 // F. How-a-trader-acts block — translates the price-zone map
-//    into four behavioural responses so the operator surface is
-//    self-contained.
+//    into behavioural responses anchored to literal reference
+//    area and invalidation prices when available. v2.0 sharpens
+//    this with explicit price anchors so no actionable phrase
+//    is left unexplained.
 function buildHowTraderActsBlock(record) {
   const dir = String((record && record.direction) || '').toLowerCase();
   const ph  = String((record && record.movePhase) || '').toLowerCase();
+  const ev  = (record && record.evidenceAnchors) || null;
+  const refLevel = ev ? (dir === 'bearish' ? ev.recentLow : ev.recentHigh) : null;
+  const refPrice = (refLevel && refLevel.priceText) || 'the reference area (pending wiring)';
+  const inv = ev && ev.invalidation;
+  const invPrice = (inv && inv.priceText) || 'the invalidation level (pending wiring)';
   const sideWord = dir === 'bullish' ? 'with buyers' : dir === 'bearish' ? 'with sellers' : 'with whichever side leads';
   const stretched = ph === 'late' || ph === 'exhaustion';
   const tail = stretched
-    ? ' *(Phase is already ' + ph + ' — reaction risk is elevated; smaller hands and tighter rules win here.)*'
+    ? ' *(Phase is already ' + ph + ' — late-stage reversal risk is elevated; smaller hands and tighter rules win here.)*'
     : '';
   return [
     '🎯 **HOW A TRADER ACTS ON THIS** *(advisory only)*',
+    '• **Reference area** → ' + refPrice + '. This is the level the read pivots on; ATLAS treats it as the structural anchor.',
+    '• **Invalidation** → ' + invPrice + '. A full 1D close through this level means the read is no longer valid; the path resets.',
     '• **If price holds the healthy zone** → keep monitoring ' + sideWord + '; do not add risk into already-stretched bars.',
     '• **If price drifts into the caution band** → step back and wait for the next clean acceptance instead of chasing.',
     '• **If price slides into the danger zone** → the read has changed; standing aside costs nothing here.',
@@ -228,6 +237,233 @@ function buildPanelFramer(title, lines) {
   return [SUB + ' ' + title + ' ' + SUB, '', lines.join('\n')].join('\n');
 }
 
+// ============================================================
+// V2.0 — OPERATOR PSYCHOLOGY + VISUAL HIERARCHY (additive)
+//
+// All v2.0 helpers are presentation-only and read engine state
+// through fields the translator already produces (direction,
+// movePhase, score, evidenceAnchors.{recentHigh,recentLow,
+// invalidation}.priceText, sectionLabel). No new engine fields
+// invented; no translator/ranking edits required.
+// ============================================================
+
+// ── Lifecycle profile (central lookup) ────────────────────────
+// Maps the engine's r.movePhase into the v2.0 four-stage
+// taxonomy that drives wording, warning glyphs, and execution
+// posture across the whole card.
+function _lifecycleProfile(movePhase) {
+  switch (String(movePhase || '').toLowerCase()) {
+    case 'early':
+      return {
+        stage: 1, label: 'FRESH EXPANSION', tone: 'EXPANDABLE',
+        warning: '🟢', glyph: '🌱',
+        cue: 'fresh expansion — room to develop, no need to chase',
+        executionPosture: 'Stage 1 = fresh expansion; monitor for the first clean acceptance, do not force entry.',
+      };
+    case 'mid':
+      return {
+        stage: 2, label: 'DEVELOPING CONTINUATION', tone: 'CONTROLLED',
+        warning: '🟡', glyph: '🌿',
+        cue: 'developing continuation — structure intact, controlled rhythm',
+        executionPosture: 'Stage 2 = developing; normal monitoring posture, no need to chase late entries.',
+      };
+    case 'late':
+      return {
+        stage: 3, label: 'EXTENDED WATCH', tone: 'CAUTION',
+        warning: '🟠', glyph: '🍂',
+        cue: 'extended watch — late-entry quality reduced, reaction risk rising',
+        executionPosture: 'Stage 3 = late; entry quality reduced, smaller size / stricter rules / no chasing.',
+      };
+    case 'exhaustion':
+      return {
+        stage: 4, label: 'EXHAUSTION RISK', tone: 'DANGER',
+        warning: '🔴', glyph: '💀',
+        cue: 'exhaustion risk — reversal-prone, promotion withheld',
+        executionPosture: 'Stage 4 = exhaustion; reversal-prone, standing aside costs nothing here.',
+      };
+    default:
+      return {
+        stage: 0, label: 'UNCLASSIFIED', tone: 'UNDETERMINED',
+        warning: '⚪', glyph: '⚪',
+        cue: 'phase reading still developing',
+        executionPosture: 'Stage unclassified; informational only.',
+      };
+  }
+}
+
+// ── Mood profile (central lookup) ─────────────────────────────
+// Maps ctx.volatility.level into a single tonal profile so the
+// scan-board header and the action-state line stay aligned.
+function _moodProfile(volatility) {
+  switch (String((volatility && volatility.level) || 'pending').toLowerCase()) {
+    case 'quiet':
+      return { glyph: '🔵', label: 'CALM',     toneCue: 'restrained — thinner liquidity, conviction low, fewer warnings' };
+    case 'elevated':
+      return { glyph: '🟡', label: 'ACTIVE',   toneCue: 'caution-elevated — structure unsettled, ranges expanding' };
+    case 'extreme':
+      return { glyph: '🔴', label: 'STORM',    toneCue: 'danger-dominant — late-entry warnings prominent, smaller hands win' };
+    default:
+      return { glyph: '⚪', label: 'READING PENDING', toneCue: 'undetermined — regime unclassified this cycle' };
+  }
+}
+
+// ── 1. Tactical scan separator (cinematic card divider) ──────
+// Replaces the previous flat card banner. Carries scan position,
+// lifecycle tone, and the standout marker so the eye can rank
+// cards before any narration is read.
+function buildTacticalSeparator(idx, total, record, isStandout) {
+  const num  = String(((idx | 0) + 1)).padStart(2, '0');
+  const tot  = String(((total | 0) || ((idx | 0) + 1))).padStart(2, '0');
+  const life = _lifecycleProfile(record && record.movePhase);
+  const standoutTag = isStandout ? ' · ⭐ STANDOUT' : '';
+  return '━━━━━━━━ ' + life.warning + ' SCAN ' + num + ' / ' + tot
+    + ' · ' + life.label + ' · ' + life.tone + standoutTag + ' ━━━━━━━━';
+}
+
+// ── 2. Card identity header (symbol + direction + lifecycle) ─
+function buildCardIdentityHeader(record, isStandout) {
+  const foh = _foh();
+  const arrow = foh.arrowFor(record && record.direction);
+  const score = Number.isFinite(record && record.score) ? record.score.toFixed(1) : '?';
+  const sym   = (record && record.symbol) || '???';
+  const star  = isStandout ? '⭐ ' : '';
+  const life  = _lifecycleProfile(record && record.movePhase);
+  return '## ' + star + sym + ' ' + arrow + ' · ' + life.glyph + ' Stage ' + life.stage + ' · ' + life.label + ' · ' + score + '/10';
+}
+
+// ── 3. One-line immediate read ───────────────────────────────
+function buildImmediateRead(record) {
+  const dir = String((record && record.direction) || '').toLowerCase();
+  const sec = (record && record.sectionLabel) || 'this section';
+  const sym = (record && record.symbol) || 'the candidate';
+  const life = _lifecycleProfile(record && record.movePhase);
+  const lead = dir === 'bullish'
+    ? 'buyers still controlling'
+    : dir === 'bearish'
+      ? 'sellers still controlling'
+      : 'no committed leadership';
+  return '> _Immediate read:_ **' + sym + '** — ' + lead + ' in ' + sec + '; ' + life.cue + '.';
+}
+
+// ── 6. Authoritative conviction tag ──────────────────────────
+// Label + score + traffic light + plain-English consequence.
+// Drives the operator's sense of weight before they read detail.
+function buildConvictionTag(score) {
+  const s = Number.isFinite(score) ? score : 0;
+  if (s >= 8.5) return '🟢 **Conviction:** ' + s.toFixed(1) + '/10 · High — publication-grade, monitor closely.';
+  if (s >= 7)   return '🟡 **Conviction:** ' + s.toFixed(1) + '/10 · Medium-high — pressure visible, not yet confirmed.';
+  if (s >= 5)   return '🟡 **Conviction:** ' + s.toFixed(1) + '/10 · Medium — enough to monitor, not enough to chase.';
+  if (s >= 3)   return '🔵 **Conviction:** ' + s.toFixed(1) + '/10 · Low — context only.';
+  return        '⚪ **Conviction:** ' + s.toFixed(1) + '/10 · Quiet — informational.';
+}
+
+// ── 4. Lifecycle / Conviction / Risk / Mood strip ────────────
+// Single dominant strip that answers, in four lines:
+//   - where in the lifecycle is the move?
+//   - how much conviction does ATLAS carry?
+//   - what is the operator-facing risk cue?
+//   - what is the market mood doing to the read?
+function buildLifecycleConvictionStrip(record, ctx) {
+  const life = _lifecycleProfile(record && record.movePhase);
+  const conviction = buildConvictionTag(record && record.score);
+  const mood = _moodProfile(ctx && ctx.volatility);
+  const riskCue = life.stage >= 4
+    ? '🔴 **Risk cue:** late-stage reversal risk dominant — promotion withheld'
+    : life.stage === 3
+      ? '🟠 **Risk cue:** late-entry quality reduced — smaller size, stricter rules'
+      : life.stage === 2
+        ? '🟡 **Risk cue:** monitor for the next clean acceptance candle'
+        : life.stage === 1
+          ? '🟢 **Risk cue:** room to develop, no need to chase'
+          : '⚪ **Risk cue:** reading still forming';
+  return [
+    life.warning + ' **Lifecycle:** Stage ' + life.stage + ' · ' + life.label,
+    conviction,
+    riskCue,
+    mood.glyph + ' **Mood overlay:** ' + mood.label + ' — ' + mood.toneCue,
+  ].join('\n');
+}
+
+// ── 5. Operator Action Map (centre of gravity of the card) ───
+// Bias / Reference / Continuation / Failure / Risk / Monitor.
+// Pulls reference-area and invalidation prices straight from
+// r.evidenceAnchors when available; otherwise prints honest
+// "pending wiring" fallback text — never blanks.
+function buildOperatorActionMap(record) {
+  const dir = String((record && record.direction) || '').toLowerCase();
+  const ev  = (record && record.evidenceAnchors) || null;
+  const refLevel = ev ? (dir === 'bearish' ? ev.recentLow : ev.recentHigh) : null;
+  const refPrice = (refLevel && refLevel.priceText) || 'pending wiring';
+  const inv = ev && ev.invalidation;
+  const invPrice = (inv && inv.priceText) || 'pending wiring';
+  const life = _lifecycleProfile(record && record.movePhase);
+
+  let biasState;
+  let continuation;
+  let failure;
+  if (dir === 'bullish') {
+    biasState    = 'Long bias only while price holds above ' + refPrice + '.';
+    continuation = 'Continuation improves only if price returns to ' + refPrice + ' and buyers prevent a deeper rejection.';
+    failure      = 'A full 1D close back below ' + invPrice + ' cancels the long idea — price would have accepted under the prior reference area.';
+  } else if (dir === 'bearish') {
+    biasState    = 'Short bias only while price holds below ' + refPrice + '.';
+    continuation = 'Continuation improves only if price revisits ' + refPrice + ' and sellers prevent a deeper reclaim.';
+    failure      = 'A full 1D close back above ' + invPrice + ' cancels the short idea — price would have accepted over the prior reference area.';
+  } else {
+    biasState    = 'No directional bias — neither buyers nor sellers have accepted control.';
+    continuation = 'A clean acceptance outside the current range, in either direction, would change the read.';
+    failure      = 'A reversal back through ' + invPrice + ' resets the range read to neutral.';
+  }
+
+  const monitor = life.stage >= 3
+    ? 'Watch for a clean rejection at the next reference area, or a reclaim back through the structural midpoint that would force a downgrade.'
+    : 'Watch for the next acceptance candle and whether ' + (dir === 'bullish' ? 'buyers' : dir === 'bearish' ? 'sellers' : 'either side') + ' holds the reference area on its first revisit.';
+
+  return [
+    '🎯 **OPERATOR ACTION MAP**',
+    '├─ **Bias state**             · ' + biasState,
+    '├─ **Reference area**         · ' + refPrice,
+    '├─ **Continuation condition** · ' + continuation,
+    '├─ **Failure condition**      · ' + failure,
+    '├─ **Risk posture**           · ' + life.executionPosture,
+    '└─ **What to monitor next**   · ' + monitor,
+  ].join('\n');
+}
+
+// ── 9. Compressed metadata footer ────────────────────────────
+// Pushes rank, horizon, section label, score, phase, and scan
+// time into a single de-emphasized line so they no longer
+// compete with the operator-action surface for attention.
+function buildCompactMetadataFooter(record, idx, total, ctx) {
+  const sec   = (record && record.sectionLabel) || '—';
+  const rank  = ((idx | 0) + 1);
+  const tot   = ((total | 0) || rank);
+  const score = Number.isFinite(record && record.score) ? record.score.toFixed(1) : '?';
+  const ph    = String((record && record.movePhase) || '').toLowerCase() || 'unclassified';
+  const stamp = fmtUtcStamp((ctx && ctx.nowMs) || Date.now());
+  return '_·_ rank ' + rank + '/' + tot + ' _·_ ' + sec + ' _·_ ' + score + '/10 _·_ phase: ' + ph + ' _·_ scan ' + stamp;
+}
+
+// ── Scan-board header line — operator action state ───────────
+// Surfaces the single most important question on the digest:
+// should the operator act, watch, or stand back?
+function buildOperatorActionState(ctx) {
+  const top  = (ctx && ctx.top10Count) | 0;
+  const atTh = (ctx && ctx.atThresholdCount) | 0;
+  const mood = _moodProfile(ctx && ctx.volatility);
+  if (atTh > 0) {
+    return '🟢 **Operator action state:** ACT — ' + atTh + ' publication-grade candidate'
+      + (atTh === 1 ? '' : 's') + ' present; monitor closely, no chasing into stretched bars.';
+  }
+  if (top > 0) {
+    return '🟡 **Operator action state:** WATCH — developing standouts surfaced but not confirmed; wait for the next clean acceptance.';
+  }
+  if (mood.label === 'STORM') {
+    return '🔴 **Operator action state:** STAND BACK — storm mood with no publication-grade setup; smaller hands and tighter rules win.';
+  }
+  return '⚪ **Operator action state:** MONITOR ONLY — no actionable setup this cycle, scan continues.';
+}
+
 // ── Premium banner + headline read ───────────────────────────
 function buildAtmosphereBanner(ctx) {
   const foh = _foh();
@@ -253,6 +489,8 @@ function buildAtmosphereBanner(ctx) {
     '🔭 **Publication condition:** ' + pubCondition,
     '⭐ **Strongest live area:** ' + bestArea.text,
     '🛰️ **Near-threshold count:** ' + internalCount + ' of ' + universeSize + ' scanned',
+    '',
+    buildOperatorActionState(ctx),
     '',
     '> _Immediate read:_ ' + foh.narrateImmediateRead(ctx),
   ].join('\n');
@@ -332,26 +570,59 @@ function buildSectionRadar(sectionKey, rows, sectionAvg) {
   return lines.join('\n');
 }
 
-// ── Candidate card (premium visual hierarchy) ────────────────
+// ── Candidate card (v2.0 operator-psychology hierarchy) ──────
+// 9-section order per the v2.0 brief:
+//   1. Tactical separator
+//   2. Symbol + direction + lifecycle identity
+//   3. One-line immediate read
+//   4. Lifecycle / Conviction / Risk / Mood strip
+//   5. Operator Action Map (centre of gravity)
+//   6. "What this means" — narration body
+//   7. Danger / Invalidation block
+//   8. What to monitor next
+//   9. Compressed metadata footer
+//
+// QA-pinned v1.3 / v1.4 surface strings (STATUS row, Phase row,
+// Movement quality row, PATH conditions, REPLAY REFERENCE, etc.)
+// are preserved inside the relevant v2.0 sections rather than
+// removed, so the deeper read stays available beneath the
+// dominant operator surface.
 function buildCandidateCard(r, idx, isStandout, ctx) {
   const foh = _foh();
+  const total = (ctx && ctx.totalCards) | 0;
   const arrow = foh.arrowFor(r.direction);
   const score = Number.isFinite(r.score) ? r.score : '?';
   const narration = foh.translateCandidate(r, ctx);
   const status = cardStatusTag(r);
 
-  const banner = buildCardBanner(r.symbol, arrow, score, r.sectionLabel, isStandout);
+  // The legacy v1.3 banner stays as the symbol identity line.
+  // It is QA-pinned and serves the operator just as well as a
+  // standalone identity header would — the v2.0 surface adds a
+  // tactical scan separator above it for cinematic weight,
+  // plus a lifecycle/score sub-line below.
+  const identityBanner = buildCardBanner(r.symbol, arrow, score, r.sectionLabel, isStandout);
 
   const lines = [
-    banner,
+    // [1] Tactical scan separator (v2.0)
+    buildTacticalSeparator(idx, total, r, isStandout),
+    // [2] Symbol + direction identity (legacy-compatible banner)
+    identityBanner,
+    // [2b] Lifecycle / stage sub-line (v2.0)
+    buildCardIdentityHeader(r, isStandout),
     '',
-    status.glyph + ' **STATUS** · ' + status.tag,
-    buildLifecycleBadge(r.movePhase),
+    // [3] One-line immediate read
+    buildImmediateRead(r),
+    '',
+    // [4] Lifecycle / Conviction / Risk / Mood strip
+    buildLifecycleConvictionStrip(r, ctx),
+    '',
+    // [5] Operator Action Map — centre of gravity
+    buildOperatorActionMap(r),
+    '',
+    // [6] What this means — narration body
+    SUB + ' 📖 What this means ' + SUB,
     '',
     buildLongShortExplanation(r.direction),
-    '',
-    '🧬 **Phase** · ' + narration.phase.plain,
-    '⚡ **Movement quality** · ' + narration.speed + '; ' + narration.relativeStrength + '.',
     '',
     '📍 **WHAT HAPPENED**',
     narration.whatHappened,
@@ -364,7 +635,13 @@ function buildCandidateCard(r, idx, isStandout, ctx) {
     '',
     buildPanelFramer('Price zones', [buildPriceZoneBlock(r)]),
     '',
-    SUB + ' Path conditions ' + SUB,
+    // [7] Danger / Invalidation block
+    SUB + ' ❌ Danger / Invalidation ' + SUB,
+    '',
+    '❌ **INVALIDATION**',
+    narration.invalidation,
+    '',
+    buildInvalidationExplanation(r),
     '',
     '🟢 **HEALTHY PATH**',
     narration.healthyZone,
@@ -375,14 +652,10 @@ function buildCandidateCard(r, idx, isStandout, ctx) {
     '🟠 **DANGER PATH**',
     narration.dangerZone,
     '',
-    '❌ **INVALIDATION**',
-    narration.invalidation,
-    '',
-    buildInvalidationExplanation(r),
-    '',
     buildHowTraderActsBlock(r),
     '',
-    SUB + ' Forward read ' + SUB,
+    // [8] What to monitor next
+    SUB + ' 📡 What to monitor next ' + SUB,
     '',
     '📡 **WHAT ATLAS NEEDS NEXT**',
     narration.whatNext,
@@ -395,8 +668,20 @@ function buildCandidateCard(r, idx, isStandout, ctx) {
     '',
     narration.consequenceTrail,
     '',
+    // Supporting detail — QA-pinned metrics + replay reference,
+    // intentionally placed after the dominant operator surface.
+    SUB + ' 📚 Supporting detail ' + SUB,
+    '',
+    status.glyph + ' **STATUS** · ' + status.tag,
+    buildLifecycleBadge(r.movePhase),
+    '🧬 **Phase** · ' + narration.phase.plain,
+    '⚡ **Movement quality** · ' + narration.speed + '; ' + narration.relativeStrength + '.',
+    '',
     '🗂️ **REPLAY REFERENCE**',
-    narration.replayReference.slice(1).join('\n'), // drop the heading line — banner already labels it
+    narration.replayReference.slice(1).join('\n'),
+    '',
+    // [9] Compressed metadata footer
+    buildCompactMetadataFooter(r, idx, total, ctx),
   ];
   return lines.join('\n');
 }
@@ -510,6 +795,15 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
   const sectionLabels = {};
   for (const sec of Object.keys(sectionAvgs)) sectionLabels[sec] = rank.SECTION_LABEL[sec] || sec;
 
+  // totalCards is derived after the bySection walk below so the
+  // v2.0 tactical separator can carry an honest "SCAN N / TOTAL"
+  // label without invoking the legacy "top.length" assumption.
+  let totalCards = 0;
+  for (const sec of rank.SECTION_DISPLAY_ORDER) {
+    const rows = bySection[sec] || [];
+    totalCards += rows.length;
+  }
+
   const ctx = {
     nowMs,
     volatility,
@@ -523,6 +817,7 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
     sectionLabels,
     watchThreshold: 8,
     nextReview: rank.nextReviewLine(opts.now, opts.intervalMs),
+    totalCards,
   };
 
   const learningLinks = rank.buildLearningLinksBlock(opts.learningLinkUrls);
@@ -655,4 +950,13 @@ module.exports = {
   buildHowTraderActsBlock,
   buildInvalidationExplanation,
   buildPanelFramer,
+  // v2.0 operator-psychology primitives
+  buildTacticalSeparator,
+  buildCardIdentityHeader,
+  buildImmediateRead,
+  buildConvictionTag,
+  buildLifecycleConvictionStrip,
+  buildOperatorActionMap,
+  buildCompactMetadataFooter,
+  buildOperatorActionState,
 };
