@@ -55,9 +55,13 @@ function makeFakeResponse(status, body) {
 
 const httpsStub = {
   request: function (opts, cb) {
-    _recordedRequests.push({ hostname: opts.hostname, path: opts.path, method: opts.method });
+    const record = { hostname: opts.hostname, path: opts.path, method: opts.method, headers: opts.headers, body: Buffer.alloc(0) };
+    _recordedRequests.push(record);
     const req = new EventEmitter();
-    req.write = function () {};
+    req.write = function (chunk) {
+      const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8');
+      record.body = Buffer.concat([record.body, b]);
+    };
     req.end   = function () {
       const r = _stubResponse || { status: 200, body: '{"id":"123"}' };
       cb(makeFakeResponse(r.status, r.body));
@@ -201,6 +205,28 @@ async function runT7() {
   console.log('\n[T7] null webhook URL — resolves to null');
   const r = await dh.dhSendWebhook(null, { content: 'hi' });
   ok('null webhook resolves null', r === null);
+  return runT8();
+}
+
+async function runT8() {
+  // ============================================================
+  // T8: payload files switch webhook POST to multipart/form-data
+  // ============================================================
+  console.log('\n[T8] file attachment payload — multipart/form-data with payload_json');
+  _recordedRequests = [];
+  _stubResponse = { status: 200, body: '{"id":"42"}' };
+  const r = await dh.dhSendWebhook(FAKE_URL, {
+    content: 'chart',
+    embeds: [{ image: { url: 'attachment://dh-foh-test.png' } }],
+    files: [{ name: 'dh-foh-test.png', contentType: 'image/png', data: Buffer.from('png-bytes') }],
+  }, { wait: true });
+  const rec = _recordedRequests[0] || {};
+  const bodyText = rec.body ? rec.body.toString('utf8') : '';
+  ok('ok=true on multipart 200', r && r.ok === true);
+  ok('Content-Type is multipart/form-data', /multipart\/form-data; boundary=/.test((rec.headers && rec.headers['Content-Type']) || ''), rec.headers);
+  ok('multipart body includes payload_json part', /name="payload_json"/.test(bodyText), bodyText.slice(0, 200));
+  ok('multipart body includes files[0] filename', /name="files\[0\]"; filename="dh-foh-test.png"/.test(bodyText), bodyText.slice(0, 400));
+  ok('multipart body preserves attachment image URL in payload_json', /attachment:\/\/dh-foh-test\.png/.test(bodyText), bodyText.slice(0, 400));
   return summary();
 }
 

@@ -1,0 +1,335 @@
+=== STAGING HARNESS — DARK HORSE FOH v6 ===
+mode:            DRY-RUN (no network)
+staging urlHash: (none)
+messages built:  6
+candidateCount:  3
+chart PNG files: 4
+payload.kind:    movement_digest_foh_v1_0
+
+size report:
+  M1:  content=1916 / 2000   embeds=(none) (≤ 6000 each)
+  M2:  content=268 / 2000   embeds=3789 (≤ 6000 each)
+  M3:  content=319 / 2000   embeds=3845 (≤ 6000 each)
+  M4:  content=300 / 2000   embeds=4048 (≤ 6000 each)
+  M5:  content=880 / 2000   embeds=1093 (≤ 6000 each)
+  M6:  content=691 / 2000   embeds=(none) (≤ 6000 each)
+
+=== WEBHOOK BODY 1 / 6 ===
+{
+  "content": "```diff\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n- ▼ ▼ ▼   N E W   D A R K   H O R S E   S C A N   ▼ ▼ ▼\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n-   🆕   2026-05-13 12:00 UTC   ·   20:00 AWST   ·   33 markets scanned   🆕\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n```\n\n```ansi\n\u001b[33;1m╔════════════════════════════════════════════════════╗\u001b[0m\n\u001b[33;1m║ 🐎  DARK HORSE — GLOBAL MOVER RADAR                ║\u001b[0m\n\u001b[33;1m╚════════════════════════════════════════════════════╝\u001b[0m\n```\n\n_3 standouts found this cycle._\n_1 fresh (new this scan)  ·  1 still active (1+ day)  ·  1 fading._\n\n📘 **EXPANDED TERMINOLOGY HYPERLINKS**\n[[Breakout]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Pullback]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)\n\n```ansi\n\u001b[33;1m▸  Market Mood  ·  🟠🟠🟠🟠⚫ 4/5 — Elevated\u001b[0m\n```\n\n_What [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) means right now:_\n   broad market moving fast — bigger swings either side.\n\n_Dollars-first guidance for today:_\n   🟢 Position size — if your normal risk is $500 on a $10k account,\n       reduce to ~$300 (60%) for the next 6 hours.\n   🟡 Exit-points — give the trade more room. Tight exits get hit\n       before direction confirms.\n   🟠 Marginal setups — skip them. Only act when the trigger breaks\n       AND the next candle closes beyond it (the confirmed\n       directional structure test).\n   🛑 Do NOT chase already-extended moves. Wait for the structural\n       test — the floor that was the ceiling.\n\n```ansi\n\u001b[33;1m╔════════════════════════════════════════════════════╗\u001b[0m\n\u001b[33;1m║ ⭐  STANDOUTS — TODAY'S STRONGEST MOVERS            ║\u001b[0m\n\u001b[33;1m╚════════════════════════════════════════════════════╝\u001b[0m\n```"
+}
+
+=== WEBHOOK BODY 2 / 6 ===
+{
+  "content": "```diff\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n-   🆕   FRESH   ·   STANDOUT #1 of 3   ·   EURUSD — just appeared on this scan\n- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n```\n**FRESH**  ·  STANDOUT #1 of 3  ·  EURUSD — just appeared on this scan",
+  "embeds": [
+    {
+      "color": 3066993,
+      "title": "🐎  EURUSD  ·  STRONG BULLISH",
+      "description": "EURUSD pushed above 1.1064 — a level that had capped price for the prior multi-session window — and held the level cleanly on the close. The move is new this scan.",
+      "fields": [
+        {
+          "name": "Move Type",
+          "value": "Breakout · early stage",
+          "inline": true
+        },
+        {
+          "name": "Direction",
+          "value": "[[Long ▲]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) — expecting price to keep moving up",
+          "inline": true
+        },
+        {
+          "name": "Conviction",
+          "value": "🟢🟢🟢🟢🟢 5/5 — Very High\n_Why Very High: trigger level broke + momentum increased + retest held + the broken level is now defended by buyers (all 4 criteria met)._",
+          "inline": false
+        },
+        {
+          "name": "Trigger Level",
+          "value": "[[Trigger Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **1.1064**\n_Why it matters: 1.1064 capped every push for multiple sessions._\n_It is now the ceiling that flipped into a floor — buyers/sellers treat it as Support._",
+          "inline": true
+        },
+        {
+          "name": "Expected Duration",
+          "value": "[[Expected Duration]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): Swing — days, not minutes",
+          "inline": true
+        },
+        {
+          "name": "Today's Rank",
+          "value": "[[Cycle Rank]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): 1st of today's 3 standouts",
+          "inline": true
+        },
+        {
+          "name": "Where to Act",
+          "value": "🟢 ENTRY zone  **1.1064 – 1.1065**\n   What this means: price has pulled back into the tight band where\n   buyers stepped in the last time the level was tested.\n   Required price behaviour: a 5-minute candle that opens inside the\n   band AND closes above the band low (this is the\n   confirmed directional structure test).\n   Action: BUY on that candle close — start with the position\n   rule below (**~$150** planned risk).\n\n🟡 WATCH level  **1.1063**\n   What this means: buyers are losing initial control. The\n   first warning sign that the move is weakening.\n   💲 If price closes below **1.1063** on the 1H,\n   the position is typically down 30–50% of planned risk\n   (**~$60** of the **~$150** at risk).\n   Action: hold what you have, do NOT add more.\n\n🟠 CAUTION zone  1.1063 – 1.1060\n   What this means: the other side is in control inside this band.\n   Holding from here means fighting the structure — exit risk\n   is now real, not theoretical.\n   💲 Position drawdown 50–80% of planned risk\n   (**~$98** of the **~$150**).\n   Action: scratch the trade for a small loss now. Re-read at next scan.\n\n🔴 [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  **1.1059**\n   What this means: the bullish idea is OFF entirely.\n   💲 Full planned risk taken: **$150** on the recommended size.\n   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for\n   a fresh structure on a later scan.\n\n🔵 Next review  2026-05-13 12:15 UTC\n   ATLAS re-reads every zone at the next scan.",
+          "inline": false
+        },
+        {
+          "name": "💲 Dollar risk this trade — half size for FRESH",
+          "value": "💲 Standard plan: **$300 risk on 1 lot EURUSD** (30-point exit on a 0.0030 move).\n💲 Recommended for this card (FRESH · half size for FRESH): **~$150**.\n💲 If Market Mood drops to Quiet (1/5) you can scale up to full size after a clean re-read.\n💲 Reward target on a clean follow-through: **~$855** on the recommended size · **5.7R**.",
+          "inline": false
+        },
+        {
+          "name": "What this means",
+          "value": "The path of least resistance is up while **1.1059** holds. Buying the dip into the tight green entry band is the trade ATLAS would take.",
+          "inline": false
+        },
+        {
+          "name": "WHAT TO DO NOW",
+          "value": "① Wait for a 5-min candle to open inside **1.1064 – 1.1065**.\n② BUY that candle's close — **$150 on the recommended size**.\n③ Place the exit-point at **1.1059** (**$150 risk**).\n④ If **1.1063** closes below on 1H, exit half (freeing **~$75**) and hold the rest with the exit-point unchanged.\n⑤ Full exit at **1.1059** if reached — the bullish idea is OFF.",
+          "inline": false
+        },
+        {
+          "name": "What confirms the idea",
+          "value": "A 5m close above **1.1065** after pulling back into the entry band — the confirmed directional structure test (price closes past the trigger AND the next candle holds beyond it).",
+          "inline": false
+        },
+        {
+          "name": "What cancels the idea",
+          "value": "A 1H close below **1.1059**. At that point the ceiling-to-floor flip has failed and the move is rolled over.",
+          "inline": false
+        }
+      ],
+      "footer": {
+        "text": "ATLAS · Dark Horse · standout 1 of 3 · fresh lifecycle"
+      },
+      "image": {
+        "url": "attachment://dh-foh-01-eurusd-1h.png"
+      }
+    }
+  ],
+  "files": [
+    {
+      "name": "dh-foh-01-eurusd-1h.png",
+      "contentType": "image/png",
+      "bytes": 20665
+    }
+  ]
+}
+
+=== WEBHOOK BODY 3 / 6 ===
+{
+  "content": "```ansi\n\u001b[31;1m──────────────────────────────────────────────────\u001b[0m\n\u001b[31;1m  🟧   STILL ACTIVE   ·   STANDOUT #2 of 3   ·   XAUUSD — trending across multiple cycles\u001b[0m\n\u001b[31;1m──────────────────────────────────────────────────\u001b[0m\n```\n**STILL ACTIVE**  ·  STANDOUT #2 of 3  ·  XAUUSD — trending across multiple cycles",
+  "embeds": [
+    {
+      "color": 12597547,
+      "title": "🐎  XAUUSD  ·  BEARISH PRESSURE",
+      "description": "XAUUSD broke below 2414.10 on the close. Sellers are still in control and the broken level has held as a ceiling on every bounce since. The move is new this scan.",
+      "fields": [
+        {
+          "name": "Move Type",
+          "value": "Continuation · mid stage",
+          "inline": true
+        },
+        {
+          "name": "Direction",
+          "value": "[[Short ▼]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) — expecting price to keep moving down",
+          "inline": true
+        },
+        {
+          "name": "Conviction",
+          "value": "🔴🔴🔴🔴⚫ 4/5 — High\n_Why High: trigger level broke + sellers defended every retest across 2 cycles + momentum holding (3 of 4 criteria met)._",
+          "inline": false
+        },
+        {
+          "name": "Trigger Level",
+          "value": "[[Trigger Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **2414.10**\n_Why it matters: 2414.10 was the floor that held for the prior multi-session window._\n_It is now the floor that flipped into a ceiling — buyers/sellers defend every bounce._",
+          "inline": true
+        },
+        {
+          "name": "Expected Duration",
+          "value": "[[Expected Duration]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): Swing — days, not minutes",
+          "inline": true
+        },
+        {
+          "name": "Today's Rank",
+          "value": "[[Cycle Rank]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): 2nd of today's 3 standouts",
+          "inline": true
+        },
+        {
+          "name": "Where to Act",
+          "value": "🟢 ENTRY zone  **2414.00 – 2414.20**\n   What this means: price has pulled back into the tight band where\n   sellers stepped in the last time the level was tested.\n   Required price behaviour: a 5-minute candle that opens inside the\n   band AND closes below the band high (this is the\n   confirmed directional structure test).\n   Action: SELL on that candle close — start with the position\n   rule below (**~$945** planned risk).\n\n🟡 WATCH level  **2414.50**\n   What this means: sellers are losing initial control. The\n   first warning sign that the move is weakening.\n   💲 If price closes above **2414.50** on the 1H,\n   the position is typically down 30–50% of planned risk\n   (**~$378** of the **~$945** at risk).\n   Action: hold what you have, do NOT add more.\n\n🟠 CAUTION zone  2414.50 – 2415.22\n   What this means: the other side is in control inside this band.\n   Holding from here means fighting the structure — exit risk\n   is now real, not theoretical.\n   💲 Position drawdown 50–80% of planned risk\n   (**~$614** of the **~$945**).\n   Action: scratch the trade for a small loss now. Re-read at next scan.\n\n🔴 [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  **2415.42**\n   What this means: the bearish idea is OFF entirely.\n   💲 Full planned risk taken: **$945** on the recommended size.\n   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for\n   a fresh structure on a later scan.\n\n🔵 Next review  2026-05-13 12:15 UTC\n   ATLAS re-reads every zone at the next scan.",
+          "inline": false
+        },
+        {
+          "name": "💲 Dollar risk this trade — full size allowed (STILL ACTIVE)",
+          "value": "💲 Standard plan: **$1,350 risk on 1 lot XAUUSD (100 oz)** ($13.50/oz × 100 oz on a $13.50 move).\n💲 Recommended for this card (STILL ACTIVE · full size × Market Mood Elevated reduction): **~$945**.\n💲 If Market Mood drops back to Quiet, scale up to full size after a clean re-read.\n💲 Reward target on a clean follow-through: **~$2835** on the recommended size · **3.0R**.",
+          "inline": false
+        },
+        {
+          "name": "What this means",
+          "value": "The path of least resistance is down while **2415.42** holds. Selling rallies into the tight green entry band is the trade ATLAS would take.",
+          "inline": false
+        },
+        {
+          "name": "WHAT TO DO NOW",
+          "value": "① Wait for a 5-min candle to open inside **2414.00 – 2414.20**.\n② SELL that candle's close — **$945 on the recommended size**.\n③ Place the exit-point at **2415.42** (**$945 risk**).\n④ If **2414.50** closes above on 1H, exit half (freeing **~$473**) and hold the rest with the exit-point unchanged.\n⑤ Full exit at **2415.42** if reached — the bearish idea is OFF.",
+          "inline": false
+        },
+        {
+          "name": "What confirms the idea",
+          "value": "A 5m close below **2414.00** after rallying into the entry band — the confirmed directional structure test (price closes past the trigger AND the next candle holds beyond it).",
+          "inline": false
+        },
+        {
+          "name": "What cancels the idea",
+          "value": "A 1H close above **2415.42**. At that point the broken floor has been reclaimed.",
+          "inline": false
+        }
+      ],
+      "footer": {
+        "text": "ATLAS · Dark Horse · standout 2 of 3 · still active lifecycle"
+      },
+      "image": {
+        "url": "attachment://dh-foh-02-xauusd-1h.png"
+      }
+    }
+  ],
+  "files": [
+    {
+      "name": "dh-foh-02-xauusd-1h.png",
+      "contentType": "image/png",
+      "bytes": 21037
+    }
+  ]
+}
+
+=== WEBHOOK BODY 4 / 6 ===
+{
+  "content": "```ansi\n\u001b[33;1m· · · · · · · · · · · · · · · · · · · · · · · · ·\u001b[0m\n\u001b[33;1m  ⚪   FADING   ·   STANDOUT #3 of 3   ·   NVDA — older mover, late-stage caution\u001b[0m\n\u001b[33;1m· · · · · · · · · · · · · · · · · · · · · · · · ·\u001b[0m\n```\n**FADING**  ·  STANDOUT #3 of 3  ·  NVDA — older mover, late-stage caution",
+  "embeds": [
+    {
+      "color": 15105570,
+      "title": "🐎  NVDA  ·  DEVELOPING WATCH",
+      "description": "NVDA pushed above 920.56 — a level that had capped price for the prior multi-session window — and held the level cleanly on the close. The move is new this scan.",
+      "fields": [
+        {
+          "name": "Move Type",
+          "value": "Continuation · late stage",
+          "inline": true
+        },
+        {
+          "name": "Direction",
+          "value": "[[Long ▲]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) — expecting price to keep moving up",
+          "inline": true
+        },
+        {
+          "name": "Conviction",
+          "value": "🟠🟠🟠🟠⚫ 4/5 — High\n_Why High: trigger level still valid + buyers still defending — BUT each new high is smaller than the last, and the move is 25 cycles old (2 of 4 criteria met, 2 weakening)._",
+          "inline": false
+        },
+        {
+          "name": "Trigger Level",
+          "value": "[[Trigger Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **920.56**\n_Why it matters: 920.56 is the structural level the move rotates around._\n_It is now the ceiling that flipped into a floor — buyers/sellers treat it as Support._",
+          "inline": true
+        },
+        {
+          "name": "Expected Duration",
+          "value": "[[Expected Duration]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): Intraday — hours, not days",
+          "inline": true
+        },
+        {
+          "name": "Today's Rank",
+          "value": "[[Cycle Rank]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): 3rd of today's 3 standouts",
+          "inline": true
+        },
+        {
+          "name": "Where to Act",
+          "value": "🟢 ENTRY zone  **920.43 – 920.69**\n   What this means: price has pulled back into the tight band where\n   buyers stepped in the last time the level was tested.\n   Required price behaviour: a 5-minute candle that opens inside the\n   band AND closes above the band low (this is the\n   confirmed directional structure test).\n   Action: BUY on that candle close — start with the position\n   rule below (**~$465** planned risk).\n\n🟡 WATCH level  **920.03**\n   What this means: buyers are losing initial control. The\n   first warning sign that the move is weakening.\n   💲 If price closes below **920.03** on the 1H,\n   the position is typically down 30–50% of planned risk\n   (**~$186** of the **~$465** at risk).\n   Action: hold what you have, do NOT add more.\n\n🟠 CAUTION zone  920.03 – 919.06\n   What this means: the other side is in control inside this band.\n   Holding from here means fighting the structure — exit risk\n   is now real, not theoretical.\n   💲 Position drawdown 50–80% of planned risk\n   (**~$302** of the **~$465**).\n   Action: scratch the trade for a small loss now. Re-read at next scan.\n\n🔴 [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  **918.80**\n   What this means: the bullish idea is OFF entirely.\n   💲 Full planned risk taken: **$465** on the recommended size.\n   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for\n   a fresh structure on a later scan.\n\n🔵 Next review  2026-05-13 12:15 UTC\n   ATLAS re-reads every zone at the next scan.",
+          "inline": false
+        },
+        {
+          "name": "💲 Dollar risk this trade — QUARTER size only (FADING)",
+          "value": "💲 Standard plan: **$1,860 risk on 100 shares NVDA** ($18.60/share × 100 shares).\n💲 Recommended for this card (FADING · quarter size for FADING): **~$465**.\n💲 Reward target on a clean follow-through: **~$605** on the recommended size · **1.3R**.\n⚠️ Reward-to-risk is below 2R — only take this card if no FRESH or STILL ACTIVE setups are available.",
+          "inline": false
+        },
+        {
+          "name": "What this means",
+          "value": "The path of least resistance is up while **918.80** holds. Buying the dip into the tight green entry band is the trade ATLAS would take.",
+          "inline": false
+        },
+        {
+          "name": "WHAT TO DO NOW",
+          "value": "① QUARTER size at most — this is not a primary entry. **$465 risk**.\n② Only buy a clean pullback into **920.43 – 920.69** that prints a strong defensive 5-min close.\n③ Place the exit-point at **918.80** (**$465 risk**).\n④ If **920.03** closes below on 1H, exit ALL — late-stage cards do not give second chances.\n⑤ Skip this card entirely if the FRESH or STILL ACTIVE standouts above offer a cleaner setup today.",
+          "inline": false
+        },
+        {
+          "name": "What confirms the idea",
+          "value": "A 5m close above **920.69** after pulling back into the entry band — the confirmed directional structure test (price closes past the trigger AND the next candle holds beyond it).",
+          "inline": false
+        },
+        {
+          "name": "What cancels the idea",
+          "value": "A 1H close below **918.80**. At that point the ceiling-to-floor flip has failed and the move is rolled over.",
+          "inline": false
+        },
+        {
+          "name": "⚠️  Late-stage caveat",
+          "value": "Size quarter — the move is late. The reward is small. Skip if better setups exist.",
+          "inline": false
+        }
+      ],
+      "footer": {
+        "text": "ATLAS · Dark Horse · standout 3 of 3 · fading lifecycle · next review 2026-05-13 12:15 UTC"
+      },
+      "image": {
+        "url": "attachment://dh-foh-03-nvda-1h.png"
+      }
+    }
+  ],
+  "files": [
+    {
+      "name": "dh-foh-03-nvda-1h.png",
+      "contentType": "image/png",
+      "bytes": 20228
+    }
+  ]
+}
+
+=== WEBHOOK BODY 5 / 6 ===
+{
+  "content": "**BUILDING**  ·  CHART REFERENCE\n\n```ansi\n\u001b[35;1m╔════════════════════════════════════════════════════╗\u001b[0m\n\u001b[35;1m║ 📡  BUILDING — WARMING UP BELOW STANDOUT GRADE     ║\u001b[0m\n\u001b[35;1m╚════════════════════════════════════════════════════╝\u001b[0m\n```\n\n[[Pullback]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Support / Resistance]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Reversal]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)\n\n_Two markets are close to the standout bar but not there yet._\n_Re-reading every 15 minutes — if either firms up by the next scan,_\n_they graduate into a standout card with full execution detail._\n\n```ansi\n\u001b[36;1m╔════════════════════════════════════════════════════╗\u001b[0m\n\u001b[36;1m║ 📚  CHART REFERENCE — HOW TO READ THE FOUR ZONES   ║\u001b[0m\n\u001b[36;1m╚════════════════════════════════════════════════════╝\u001b[0m\n```",
+  "embeds": [
+    {
+      "color": 6013150,
+      "title": "📚  Clean Bullish Breakout — Reference",
+      "description": "Every Dark Horse candidate above is the same pattern in different markets. This is what it looks like on the chart, and what a trader actually does at each zone.",
+      "fields": [
+        {
+          "name": "The story",
+          "value": "Price pushed through a level that had capped it for weeks (the old high). It came back to test the same level. Buyers stepped in to defend it. The ceiling has flipped into a floor.",
+          "inline": false
+        },
+        {
+          "name": "How a trader acts (concrete, dollars-first)",
+          "value": "🟢 BUY the pullback into the **green ENTRY band** — ONLY if the next 5-min candle opens inside the band AND closes above the band low.\n🔴 Place the exit-point just below the **dashed red INVALIDATION line**. If price closes below it on the 1H, exit immediately.\n💲 Dollar risk = (entry price − exit price) × position size × $/point. Size the trade so this number ≤ 1% of your account (**$100 on $10k**, **$250 on $25k**, **$1,000 on $100k**).",
+          "inline": false
+        },
+        {
+          "name": "Rendered ATLAS chart card",
+          "value": "The attached chart image shows the same four zones used above: green entry band, yellow watch level, red invalidation line, and ATLAS price boxes.",
+          "inline": false
+        }
+      ],
+      "footer": {
+        "text": "ATLAS · Chart reference · rendered four-zone card"
+      },
+      "image": {
+        "url": "attachment://dh-foh-04-reference-pattern.png"
+      }
+    }
+  ],
+  "files": [
+    {
+      "name": "dh-foh-04-reference-pattern.png",
+      "contentType": "image/png",
+      "bytes": 19068
+    }
+  ]
+}
+
+=== WEBHOOK BODY 6 / 6 ===
+{
+  "content": "```ansi\n\u001b[33;1m▸  Risk reminder\u001b[0m\n```\n_Every zone above is what ATLAS sees right now. Live price moves, the_\n_zones move with it. Cross-check the current price against the zone_\n_before acting. ATLAS reviews again at 2026-05-13 12:15 UTC._\n\n```ansi\n\u001b[36;1m▸  Briefing summary\u001b[0m\n```\n_3 standouts today (1 FRESH, 1 STILL ACTIVE, 1 FADING). Market Mood 🟠🟠🟠🟠⚫ 4/5 — Elevated._\n_The FRESH EURUSD card is the cleanest reward-to-risk: **~$150 risk** · target **5.7R**._\n_The STILL ACTIVE XAUUSD card is the highest-conviction continuation: **~$945 risk** · target **3.0R**._\n_The FADING NVDA card is the late-stage scalp: **~$465 risk** · target **1.3R**._\n_Next scan 2026-05-13 12:15 UTC._"
+}
+
+[DRY-RUN] No network calls were made. Re-run with --post --confirm-staging to deliver to the staging webhook.

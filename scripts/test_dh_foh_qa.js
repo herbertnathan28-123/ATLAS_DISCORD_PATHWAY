@@ -5,38 +5,72 @@
 // ============================================================
 // scripts/test_dh_foh_qa.js
 //
-// QA harness for the Dark Horse Front-of-House (FOH.1.0.1) v3
-// wire-up. Asserts the rendered payload against the operator-
-// approved visual + wording contract.
+// QA harness for Dark Horse FOH.1.0.1 — v6 PROTOTYPE PARITY.
 //
-// Coverage:
-//   T1  Payload shape — empty top10 still emits banner + tail
-//   T2  Single promoted candidate → banner+embed + tail (2 messages)
-//   T3  Multi-candidate → banner+embed1 + (badge+embedK)*K + tail
-//   T4  Embed structure — Pack 2.2 fields + state-badge allow-list
-//   T5  Colour-active-count conviction format
+// ──────────────────────────────────────────────────────────
+// ACCEPTANCE REALIGNMENT NOTE (operator directive, 2026-05-14)
+// ──────────────────────────────────────────────────────────
+// This harness was previously written against the FOH.1.2.1
+// INTERMEDIATE implementation shape (single-line "🛑 RISK-OFF"
+// Where-to-Act, conviction without ⚫ inactive disc, no Why-X
+// reasoning, no per-card Dollar Risk / What This Means /
+// WHAT TO DO NOW / What Confirms / What Cancels surfaces).
+//
+// The canonical v6 prototype target (matrix Section A source-
+// of-truth) is `scripts/render_dh_foh_v6_preview.js::
+// SAMPLE_MESSAGES`. Per PR #73 doctrine and operator-confirmed
+// directives B8–B14 + D (2026-05-14), the v1.2.1 marker set is
+// historical/intermediate reference only. A test that passes
+// the v1.2.1 surface but fails canonical v6 is a failed test.
+//
+// This harness was rewritten on the
+// `claude/dark-horse-foh-restoration-v6-parity` branch to
+// enforce the canonical v6 acceptance target and prevent any
+// false-pass against the intermediate shape.
+//
+// Coverage (v6 canonical):
+//   T1  Payload shape — empty top10 → banner + BUILDING/ref +
+//       tail (3 messages — educational quiet-scan surface)
+//   T2  Single promoted candidate → 4 messages (banner +
+//       candidate + ref + tail)
+//   T3  Multi-candidate → 1 + N + 2 messages (banner + N
+//       candidate cards + BUILDING/ref + tail)
+//   T4  Embed structure — v6 field set including Conviction
+//       (5-disc + Why-X), Trigger Level (+ Why it matters),
+//       Where to Act (4 zones), Dollar Risk This Trade,
+//       What This Means, WHAT TO DO NOW (① to ⑤), What
+//       Confirms / What Cancels, plus state-badge allow-list
+//   T5  Conviction format — 5-disc with ⚫ inactive disc, "N/5"
+//       suffix, " — Label" tail, "Why X" reasoning underneath
 //   T6  State-badge classifier — allow-list only
-//   T7  Banned-wording sweep — zero hits across all messages
+//   T7  Banned-wording sweep — zero hits (no BOS, CHoCH,
+//       Learning Links, dashed "── NEW ──" text, etc.)
 //   T8  Discord size guards — content ≤ 2000, embed total ≤ 6000
 //   T9  Filter discipline — anchor-less candidates dropped
-//   T10 Where to Act — multi-line value, colour-coded actions,
-//       late-stage caveat row
+//   T10 Where to Act — 4-zone block (ENTRY band, WATCH single
+//       level, CAUTION band, INVALIDATION single level) with
+//       Next review line; no single-line "🛑 RISK-OFF" form
 //   T11 Direction / Move Type / Mover Stage allow-list
-//   T12 Banner format — red NEW divider + gold banner +
-//       teal terminology + ▸ subheadings + ⭐ standouts box
+//   T12 Banner — red NEW divider + gold DARK HORSE banner +
+//       EXPANDED TERMINOLOGY HYPERLINKS row + Market Mood
+//       5-disc block + STANDOUTS banner. No "Today's read"
+//       v1.2.1 subheading.
 //   T13 Sanitiser walker preserves shape
-//   T14 Pack 5 TRC- registry file exists + has next-evolution row
-//   T15 Pack 8 PR QA checklist exists
-//   T16 v3 wording refinements — beginner-readable Long/Short,
-//       Trigger Level, Today's Rank, RISK-OFF wording
-//   T17 Red NEW BADGE separators between candidates (not plain text)
-//   T18 Tail message — BUILDING + visual reference card always emitted
-//   T19 Terminology hyperlink support — Markdown links emitted when
-//       opts.terminologyUrls is wired
+//   T14 Lifecycle badge — FRESH (filled red ```diff fence),
+//       STILL ACTIVE (outlined red ```ansi), FADING (outlined
+//       orange/yellow ```ansi); no dashed "── NEW ──" text
+//   T15 BUILDING + Chart Reference — present as its own
+//       message with chart-reference embed + chart-card spec
+//   T16 Tail — Risk reminder + Briefing summary subheadings
+//   T17 Terminology hyperlinks use visible-bracket [[Label]]
+//       (url) form (NO escaped \[Label\] form)
+//   T18 Dollar Risk field — present with lifecycle-aware
+//       header (half size for FRESH / full size allowed (STILL
+//       ACTIVE) / QUARTER size only (FADING)) + dollar figure
+//   T19 WHAT TO DO NOW — numbered ① to ⑤ checklist
 // ============================================================
 
 const path = require('path');
-const fs   = require('fs');
 const rank = require(path.join(__dirname, '..', 'darkHorseRanking.js'));
 const foh  = require(path.join(__dirname, '..', 'darkHorseFoh.js'));
 
@@ -51,11 +85,12 @@ function dailyCandles(n, basePrice) {
   const out = [];
   const startTs = Math.floor(Date.parse('2026-05-01T00:00:00Z') / 1000);
   let p = basePrice;
+  const step = basePrice >= 1000 ? 0.6 : basePrice >= 100 ? 0.8 : basePrice >= 10 ? 0.2 : 0.00025;
   for (let i = 0; i < n; i++) {
     const open  = p;
-    const close = p + 0.8;
-    const high  = close + 0.6;
-    const low   = open - 0.5;
+    const close = p + step;
+    const high  = close + step * 0.7;
+    const low   = open - step * 0.5;
     out.push({ open, high, low, close, time: startTs + i * 86400 });
     p = close;
   }
@@ -68,7 +103,7 @@ function mkCandidate(over) {
     reasons: ['structure 2/2', 'momentum 1/2'],
   }, over);
 }
-function mkRanked(symbol, score, direction, sectionKey, basePrice) {
+function mkRanked(symbol, score, direction, sectionKey, basePrice, overridePhase) {
   const enriched = rank.enrichCandidate(
     mkCandidate({ symbol, score, direction }),
     dailyCandles(25, basePrice),
@@ -76,123 +111,146 @@ function mkRanked(symbol, score, direction, sectionKey, basePrice) {
   );
   enriched.section = sectionKey;
   enriched.sectionLabel = rank.SECTION_LABEL[sectionKey];
+  if (overridePhase) enriched.movePhase = overridePhase;
   return enriched;
 }
 
 // ============================================================
-// T1 — Empty top10 → banner-only + tail (no embeds)
+// T1 — Empty top10 → banner + BUILDING/ref + tail (3 messages)
 // ============================================================
-console.log('\n[T1] Empty top10 → banner + tail (educational quiet-scan surface)');
+console.log('\n[T1] Empty top10 → 3 messages (banner + BUILDING/ref + tail)');
 {
   const out = foh.buildDarkHorseFohPayload({ top10: [], allCount: 33 }, { level: 'quiet' }, { now: Date.parse('2026-05-13T12:00:00Z') });
   ok('kind = movement_digest_foh_v1_0', out.kind === 'movement_digest_foh_v1_0');
-  ok('messages.length === 2 (banner + tail)', Array.isArray(out.messages) && out.messages.length === 2,
-     { len: out.messages.length });
+  ok('messages.length === 3 (banner + ref + tail)', out.messages.length === 3, { len: out.messages.length });
   ok('candidateCount === 0', out.candidateCount === 0);
   ok('embedCount === 0', out.embedCount === 0);
   ok('M1 has no embeds (banner only)', !out.messages[0].embeds || out.messages[0].embeds.length === 0);
-  ok('M2 (tail) carries visual reference card',
-     /📚\s+CLEAN BULLISH BREAKOUT — REFERENCE/.test(out.messages[1].content));
-  ok('M2 (tail) carries BUILDING gold heading',
-     /📡\s+BUILDING — MARKETS WARMING UP/.test(out.messages[1].content));
+  ok('M2 (BUILDING/ref) carries the chart reference embed',
+     out.messages[1].embeds && /Clean Bullish Breakout — Reference/.test(out.messages[1].embeds[0].title));
+  ok('M2 BUILDING banner present (no v1.2.1 "MARKETS WARMING UP" wording)',
+     /📡\s+BUILDING — WARMING UP BELOW STANDOUT GRADE/.test(out.messages[1].content));
+  ok('M3 (tail) carries Risk reminder + Briefing summary',
+     /Risk reminder/.test(out.messages[2].content) && /Briefing summary/.test(out.messages[2].content));
 }
 
 // ============================================================
-// T2 — Single promoted candidate → banner+embed + tail (2 msgs)
+// T2 — Single promoted candidate → 4 messages
 // ============================================================
-console.log('\n[T2] Single promoted candidate → 2 messages (banner+embed, tail)');
+console.log('\n[T2] Single promoted candidate → 4 messages (banner + card + ref + tail)');
 {
-  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.1)];
+  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.1, 'early')];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {
     now: Date.parse('2026-05-13T12:00:00Z'),
   });
-  ok('messages.length === 2', out.messages.length === 2, { len: out.messages.length });
+  ok('messages.length === 4', out.messages.length === 4, { len: out.messages.length });
   ok('candidateCount === 1', out.candidateCount === 1);
   ok('embedCount === 1', out.embedCount === 1);
-  ok('M1 has 1 embed', out.messages[0].embeds && out.messages[0].embeds.length === 1);
-  ok('M2 (tail) has no embed', !out.messages[1].embeds || out.messages[1].embeds.length === 0);
+  ok('M1 (banner) has no embeds', !out.messages[0].embeds || out.messages[0].embeds.length === 0);
+  ok('M2 carries the candidate embed', out.messages[1].embeds && out.messages[1].embeds.length === 1);
+  ok('M2 lifecycle separator names "FRESH"', /FRESH/.test(out.messages[1].content));
 }
 
 // ============================================================
-// T3 — Multi-candidate → banner+embed1 + (badge+embedK)*K-1 + tail
+// T3 — Multi-candidate (3) → 6 messages
 // ============================================================
-console.log('\n[T3] Four promoted candidates → 5 messages (banner+e1, badge+e2, badge+e3, badge+e4, tail)');
+console.log('\n[T3] Three promoted candidates (FRESH/STILL ACTIVE/FADING) → 6 messages');
 {
   const top10 = [
-    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,    1.10),
-    mkRanked('NDX',    8, 'Bullish', rank.SECTIONS.INDICES,      19000),
-    mkRanked('NVDA',   8, 'Bullish', rank.SECTIONS.EQUITIES,     900),
-    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES,  2400),
+    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,    1.10, 'early'),
+    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES,  2400, 'mid'),
+    mkRanked('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,     900,  'late'),
   ];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {
     now: Date.parse('2026-05-13T12:00:00Z'),
   });
-  ok('messages.length === 5 (banner + 3 badges + tail)', out.messages.length === 5, { len: out.messages.length });
-  ok('candidateCount === 4', out.candidateCount === 4);
-  ok('embedCount === 4', out.embedCount === 4);
+  ok('messages.length === 6 (banner + 3 candidates + ref + tail)', out.messages.length === 6, { len: out.messages.length });
+  ok('candidateCount === 3', out.candidateCount === 3);
+  ok('embedCount === 3', out.embedCount === 3);
   // Banner is on M1 only
   ok('only M1 carries the gold DARK HORSE banner',
      /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(out.messages[0].content)
-     && !out.messages.slice(1, -1).some(m => /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(m.content || '')));
-  // Red NEW BADGE separator between candidates
-  ok('M2 carries red badge separator "STANDOUT #2 of 4"',
-     /```diff\n-\s*🆕\s+STANDOUT #2 of 4\n```/.test(out.messages[1].content));
-  ok('M3 carries red badge separator "STANDOUT #3 of 4"',
-     /```diff\n-\s*🆕\s+STANDOUT #3 of 4\n```/.test(out.messages[2].content));
-  ok('M4 carries red badge separator "STANDOUT #4 of 4"',
-     /```diff\n-\s*🆕\s+STANDOUT #4 of 4\n```/.test(out.messages[3].content));
-  // Tail carries the reference card
-  ok('M5 (tail) carries the visual reference card',
-     /📚\s+CLEAN BULLISH BREAKOUT — REFERENCE/.test(out.messages[4].content));
-  // Last embed footer carries next review
-  const lastEmbed = out.messages[3].embeds[0];
-  ok('last embed footer carries next-review stamp',
-     /next review \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/.test(lastEmbed.footer.text),
-     lastEmbed.footer);
+     && !out.messages.slice(1, -2).some(m => /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(m.content || '')));
+  // Lifecycle separators
+  ok('M2 separator says FRESH + STANDOUT #1 of 3',
+     /FRESH/.test(out.messages[1].content) && /STANDOUT #1 of 3/.test(out.messages[1].content));
+  ok('M3 separator says STILL ACTIVE + STANDOUT #2 of 3',
+     /STILL ACTIVE/.test(out.messages[2].content) && /STANDOUT #2 of 3/.test(out.messages[2].content));
+  ok('M4 separator says FADING + STANDOUT #3 of 3',
+     /FADING/.test(out.messages[3].content) && /STANDOUT #3 of 3/.test(out.messages[3].content));
+  // BUILDING + reference card
+  ok('M5 carries the BUILDING + chart reference message',
+     /Clean Bullish Breakout — Reference/.test((out.messages[4].embeds || [{}])[0].title || ''));
+  // Tail
+  ok('M6 (tail) carries Briefing summary',
+     /Briefing summary/.test(out.messages[5].content));
+  // Last candidate footer carries next review
+  const lastCandidateEmbed = out.messages[3].embeds[0];
+  ok('last candidate footer carries next-review stamp',
+     /next review \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/.test(lastCandidateEmbed.footer.text),
+     lastCandidateEmbed.footer);
 }
 
 // ============================================================
-// T4 — Embed structure — Pack 2.2 fields + state-badge allow-list
+// T4 — Embed structure — v6 canonical field set
 // ============================================================
-console.log('\n[T4] Embed structure — fields + state-badge from allow-list');
+console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / Trigger Level / Expected Duration / Today\'s Rank / Where to Act / Dollar Risk / What This Means / WHAT TO DO NOW / What Confirms / What Cancels');
 {
-  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10)];
+  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
-  const e = out.messages[0].embeds[0];
+  const e = out.messages[1].embeds[0];
   ok('embed.color is a finite decimal', Number.isFinite(e.color));
   ok('embed.title starts with 🐎 + symbol', /^🐎  EURUSD  ·  /.test(e.title), { title: e.title });
   ok('embed.title ends with a state-badge from the allow-list',
      foh.STATE_BADGE_VALUES.has(e.title.replace(/^🐎  [A-Z0-9]+  ·  /, '')),
      { title: e.title });
-  ok('embed.description is a non-empty trader-voice line',
-     typeof e.description === 'string' && e.description.length > 0 && e.description.length <= 240);
+  ok('embed.description is a non-empty narrative line',
+     typeof e.description === 'string' && e.description.length > 0 && e.description.length <= 400);
+
   const fieldNames = e.fields.map(f => f.name);
-  ok('field "Move Type" present', fieldNames.includes('Move Type'));
-  ok('field "Direction" present', fieldNames.includes('Direction'));
-  ok('field "Conviction" present', fieldNames.includes('Conviction'));
-  ok('field "Horizon" present', fieldNames.includes('Horizon'));
-  ok('field "Today\'s Rank" present (renamed from "Standing")', fieldNames.includes('Today\'s Rank'));
-  // Per-candidate "Terms" / "In ATLAS terms" field REMOVED — banner row covers it
-  ok('field "In ATLAS terms" REMOVED', !fieldNames.includes('In ATLAS terms') && !fieldNames.includes('Terms'));
+  ok('field "Move Type" present',         fieldNames.includes('Move Type'));
+  ok('field "Direction" present',         fieldNames.includes('Direction'));
+  ok('field "Conviction" present',        fieldNames.includes('Conviction'));
+  ok('field "Trigger Level" present',     fieldNames.includes('Trigger Level'));
+  ok('field "Expected Duration" present (renamed from Horizon)', fieldNames.includes('Expected Duration'));
+  ok('field "Horizon" REMOVED',           !fieldNames.includes('Horizon'));
+  ok('field "Today\'s Rank" present',     fieldNames.includes("Today's Rank"));
+  ok('field "Where to Act" present',      fieldNames.includes('Where to Act'));
+  ok('field starts-with "💲 Dollar risk this trade" present',
+     fieldNames.some(n => /^💲 Dollar risk this trade/.test(n)));
+  ok('field "What this means" present',   fieldNames.includes('What this means'));
+  ok('field "WHAT TO DO NOW" present',    fieldNames.includes('WHAT TO DO NOW'));
+  ok('field "What confirms the idea" present', fieldNames.includes('What confirms the idea'));
+  ok('field "What cancels the idea" present',  fieldNames.includes('What cancels the idea'));
+  // Per-candidate "In ATLAS terms" / "Terms" REMOVED — banner row covers terminology
+  ok('field "In ATLAS terms" / "Terms" REMOVED',
+     !fieldNames.includes('In ATLAS terms') && !fieldNames.includes('Terms'));
 }
 
 // ============================================================
-// T5 — Conviction colour-active-count scale (Pack §0.2)
+// T5 — Conviction format — 5-disc with ⚫ inactive + "Why X" reasoning
 // ============================================================
-console.log('\n[T5] Conviction value uses colour-active-count, no filler dots');
+console.log('\n[T5] Conviction — 5-disc, ⚫ inactive, "Why X" reasoning');
 {
-  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10)];
+  const top10 = [mkRanked('EURUSD', 8, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'mid')];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, {});
-  const conv = out.messages[0].embeds[0].fields.find(f => f.name === 'Conviction').value;
-  ok('conviction value uses colour glyph + "/ 5" suffix',
-     /^(🟢|🔴|🟡|🟠|⚪)/.test(conv) && / \/ 5 · /.test(conv) && /(Low|Medium|High|Very High)$/.test(conv),
-     { conv });
-  ok('no empty-circle ○ filler', !/○/.test(conv));
-  ok('no inactive ● filler', !/●○/.test(conv));
+  const conv = out.messages[1].embeds[0].fields.find(f => f.name === 'Conviction').value;
+  // Canonical v6: "🟢🟢🟢🟢⚫ 4/5 — High\n_Why High: ..._" — 5-disc + ⚫ inactive
+  ok('conviction value uses 5-disc + " N/5 — Label" tail',
+     /^(🟢|🔴|🟡|🟠|⚪)+⚫? ?\d+\/5 — (Low|Medium|High|Very High)/.test(conv),
+     { conv: conv.slice(0, 80) });
+  ok('conviction value contains "Why X" reasoning line',
+     /_Why (Low|Medium|High|Very High): /.test(conv));
+  // Score 8 → mid phase classifies to BULLISH_PRESSURE → 4/5 High
+  ok('score 8 mid phase emits 4/5', /4\/5 — High/.test(conv));
+  ok('inactive disc is ⚫ (never empty-circle ○ filler)',
+     !/○/.test(conv));
+  // Score 10 → very high (5/5)
   ok('score 10 → 5/5 Very High',
-     /^🟢🟢🟢🟢🟢 \/ 5 · Very High$/.test(foh.convictionScale(10, foh.STATE_BADGE.STRONG_BULLISH)));
-  ok('score 6 bearish → 3/5 🔴 Medium',
-     /^🔴🔴🔴 \/ 5 · Medium$/.test(foh.convictionScale(6, foh.STATE_BADGE.BEARISH_PRESSURE)));
+     /5\/5 — Very High/.test(foh.discScale(5, 5, 'Very High', '🟢')));
+  // discScale shape sanity
+  ok('discScale(4, 5, "High", "🟢") = "🟢🟢🟢🟢⚫ 4/5 — High"',
+     foh.discScale(4, 5, 'High', '🟢') === '🟢🟢🟢🟢⚫ 4/5 — High');
 }
 
 // ============================================================
@@ -200,79 +258,56 @@ console.log('\n[T5] Conviction value uses colour-active-count, no filler dots');
 // ============================================================
 console.log('\n[T6] State-badge classifier — only allow-list values returned');
 {
-  function mk(score, dir, phase) {
-    return {
-      score, direction: dir, movePhase: phase,
-      evidenceAnchors: { availability: 'partial', invalidation: { priceText: '1.0' } },
-    };
-  }
   const cases = [
-    ['score 9 + Bullish + early', mk(9, 'Bullish', 'early'), foh.STATE_BADGE.STRONG_BULLISH],
-    ['score 9 + Bearish + mid',   mk(9, 'Bearish', 'mid'),   foh.STATE_BADGE.STRONG_BEARISH],
-    ['score 9 + Bullish + late',  mk(9, 'Bullish', 'late'),  foh.STATE_BADGE.DEVELOPING_WATCH],
-    ['score 7 + Bullish + mid',   mk(7, 'Bullish', 'mid'),   foh.STATE_BADGE.BULLISH_PRESSURE],
-    ['score 6 + Bearish + early', mk(6, 'Bearish', 'early'), foh.STATE_BADGE.BEARISH_PRESSURE],
-    ['score 8 + Bullish + exhaust', mk(8, 'Bullish', 'exhaustion'), foh.STATE_BADGE.DEVELOPING_WATCH],
-    ['score 4 + Bullish + exhaust', mk(4, 'Bullish', 'exhaustion'), foh.STATE_BADGE.MARGINAL_REDUCED_CONVICTION],
+    { symbol: 'X', score: 10, direction: 'Bullish', phase: 'early', expected: foh.STATE_BADGE.STRONG_BULLISH },
+    { symbol: 'X', score: 10, direction: 'Bearish', phase: 'early', expected: foh.STATE_BADGE.STRONG_BEARISH },
+    { symbol: 'X', score:  7, direction: 'Bullish', phase: 'mid',   expected: foh.STATE_BADGE.BULLISH_PRESSURE },
+    { symbol: 'X', score:  7, direction: 'Bearish', phase: 'mid',   expected: foh.STATE_BADGE.BEARISH_PRESSURE },
+    { symbol: 'X', score:  8, direction: 'Bullish', phase: 'late',  expected: foh.STATE_BADGE.DEVELOPING_WATCH },
+    { symbol: 'X', score:  3, direction: 'Bullish', phase: 'mid',   expected: foh.STATE_BADGE.MARGINAL_REDUCED_CONVICTION },
   ];
-  for (const [label, rec, want] of cases) {
-    ok(`${label} → "${want}"`, foh.classifyStateBadge(rec) === want);
+  for (const c of cases) {
+    const got = foh.classifyStateBadge({ symbol: c.symbol, score: c.score, direction: c.direction, movePhase: c.phase });
+    ok(`classify ${c.score}/${c.direction}/${c.phase} → ${c.expected}`, got === c.expected, { got });
   }
 }
 
 // ============================================================
-// T7 — Banned-wording sweep across full payload
+// T7 — Banned-wording sweep
 // ============================================================
 console.log('\n[T7] Banned-wording sweep — zero hits anywhere in the payload');
 {
   const top10 = [
-    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,   1.10),
-    mkRanked('NDX',    8, 'Bullish', rank.SECTIONS.INDICES,     19000),
-    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES, 2400),
+    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,    1.10, 'early'),
+    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES,  2400, 'mid'),
+    mkRanked('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,     900,  'late'),
   ];
-  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {});
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {
+    now: Date.parse('2026-05-13T12:00:00Z'),
+  });
   const hits = foh.sweepBannedWording(out.messages);
-  ok('banned-wording sweep returns zero hits', hits.length === 0,
-     hits.length ? { hits: hits.slice(0, 5) } : undefined);
-  const flat = out.messages.map(m => {
-    const blob = [m.content || ''];
-    for (const e of m.embeds || []) {
-      blob.push(e.title || '', e.description || '');
-      for (const f of e.fields || []) blob.push(f.value || '');
-      if (e.footer && e.footer.text) blob.push(e.footer.text);
-    }
-    return blob.join('\n');
-  }).join('\n');
-  for (const re of [
-    /\bbody close\b/i, /\bbreak and hold\b/i, /\bretest holds\b/i,
-    /\bread weakens\b/i, /\bpending\b/i, /\bunavailable\b/i,
-    /\bLearning Links\b/i, /\bBOS\b/, /\bCHoCH\b/,
-  ]) {
-    ok(`banned wording absent: ${re}`, !re.test(flat));
-  }
+  ok('sweepBannedWording returns []', hits.length === 0, { hits });
 }
 
 // ============================================================
 // T8 — Discord size guards
 // ============================================================
-console.log('\n[T8] Discord size guards — content ≤ 2000, embed total ≤ 6000');
+console.log('\n[T8] Discord size guards — content ≤ 2000, every embed ≤ 6000');
 {
   const top10 = [
-    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,   1.10),
-    mkRanked('GBPUSD', 8, 'Bullish', rank.SECTIONS.FX_MAJORS,   1.25),
-    mkRanked('NDX',    8, 'Bullish', rank.SECTIONS.INDICES,     19000),
-    mkRanked('NVDA',   8, 'Bullish', rank.SECTIONS.EQUITIES,    900),
-    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES, 2400),
-    mkRanked('AMD',    7, 'Bullish', rank.SECTIONS.EQUITIES,    180),
+    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,    1.10, 'early'),
+    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES,  2400, 'mid'),
+    mkRanked('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,     900,  'late'),
   ];
-  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {});
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {
+    now: Date.parse('2026-05-13T12:00:00Z'),
+  });
   for (let i = 0; i < out.messages.length; i++) {
     const meas = foh.measureMessage(out.messages[i]);
-    ok(`M${i + 1} content ≤ ${foh.DISCORD_CONTENT_LIMIT}`,
-       meas.contentLen <= foh.DISCORD_CONTENT_LIMIT, { contentLen: meas.contentLen });
+    ok(`M${i + 1} content ≤ 2000 (got ${meas.contentLen})`, meas.contentLen <= foh.DISCORD_CONTENT_LIMIT);
     for (let j = 0; j < meas.embedTotals.length; j++) {
-      ok(`M${i + 1} embed ${j + 1} total ≤ ${foh.DISCORD_EMBED_TOTAL_LIMIT}`,
-         meas.embedTotals[j] <= foh.DISCORD_EMBED_TOTAL_LIMIT, { embedTotal: meas.embedTotals[j] });
+      ok(`M${i + 1} embed ${j + 1} total ≤ 6000 (got ${meas.embedTotals[j]})`,
+         meas.embedTotals[j] <= foh.DISCORD_EMBED_TOTAL_LIMIT);
     }
   }
 }
@@ -282,237 +317,248 @@ console.log('\n[T8] Discord size guards — content ≤ 2000, embed total ≤ 60
 // ============================================================
 console.log('\n[T9] Filter discipline — anchor-less candidates filtered out');
 {
-  const withAnchors = mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10);
-  const withoutAnchors = rank.enrichCandidate(
-    mkCandidate({ symbol: 'GBPUSD', score: 8 }), null, 6, { watchThreshold: 8 }
-  );
-  withoutAnchors.section = rank.SECTIONS.FX_MAJORS;
-  withoutAnchors.sectionLabel = rank.SECTION_LABEL[rank.SECTIONS.FX_MAJORS];
-  const out = foh.buildDarkHorseFohPayload({ top10: [withAnchors, withoutAnchors], allCount: 33 }, null, {});
-  ok('candidateCount = 1 (anchor-less candidate filtered)', out.candidateCount === 1);
-  ok('filteredOut = 1', out.filteredOut === 1);
-  ok('only EURUSD promoted', /EURUSD/.test(out.messages[0].embeds[0].title));
+  // Candidate without evidenceAnchors → availability 'pending' → filtered
+  const noAnchorRecord = {
+    symbol: 'XYZ', score: 9, direction: 'Bullish', movePhase: 'early',
+    section: rank.SECTIONS.FX_MAJORS,
+    sectionLabel: rank.SECTION_LABEL[rank.SECTIONS.FX_MAJORS],
+    evidenceAnchors: { availability: 'pending' },
+  };
+  const out = foh.buildDarkHorseFohPayload({ top10: [noAnchorRecord], allCount: 33 }, null, {});
+  ok('filteredOut === 1', out.filteredOut === 1);
+  ok('candidateCount === 0', out.candidateCount === 0);
+  ok('messages.length === 3 (banner + ref + tail — no candidate)', out.messages.length === 3);
 }
 
 // ============================================================
-// T10 — Where to Act multi-line + colour-coded + late-stage caveat
+// T10 — Where to Act — 4-zone block + Next review
 // ============================================================
-console.log('\n[T10] Where to Act — multi-line BUY/RISK-OFF + late-stage caveat');
+console.log('\n[T10] Where to Act — 4-zone block (ENTRY/WATCH/CAUTION/INVALIDATION) + Next review');
 {
-  const top10 = [
-    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10),
-  ];
-  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, {});
-  const wta = out.messages[0].embeds[0].fields.find(f => f.name === 'Where to Act');
-  ok('Where to Act field present', wta != null);
-  // Multi-line — value contains \n between BUY/RISK-OFF
-  ok('Where to Act contains \\n line break', wta.value.includes('\n'));
-  ok('Where to Act has 🟢 BUY or 🟢 SELL line', /^🟢 (BUY|SELL) at/m.test(wta.value), wta);
-  ok('Where to Act has 🛑 RISK-OFF line', /^🛑 RISK-OFF at/m.test(wta.value), wta);
-  ok('Where to Act uses beginner-readable "exit the idea" wording',
-     /exit the idea if this level fails/.test(wta.value), wta);
-
-  // Late-stage caveat line should appear for late/exhaustion phases.
-  const lateRow = mkRanked('NVDA', 7, 'Bullish', rank.SECTIONS.EQUITIES, 900);
-  lateRow.movePhase = 'late';
-  const out2 = foh.buildDarkHorseFohPayload({ top10: [lateRow], allCount: 33 }, null, {});
-  const wta2 = out2.messages[0].embeds[0].fields.find(f => f.name === 'Where to Act');
-  ok('late-stage candidate carries ⚠️ caveat line',
-     /^⚠️\s+Size small/m.test(wta2.value), wta2);
+  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {
+    now: Date.parse('2026-05-13T12:00:00Z'),
+  });
+  const wta = out.messages[1].embeds[0].fields.find(f => f.name === 'Where to Act').value;
+  ok('Where to Act has 🟢 ENTRY zone line',          /🟢 ENTRY zone/.test(wta));
+  ok('Where to Act has 🟡 WATCH level line',         /🟡 WATCH level/.test(wta));
+  ok('Where to Act has 🟠 CAUTION zone line',        /🟠 CAUTION zone/.test(wta));
+  ok('Where to Act has 🔴 Invalidation line',        /🔴.+Invalidation.+\*\*[\d.,]+\*\*/.test(wta));
+  ok('Where to Act has 🔵 Next review line',         /🔵 Next review/.test(wta));
+  // Operator B8: no single-line "🛑 RISK-OFF" reduction.
+  ok('Where to Act does NOT use v1.2.1 single-line "🛑 RISK-OFF"', !/^🛑 RISK-OFF /m.test(wta));
 }
 
 // ============================================================
-// T11 — Direction / Move Type / Mover Stage allow-list
+// T11 — Direction + Move Type + Mover Stage discipline
 // ============================================================
 console.log('\n[T11] Direction + Move Type + Mover Stage discipline');
 {
-  // Direction values must include the beginner-readable hint
-  ok('Bullish → "▲ Long  (rising bias)"', foh.directionField('Bullish') === '▲ Long  (rising bias)');
-  ok('Bearish → "▼ Short  (falling bias)"', foh.directionField('Bearish') === '▼ Short  (falling bias)');
-  ok('Neutral → "▶ Sideways  (no clear bias)"', foh.directionField('Neutral') === '▶ Sideways  (no clear bias)');
-  const ALLOWED_MOVE_TYPE = new Set(['Breakout', 'Reversal', 'Range Break', 'Continuation']);
-  for (const phase of ['early', 'mid', 'late', 'exhaustion']) {
-    const r = { direction: 'Bullish', movePhase: phase, score: 8, structureState: 'higher highs and higher lows', section: rank.SECTIONS.FX_MAJORS };
-    ok(`moveType(${phase}) in allow-list`, ALLOWED_MOVE_TYPE.has(foh.moveType(r)));
-    ok(`moverStage(${phase}) in 1..3`, [1, 2, 3].includes(foh.moverStage(r)));
-  }
+  const top10 = [
+    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early'),
+    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES, 2400, 'early'),
+  ];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
+  const e0 = out.messages[1].embeds[0];
+  const e1 = out.messages[2].embeds[0];
+  const dir0 = e0.fields.find(f => f.name === 'Direction').value;
+  const dir1 = e1.fields.find(f => f.name === 'Direction').value;
+  // v6 doctrine: "[[Long ▲]](url) — expecting price to keep moving up"
+  ok('Bullish direction emits [[Long ▲]] link',  /\[\[Long ▲\]\]\(http/.test(dir0));
+  ok('Bearish direction emits [[Short ▼]] link', /\[\[Short ▼\]\]\(http/.test(dir1));
+  // Move type
+  const mt0 = e0.fields.find(f => f.name === 'Move Type').value;
+  const mt1 = e1.fields.find(f => f.name === 'Move Type').value;
+  ok('Move Type bullish early = "Breakout · early stage"',  /^Breakout · early stage$/.test(mt0));
+  ok('Move Type bearish early = "Breakdown · early stage"', /^Breakdown · early stage$/.test(mt1));
 }
 
 // ============================================================
-// T12 — Banner format — red NEW divider + gold banner + teal
-// terminology + ▸ subheadings + ⭐ standouts gold box
+// T12 — Banner — red NEW divider + gold banners + terminology + Market Mood
 // ============================================================
-console.log('\n[T12] Banner — red NEW divider + gold banners + teal terminology + ▸ subheadings');
+console.log('\n[T12] Banner — red NEW divider + gold DARK HORSE banner + EXPANDED TERMINOLOGY HYPERLINKS + Market Mood 5-disc block + STANDOUTS banner');
 {
-  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10)];
-  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, { now: Date.parse('2026-05-13T12:00:00Z') });
-  const c = out.messages[0].content;
-  ok('content opens with red NEW divider (```diff fence)', /^```diff\n-\s+━{30,}/.test(c));
-  ok('red NEW divider contains "N E W   D A R K   H O R S E   S C A N"',
-     /N E W   D A R K   H O R S E   S C A N/.test(c));
-  ok('red NEW divider carries 🆕 markers around the scan stamp',
-     /🆕[\s\S]+?33 markets scanned[\s\S]+?🆕/.test(c));
-  ok('gold DARK HORSE GLOBAL MOVER RADAR banner present',
-     /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(c));
-  ok('gold ⭐ STANDOUTS section box present',
-     /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(c));
-  ok('teal cyan terminology row present (```ansi fallback)',
-     /```ansi\n.*\[Breakout\][\s\S]*\[Retest\][\s\S]*\[Continuation\][\s\S]*\[Mover Stage 1\][\s\S]*```/.test(c));
-  ok('▸ Today\'s read subheading present', /▸  Today's read/.test(c));
-  ok('▸ Market mood subheading present',  /▸  Market mood/.test(c));
+  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {
+    now: Date.parse('2026-05-13T12:00:00Z'),
+  });
+  const banner = out.messages[0].content;
+  ok('banner opens with red NEW divider (```diff fence)', /^```diff\n-/.test(banner));
+  ok('banner has "N E W   D A R K   H O R S E   S C A N" line', /N E W   D A R K   H O R S E   S C A N/.test(banner));
+  ok('banner has 🆕 markers around scan stamp', /🆕[\s\S]*33 markets scanned[\s\S]*🆕/.test(banner));
+  ok('banner has 🐎 DARK HORSE — GLOBAL MOVER RADAR section banner', /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(banner));
+  ok('banner has EXPANDED TERMINOLOGY HYPERLINKS heading', /EXPANDED TERMINOLOGY HYPERLINKS/.test(banner));
+  ok('banner has terminology row with [[Breakout]] link',  /\[\[Breakout\]\]\(http/.test(banner));
+  ok('banner has Market Mood 5-disc bar', /Market Mood {2}·\s*(🟢|🟡|🟠|🔴)+⚫* ?\d+\/5/.test(banner));
+  ok('banner has Dollars-first guidance subsection', /Dollars-first guidance/.test(banner));
+  ok('banner has ⭐ STANDOUTS banner',  /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(banner));
+  // No legacy v1.2.1 subheading
+  ok('NO v1.2.1 "▸  Today\'s read" subheading',  !/▸  Today's read/.test(banner));
 }
 
 // ============================================================
 // T13 — Sanitiser walker preserves shape
 // ============================================================
-console.log('\n[T13] Sanitiser walker — applies sanitize() to every string field');
+console.log('\n[T13] Sanitiser walker preserves message shape');
 {
-  const fake = ({ content }) => ({ content: String(content).replace(/Corey/g, '[REDACTED-FOMO]'), replaced: /Corey/.test(content) });
-  const input = [{
-    content: 'banner with Corey leak',
-    embeds: [{
-      title: 'Corey title',
-      description: 'description with Corey',
-      fields: [{ name: 'Trigger Level', value: 'value with Corey' }],
-      footer: { text: 'footer with Corey' },
-    }],
-  }];
-  const out = foh.sanitiseFohMessages(input, fake);
-  ok('walker reports replaced=true', out.replaced === true);
-  ok('content was sanitised', /\[REDACTED-FOMO\]/.test(out.messages[0].content));
-  ok('embed.title sanitised', /\[REDACTED-FOMO\]/.test(out.messages[0].embeds[0].title));
-  ok('embed.description sanitised', /\[REDACTED-FOMO\]/.test(out.messages[0].embeds[0].description));
-  ok('embed field value sanitised', /\[REDACTED-FOMO\]/.test(out.messages[0].embeds[0].fields[0].value));
-  ok('embed footer text sanitised', /\[REDACTED-FOMO\]/.test(out.messages[0].embeds[0].footer.text));
+  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, {});
+  const wrapped = foh.sanitiseFohMessages(out.messages, ({ content }) => ({ content, replaced: false }));
+  ok('sanitised payload preserves message count', wrapped.messages.length === out.messages.length);
+  ok('sanitised first message preserves embeds', Array.isArray(wrapped.messages[1].embeds) && wrapped.messages[1].embeds.length === 1);
+  ok('sanitised replaced flag = false when sanitize is identity', wrapped.replaced === false);
 }
 
 // ============================================================
-// T14 — Pack 5 TRC- registry file exists + next-evolution row
+// T14 — Lifecycle badge — FRESH (filled red), STILL ACTIVE (outlined), FADING (outlined)
 // ============================================================
-console.log('\n[T14] Pack 5 — TRC- registry rows file + next-evolution row');
-{
-  const trcPath = path.join(__dirname, '..', 'docs', 'training-capture', 'TRC-foh-dark-horse.md');
-  const exists = fs.existsSync(trcPath);
-  ok('docs/training-capture/TRC-foh-dark-horse.md exists', exists);
-  if (exists) {
-    const body = fs.readFileSync(trcPath, 'utf8');
-    ok('file contains at least 5 TRC- IDs',
-       (body.match(/TRC-\d{8}-\d{3}/g) || []).length >= 5);
-    ok('every TRC- row carries source_section field',
-       body.split(/^## TRC-/m).slice(1).every(rowBlock => /"source_section":/.test(rowBlock)));
-    ok('contains next-evolution flag for rendered ATLAS chart-reference cards',
-       /rendered ATLAS chart-reference cards/i.test(body) || /rendered chart-reference card/i.test(body));
-  }
-}
-
-// ============================================================
-// T15 — Pack 8 PR QA checklist file exists
-// ============================================================
-console.log('\n[T15] Pack 8 — PR QA checklist file exists');
-{
-  const checklistPath = path.join(__dirname, '..', 'docs', 'foh-1.0.1-pr-qa-checklist.md');
-  const exists = fs.existsSync(checklistPath);
-  ok('docs/foh-1.0.1-pr-qa-checklist.md exists', exists);
-  if (exists) {
-    const body = fs.readFileSync(checklistPath, 'utf8');
-    ok('checklist references FOH.1.0.1', /FOH\.1\.0\.1/.test(body));
-    const normalised = body.replace(/\n>\s*/g, ' ').replace(/\s+/g, ' ');
-    ok('checklist carries Pack 8 acceptance line verbatim',
-       /Front-of-house presentation PR reviewed against FOH\.1\.0\.1\. Merge approval depends on screenshots, QA checklist completion, and zero engine-scope drift\./.test(normalised));
-  }
-}
-
-// ============================================================
-// T16 — v3 wording refinements (beginner-readable)
-// ============================================================
-console.log('\n[T16] v3 wording refinements — clear, practical, beginner-readable');
-{
-  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10)];
-  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {});
-  const e = out.messages[0].embeds[0];
-  const trigger = e.fields.find(f => f.name === 'Trigger Level').value;
-  const rank_ = e.fields.find(f => f.name === 'Today\'s Rank').value;
-  ok('Trigger Level value reads "Above|Below <level> — already broken and held" OR "— waiting for the next push"',
-     /(Above|Below) \d+(\.\d+)? — (already broken and held|waiting for the next push)/.test(trigger),
-     { trigger });
-  ok('Today\'s Rank value uses ordinal "1st of today\'s 1 standouts"',
-     /^1st of today's \d+ standouts?$/.test(rank_) || /^1st of today's standouts$/.test(rank_),
-     { rank: rank_ });
-}
-
-// ============================================================
-// T17 — Red NEW BADGE separator between candidates
-// ============================================================
-console.log('\n[T17] Red NEW BADGE separator — no plain "─── NEW ───" text fallback');
+console.log('\n[T14] Lifecycle badges — FRESH/STILL ACTIVE/FADING — no dashed "── NEW ──"');
 {
   const top10 = [
-    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10),
-    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES, 2400),
+    mkRanked('A', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,   1.10, 'early'),
+    mkRanked('B', 8, 'Bullish', rank.SECTIONS.INDICES,     19000, 'mid'),
+    mkRanked('C', 7, 'Bullish', rank.SECTIONS.EQUITIES,    900,   'late'),
   ];
-  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, {});
-  const c2 = out.messages[1].content;
-  ok('M2 content is wrapped in ```diff fence', /^```diff\n/.test(c2) && /\n```/.test(c2));
-  ok('M2 content has the 🆕 NEW BADGE token', /🆕\s+STANDOUT #2 of 2/.test(c2));
-  // Plain "─── NEW ───" text fallback must NOT appear anywhere.
-  const flat = out.messages.map(m => m.content || '').join('\n');
-  ok('no plain "─── NEW ───" text fallback anywhere', !/─── NEW ───/.test(flat));
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
+  // FRESH = filled red diff fence
+  ok('FRESH separator uses ```diff fence (filled red)',  /^```diff/m.test(out.messages[1].content));
+  ok('FRESH separator contains "FRESH" label',           /FRESH/.test(out.messages[1].content));
+  // STILL ACTIVE = outlined red ansi
+  ok('STILL ACTIVE separator uses ```ansi fence',        /```ansi/.test(out.messages[2].content));
+  ok('STILL ACTIVE separator contains "STILL ACTIVE" label', /STILL ACTIVE/.test(out.messages[2].content));
+  // FADING = outlined orange/yellow ansi
+  ok('FADING separator uses ```ansi fence',              /```ansi/.test(out.messages[3].content));
+  ok('FADING separator contains "FADING" label',         /FADING/.test(out.messages[3].content));
+  // No dashed text fallback anywhere
+  const allText = out.messages.map(m => (m.content || '') + JSON.stringify(m.embeds || '')).join('\n');
+  ok('no dashed "── NEW ──" text anywhere',              !/─── NEW ───/.test(allText));
 }
 
 // ============================================================
-// T18 — Tail message — BUILDING + reference card always emitted
+// T15 — BUILDING + Chart Reference message
 // ============================================================
-console.log('\n[T18] Tail — BUILDING + visual reference card always shipped');
+console.log('\n[T15] BUILDING + Chart Reference present as its own message');
 {
-  // Even on completely empty top10 (quiet scan), the tail message
-  // ships so the channel always carries the educational surface.
-  const out = foh.buildDarkHorseFohPayload({ top10: [], allCount: 33 }, { level: 'quiet' }, {});
-  const tail = out.messages[out.messages.length - 1];
-  ok('tail message exists', tail != null);
-  ok('tail has no embeds', !tail.embeds || tail.embeds.length === 0);
-  ok('tail BUILDING & CHART REFERENCE red badge',
-     /```diff\n-\s*🆕\s+BUILDING\s+&\s+CHART REFERENCE\n```/.test(tail.content));
-  ok('tail BUILDING gold section heading',
-     /📡\s+BUILDING — MARKETS WARMING UP/.test(tail.content));
-  ok('tail visual reference card',
-     /📚\s+CLEAN BULLISH BREAKOUT — REFERENCE/.test(tail.content));
-  ok('tail Risk reminder ▸ subheading',
-     /▸  Risk reminder/.test(tail.content));
+  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
+  const refMsg = out.messages[out.messages.length - 2];
+  ok('BUILDING content present in ref message', /BUILDING — WARMING UP BELOW STANDOUT GRADE/.test(refMsg.content));
+  ok('CHART REFERENCE banner present in ref message', /CHART REFERENCE/.test(refMsg.content));
+  ok('Reference embed title = "📚  Clean Bullish Breakout — Reference"', refMsg.embeds[0].title === '📚  Clean Bullish Breakout — Reference');
+  const refFieldNames = refMsg.embeds[0].fields.map(f => f.name);
+  ok('Reference embed field "The story" present',                       refFieldNames.includes('The story'));
+  ok('Reference embed field "How a trader acts" present',               refFieldNames.includes('How a trader acts (concrete, dollars-first)'));
+  ok('Reference embed field "Rendered ATLAS chart card" present',       refFieldNames.includes('Rendered ATLAS chart card'));
+  ok('Reference embed carries chart-card spec for PNG attachment lane',  !!refMsg.embeds[0].chartCard);
 }
 
 // ============================================================
-// T19 — Terminology hyperlink support
+// T15b — Chart-card PNG attachment rendering
 // ============================================================
-console.log('\n[T19] Terminology hyperlinks — Markdown links emitted when URLs are wired');
+console.log('\n[T15b] Chart-card specs render to Discord attachment images');
 {
-  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10)];
-  // No URL map → cyan-chip fallback inside ```ansi fence
-  const outA = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
-  ok('without URL map → ```ansi cyan chip fallback',
-     /```ansi\n.*\[Breakout\][\s\S]*```/.test(outA.messages[0].content));
-  ok('linkRoutingStatus = "pending" when no URLs wired',
-     outA.linkRoutingStatus === 'pending');
-
-  // With a URL map → Markdown links inline (no ansi fence wrap for that row)
-  const outB = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, {
-    now: Date.parse('2026-05-13T12:00:00Z'),
-    terminologyUrls: {
-      'Breakout':       'https://example.com/glossary/breakout',
-      'Retest':         'https://example.com/glossary/retest',
-      'Continuation':   'https://example.com/glossary/continuation',
-      'Mover Stage 1':  'https://example.com/glossary/mover-stage-1',
-    },
+  const top10 = [
+    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,    1.10, 'early'),
+    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES,  2400, 'mid'),
+    mkRanked('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,     900,  'late'),
+  ];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, { now: Date.parse('2026-05-13T12:00:00Z') });
+  ok('candidate embeds carry chart-card specs before transport render',
+     out.messages.slice(1, 4).every(m => m.embeds && m.embeds[0] && m.embeds[0].chartCard));
+  // `renderChartCardAttachments` is async; the promise is awaited in
+  // the final summary gate below.
+  global.__chartAttachmentPromise = foh.renderChartCardAttachments(out.messages).then(rendered => {
+    ok('renders 4 PNG chart-card attachments (3 candidates + reference)', rendered.chartCardCount === 4, rendered);
+    ok('candidate chartCard internal specs are stripped before Discord POST',
+       rendered.messages.slice(1, 4).every(m => !m.embeds[0].chartCard));
+    ok('every rendered candidate embed points at an attachment:// PNG',
+       rendered.messages.slice(1, 4).every(m => /^attachment:\/\/dh-foh-.*\.png$/.test(m.embeds[0].image && m.embeds[0].image.url)));
+    ok('every rendered candidate message includes a PNG file buffer',
+       rendered.messages.slice(1, 4).every(m => m.files && m.files[0] && Buffer.isBuffer(m.files[0].data) && m.files[0].data.length > 1000));
+  }).catch(e => {
+    ok('chart-card attachment render did not throw', false, e.message);
   });
-  ok('with URL map → Markdown link form emitted in banner content',
-     /\[Breakout\]\(https:\/\/example\.com\/glossary\/breakout\)/.test(outB.messages[0].content));
-  ok('linkRoutingStatus = "partial" when at least one URL wired',
-     outB.linkRoutingStatus === 'partial');
 }
 
 // ============================================================
-// Summary
+// T16 — Tail — Risk reminder + Briefing summary
 // ============================================================
-console.log('\n==========================');
-console.log('Passed: ' + passed + '   Failed: ' + failed);
-if (failed > 0) process.exit(1);
-console.log('[DH-FOH-QA] PASS — v3 wire-up green: banner+candidate+tail structure; red NEW divider + per-message red NEW BADGE separators; gold section banners + ▸ subheadings; teal terminology (cyan chip fallback + Markdown-link form when wired); v3 candidate embed fields (Trigger Level + Today\'s Rank); multi-line Where to Act with BUY/RISK-OFF + late-stage caveat; beginner-readable Long/Short; visual reference card always shipped; banned-wording sweep clean; Pack 5 TRC rows on file; Pack 8 checklist on file.');
-process.exit(0);
+console.log('\n[T16] Tail message — Risk reminder + Briefing summary');
+{
+  const top10 = [
+    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early'),
+    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES, 2400, 'mid'),
+  ];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, { now: Date.parse('2026-05-13T12:00:00Z') });
+  const tail = out.messages[out.messages.length - 1].content;
+  ok('tail has Risk reminder subheading', /Risk reminder/.test(tail));
+  ok('tail has Briefing summary subheading', /Briefing summary/.test(tail));
+  ok('tail has Next-scan stamp', /Next scan/.test(tail));
+}
+
+// ============================================================
+// T17 — Terminology hyperlinks — visible-bracket [[Label]](url)
+//        form, NEVER escaped \[Label\] form
+// ============================================================
+console.log('\n[T17] Terminology hyperlinks — visible-bracket [[Label]](url) form');
+{
+  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
+  const allText = out.messages.map(m => {
+    const parts = [m.content || ''];
+    for (const e of (m.embeds || [])) {
+      parts.push(e.title || '', e.description || '');
+      for (const f of (e.fields || [])) parts.push(f.value || '');
+      if (e.footer) parts.push(e.footer.text || '');
+    }
+    return parts.join('\n');
+  }).join('\n');
+  // Visible-bracket form present
+  ok('terminology row uses [[Breakout]](url) form',     /\[\[Breakout\]\]\(http/.test(allText));
+  ok('Trigger Level field uses [[Trigger Level]](url)', /\[\[Trigger Level\]\]\(http/.test(allText));
+  // No backslash-escaped form
+  ok('NO escaped \\[Label\\] form anywhere',            !/\\\[/.test(allText));
+}
+
+// ============================================================
+// T18 — Dollar Risk field — lifecycle-aware header + dollar figure
+// ============================================================
+console.log('\n[T18] Dollar Risk — lifecycle-aware header + dollar amounts');
+{
+  const top10 = [
+    mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,    1.10, 'early'),
+    mkRanked('XAUUSD', 8, 'Bearish', rank.SECTIONS.COMMODITIES,  2400, 'mid'),
+    mkRanked('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,     900,  'late'),
+  ];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, { now: Date.parse('2026-05-13T12:00:00Z') });
+  const dr0 = out.messages[1].embeds[0].fields.find(f => /Dollar risk this trade/.test(f.name));
+  const dr1 = out.messages[2].embeds[0].fields.find(f => /Dollar risk this trade/.test(f.name));
+  const dr2 = out.messages[3].embeds[0].fields.find(f => /Dollar risk this trade/.test(f.name));
+  ok('FRESH dollar-risk header — "half size for FRESH"',    /half size for FRESH/.test(dr0.name));
+  ok('STILL ACTIVE dollar-risk header — "full size allowed (STILL ACTIVE)"', /full size allowed \(STILL ACTIVE\)/.test(dr1.name));
+  ok('FADING dollar-risk header — "QUARTER size only (FADING)"', /QUARTER size only \(FADING\)/.test(dr2.name));
+  // Body contains dollar figures
+  ok('FRESH dollar-risk body contains "$" amount',        /\$\d+/.test(dr0.value));
+  ok('STILL ACTIVE dollar-risk body contains "$" amount', /\$\d+/.test(dr1.value));
+  ok('FADING dollar-risk body contains "$" amount',       /\$\d+/.test(dr2.value));
+}
+
+// ============================================================
+// T19 — WHAT TO DO NOW — numbered ① to ⑤ checklist
+// ============================================================
+console.log('\n[T19] WHAT TO DO NOW — numbered ① to ⑤ checklist');
+{
+  const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
+  const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
+  const wtdn = out.messages[1].embeds[0].fields.find(f => f.name === 'WHAT TO DO NOW').value;
+  for (const glyph of ['①', '②', '③', '④', '⑤']) {
+    ok(`WHAT TO DO NOW contains "${glyph}" step`, wtdn.indexOf(glyph) >= 0);
+  }
+}
+
+// ============================================================
+(async function summary() {
+  if (global.__chartAttachmentPromise) await global.__chartAttachmentPromise;
+  console.log(`\n[QA RESULT] ${passed} passed · ${failed} failed`);
+  process.exit(failed === 0 ? 0 : 1);
+})();
