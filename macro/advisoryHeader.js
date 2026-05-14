@@ -68,7 +68,7 @@ function pickKeyLevels(htf, ltf) {
     if (swingHi) out.push({ name: 'Recent swing HIGH', price: swingHi.level, source: '1H/1D' });
     if (swingLo) out.push({ name: 'Recent swing LOW',  price: swingLo.level, source: '1H/1D' });
     if (ref.breakLevel != null && ref.lastBreak !== 'None') {
-      out.push({ name: ref.lastBreak === 'BOS' ? 'Last BOS level' : 'Last CHoCH level', price: ref.breakLevel, source: '1H/1D · ' + (ref.breakDirection || '') });
+      out.push({ name: ref.lastBreak === 'BOS' ? 'Last [Structure Break] level' : 'Last CHoCH level', price: ref.breakLevel, source: '1H/1D · ' + (ref.breakDirection || '') });
     }
   }
   const ltfRef = ltf?.timeframes && (ltf.timeframes['15'] || ltf.timeframes['5'] || null);
@@ -144,7 +144,7 @@ function buildImproveWeaken({ jane, corey, htf, ltf, incoregoBlock, tradeProbabi
   if (htfBias !== ltfBias && htfBias !== 'Neutral' && ltfBias !== 'Neutral') {
     improves.push('LTF realigns with HTF on a 15M body close');
   } else if (htfBias === ltfBias && htfBias !== 'Neutral') {
-    improves.push(`${htfBias.toLowerCase()} BOS on 15M / 30M with imbalance retained on the impulse`);
+    improves.push(`${htfBias.toLowerCase()} [Structure Break] on 15M / 30M with imbalance retained on the impulse`);
   }
   if (incoregoBlock?.coreyEffectOnJaneProbability === 'weakens') improves.push('Macro pressure clears (DXY / VIX / yields no longer contradicting)');
   if (incoregoBlock?.activeCatalystWindow && /no high-impact|no active/i.test(incoregoBlock.activeCatalystWindow)) {
