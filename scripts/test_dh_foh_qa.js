@@ -292,7 +292,7 @@ console.log('\n[T7] Banned-wording sweep — zero hits anywhere in the payload')
 // ============================================================
 // T8 — Discord size guards
 // ============================================================
-console.log('\n[T8] Discord size guards — content ≤ 2000, every embed ≤ 6000');
+console.log('\n[T8] Discord size guards — content/embed/field limits');
 {
   const top10 = [
     mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,    1.10, 'early'),
@@ -309,6 +309,8 @@ console.log('\n[T8] Discord size guards — content ≤ 2000, every embed ≤ 60
       ok(`M${i + 1} embed ${j + 1} total ≤ 6000 (got ${meas.embedTotals[j]})`,
          meas.embedTotals[j] <= foh.DISCORD_EMBED_TOTAL_LIMIT);
     }
+    const violations = foh.findDiscordLimitViolations(out.messages[i]);
+    ok(`M${i + 1} has no Discord per-field limit violations`, violations.length === 0, violations);
   }
 }
 
@@ -339,7 +341,9 @@ console.log('\n[T10] Where to Act — 4-zone block (ENTRY/WATCH/CAUTION/INVALIDA
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, {
     now: Date.parse('2026-05-13T12:00:00Z'),
   });
-  const wta = out.messages[1].embeds[0].fields.find(f => f.name === 'Where to Act').value;
+  const wtaFields = out.messages[1].embeds[0].fields.filter(f => /^Where to Act/.test(f.name));
+  const wta = wtaFields.map(f => f.value).join('\n\n');
+  ok('Where to Act is split into Discord-safe fields', wtaFields.length >= 2 && wtaFields.every(f => f.value.length <= foh.DISCORD_FIELD_VALUE_LIMIT), wtaFields.map(f => ({ name: f.name, len: f.value.length })));
   ok('Where to Act has 🟢 ENTRY zone line',          /🟢 ENTRY zone/.test(wta));
   ok('Where to Act has 🟡 WATCH level line',         /🟡 WATCH level/.test(wta));
   ok('Where to Act has 🟠 CAUTION zone line',        /🟠 CAUTION zone/.test(wta));

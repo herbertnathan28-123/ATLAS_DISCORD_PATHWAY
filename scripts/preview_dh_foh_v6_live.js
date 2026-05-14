@@ -90,6 +90,8 @@ const allText = m.map(x => {
 const e2 = m2.embeds[0];
 const e3 = m3.embeds[0];
 const e4 = m4.embeds[0];
+const e2WhereToActFields = e2.fields.filter(f => /^Where to Act/.test(f.name));
+const e2WhereToAct = e2WhereToActFields.map(f => f.value).join('\n\n');
 
 // ── v6 canonical markers ─────────────────────────────────────
 const checks = [
@@ -176,13 +178,15 @@ const checks = [
     /1st of today's 3 standouts/.test(e2.fields.find(f => f.name === "Today's Rank").value)],
 
   // Where to Act — 4-zone block
-  ['Where to Act has 🟢 ENTRY zone line',  /🟢 ENTRY zone/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
-  ['Where to Act has 🟡 WATCH level line', /🟡 WATCH level/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
-  ['Where to Act has 🟠 CAUTION zone line', /🟠 CAUTION zone/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
-  ['Where to Act has 🔴 Invalidation line', /🔴.+Invalidation.+\*\*[\d.,]+\*\*/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
-  ['Where to Act has 🔵 Next review line', /🔵 Next review/.test(e2.fields.find(f => f.name === 'Where to Act').value)],
+  ['Where to Act fields are split under Discord 1024-char cap',
+    e2WhereToActFields.length >= 2 && e2WhereToActFields.every(f => f.value.length <= foh.DISCORD_FIELD_VALUE_LIMIT)],
+  ['Where to Act has 🟢 ENTRY zone line',  /🟢 ENTRY zone/.test(e2WhereToAct)],
+  ['Where to Act has 🟡 WATCH level line', /🟡 WATCH level/.test(e2WhereToAct)],
+  ['Where to Act has 🟠 CAUTION zone line', /🟠 CAUTION zone/.test(e2WhereToAct)],
+  ['Where to Act has 🔴 Invalidation line', /🔴.+Invalidation.+\*\*[\d.,]+\*\*/.test(e2WhereToAct)],
+  ['Where to Act has 🔵 Next review line', /🔵 Next review/.test(e2WhereToAct)],
   ['Where to Act does NOT use v1.2.1 single-line "🛑 RISK-OFF"',
-    !/^🛑 RISK-OFF /m.test(e2.fields.find(f => f.name === 'Where to Act').value)],
+    !/^🛑 RISK-OFF /m.test(e2WhereToAct)],
 
   // Dollar Risk — lifecycle-aware
   ['M2 (FRESH) Dollar Risk header — "half size for FRESH"',
@@ -234,6 +238,8 @@ for (let i = 0; i < m.length; i++) {
   for (let j = 0; j < meas.embedTotals.length; j++) {
     checks.push([`M${i + 1} embed ${j + 1} total ≤ 6000 (got ${meas.embedTotals[j]})`, meas.embedTotals[j] <= foh.DISCORD_EMBED_TOTAL_LIMIT]);
   }
+  const violations = foh.findDiscordLimitViolations(m[i]);
+  checks.push([`M${i + 1} has no Discord field-level limit violations`, violations.length === 0]);
 }
 
 // Banned-wording sweep

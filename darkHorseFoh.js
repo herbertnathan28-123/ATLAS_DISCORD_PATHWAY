@@ -56,6 +56,11 @@
 
 const DISCORD_CONTENT_LIMIT     = 2000;
 const DISCORD_EMBED_TOTAL_LIMIT = 6000;
+const DISCORD_FIELD_NAME_LIMIT  = 256;
+const DISCORD_FIELD_VALUE_LIMIT = 1024;
+const DISCORD_EMBED_TITLE_LIMIT = 256;
+const DISCORD_EMBED_DESC_LIMIT  = 4096;
+const DISCORD_EMBED_FOOTER_LIMIT = 2048;
 
 let _sharp = null;
 function _loadSharp() {
@@ -998,6 +1003,20 @@ function _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp)
   ].join('\n');
 }
 
+function _whereToActFields(record, bands, position, urlMap, nextReviewStamp) {
+  const value = _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp);
+  if (!bands || value.length <= DISCORD_FIELD_VALUE_LIMIT) {
+    return [{ name: 'Where to Act', value, inline: false }];
+  }
+
+  const chunks = value.split('\n\n');
+  return [
+    { name: 'Where to Act', value: chunks.slice(0, 2).join('\n\n'), inline: false },
+    { name: 'Where to Act — Caution', value: chunks.slice(2, 3).join('\n\n'), inline: false },
+    { name: 'Where to Act — Invalidation', value: chunks.slice(3).join('\n\n'), inline: false },
+  ];
+}
+
 function _dollarRiskFieldValue(record, lifecycle, position, contract, bands) {
   // Header reflects lifecycle sizing.
   const headerNoun = lifecycle.stage === 'FRESH'
@@ -1124,8 +1143,8 @@ function _candidateEmbed(record, idx, total, isLast, opts, urlMap, volatility, c
     { name: 'Trigger Level',     value: _triggerLevelFieldValue(record, urlMap, bands), inline: true },
     { name: 'Expected Duration', value: _expectedDurationFieldValue(record, urlMap), inline: true },
     { name: "Today's Rank",      value: _todaysRankFieldValue(idx, total, urlMap), inline: true },
-    { name: 'Where to Act',      value: _whereToActFieldValue(record, bands, position, urlMap, nextReview), inline: false },
   ];
+  fields.push(..._whereToActFields(record, bands, position, urlMap, nextReview));
 
   const dollarRisk = _dollarRiskFieldValue(record, lifecycle, position, contract, bands);
   fields.push({ name: '💲 Dollar risk this trade — ' + dollarRisk.header, value: dollarRisk.value, inline: false });
@@ -1309,6 +1328,41 @@ function _measureEmbed(e) {
   return n;
 }
 
+function findDiscordLimitViolations(message) {
+  const violations = [];
+  const contentLen = (message && message.content ? message.content : '').length;
+  if (contentLen > DISCORD_CONTENT_LIMIT) {
+    violations.push({ path: 'content', limit: DISCORD_CONTENT_LIMIT, actual: contentLen });
+  }
+  const embeds = (message && message.embeds) || [];
+  embeds.forEach((e, ei) => {
+    const total = _measureEmbed(e);
+    if (total > DISCORD_EMBED_TOTAL_LIMIT) {
+      violations.push({ path: 'embeds[' + ei + ']', limit: DISCORD_EMBED_TOTAL_LIMIT, actual: total });
+    }
+    if (e.title && String(e.title).length > DISCORD_EMBED_TITLE_LIMIT) {
+      violations.push({ path: 'embeds[' + ei + '].title', limit: DISCORD_EMBED_TITLE_LIMIT, actual: String(e.title).length });
+    }
+    if (e.description && String(e.description).length > DISCORD_EMBED_DESC_LIMIT) {
+      violations.push({ path: 'embeds[' + ei + '].description', limit: DISCORD_EMBED_DESC_LIMIT, actual: String(e.description).length });
+    }
+    (e.fields || []).forEach((f, fi) => {
+      const nameLen = f.name ? String(f.name).length : 0;
+      const valueLen = f.value ? String(f.value).length : 0;
+      if (nameLen > DISCORD_FIELD_NAME_LIMIT) {
+        violations.push({ path: 'embeds[' + ei + '].fields[' + fi + '].name', limit: DISCORD_FIELD_NAME_LIMIT, actual: nameLen });
+      }
+      if (valueLen > DISCORD_FIELD_VALUE_LIMIT) {
+        violations.push({ path: 'embeds[' + ei + '].fields[' + fi + '].value', limit: DISCORD_FIELD_VALUE_LIMIT, actual: valueLen, name: f.name || '' });
+      }
+    });
+    if (e.footer && e.footer.text && String(e.footer.text).length > DISCORD_EMBED_FOOTER_LIMIT) {
+      violations.push({ path: 'embeds[' + ei + '].footer.text', limit: DISCORD_EMBED_FOOTER_LIMIT, actual: String(e.footer.text).length });
+    }
+  });
+  return violations;
+}
+
 // ── Banned-wording sweep ────────────────────────────────────
 function _flattenMessage(m) {
   const parts = [m.content || ''];
@@ -1422,6 +1476,8 @@ function buildDarkHorseFohPayload(ranking, volatility, opts) {
 module.exports = {
   DISCORD_CONTENT_LIMIT,
   DISCORD_EMBED_TOTAL_LIMIT,
+  DISCORD_FIELD_NAME_LIMIT,
+  DISCORD_FIELD_VALUE_LIMIT,
   STATE_BADGE,
   STATE_BADGE_VALUES,
   COLOR,
@@ -1436,6 +1492,7 @@ module.exports = {
   moveType,
   moverStage,
   measureMessage,
+  findDiscordLimitViolations,
   sweepBannedWording,
   sanitiseFohMessages,
   renderChartCardAttachments,

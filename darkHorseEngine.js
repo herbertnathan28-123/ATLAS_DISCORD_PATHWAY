@@ -1450,15 +1450,15 @@ async function runDarkHorseScan(universeOrOpts) {
                          `filteredOut=${fohPayload.filteredOut} messageCount=${renderedFoh.messages.length} ` +
                          `chartCardCount=${renderedFoh.chartCardCount} sanitized=${sanitisedPayload.replaced ? 'true' : 'false'}`);
           // Hard guard — refuse to send if any message would exceed
-          // Discord limits (content > 2000 or embed total > 6000).
+          // Discord limits (content, embed total, or per-field caps).
           let oversize = -1;
+          let oversizeDetail = null;
           for (let i = 0; i < renderedFoh.messages.length; i++) {
-            const meas = foh.measureMessage(renderedFoh.messages[i]);
-            if (meas.contentLen > foh.DISCORD_CONTENT_LIMIT) { oversize = i; break; }
-            if (meas.embedTotals.some(t => t > foh.DISCORD_EMBED_TOTAL_LIMIT)) { oversize = i; break; }
+            const violations = foh.findDiscordLimitViolations(renderedFoh.messages[i]);
+            if (violations.length) { oversize = i; oversizeDetail = violations[0]; break; }
           }
           if (oversize >= 0) {
-            dhLog('ERROR', `[WEBHOOK] FOH digest aborted — message ${oversize + 1} exceeds Discord limits. Cooldown NOT armed.`);
+            dhLog('ERROR', `[WEBHOOK] FOH digest aborted — message ${oversize + 1} exceeds Discord limits (${JSON.stringify(oversizeDetail)}). Cooldown NOT armed.`);
           } else {
             // Sequential delivery. Each message awaits the previous.
             // Chain aborts on the first non-ok send.
