@@ -210,7 +210,7 @@ ok('override still emits Liquidity Sweep entry', /\(https:\/\/atlas-fx\.test\/gl
 
 // Per-call opts.linkBuilder overrides everything.
 const perCallRow = lib2.renderLearningLinksRow(['bos'], { linkBuilder: (s) => `/learn/${s}` });
-ok('per-call linkBuilder overrides registered builder', /\[Break of Structure\]\(\/learn\/bos\)/.test(perCallRow));
+ok('per-call linkBuilder overrides registered builder', /\[\[Structure Break\]\]\(\/learn\/bos\)/.test(perCallRow));
 
 // Reset back to default for following tests.
 lib2.setDeepLinkBuilder(null);
@@ -238,7 +238,7 @@ ok('custom prefix applied', /^Quick refs → /.test(rowCustom));
 ok('custom separator applied', / \| /.test(rowCustom));
 
 const rowCapped = lib.renderLearningLinksRow(['bos', 'choch', 'breakout', 'calm_retest', 'failed_retest', 'liquidity_sweep', 'inducement', 'exhaustion'], { maxItems: 3 });
-ok('maxItems cap applies', (rowCapped.match(/\[[^\]]+\]\([^)]+\)/g) || []).length === 3);
+ok('maxItems cap applies', (rowCapped.match(/\[+[^\]]+\]+\([^)]+\)/g) || []).length === 3);
 
 // -----------------------------------------------------------------
 // T8 — renderDeepGlossaryEntry behaviour
