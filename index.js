@@ -1645,7 +1645,7 @@ function buildForwardBlock(jane, sourceMissing) {
     expectedTiming:              j.expectedTiming              || 'Until structure or event resets the read; reassess on the next regime check (≤4h).',
     dailyMovementContext:        j.dailyMovementContext        || 'Paused — daily movement context cannot be assigned without market-structure range data.',
     remainingMovementAbsorption: j.remainingMovementAbsorption || 'Withheld — direction not assignable. Expect sideways absorption inside the current intraday range.',
-    whatTraderIsWaitingFor:      j.whatTraderIsWaitingFor      || 'A confirmed BOS / CHoCH on at least the 1H, candle-close beyond the break level, and a fresh demand / supply zone created by the displacement.',
+    whatTraderIsWaitingFor:      j.whatTraderIsWaitingFor      || 'A confirmed [Structure Break] on at least the 1H, candle-close beyond the break level, and a fresh demand / supply zone created by the displacement.',
     realValue,
     withheldReason: realValue ? null : reason
   };
