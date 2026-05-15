@@ -69,9 +69,34 @@ const ABBREV_RULES = [
   { abbrev: 'US2Y',  expansion: 'US 2-Year Treasury Yield ' }
 ];
 
-function audit(label, content) {
-  if (!content || typeof content !== 'string') {
-    return { label, ok: false, errors: ['empty content'] };
+// Walk a payload and concatenate every user-visible string surface.
+// Handles both legacy content-only payloads and the v6 visual-shell
+// shape `{ content, embeds: [{ title, description, fields: [{name,value}], footer }] }`.
+function _miFlattenPayload(payload) {
+  if (!payload) return '';
+  const parts = [];
+  if (typeof payload.content === 'string') parts.push(payload.content);
+  if (Array.isArray(payload.embeds)) {
+    for (const e of payload.embeds) {
+      if (!e) continue;
+      if (e.title) parts.push(String(e.title));
+      if (e.description) parts.push(String(e.description));
+      if (Array.isArray(e.fields)) {
+        for (const f of e.fields) {
+          if (f && f.name)  parts.push(String(f.name));
+          if (f && f.value) parts.push(String(f.value));
+        }
+      }
+      if (e.footer && e.footer.text) parts.push(String(e.footer.text));
+    }
+  }
+  return parts.join('\n');
+}
+
+function audit(label, payload) {
+  const content = _miFlattenPayload(payload);
+  if (!content) {
+    return { label, ok: false, errors: ['empty content'], chars: 0 };
   }
   const errors = [];
   for (const re of FIXED_BANNED) {
@@ -91,7 +116,7 @@ function audit(label, content) {
       errors.push({ kind: 'bare-abbrev', token: r.abbrev, context: h.context });
     }
   }
-  return { label, ok: errors.length === 0, errors };
+  return { label, ok: errors.length === 0, errors, chars: content.length };
 }
 
 function header(s) { console.log('\n========== ' + s + ' =========='); }
@@ -125,7 +150,7 @@ const FIXTURES = [
 let total = 0, fails = 0;
 for (const f of FIXTURES) {
   const payload = mi.buildPreEventAlertPayload(f.event, f.stage);
-  const result = audit(f.label, payload && payload.content);
+  const result = audit(f.label, payload);
   total++;
   if (!result.ok) {
     fails++;
@@ -134,7 +159,7 @@ for (const f of FIXTURES) {
       console.error('  - [' + e.kind + '] ' + (e.token || '') + '  ::  …' + (e.context || '') + '…');
     }
   } else {
-    console.log('[MARKET-INTEL-QA] ' + result.label + ' — clean (' + (payload.content.length) + ' chars)');
+    console.log('[MARKET-INTEL-QA] ' + result.label + ' — clean (' + result.chars + ' chars across content+embed)');
   }
 }
 
@@ -151,7 +176,7 @@ for (const f of RELEASED) {
     console.log('[MARKET-INTEL-QA] ' + f.label + ' — skipped (buildReleasedEventAlertPayload not exported)');
     continue;
   }
-  const result = audit(f.label, payload.content);
+  const result = audit(f.label, payload);
   total++;
   if (!result.ok) {
     fails++;
@@ -160,7 +185,7 @@ for (const f of RELEASED) {
       console.error('  - [' + e.kind + '] ' + (e.token || '') + '  ::  …' + (e.context || '') + '…');
     }
   } else {
-    console.log('[MARKET-INTEL-QA] ' + result.label + ' — clean (' + (payload.content.length) + ' chars)');
+    console.log('[MARKET-INTEL-QA] ' + result.label + ' — clean (' + result.chars + ' chars across content+embed)');
   }
 }
 
