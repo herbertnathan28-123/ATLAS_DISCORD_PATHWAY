@@ -452,11 +452,11 @@ console.log('\n[T14] Lifecycle badges — FRESH/STILL ACTIVE/FADING — no dashe
   // FRESH = filled red diff fence
   ok('FRESH separator uses ```diff fence (filled red)',  /^```diff/m.test(out.messages[1].content));
   ok('FRESH separator contains "FRESH" label',           /FRESH/.test(out.messages[1].content));
-  // STILL ACTIVE = Discord-native blue blockquote marker
-  ok('STILL ACTIVE separator uses blue blockquote marker', /^> 🟦 \*\*STILL ACTIVE\*\*/m.test(out.messages[2].content));
+  // STILL ACTIVE = Discord-native yellow box markers
+  ok('STILL ACTIVE separator uses yellow box markers', /^> 🟨🟨 \*\*STILL ACTIVE\*\*/m.test(out.messages[2].content));
   ok('STILL ACTIVE separator contains "STILL ACTIVE" label', /STILL ACTIVE/.test(out.messages[2].content));
-  // FADING = Discord-native yellow blockquote marker
-  ok('FADING separator uses yellow blockquote marker', /^> 🟨 \*\*FADING\*\*/m.test(out.messages[3].content));
+  // FADING = Discord-native orange box markers
+  ok('FADING separator uses orange box markers', /^> 🟧🟧 \*\*FADING\*\*/m.test(out.messages[3].content));
   ok('FADING separator contains "FADING" label',         /FADING/.test(out.messages[3].content));
   // No dashed text fallback anywhere
   const allText = out.messages.map(m => (m.content || '') + JSON.stringify(m.embeds || '')).join('\n');

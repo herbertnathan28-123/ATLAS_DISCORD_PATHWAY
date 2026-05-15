@@ -1010,16 +1010,16 @@ function _redNewDividerTop(nowMs, universeSize) {
 // clients turn bright codes white). Use bold markdown plus colour
 // emoji so hierarchy survives across desktop/mobile.
 function _sectionBanner(text, accent) {
-  const marker = accent === 'cyan' ? '🔷'
-               : accent === 'magenta' ? '🟪'
+  const marker = accent === 'cyan' ? '🟦'
+               : accent === 'magenta' ? '🟧'
                : '🟨';
-  return marker + ' **' + text + '**';
+  return marker + marker + ' **' + text + '** ' + marker + marker;
 }
 
 // ── Discord-native subheading ("▸  …") ──────────────────────
 function _subheading(text, accent) {
-  const marker = accent === 'cyan' ? '🔷' : '🟨';
-  return marker + ' **▸  ' + text + '**';
+  const marker = accent === 'cyan' ? '🟦' : '🟨';
+  return marker + ' **▸  ' + text + '** ' + marker;
 }
 
 // ── Terminology row — visible-bracket hyperlinks ────────────
@@ -1135,13 +1135,13 @@ function _lifecycleSeparator(record, lifecycle, idx, total) {
     // Use blockquote markdown, not ANSI boxes, so the state remains
     // visible when Discord renders ANSI box colours as white.
     return [
-      '> 🟦 **STILL ACTIVE** · **' + rankLabel + '**',
+      '> 🟨🟨 **STILL ACTIVE** · **' + rankLabel + '** 🟨🟨',
       '> **' + symbolNote + '**',
     ].join('\n');
   }
   // FADING stays visually distinct without ANSI colour dependency.
   return [
-    '> 🟨 **FADING** · **' + rankLabel + '**',
+    '> 🟧🟧 **FADING** · **' + rankLabel + '** 🟧🟧',
     '> **' + symbolNote + '**',
   ].join('\n');
 }

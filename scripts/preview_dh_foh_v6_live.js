@@ -128,10 +128,10 @@ const checks = [
   ['M2 lifecycle separator uses ```diff fence (filled red)', /```diff/.test(m2.content)],
   ['M3 lifecycle separator names "STILL ACTIVE"',  /STILL ACTIVE/.test(m3.content)],
   ['M3 lifecycle separator says STANDOUT #2 of 3', /STANDOUT #2 of 3/.test(m3.content)],
-  ['M3 lifecycle separator uses blue blockquote marker', /^> 🟦 \*\*STILL ACTIVE\*\*/m.test(m3.content)],
+  ['M3 lifecycle separator uses yellow box markers', /^> 🟨🟨 \*\*STILL ACTIVE\*\*/m.test(m3.content)],
   ['M4 lifecycle separator names "FADING"',        /FADING/.test(m4.content)],
   ['M4 lifecycle separator says STANDOUT #3 of 3', /STANDOUT #3 of 3/.test(m4.content)],
-  ['M4 lifecycle separator uses yellow blockquote marker', /^> 🟨 \*\*FADING\*\*/m.test(m4.content)],
+  ['M4 lifecycle separator uses orange box markers', /^> 🟧🟧 \*\*FADING\*\*/m.test(m4.content)],
   ['no dashed "── NEW ──" text anywhere',          !/─── NEW ───/.test(allText)],
 
   // Embed structure — v6 canonical fields
