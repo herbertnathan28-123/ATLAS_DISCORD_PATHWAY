@@ -1005,23 +1005,21 @@ function _redNewDividerTop(nowMs, universeSize) {
   ].join('\n');
 }
 
-// ── Section banner (gold/cyan/magenta box) ──────────────────
+// ── Discord-native section headings ─────────────────────────
+// Discord clients render ANSI box colours inconsistently (some
+// clients turn bright codes white). Use bold markdown plus colour
+// emoji so hierarchy survives across desktop/mobile.
 function _sectionBanner(text, accent) {
-  const ansi = accent === 'cyan' ? ANSI_CYAN
-             : accent === 'magenta' ? ANSI_MAGENTA
-             : ANSI_BRIGHT_YELLOW;
-  const inner = ' ' + text + ' ';
-  const pad = Math.max(2, 52 - inner.length);
-  const top = '╔' + '═'.repeat(52) + '╗';
-  const mid = '║' + inner + ' '.repeat(pad) + '║';
-  const bot = '╚' + '═'.repeat(52) + '╝';
-  return ['```ansi', ansi + top + ANSI_RESET, ansi + mid + ANSI_RESET, ansi + bot + ANSI_RESET, '```'].join('\n');
+  const marker = accent === 'cyan' ? '🔷'
+               : accent === 'magenta' ? '🟪'
+               : '🟨';
+  return marker + ' **' + text + '**';
 }
 
-// ── Gold subheading ("▸  …") ────────────────────────────────
+// ── Discord-native subheading ("▸  …") ──────────────────────
 function _subheading(text, accent) {
-  const ansi = accent === 'cyan' ? ANSI_CYAN : ANSI_BRIGHT_YELLOW;
-  return ['```ansi', ansi + '▸  ' + text + ANSI_RESET, '```'].join('\n');
+  const marker = accent === 'cyan' ? '🔷' : '🟨';
+  return marker + ' **▸  ' + text + '**';
 }
 
 // ── Terminology row — visible-bracket hyperlinks ────────────
@@ -1122,11 +1120,9 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
 function _lifecycleSeparator(record, lifecycle, idx, total) {
   const rankLabel = 'STANDOUT #' + (idx + 1) + ' of ' + total;
   const symbolNote = (record.symbol || 'unknown') + ' — ' + lifecycle.narrative;
-  function boxLine(text) {
-    return '║ ' + String(text || '').slice(0, 60).padEnd(60, ' ') + ' ║';
-  }
   if (lifecycle.tone === 'fresh') {
-    // FRESH stays red-filled in Discord diff syntax.
+    // FRESH keeps the red diff surface because Discord renders it
+    // consistently and it signals new-cycle urgency.
     return [
       '```diff',
       '- ' + BAR_HEAVY,
@@ -1136,25 +1132,17 @@ function _lifecycleSeparator(record, lifecycle, idx, total) {
     ].join('\n');
   }
   if (lifecycle.tone === 'active') {
-    // STILL ACTIVE gets a bright cyan boxed banner so it does not
-    // blend into the amber section headings.
+    // Use blockquote markdown, not ANSI boxes, so the state remains
+    // visible when Discord renders ANSI box colours as white.
     return [
-      '```ansi',
-      ANSI_BRIGHT_CYAN + '╔' + '═'.repeat(62) + '╗' + ANSI_RESET,
-      ANSI_BRIGHT_CYAN + boxLine('🟦  STILL ACTIVE   ·   ' + rankLabel) + ANSI_RESET,
-      ANSI_BRIGHT_CYAN + boxLine(symbolNote) + ANSI_RESET,
-      ANSI_BRIGHT_CYAN + '╚' + '═'.repeat(62) + '╝' + ANSI_RESET,
-      '```',
+      '> 🟦 **STILL ACTIVE** · **' + rankLabel + '**',
+      '> **' + symbolNote + '**',
     ].join('\n');
   }
-  // FADING gets a bright yellow boxed warning banner.
+  // FADING stays visually distinct without ANSI colour dependency.
   return [
-    '```ansi',
-    ANSI_BRIGHT_YELLOW + '╔' + '═'.repeat(62) + '╗' + ANSI_RESET,
-    ANSI_BRIGHT_YELLOW + boxLine('🟨  FADING   ·   ' + rankLabel) + ANSI_RESET,
-    ANSI_BRIGHT_YELLOW + boxLine(symbolNote) + ANSI_RESET,
-    ANSI_BRIGHT_YELLOW + '╚' + '═'.repeat(62) + '╝' + ANSI_RESET,
-    '```',
+    '> 🟨 **FADING** · **' + rankLabel + '**',
+    '> **' + symbolNote + '**',
   ].join('\n');
 }
 
