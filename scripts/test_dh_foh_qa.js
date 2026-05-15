@@ -36,8 +36,8 @@
 //   T3  Multi-candidate → 1 + N + 2 messages (banner + N
 //       candidate cards + BUILDING/ref + tail)
 //   T4  Embed structure — v6 field set including Conviction
-//       (5-disc + Why-X), Trigger Level (+ Why it matters),
-//       Where to Act (4 zones), Dollar Risk This Trade,
+//       (5-disc + Why-X), Decision Level (+ Why it matters),
+//       Where to Act (4 zones), Dollar Risk,
 //       What This Means, WHAT TO DO NOW (① to ⑤), What
 //       Confirms / What Cancels, plus state-badge allow-list
 //   T5  Conviction format — 5-disc with ⚫ inactive disc, "N/5"
@@ -125,7 +125,7 @@ console.log('\n[T1] Empty top10 → 3 messages (banner + BUILDING/ref + tail)');
   ok('messages.length === 3 (banner + ref + tail)', out.messages.length === 3, { len: out.messages.length });
   ok('candidateCount === 0', out.candidateCount === 0);
   ok('embedCount === 0', out.embedCount === 0);
-  ok('M1 has no embeds (banner only)', !out.messages[0].embeds || out.messages[0].embeds.length === 0);
+  ok('M1 carries terminology embed', out.messages[0].embeds && /EXPANDED TERMINOLOGY HYPERLINKS/.test(out.messages[0].embeds[0].title));
   ok('M2 (BUILDING/ref) carries the chart reference embed',
      out.messages[1].embeds && /Clean Bullish Breakout — Reference/.test(out.messages[1].embeds[0].title));
   ok('M2 BUILDING banner present (no v1.2.1 "MARKETS WARMING UP" wording)',
@@ -146,7 +146,7 @@ console.log('\n[T2] Single promoted candidate → 4 messages (banner + card + re
   ok('messages.length === 4', out.messages.length === 4, { len: out.messages.length });
   ok('candidateCount === 1', out.candidateCount === 1);
   ok('embedCount === 1', out.embedCount === 1);
-  ok('M1 (banner) has no embeds', !out.messages[0].embeds || out.messages[0].embeds.length === 0);
+  ok('M1 (banner) carries terminology embed', out.messages[0].embeds && /EXPANDED TERMINOLOGY HYPERLINKS/.test(out.messages[0].embeds[0].title));
   ok('M2 carries the candidate embed', out.messages[1].embeds && out.messages[1].embeds.length === 1);
   ok('M2 lifecycle separator names "FRESH"', /FRESH/.test(out.messages[1].content));
 }
@@ -194,7 +194,7 @@ console.log('\n[T3] Three promoted candidates (FRESH/STILL ACTIVE/FADING) → 6 
 // ============================================================
 // T4 — Embed structure — v6 canonical field set
 // ============================================================
-console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / Trigger Level / Expected Duration / Today\'s Rank / Where to Act / Dollar Risk / What This Means / WHAT TO DO NOW / What Confirms / What Cancels');
+console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / Decision Level / Expected Duration / Today\'s Rank / Where to Act / Dollar Risk / What This Means / WHAT TO DO NOW / What Confirms / What Cancels');
 {
   const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
@@ -211,13 +211,14 @@ console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / 
   ok('field "Move Type" present',         fieldNames.includes('Move Type'));
   ok('field "Direction" present',         fieldNames.includes('Direction'));
   ok('field "Conviction" present',        fieldNames.includes('Conviction'));
-  ok('field "Trigger Level" present',     fieldNames.includes('Trigger Level'));
+  ok('field "Decision Level" present',    fieldNames.includes('Decision Level'));
+  ok('field "Trigger Level" removed',     !fieldNames.includes('Trigger Level'));
   ok('field "Expected Duration" present (renamed from Horizon)', fieldNames.includes('Expected Duration'));
   ok('field "Horizon" REMOVED',           !fieldNames.includes('Horizon'));
   ok('field "Today\'s Rank" present',     fieldNames.includes("Today's Rank"));
   ok('field "Where to Act" present',      fieldNames.includes('Where to Act'));
-  ok('field starts-with "💲 Dollar risk this trade" present',
-     fieldNames.some(n => /^💲 Dollar risk this trade/.test(n)));
+  ok('field starts-with "💲 Dollar Risk" present',
+     fieldNames.some(n => /^💲 Dollar Risk/.test(n)));
   ok('field "What this means" present',   fieldNames.includes('What this means'));
   ok('field "WHAT TO DO NOW" present',    fieldNames.includes('WHAT TO DO NOW'));
   ok('field "What confirms the idea" present', fieldNames.includes('What confirms the idea'));
@@ -392,7 +393,7 @@ console.log('\n[T12] Banner — red NEW divider + gold DARK HORSE banner + EXPAN
   ok('banner has 🆕 markers around scan stamp', /🆕[\s\S]*33 markets scanned[\s\S]*🆕/.test(banner));
   ok('banner has 🐎 DARK HORSE — GLOBAL MOVER RADAR section banner', /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(banner));
   ok('banner has EXPANDED TERMINOLOGY HYPERLINKS heading', /EXPANDED TERMINOLOGY HYPERLINKS/.test(banner));
-  ok('banner has terminology row with [[Breakout]] link',  /\[\[Breakout\]\]\(http/.test(banner));
+  ok('banner points to terminology panel', /terminology panel/.test(banner));
   ok('banner has Market Mood 5-disc bar', /Market Mood {2}·\s*(🟢|🟡|🟠|🔴)+⚫* ?\d+\/5/.test(banner));
   ok('banner has Dollars-first guidance subsection', /Dollars-first guidance/.test(banner));
   ok('banner has ⭐ STANDOUTS banner',  /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(banner));
@@ -458,7 +459,7 @@ console.log('\n[T15] BUILDING + Chart Reference present as its own message');
   ok('CHART REFERENCE banner present in ref message', /CHART REFERENCE/.test(refMsg.content));
   ok('Reference embed title = "📚  Clean Bullish Breakout — Reference"', refMsg.embeds[0].title === '📚  Clean Bullish Breakout — Reference');
   const refFieldNames = refMsg.embeds[0].fields.map(f => f.name);
-  ok('Reference embed field "The story" present',                       refFieldNames.includes('The story'));
+  ok('Reference embed field "What you are looking at" present',         refFieldNames.includes('What you are looking at'));
   ok('Reference embed field "How a trader acts" present',               refFieldNames.includes('How a trader acts (concrete, dollars-first)'));
   ok('Reference embed field "Rendered ATLAS chart card" present',       refFieldNames.includes('Rendered ATLAS chart card'));
   ok('Reference embed carries chart-card spec for PNG attachment lane',  !!refMsg.embeds[0].chartCard);
@@ -485,7 +486,7 @@ console.log('\n[T15b] Chart-card specs render to Discord attachment images');
          && labels.includes('WATCH LEVEL')
          && labels.includes('INVALIDATION')
          && labels.some(l => /^BREAK /.test(l))
-         && labels.some(l => /DEFENDING|RETEST HELD|FAILED RECLAIM|LOWER HIGH|HIGHER LOW/.test(l));
+         && labels.some(l => /DEFENDING|RETEST HELD|FAILED RECOVERY|LOWER HIGH|HIGHER LOW/.test(l));
      }));
   ok('reference chart includes break/retest/confirmation teaching labels',
      (() => {
@@ -543,8 +544,14 @@ console.log('\n[T17] Terminology hyperlinks — visible-bracket [[Label]](url) f
     return parts.join('\n');
   }).join('\n');
   // Visible-bracket form present
-  ok('terminology row uses [[Breakout]](url) form',     /\[\[Breakout\]\]\(http/.test(allText));
-  ok('Trigger Level field uses [[Trigger Level]](url)', /\[\[Trigger Level\]\]\(http/.test(allText));
+  ok('terminology panel uses [[Decision Level]](url) form', /\[\[Decision Level\]\]\(http/.test(allText));
+  ok('terminology panel includes required risk/lifecycle terms',
+     /\[\[Entry Zone\]\]\(http/.test(allText)
+     && /\[\[Dollar Risk\]\]\(http/.test(allText)
+     && /\[\[Reward-to-Risk\]\]\(http/.test(allText)
+     && /\[\[Fading Setup\]\]\(http/.test(allText)
+     && /\[\[Confirmed Candle Close\]\]\(http/.test(allText));
+  ok('Decision Level field uses [[Decision Level]](url)', /\[\[Decision Level\]\]\(http/.test(allText));
   // No backslash-escaped form
   ok('NO escaped \\[Label\\] form anywhere',            !/\\\[/.test(allText));
 }
@@ -560,12 +567,12 @@ console.log('\n[T18] Dollar Risk — lifecycle-aware header + dollar amounts');
     mkRanked('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,     900,  'late'),
   ];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, { now: Date.parse('2026-05-13T12:00:00Z') });
-  const dr0 = out.messages[1].embeds[0].fields.find(f => /Dollar risk this trade/.test(f.name));
-  const dr1 = out.messages[2].embeds[0].fields.find(f => /Dollar risk this trade/.test(f.name));
-  const dr2 = out.messages[3].embeds[0].fields.find(f => /Dollar risk this trade/.test(f.name));
+  const dr0 = out.messages[1].embeds[0].fields.find(f => /Dollar Risk/.test(f.name));
+  const dr1 = out.messages[2].embeds[0].fields.find(f => /Dollar Risk/.test(f.name));
+  const dr2 = out.messages[3].embeds[0].fields.find(f => /Dollar Risk/.test(f.name));
   ok('FRESH dollar-risk header — "half size for FRESH"',    /half size for FRESH/.test(dr0.name));
   ok('STILL ACTIVE dollar-risk header — "full size allowed (STILL ACTIVE)"', /full size allowed \(STILL ACTIVE\)/.test(dr1.name));
-  ok('FADING dollar-risk header — "QUARTER size only (FADING)"', /QUARTER size only \(FADING\)/.test(dr2.name));
+  ok('FADING dollar-risk header explains reduced late-stage size', /quarter-size only because this is a FADING card/.test(dr2.name));
   // Body contains dollar figures
   ok('FRESH dollar-risk body contains "$" amount',        /\$\d+/.test(dr0.value));
   ok('STILL ACTIVE dollar-risk body contains "$" amount', /\$\d+/.test(dr1.value));
