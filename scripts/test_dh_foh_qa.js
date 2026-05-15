@@ -237,8 +237,8 @@ console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / 
      && /1:3/.test(e.fields.find(f => f.name === 'ATLAS confirmation gate').value)
      && /2R/.test(e.fields.find(f => f.name === 'ATLAS confirmation gate').value));
   ok('source proof ties text levels and chart labels to same payload',
-     /same evidence-derived card payload/.test(e.fields.find(f => f.name === 'Source proof').value)
-     && /PNG chart attachment/.test(e.fields.find(f => f.name === 'Source proof').value));
+     /Same evidence payload/.test(e.fields.find(f => f.name === 'Source proof').value)
+     && /Chart labels use these same values/.test(e.fields.find(f => f.name === 'Source proof').value));
   // Per-candidate "In ATLAS terms" / "Terms" REMOVED — banner row covers terminology
   ok('field "In ATLAS terms" / "Terms" REMOVED',
      !fieldNames.includes('In ATLAS terms') && !fieldNames.includes('Terms'));
@@ -613,6 +613,34 @@ console.log('\n[T19] WHAT TO DO NOW — numbered ① to ⑤ checklist');
   for (const glyph of ['①', '②', '③', '④', '⑤']) {
     ok(`WHAT TO DO NOW contains "${glyph}" step`, wtdn.indexOf(glyph) >= 0);
   }
+}
+
+// ============================================================
+// T20 — Price precision audit rows — minimum buffer doctrine
+// ============================================================
+console.log('\n[T20] Price precision audit — minimum buffer proof rows');
+{
+  const top10 = [
+    mkRanked('GBPUSD', 5, 'Bearish', rank.SECTIONS.FX_MAJORS,   1.27, 'late'),
+    mkRanked('GBPCAD', 5, 'Bearish', rank.SECTIONS.FX_CROSSES,  1.74, 'late'),
+    mkRanked('US500',  5, 'Bullish', rank.SECTIONS.INDICES,     5200, 'mid'),
+    mkRanked('GOOGL',  5, 'Bullish', rank.SECTIONS.EQUITIES,    170,  'early'),
+  ];
+  const rows = foh.buildPricePrecisionAuditRows({ top10, allCount: 4 }, { level: 'elevated' }, {
+    now: Date.parse('2026-05-14T23:50:00Z'),
+    universeSize: 35,
+  });
+  ok('price precision audit returns one PASS row per candidate', rows.length === 4 && rows.every(r => r.status === 'PASS'), rows);
+  ok('FX rows use tight 0.0003 elevated buffer, not broad percentage range',
+     rows.filter(r => /GBP/.test(r.symbol)).every(r => r.bufferUsed === '0.0003' && /^1\.\d{4}–1\.\d{4}$/.test(r.entryZone)),
+     rows);
+  ok('non-FX rows carry asset-specific buffer explanations',
+     /Index: tick-aware/.test(rows.find(r => r.symbol === 'US500').whyThisBuffer)
+     && /Equity: tick-aware/.test(rows.find(r => r.symbol === 'GOOGL').whyThisBuffer),
+     rows);
+  ok('audit rows include dollar risk and R:R generated from exact bands',
+     rows.every(r => /^\$\d+/.test(r.dollarRisk) && /\d\.\dR/.test(r.rewardToRisk)),
+     rows);
 }
 
 // ============================================================
