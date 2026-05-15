@@ -509,8 +509,10 @@ async function renderChartCardAttachments(messages) {
 const ESC = '';
 const ANSI_RESET  = ESC + '[0m';
 const ANSI_GOLD   = ESC + '[33;1m';
+const ANSI_BRIGHT_YELLOW = ESC + '[93;1m';
+const ANSI_BRIGHT_CYAN   = ESC + '[96;1m';
 const ANSI_GREEN  = ESC + '[32;1m';
-const ANSI_YELLOW = ESC + '[33;1m';
+const ANSI_YELLOW = ESC + '[93;1m';
 const ANSI_RED    = ESC + '[31;1m';
 const ANSI_CYAN   = ESC + '[36;1m';
 const ANSI_MAGENTA = ESC + '[35;1m';
@@ -817,7 +819,7 @@ function _redNewDividerTop(nowMs, universeSize) {
 function _sectionBanner(text, accent) {
   const ansi = accent === 'cyan' ? ANSI_CYAN
              : accent === 'magenta' ? ANSI_MAGENTA
-             : ANSI_GOLD;
+             : ANSI_BRIGHT_YELLOW;
   const inner = ' ' + text + ' ';
   const pad = Math.max(2, 52 - inner.length);
   const top = '╔' + '═'.repeat(52) + '╗';
@@ -828,7 +830,7 @@ function _sectionBanner(text, accent) {
 
 // ── Gold subheading ("▸  …") ────────────────────────────────
 function _subheading(text, accent) {
-  const ansi = accent === 'cyan' ? ANSI_CYAN : ANSI_GOLD;
+  const ansi = accent === 'cyan' ? ANSI_CYAN : ANSI_BRIGHT_YELLOW;
   return ['```ansi', ansi + '▸  ' + text + ANSI_RESET, '```'].join('\n');
 }
 
@@ -929,39 +931,40 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
 // FRESH candidate gets a lifecycle line appended to the banner.
 function _lifecycleSeparator(record, lifecycle, idx, total) {
   const rankLabel = 'STANDOUT #' + (idx + 1) + ' of ' + total;
-  const badge = '[[NEW_BADGE:' + lifecycle.stage + '|' + lifecycle.tone + ']]';
   const symbolNote = (record.symbol || 'unknown') + ' — ' + lifecycle.narrative;
+  function boxLine(text) {
+    return '║ ' + String(text || '').slice(0, 60).padEnd(60, ' ') + ' ║';
+  }
   if (lifecycle.tone === 'fresh') {
-    // FRESH: filled red badge (```diff fence captures the filled
-    // red render in plain Discord).
+    // FRESH stays red-filled in Discord diff syntax.
     return [
       '```diff',
       '- ' + BAR_HEAVY,
       '-   🆕   FRESH   ·   ' + rankLabel + '   ·   ' + symbolNote,
       '- ' + BAR_HEAVY,
       '```',
-      badge + '  ·  ' + rankLabel + '  ·  ' + symbolNote,
     ].join('\n');
   }
   if (lifecycle.tone === 'active') {
-    // STILL ACTIVE: outlined red (```ansi red text on no fill).
+    // STILL ACTIVE gets a bright cyan boxed banner so it does not
+    // blend into the amber section headings.
     return [
       '```ansi',
-      ANSI_RED + BAR_LIGHT + ANSI_RESET,
-      ANSI_RED + '  🟧   STILL ACTIVE   ·   ' + rankLabel + '   ·   ' + symbolNote + ANSI_RESET,
-      ANSI_RED + BAR_LIGHT + ANSI_RESET,
+      ANSI_BRIGHT_CYAN + '╔' + '═'.repeat(62) + '╗' + ANSI_RESET,
+      ANSI_BRIGHT_CYAN + boxLine('🟦  STILL ACTIVE   ·   ' + rankLabel) + ANSI_RESET,
+      ANSI_BRIGHT_CYAN + boxLine(symbolNote) + ANSI_RESET,
+      ANSI_BRIGHT_CYAN + '╚' + '═'.repeat(62) + '╝' + ANSI_RESET,
       '```',
-      badge + '  ·  ' + rankLabel + '  ·  ' + symbolNote,
     ].join('\n');
   }
-  // FADING: outlined orange (```ansi yellow/grey).
+  // FADING gets a bright yellow boxed warning banner.
   return [
     '```ansi',
-    ANSI_YELLOW + BAR_DOTTED + ANSI_RESET,
-    ANSI_YELLOW + '  ⚪   FADING   ·   ' + rankLabel + '   ·   ' + symbolNote + ANSI_RESET,
-    ANSI_YELLOW + BAR_DOTTED + ANSI_RESET,
+    ANSI_BRIGHT_YELLOW + '╔' + '═'.repeat(62) + '╗' + ANSI_RESET,
+    ANSI_BRIGHT_YELLOW + boxLine('🟨  FADING   ·   ' + rankLabel) + ANSI_RESET,
+    ANSI_BRIGHT_YELLOW + boxLine(symbolNote) + ANSI_RESET,
+    ANSI_BRIGHT_YELLOW + '╚' + '═'.repeat(62) + '╝' + ANSI_RESET,
     '```',
-    badge + '  ·  ' + rankLabel + '  ·  ' + symbolNote,
   ].join('\n');
 }
 

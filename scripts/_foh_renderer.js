@@ -46,6 +46,7 @@ function escapeHtml(s) {
 const ANSI_FG = {
   30: '#4F545C', 31: '#ED4245', 32: '#23A55A', 33: '#FAA61A',
   34: '#5865F2', 35: '#EB459E', 36: '#5BC0DE', 37: '#FFFFFF',
+  93: '#FFD600', 96: '#00B0FF',
 };
 function renderAnsiBlock(raw) {
   const segments = raw.split('[');
