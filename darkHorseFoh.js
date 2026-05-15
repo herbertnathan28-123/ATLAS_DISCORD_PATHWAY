@@ -791,6 +791,67 @@ function _positionRule(lifecycle, volatility, contract) {
   };
 }
 
+function _rewardRForLifecycle(lifecycle) {
+  if (lifecycle && lifecycle.stage === 'FADING') return 1.3;
+  if (lifecycle && lifecycle.stage === 'FRESH') return 5.7;
+  return 3.0;
+}
+
+function _executionAuthorityState(lifecycle, bands) {
+  if (!bands) return 'WAIT FOR CONFIRMATION';
+  if (lifecycle.stage === 'FADING') return 'REDUCED SIZE ONLY / NOT PRIMARY';
+  if (lifecycle.stage === 'FRESH') return 'WAIT FOR CONFIRMATION';
+  return 'EXECUTION CANDIDATE';
+}
+
+function _executionAuthorityFieldValue(record, lifecycle, bands, position) {
+  const state = _executionAuthorityState(lifecycle, bands);
+  const rewardR = _rewardRForLifecycle(lifecycle);
+  const lines = [
+    '**' + state + '**',
+    'Dark Horse is a mover scan, not standalone execution authority.',
+  ];
+  if (state === 'EXECUTION CANDIDATE') {
+    lines.push('Why: STILL ACTIVE lifecycle and model ' + rewardR.toFixed(1) + 'R meet the ATLAS preferred 1:3 standard before gates are checked.');
+  } else if (state === 'WAIT FOR CONFIRMATION') {
+    lines.push('Why: model ' + rewardR.toFixed(1) + 'R is acceptable, but timing still requires candle-close confirmation.');
+  } else {
+    lines.push('Why: model ' + rewardR.toFixed(1) + 'R is below the 2R minimum and below the ATLAS preferred 1:3 standard.');
+    lines.push('Education / observation unless no higher-quality card is available: stronger conviction, closer entry, better reward-to-risk, less invalidation pressure.');
+  }
+  return lines.join('\n');
+}
+
+function _confirmationGateFieldValue(record, lifecycle, bands, urlMap) {
+  if (!bands) {
+    return [
+      'Before action, wait for all required levels to publish:',
+      '• market context supports the direction',
+      '• decision level, entry zone, watch level, and invalidation are available',
+      '• a ' + _termLink('Confirmed Candle Close', urlMap) + ' appears in the required direction',
+      '• model reward-to-risk is suitable for the card state',
+    ].join('\n');
+  }
+  return [
+    'Execution gate:',
+    '• market context supports direction',
+    '• ' + _termLink('Decision Level', urlMap) + ': **' + bands.triggerText + '**',
+    '• ' + _termLink('Entry Zone', urlMap) + ': **' + bands.entryLowText + ' – ' + bands.entryHighText + '**',
+    '• ' + _termLink('Invalidation', urlMap) + ': **' + bands.invalidationText + '**',
+    '• candle-close confirmation in required direction',
+    '• reward-to-risk: ATLAS preferred **1:3**; normal execution never below **2R**',
+  ].join('\n');
+}
+
+function _sourceProofFieldValue(record, bands) {
+  if (!bands) return 'Source proof pending until decision, entry, watch, and invalidation levels are available.';
+  return [
+    'Text levels and chart labels use the same evidence-derived card payload:',
+    'Decision **' + bands.triggerText + '** · Entry **' + bands.entryLowText + ' – ' + bands.entryHighText + '** · Watch **' + bands.watchText + '** · Invalidation **' + bands.invalidationText + '**.',
+    'PNG chart attachment uses the same values.',
+  ].join('\n');
+}
+
 // ── Market Mood disc helper (B12 — 5-disc, /5, ⚫ inactive) ──
 function _moodDiscs(volatility) {
   const lvl = String((volatility && volatility.level) || '').toLowerCase();
@@ -1108,17 +1169,17 @@ function _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp)
 
   return [
     '🟢 ENTRY zone  {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}}',
-    '   What this means: price has pulled back into the tight band where',
-    '   ' + movers + ' stepped in the last time the level was tested.',
+    '   What this means: price has returned to the tight band where',
+    '   the last turn in this setup occurred.',
     '   Required price behaviour: a 5-minute candle that opens inside the',
     '   band AND ' + bandHighLowDescriptor + ' (this is the',
     '   ' + _termLink('Confirmed Candle Close', urlMap) + ' test).',
-    '   Action: ' + verb + ' on that candle close — start with the position',
+    '   Action: ' + verb + ' on that candle close — start with the model position',
     '   rule below ({{money:~$' + fullRiskDollars + '}} planned risk).',
     '',
     '🟡 WATCH level  {{watch:' + bands.watchText + '}}',
-    '   What this means: ' + movers + ' are losing initial control. The',
-    '   first warning sign that the move is weakening.',
+    '   What this means: price is moving against the idea. This is the',
+    '   first warning level before invalidation.',
     '   💲 If price closes ' + reachDir + ' {{watch:' + bands.watchText + '}} on the 1H,',
     '   the position is typically down 30–50% of planned risk',
     '   ({{money:~$' + partialRiskDollars + '}} of the {{money:~$' + fullRiskDollars + '}} at risk).',
@@ -1134,7 +1195,7 @@ function _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp)
     '',
     '🔴 ' + invalidationLink + '  {{invalid:' + bands.invalidationText + '}}',
     '   What this means: the ' + dirNoun + ' idea is OFF entirely.',
-    '   💲 Full planned risk taken: {{money:$' + fullRiskDollars + '}} on the recommended size.',
+    '   💲 Full planned risk taken: {{money:$' + fullRiskDollars + '}} on the model size.',
     '   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for',
     '   a new ' + _termLink('Re-entry Structure', urlMap) + ' on a later scan.',
     '',
@@ -1170,15 +1231,15 @@ function _dollarRiskFieldValue(record, lifecycle, position, contract, bands) {
   const standardDescriptor = contract.seeded
     ? '{{money:$' + standardDollar.toLocaleString('en-US') + ' risk on ' + contract.standardSizeLabel + '}} (' + contract.pipDescriptor + ')'
     : '{{money:$' + standardDollar + ' risk}} (educational example — 1% of $25,000 account; actual sizing depends on your account + contract)';
-  lines.push('💲 Standard plan: ' + standardDescriptor + '.');
+  lines.push('💲 Model example: ' + standardDescriptor + '.');
 
   // Recommended dollars at the lifecycle-adjusted multiplier.
   const baseExpected = lifecycle.stage === 'FRESH' ? 0.5 : lifecycle.stage === 'FADING' ? 0.25 : 1.0;
   const moodAppendix = position.multiplier !== baseExpected ? ' × ' + position.moodNote : '';
   if (lifecycle.stage === 'FADING') {
-    lines.push('💲 This card uses quarter-size because the setup is late-stage, so planned risk is {{money:~' + position.dollarRiskText + '}}.');
+    lines.push('💲 This card uses quarter-size because the setup is late-stage, so model planned risk is {{money:~' + position.dollarRiskText + '}}.');
   } else {
-    lines.push('💲 Recommended for this card (' + lifecycle.stage + ' · ' + position.lifecycleNote + moodAppendix + '): {{money:~' + position.dollarRiskText + '}}.');
+    lines.push('💲 Model size for this card (' + lifecycle.stage + ' · ' + position.lifecycleNote + moodAppendix + '): {{money:~' + position.dollarRiskText + '}}.');
   }
 
   // Mood scaling hint (only when relevant).
@@ -1191,9 +1252,9 @@ function _dollarRiskFieldValue(record, lifecycle, position, contract, bands) {
 
   // Reward-target heuristic — fixed 2R or 3R based on lifecycle.
   if (bands) {
-    const rewardR = lifecycle.stage === 'FADING' ? 1.3 : lifecycle.stage === 'FRESH' ? 5.7 : 3.0;
+    const rewardR = _rewardRForLifecycle(lifecycle);
     const rewardDollar = Math.round(position.dollarRisk * rewardR);
-    lines.push('💲 Reward target after confirmed follow-through: {{money:~$' + rewardDollar + '}} on the recommended size · {{money:' + rewardR.toFixed(1) + 'R}}.');
+    lines.push('💲 Reward target after confirmed follow-through: {{money:~$' + rewardDollar + '}} on the model size · {{money:' + rewardR.toFixed(1) + 'R}}.');
   }
 
   // Late-stage warning.
@@ -1227,9 +1288,9 @@ function _whatToDoNowFieldValue(record, lifecycle, position, bands, contract) {
   // FADING — quarter-size flow.
   if (lifecycle.stage === 'FADING') {
     return [
-      '① QUARTER size at most — this is not a primary entry. {{money:' + position.dollarRiskText + ' risk}}.',
+      '① QUARTER size at most — this is not a primary entry. {{money:' + position.dollarRiskText + ' model risk}}.',
       '② Only ' + verb.toLowerCase() + ' if price returns to {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}} and forms a strong 5-minute close in the required direction.',
-      '③ Place the exit-point at {{invalid:' + bands.invalidationText + '}} ({{money:' + position.dollarRiskText + ' risk}}).',
+      '③ Place the exit-point at {{invalid:' + bands.invalidationText + '}} ({{money:' + position.dollarRiskText + ' model risk}}).',
       '④ If {{watch:' + bands.watchText + '}} closes ' + (isShort ? 'above' : 'below') + ' on 1H, exit ALL — late-stage cards do not give second chances.',
       '⑤ Skip this card if another standout has stronger conviction, price closer to its entry zone, better reward-to-risk, and less invalidation pressure.',
     ].join('\n');
@@ -1237,8 +1298,8 @@ function _whatToDoNowFieldValue(record, lifecycle, position, bands, contract) {
   // FRESH / STILL ACTIVE common flow.
   return [
     '① Wait for a 5-min candle to open inside {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}}.',
-    '② ' + verb + " that candle's close — {{money:" + position.dollarRiskText + ' on the recommended size}}.',
-    '③ Place the exit-point at {{invalid:' + bands.invalidationText + '}} ({{money:' + position.dollarRiskText + ' risk}}).',
+    '② ' + verb + " that candle's close — {{money:" + position.dollarRiskText + ' model risk}}.',
+    '③ Place the exit-point at {{invalid:' + bands.invalidationText + '}} ({{money:' + position.dollarRiskText + ' model risk}}).',
     '④ If {{watch:' + bands.watchText + '}} closes ' + (isShort ? 'above' : 'below') + ' on 1H, exit half (freeing {{money:~$' + halfRisk + '}}) and hold the rest with the exit-point unchanged.',
     '⑤ Full exit at {{invalid:' + bands.invalidationText + '}} if reached — the ' + (isShort ? 'bearish' : 'bullish') + ' idea is OFF.',
   ].join('\n');
@@ -1281,6 +1342,8 @@ function _candidateEmbed(record, idx, total, isLast, opts, urlMap, volatility, c
     { name: 'Move Type',         value: _moveTypeFieldValue(record), inline: true },
     { name: 'Direction',         value: _directionFieldValue(record.direction, urlMap), inline: true },
     { name: 'Conviction',        value: _convictionFieldValue(record, stateBadge), inline: false },
+    { name: 'ATLAS execution state', value: _executionAuthorityFieldValue(record, lifecycle, bands, position), inline: false },
+    { name: 'ATLAS confirmation gate', value: _confirmationGateFieldValue(record, lifecycle, bands, urlMap), inline: false },
     { name: 'Decision Level',    value: _decisionLevelFieldValue(record, urlMap, bands), inline: true },
     { name: 'Expected Duration', value: _expectedDurationFieldValue(record, urlMap), inline: true },
     { name: "Today's Rank",      value: _todaysRankFieldValue(idx, total, urlMap), inline: true },
@@ -1293,6 +1356,7 @@ function _candidateEmbed(record, idx, total, isLast, opts, urlMap, volatility, c
   fields.push({ name: 'WHAT TO DO NOW',  value: _whatToDoNowFieldValue(record, lifecycle, position, bands, contract), inline: false });
   fields.push({ name: 'What confirms the idea', value: _whatConfirmsFieldValue(record, bands, urlMap), inline: false });
   fields.push({ name: 'What cancels the idea',  value: _whatCancelsFieldValue(record, bands), inline: false });
+  fields.push({ name: 'Source proof', value: _sourceProofFieldValue(record, bands), inline: false });
   if (lifecycle.stage === 'FADING') {
     fields.push({ name: '⚠️  Late-stage risk note', value: _lateStageCaveatFieldValue(), inline: false });
   }

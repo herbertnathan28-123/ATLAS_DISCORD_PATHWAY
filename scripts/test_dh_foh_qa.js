@@ -211,6 +211,8 @@ console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / 
   ok('field "Move Type" present',         fieldNames.includes('Move Type'));
   ok('field "Direction" present',         fieldNames.includes('Direction'));
   ok('field "Conviction" present',        fieldNames.includes('Conviction'));
+  ok('field "ATLAS execution state" present', fieldNames.includes('ATLAS execution state'));
+  ok('field "ATLAS confirmation gate" present', fieldNames.includes('ATLAS confirmation gate'));
   ok('field "Decision Level" present',    fieldNames.includes('Decision Level'));
   ok('field "Trigger Level" removed',     !fieldNames.includes('Trigger Level'));
   ok('field "Expected Duration" present (renamed from Horizon)', fieldNames.includes('Expected Duration'));
@@ -223,6 +225,20 @@ console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / 
   ok('field "WHAT TO DO NOW" present',    fieldNames.includes('WHAT TO DO NOW'));
   ok('field "What confirms the idea" present', fieldNames.includes('What confirms the idea'));
   ok('field "What cancels the idea" present',  fieldNames.includes('What cancels the idea'));
+  ok('field "Source proof" present',      fieldNames.includes('Source proof'));
+  ok('execution state says Dark Horse is not standalone execution authority',
+     /not standalone execution authority/.test(e.fields.find(f => f.name === 'ATLAS execution state').value));
+  ok('confirmation gate requires market context + decision/entry/invalidation + candle close + R:R',
+     /market context/.test(e.fields.find(f => f.name === 'ATLAS confirmation gate').value)
+     && /Decision Level/.test(e.fields.find(f => f.name === 'ATLAS confirmation gate').value)
+     && /Entry Zone/.test(e.fields.find(f => f.name === 'ATLAS confirmation gate').value)
+     && /Invalidation/.test(e.fields.find(f => f.name === 'ATLAS confirmation gate').value)
+     && /Confirmed Candle Close|candle-close confirmation/.test(e.fields.find(f => f.name === 'ATLAS confirmation gate').value)
+     && /1:3/.test(e.fields.find(f => f.name === 'ATLAS confirmation gate').value)
+     && /2R/.test(e.fields.find(f => f.name === 'ATLAS confirmation gate').value));
+  ok('source proof ties text levels and chart labels to same payload',
+     /same evidence-derived card payload/.test(e.fields.find(f => f.name === 'Source proof').value)
+     && /PNG chart attachment/.test(e.fields.find(f => f.name === 'Source proof').value));
   // Per-candidate "In ATLAS terms" / "Terms" REMOVED — banner row covers terminology
   ok('field "In ATLAS terms" / "Terms" REMOVED',
      !fieldNames.includes('In ATLAS terms') && !fieldNames.includes('Terms'));
@@ -577,6 +593,13 @@ console.log('\n[T18] Dollar Risk — lifecycle-aware header + dollar amounts');
   ok('FRESH dollar-risk body contains "$" amount',        /\$\d+/.test(dr0.value));
   ok('STILL ACTIVE dollar-risk body contains "$" amount', /\$\d+/.test(dr1.value));
   ok('FADING dollar-risk body contains "$" amount',       /\$\d+/.test(dr2.value));
+  ok('dollar-risk examples are labelled model/example, not personalised advice',
+     /Model example/.test(dr0.value) && /Model example/.test(dr1.value) && /Model example/.test(dr2.value));
+  const fadingState = out.messages[3].embeds[0].fields.find(f => f.name === 'ATLAS execution state').value;
+  ok('FADING below-2R card is not presented as normal execution',
+     /REDUCED SIZE ONLY \/ NOT PRIMARY/.test(fadingState)
+     && /below the 2R minimum/.test(fadingState)
+     && /ATLAS preferred 1:3/.test(fadingState));
 }
 
 // ============================================================
