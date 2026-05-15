@@ -159,19 +159,33 @@ const SECTION_LABEL = {
 // account" framing so the field is never blank but is never
 // presented as a live trading recommendation either.
 const CONTRACT_INFO = Object.freeze({
-  EURUSD: { standardSizeLabel: '1 lot EURUSD',              dollarRiskPerLotStandard: 300,  pipDescriptor: '30-point exit on a 0.0030 move' },
-  XAUUSD: { standardSizeLabel: '1 lot XAUUSD (100 oz)',     dollarRiskPerLotStandard: 1350, pipDescriptor: '$13.50/oz × 100 oz on a $13.50 move' },
-  NVDA:   { standardSizeLabel: '100 shares NVDA',           dollarRiskPerLotStandard: 1860, pipDescriptor: '$18.60/share × 100 shares' },
+  EURUSD: { standardSizeLabel: '1 lot EURUSD',              pointValue: 100000,  pipDescriptor: '1 lot model: price distance × 100,000 notional' },
+  XAUUSD: { standardSizeLabel: '1 lot XAUUSD (100 oz)',     pointValue: 100,     pipDescriptor: '1 lot model: dollar distance × 100 oz' },
+  NVDA:   { standardSizeLabel: '100 shares NVDA',           pointValue: 100,     pipDescriptor: '100-share model: dollar distance × 100 shares' },
 });
-function _contractInfo(symbol) {
+function _contractInfo(symbol, record) {
   const seeded = CONTRACT_INFO[symbol];
   if (seeded) return Object.assign({ symbol, seeded: true }, seeded);
+  const section = String((record && record.section) || '').toLowerCase();
+  const isFx = /^([A-Z]{6})$/.test(symbol || '') || section.indexOf('fx_') === 0;
+  const isJpy = /JPY$/.test(symbol || '');
+  const isCommodity = section === 'commodities' || /^X[A-Z]{2}USD$/.test(symbol || '');
+  const isEquity = section === 'equities';
+  const isIndex = section === 'indices';
   return {
     symbol,
     seeded: false,
-    standardSizeLabel: 'educational example position',
-    dollarRiskPerLotStandard: 250,
-    pipDescriptor: 'educational example — 1% of a $25,000 account',
+    standardSizeLabel: isFx ? '1 lot FX model'
+      : isCommodity ? '1 contract commodity model'
+      : isEquity ? '100-share equity model'
+      : isIndex ? '1 index contract model'
+      : 'educational example position',
+    pointValue: isFx ? (isJpy ? 1000 : 100000)
+      : isCommodity ? 100
+      : isEquity ? 100
+      : isIndex ? 1
+      : 1,
+    pipDescriptor: 'educational model — exact price distance × model point value',
   };
 }
 
@@ -197,6 +211,15 @@ function _fmtPrice(v) {
   if (Math.abs(v) >= 10)   return v.toFixed(2);
   if (Math.abs(v) >= 1)    return v.toFixed(4);
   return v.toFixed(5);
+}
+function _roundToTick(v, tick) {
+  if (!Number.isFinite(v) || !Number.isFinite(tick) || tick <= 0) return v;
+  return Math.round(v / tick) * tick;
+}
+function _fmtPriceForProfile(v, profile) {
+  if (!Number.isFinite(v)) return null;
+  if (profile && Number.isFinite(profile.decimals)) return v.toFixed(profile.decimals);
+  return _fmtPrice(v);
 }
 function _xmlEscape(s) {
   return String(s == null ? '' : s)
@@ -696,6 +719,46 @@ function moverStage(record) {
   return 'mid';
 }
 
+function _precisionProfile(record, volatility, trigger) {
+  const symbol = String((record && record.symbol) || '').toUpperCase();
+  const section = String((record && record.section) || '').toLowerCase();
+  const lvl = String((volatility && volatility.level) || '').toLowerCase();
+  const volMult = lvl === 'extreme' ? 1.5 : lvl === 'elevated' ? 1.25 : lvl === 'quiet' ? 0.75 : 1;
+  const isFx = /^([A-Z]{6})$/.test(symbol) || section.indexOf('fx_') === 0;
+  const isJpy = /JPY$/.test(symbol);
+  const isMetal = /^XAU|^XAG/.test(symbol) || section === 'commodities';
+  const isEquity = section === 'equities';
+  const isIndex = section === 'indices';
+  let tick = 0.01, decimals = 2, baseBuffer = 0.05, label = 'general 5-cent model buffer';
+  if (isFx && isJpy) {
+    tick = 0.01; decimals = 2; baseBuffer = 0.02; label = 'JPY FX: 2-pip minimum structural buffer';
+  } else if (isFx) {
+    tick = 0.0001; decimals = 4; baseBuffer = 0.0002; label = 'FX: 2-pip minimum structural buffer';
+  } else if (/^XAU/.test(symbol)) {
+    tick = 0.10; decimals = 2; baseBuffer = 1.00; label = 'Gold: $1 minimum structural buffer';
+  } else if (/^XAG/.test(symbol)) {
+    tick = 0.01; decimals = 2; baseBuffer = 0.03; label = 'Silver: 3-cent minimum structural buffer';
+  } else if (isIndex) {
+    tick = 0.25; decimals = 2; baseBuffer = Math.max(1.00, Math.abs(trigger || 0) * 0.0004); label = 'Index: tick-aware 0.04% structural buffer';
+  } else if (isEquity) {
+    tick = 0.01; decimals = 2; baseBuffer = Math.max(0.05, Math.abs(trigger || 0) * 0.0005); label = 'Equity: tick-aware 0.05% structural buffer';
+  } else if (isMetal) {
+    tick = 0.10; decimals = 2; baseBuffer = Math.max(0.50, Math.abs(trigger || 0) * 0.0005); label = 'Commodity: tick-aware 0.05% structural buffer';
+  }
+  const entryBuffer = Math.max(tick, _roundToTick(baseBuffer * volMult, tick));
+  const invalidationBuffer = Math.max(tick, _roundToTick(baseBuffer * volMult, tick));
+  const cautionBuffer = Math.max(tick, _roundToTick(baseBuffer * volMult, tick));
+  return {
+    tick,
+    decimals,
+    entryBuffer,
+    invalidationBuffer,
+    cautionBuffer,
+    bufferText: _fmtPriceForProfile(entryBuffer, { decimals }),
+    why: label + (volMult !== 1 ? ' × ' + lvl + ' volatility multiplier' : ''),
+  };
+}
+
 // ── B8.a — band derivation (entry / watch / caution) ────────
 // Inputs: record.evidenceAnchors (recentHigh / recentLow /
 // invalidation), record.direction, volatility.level. The bands
@@ -711,54 +774,73 @@ function _deriveBands(record, volatility) {
   const span = Math.abs(hi - lo);
   if (!Number.isFinite(span) || span <= 0) return null;
 
-  // Conviction-aware band width (Priority 7 doctrine).
-  // High conviction / quiet vol → 4-point band (4% of span).
-  // Elevated vol → 15-point band (15% of span).
-  const lvl = String((volatility && volatility.level) || '').toLowerCase();
-  const widthPct = (lvl === 'elevated' || lvl === 'extreme') ? 0.15 : 0.05;
-  const bandWidth = span * widthPct;
-
   // Decision anchor: the price level the card is built around.
   // For longs, the prior high; for shorts, the prior low.
-  const trigger = isShort ? lo : hi;
+  const rawTrigger = isShort ? lo : hi;
+  const profile = _precisionProfile(record, volatility, rawTrigger);
+  const trigger = _roundToTick(rawTrigger, profile.tick);
 
-  // Entry band centred on the trigger ± half band width.
-  const entryLow  = trigger - bandWidth / 2;
-  const entryHigh = trigger + bandWidth / 2;
+  // Minimum practical buffer around the true decision level.
+  const entryLow  = _roundToTick(trigger - profile.entryBuffer, profile.tick);
+  const entryHigh = _roundToTick(trigger + profile.entryBuffer, profile.tick);
+
+  // Invalidation is the actual failure point plus the minimum
+  // asset-appropriate buffer, never a wide convenience distance.
+  const rawInvalidation = isShort
+    ? inv + profile.invalidationBuffer
+    : inv - profile.invalidationBuffer;
+  const invalidation = _roundToTick(rawInvalidation, profile.tick);
 
   // Watch level — between entry and invalidation, 30% of the way
   // toward invalidation. The first warning that direction is
   // weakening.
-  const distToInv = Math.abs(trigger - inv);
+  const distToInv = Math.abs(trigger - invalidation);
   const watch = isShort
-    ? trigger + (distToInv * 0.30)
-    : trigger - (distToInv * 0.30);
+    ? _roundToTick(trigger + (distToInv * 0.30), profile.tick)
+    : _roundToTick(trigger - (distToInv * 0.30), profile.tick);
 
   // Caution band — the band between watch and invalidation. The
   // upper bound for longs is the watch level; for shorts mirror.
   // Caution INNER edge is watch, OUTER edge is the invalidation
   // less the band width.
   const cautionEdge = isShort
-    ? inv - bandWidth
-    : inv + bandWidth;
+    ? _roundToTick(invalidation - profile.cautionBuffer, profile.tick)
+    : _roundToTick(invalidation + profile.cautionBuffer, profile.tick);
 
   return {
     trigger,
-    triggerText: _fmtPrice(trigger),
-    entryLow,    entryLowText:  _fmtPrice(entryLow),
-    entryHigh,   entryHighText: _fmtPrice(entryHigh),
-    watch,       watchText:     _fmtPrice(watch),
+    triggerText: _fmtPriceForProfile(trigger, profile),
+    entryLow,    entryLowText:  _fmtPriceForProfile(entryLow, profile),
+    entryHigh,   entryHighText: _fmtPriceForProfile(entryHigh, profile),
+    watch,       watchText:     _fmtPriceForProfile(watch, profile),
     caution:     cautionEdge,
-    cautionText: _fmtPrice(cautionEdge),
-    invalidation: inv,
-    invalidationText: _fmtPrice(inv),
-    bandWidthText: _fmtPrice(bandWidth),
+    cautionText: _fmtPriceForProfile(cautionEdge, profile),
+    invalidation,
+    invalidationText: _fmtPriceForProfile(invalidation, profile),
+    structureFailure: inv,
+    structureFailureText: _fmtPriceForProfile(inv, profile),
+    bandWidthText: _fmtPriceForProfile(profile.entryBuffer * 2, profile),
+    bufferUsedText: profile.bufferText,
+    bufferWhy: profile.why,
+    precision: profile,
     isShort,
   };
 }
 
 // ── B12 — position sizing rule (lifecycle × Market Mood) ────
-function _positionRule(lifecycle, volatility, contract) {
+function _modelRiskFromBands(contract, bands) {
+  if (!contract || !bands || !Number.isFinite(contract.pointValue)) return null;
+  const entryMid = (bands.entryLow + bands.entryHigh) / 2;
+  const distance = Math.abs(entryMid - bands.invalidation);
+  if (!Number.isFinite(distance) || distance <= 0) return null;
+  return {
+    standardDollarRisk: Math.max(1, Math.round(distance * contract.pointValue)),
+    distance,
+    distanceText: _fmtPriceForProfile(distance, bands.precision),
+  };
+}
+
+function _positionRule(lifecycle, volatility, contract, bands) {
   const mood = String((volatility && volatility.level) || '').toLowerCase();
   // Lifecycle base multiplier
   let base = 1.0;
@@ -779,15 +861,20 @@ function _positionRule(lifecycle, volatility, contract) {
   // Final multiplier (apply mood only when lifecycle is STILL
   // ACTIVE; FRESH and FADING already enforce reduced size).
   const finalMult = lifecycle.stage === 'STILL ACTIVE' ? (base * moodMult) : base;
-  const dollarRisk = Math.round(contract.dollarRiskPerLotStandard * finalMult);
+  const modelRisk = _modelRiskFromBands(contract, bands);
+  const standardDollarRisk = modelRisk ? modelRisk.standardDollarRisk : 250;
+  const dollarRisk = Math.max(1, Math.round(standardDollarRisk * finalMult));
   const lotMult = finalMult.toFixed(2).replace(/\.?0+$/, '');
   return {
     multiplier:   finalMult,
     multiplierText: lotMult,
     lifecycleNote,
     moodNote,
+    standardDollarRisk,
+    standardDollarRiskText: '$' + standardDollarRisk.toLocaleString('en-US'),
     dollarRisk,
     dollarRiskText: '$' + dollarRisk.toLocaleString('en-US'),
+    riskDistanceText: modelRisk ? modelRisk.distanceText : 'n/a',
   };
 }
 
@@ -846,10 +933,52 @@ function _confirmationGateFieldValue(record, lifecycle, bands, urlMap) {
 function _sourceProofFieldValue(record, bands) {
   if (!bands) return 'Source proof pending until decision, entry, watch, and invalidation levels are available.';
   return [
-    'Text levels and chart labels use the same evidence-derived card payload:',
+    'Same evidence payload feeds text + PNG chart:',
     'Decision **' + bands.triggerText + '** · Entry **' + bands.entryLowText + ' – ' + bands.entryHighText + '** · Watch **' + bands.watchText + '** · Invalidation **' + bands.invalidationText + '**.',
-    'PNG chart attachment uses the same values.',
+    'Minimum buffer: **' + bands.bufferUsedText + '**. Why: ' + bands.bufferWhy + '.',
+    'Chart labels use these same values.',
   ].join('\n');
+}
+
+function buildPricePrecisionAuditRows(ranking, volatility, opts) {
+  const top10 = (ranking && Array.isArray(ranking.top10)) ? ranking.top10 : [];
+  return top10.filter(_hasAnchors).map(record => {
+    const bands = _deriveBands(record, volatility);
+    const lifecycle = lifecycleStage(record);
+    const contract = _contractInfo(record.symbol || '', record);
+    const position = _positionRule(lifecycle, volatility, contract, bands);
+    const rewardR = _rewardRForLifecycle(lifecycle);
+    const direction = String(record.direction || 'Neutral');
+    if (!bands) {
+      return {
+        symbol: record.symbol || '?',
+        direction,
+        decisionLevel: 'pending',
+        entryZone: 'pending',
+        watchLevel: 'pending',
+        invalidation: 'pending',
+        bufferUsed: 'pending',
+        whyThisBuffer: 'levels unavailable',
+        dollarRisk: 'pending',
+        rewardToRisk: rewardR.toFixed(1) + 'R',
+        status: 'FAIL',
+      };
+    }
+    return {
+      symbol: record.symbol || '?',
+      direction,
+      decisionLevel: bands.triggerText,
+      entryZone: bands.entryLowText + '–' + bands.entryHighText,
+      watchLevel: bands.watchText,
+      cautionZone: bands.watchText + '–' + bands.cautionText,
+      invalidation: bands.invalidationText,
+      bufferUsed: bands.bufferUsedText,
+      whyThisBuffer: bands.bufferWhy,
+      dollarRisk: position.dollarRiskText,
+      rewardToRisk: rewardR.toFixed(1) + 'R',
+      status: 'PASS',
+    };
+  });
 }
 
 // ── Market Mood disc helper (B12 — 5-disc, /5, ⚫ inactive) ──
@@ -1227,10 +1356,10 @@ function _dollarRiskFieldValue(record, lifecycle, position, contract, bands) {
       : 'full size allowed (STILL ACTIVE)';
   const lines = [];
 
-  const standardDollar = contract.dollarRiskPerLotStandard;
+  const standardDollar = position.standardDollarRisk;
   const standardDescriptor = contract.seeded
-    ? '{{money:$' + standardDollar.toLocaleString('en-US') + ' risk on ' + contract.standardSizeLabel + '}} (' + contract.pipDescriptor + ')'
-    : '{{money:$' + standardDollar + ' risk}} (educational example — 1% of $25,000 account; actual sizing depends on your account + contract)';
+    ? '{{money:$' + standardDollar.toLocaleString('en-US') + ' risk on ' + contract.standardSizeLabel + '}} (' + contract.pipDescriptor + '; exact distance ' + position.riskDistanceText + ')'
+    : '{{money:$' + standardDollar + ' risk}} (' + contract.pipDescriptor + '; exact distance ' + position.riskDistanceText + ')';
   lines.push('💲 Model example: ' + standardDescriptor + '.');
 
   // Recommended dollars at the lifecycle-adjusted multiplier.
@@ -1322,7 +1451,7 @@ function _whatCancelsFieldValue(record, bands) {
 }
 
 function _lateStageCaveatFieldValue() {
-  return 'Use {{caution:quarter size}} because this is a ' + _termLink('Late-Stage Move') + '. Skip it if another standout has stronger conviction, price closer to entry, better reward-to-risk, and less invalidation pressure.';
+  return 'Use {{caution:quarter size}} because this is a ' + _termLink('Late-Stage Move') + '. Skip if another card has stronger conviction, closer entry, better reward-to-risk, less invalidation pressure.';
 }
 
 // ── Candidate embed (full v6 field set) ─────────────────────
@@ -1331,8 +1460,8 @@ function _candidateEmbed(record, idx, total, isLast, opts, urlMap, volatility, c
   const colour     = _badgeToColor(stateBadge);
   const bands      = _deriveBands(record, volatility);
   const lifecycle  = lifecycleStage(record);
-  const contract   = _contractInfo(record.symbol || '');
-  const position   = _positionRule(lifecycle, volatility, contract);
+  const contract   = _contractInfo(record.symbol || '', record);
+  const position   = _positionRule(lifecycle, volatility, contract, bands);
   const nowMs      = (opts && Number.isFinite(opts.now)) ? opts.now : Date.now();
   const nextReview = _fmtNextReviewUTC(nowMs, opts && opts.intervalMs);
   const description = _candidateDescription(record, stateBadge, bands);
@@ -1625,8 +1754,9 @@ function buildDarkHorseFohPayload(ranking, volatility, opts) {
     if (lifecycle.stage === 'FRESH')  freshN++;
     else if (lifecycle.stage === 'STILL ACTIVE') activeN++;
     else if (lifecycle.stage === 'FADING') fadingN++;
-    const contract = _contractInfo(r.symbol || '');
-    const position = _positionRule(lifecycle, volatility, contract);
+    const bands = _deriveBands(r, volatility);
+    const contract = _contractInfo(r.symbol || '', r);
+    const position = _positionRule(lifecycle, volatility, contract, bands);
     return { record: r, lifecycle, contract, position };
   });
   const ctx = {
@@ -1701,5 +1831,6 @@ module.exports = {
   sweepBannedWording,
   sanitiseFohMessages,
   renderChartCardAttachments,
+  buildPricePrecisionAuditRows,
   buildDarkHorseFohPayload,
 };
