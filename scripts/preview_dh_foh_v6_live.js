@@ -141,6 +141,8 @@ const checks = [
   ['M2 has "Move Type" field',                               e2.fields.some(f => f.name === 'Move Type')],
   ['M2 has "Direction" field',                               e2.fields.some(f => f.name === 'Direction')],
   ['M2 has "Conviction" field',                              e2.fields.some(f => f.name === 'Conviction')],
+  ['M2 has "ATLAS execution state" field',                   e2.fields.some(f => f.name === 'ATLAS execution state')],
+  ['M2 has "ATLAS confirmation gate" field',                 e2.fields.some(f => f.name === 'ATLAS confirmation gate')],
   ['M2 has "Decision Level" field',                          e2.fields.some(f => f.name === 'Decision Level')],
   ['M2 NO "Trigger Level" field',                            !e2.fields.some(f => f.name === 'Trigger Level')],
   ['M2 has "Expected Duration" field (renamed from Horizon)', e2.fields.some(f => f.name === 'Expected Duration')],
@@ -152,6 +154,7 @@ const checks = [
   ['M2 has "WHAT TO DO NOW" field',                          e2.fields.some(f => f.name === 'WHAT TO DO NOW')],
   ['M2 has "What confirms the idea" field',                  e2.fields.some(f => f.name === 'What confirms the idea')],
   ['M2 has "What cancels the idea" field',                   e2.fields.some(f => f.name === 'What cancels the idea')],
+  ['M2 has "Source proof" field',                            e2.fields.some(f => f.name === 'Source proof')],
   ['M2 carries chart-card spec for PNG attachment lane',      !!e2.chartCard],
   ['M3 carries chart-card spec for PNG attachment lane',      !!e3.chartCard],
   ['M4 carries chart-card spec for PNG attachment lane',      !!e4.chartCard],
@@ -206,6 +209,9 @@ const checks = [
     /full size allowed \(STILL ACTIVE\)/.test(e3.fields.find(f => /Dollar Risk/.test(f.name)).name)],
   ['M4 (FADING) Dollar Risk header explains reduced late-stage size',
     /quarter-size only because this is a FADING card/.test(e4.fields.find(f => /Dollar Risk/.test(f.name)).name)],
+  ['M4 FADING execution state is reduced-size/not primary below 2R',
+    /REDUCED SIZE ONLY \/ NOT PRIMARY/.test(e4.fields.find(f => f.name === 'ATLAS execution state').value)
+    && /below the 2R minimum/.test(e4.fields.find(f => f.name === 'ATLAS execution state').value)],
 
   // WHAT TO DO NOW — ① ② ③ ④ ⑤ checklist
   ['WHAT TO DO NOW contains ① to ⑤ numbered steps',
