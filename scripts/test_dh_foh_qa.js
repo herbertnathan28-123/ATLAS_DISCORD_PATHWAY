@@ -57,8 +57,8 @@
 //       v1.2.1 subheading.
 //   T13 Sanitiser walker preserves shape
 //   T14 Lifecycle badge — FRESH (filled red ```diff fence),
-//       STILL ACTIVE (outlined red ```ansi), FADING (outlined
-//       orange/yellow ```ansi); no dashed "── NEW ──" text
+//       STILL ACTIVE / FADING (mobile-safe blockquote markers);
+//       no dashed "── NEW ──" text
 //   T15 BUILDING + Chart Reference — present as its own
 //       message with chart-reference embed + chart-card spec
 //   T16 Tail — Risk reminder + Briefing summary subheadings
@@ -439,7 +439,7 @@ console.log('\n[T13] Sanitiser walker preserves message shape');
 }
 
 // ============================================================
-// T14 — Lifecycle badge — FRESH (filled red), STILL ACTIVE (outlined), FADING (outlined)
+// T14 — Lifecycle badge — FRESH (filled red), STILL ACTIVE/FADING blockquotes
 // ============================================================
 console.log('\n[T14] Lifecycle badges — FRESH/STILL ACTIVE/FADING — no dashed "── NEW ──"');
 {
@@ -452,11 +452,11 @@ console.log('\n[T14] Lifecycle badges — FRESH/STILL ACTIVE/FADING — no dashe
   // FRESH = filled red diff fence
   ok('FRESH separator uses ```diff fence (filled red)',  /^```diff/m.test(out.messages[1].content));
   ok('FRESH separator contains "FRESH" label',           /FRESH/.test(out.messages[1].content));
-  // STILL ACTIVE = outlined red ansi
-  ok('STILL ACTIVE separator uses ```ansi fence',        /```ansi/.test(out.messages[2].content));
+  // STILL ACTIVE = Discord-native blue blockquote marker
+  ok('STILL ACTIVE separator uses blue blockquote marker', /^> 🟦 \*\*STILL ACTIVE\*\*/m.test(out.messages[2].content));
   ok('STILL ACTIVE separator contains "STILL ACTIVE" label', /STILL ACTIVE/.test(out.messages[2].content));
-  // FADING = outlined orange/yellow ansi
-  ok('FADING separator uses ```ansi fence',              /```ansi/.test(out.messages[3].content));
+  // FADING = Discord-native yellow blockquote marker
+  ok('FADING separator uses yellow blockquote marker', /^> 🟨 \*\*FADING\*\*/m.test(out.messages[3].content));
   ok('FADING separator contains "FADING" label',         /FADING/.test(out.messages[3].content));
   // No dashed text fallback anywhere
   const allText = out.messages.map(m => (m.content || '') + JSON.stringify(m.embeds || '')).join('\n');
@@ -599,7 +599,7 @@ console.log('\n[T18] Dollar Risk — lifecycle-aware header + dollar amounts');
   ok('FADING below-2R card is not presented as normal execution',
      /REDUCED SIZE ONLY \/ NOT PRIMARY/.test(fadingState)
      && /below the 2R minimum/.test(fadingState)
-     && /ATLAS preferred 1:3/.test(fadingState));
+     && /ATLAS 1:3 preferred/.test(fadingState));
 }
 
 // ============================================================
