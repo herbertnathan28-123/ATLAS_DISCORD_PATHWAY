@@ -599,7 +599,7 @@ console.log('\n[T18] Dollar Risk — lifecycle-aware header + dollar amounts');
   ok('FADING below-2R card is not presented as normal execution',
      /REDUCED SIZE ONLY \/ NOT PRIMARY/.test(fadingState)
      && /below the 2R minimum/.test(fadingState)
-     && /ATLAS preferred 1:3/.test(fadingState));
+     && /ATLAS 1:3 preferred/.test(fadingState));
 }
 
 // ============================================================
