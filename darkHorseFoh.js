@@ -1013,13 +1013,21 @@ function _sectionBanner(text, accent) {
   const marker = accent === 'cyan' ? '🟦'
                : accent === 'magenta' ? '🟧'
                : '🟨';
-  return marker + marker + ' **' + text + '** ' + marker + marker;
+  return [
+    '```',
+    marker + marker + '  ' + text + '  ' + marker + marker,
+    '```',
+  ].join('\n');
 }
 
 // ── Discord-native subheading ("▸  …") ──────────────────────
 function _subheading(text, accent) {
   const marker = accent === 'cyan' ? '🟦' : '🟨';
-  return marker + ' **▸  ' + text + '** ' + marker;
+  return [
+    '```',
+    marker + '  ▸  ' + text + '  ' + marker,
+    '```',
+  ].join('\n');
 }
 
 // ── Terminology row — visible-bracket hyperlinks ────────────
@@ -1135,14 +1143,18 @@ function _lifecycleSeparator(record, lifecycle, idx, total) {
     // Use blockquote markdown, not ANSI boxes, so the state remains
     // visible when Discord renders ANSI box colours as white.
     return [
-      '> 🟨🟨 **STILL ACTIVE** · **' + rankLabel + '** 🟨🟨',
-      '> **' + symbolNote + '**',
+      '```',
+      '🟨🟨  STILL ACTIVE · ' + rankLabel + '  🟨🟨',
+      symbolNote,
+      '```',
     ].join('\n');
   }
   // FADING stays visually distinct without ANSI colour dependency.
   return [
-    '> 🟧🟧 **FADING** · **' + rankLabel + '** 🟧🟧',
-    '> **' + symbolNote + '**',
+    '```',
+    '🟧🟧  FADING · ' + rankLabel + '  🟧🟧',
+    symbolNote,
+    '```',
   ].join('\n');
 }
 
