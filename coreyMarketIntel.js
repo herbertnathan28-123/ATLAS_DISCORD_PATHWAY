@@ -392,7 +392,7 @@ function symbolDisplay(sym) {
 
 // ── DRIVER + RISK-TONE INFERENCE ─────────────────────────────
 const DRIVER_PATTERNS = [
-  { test: /\b(cpi|pce|inflation)\b/i,                                  label: 'inflation print',          short: 'inflation' },
+  { test: /\b(cpi|pce|inflation)\b/i,                                  label: 'inflation data',           short: 'inflation' },
   { test: /\b(nonfarm|nfp|unemployment|jobs|employment change|adp)\b/i, label: 'labour data',              short: 'labour' },
   { test: /\b(fed|fomc|ecb|boe|boj|rba|boc|rbnz|snb|rate decision|policy decision|press conference)\b/i, label: 'central-bank policy event', short: 'central bank' },
   { test: /\bgdp\b/i,                                                   label: 'growth data',              short: 'growth' },
@@ -672,107 +672,406 @@ function coreyWatchingFor(rawEvent) {
 }
 
 // ============================================================
-// PRE-EVENT ALERT — trader-grade rebuild
+// FOH v6 — MARKET INTEL VISUAL LANGUAGE (operator directive 2026-05-15)
+//
+// Dark Horse v6 / ATL-6 presentation standard ported onto the
+// Market Intel surface. Strict FOH presentation layer — no
+// scoring, threshold, scheduler, or webhook changes. Market
+// Intel stays distinct from Dark Horse: macro / event /
+// catalyst intelligence, not trade setups.
+//
+// Doctrine enforced here (also asserted in scripts/test_market_intel_qa.js):
+//   - No raw BOS / CHoCH / "prints" / "Trigger Level" / bare "trigger"
+//   - Bracketed structure language: [Structure Break],
+//     [Confirmed candle close], [Shift in market control],
+//     [Failed recovery], [Retest held]
+//   - Every probability-style statement labels its evidence
+//     basis (historically sourced / engine-derived / scenario
+//     estimate / insufficient evidence)
+//   - Lifecycle states: NEW WATCH / STILL ACTIVE / ESCALATING /
+//     RELEASE WINDOW / RESULT IN / COOLING / INVALIDATED
+//   - SOURCE NOTE provenance line on every output
+//   - Output stays embed-safe (Discord 2000-char hard limit,
+//     1900 safe cap — validateMarketIntelPayload below truncates)
 // ============================================================
-function buildPreEventAlertPayload(rawEvent, minutesOut) {
+
+const FOH_HR  = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+const FOH_SUB = '━━━━━━━━━━';
+
+function fohBanner(label, subtitle) {
+  return [
+    FOH_HR,
+    '📰 **' + label + '**',
+    subtitle ? '*' + subtitle + '*' : null,
+    FOH_HR,
+  ].filter(Boolean).join('\n');
+}
+
+function fohSection(label, glyph) {
+  return FOH_SUB + ' ' + (glyph || '📡') + ' ' + label + ' ' + FOH_SUB;
+}
+
+function fohLifecycleSeparator(label) {
+  return FOH_SUB + ' 🔴 ' + (label || 'NEW UPDATE') + ' ' + FOH_SUB;
+}
+
+// ── Market mood (5-disc traffic-light, FOH v6 doctrine) ─────────
+// Same shape as the Dark Horse FOH v6 mood scale: same-family
+// active discs + ⚫ inactive disc. Anchored to event risk + the
+// inferred geopolitical risk level. Market-Intel-distinct copy —
+// no movement / trade-card language.
+function fohMarketMoodScale(eventRisk, geoLevel) {
+  const filled = (active, glyph) => glyph.repeat(active) + '⚫'.repeat(5 - active);
+  if (eventRisk === EVENT_RISK.EXTREME)    return filled(5, '🔴') + ' · **STORM** — multiple high-impact catalysts converging';
+  if (geoLevel === GEO_RISK.HIGH)          return filled(5, '🔴') + ' · **STORM** — geopolitical stress dominant';
+  if (eventRisk === EVENT_RISK.HIGH)       return filled(4, '🟠') + ' · **ELEVATED** — defensive flow likely into release windows';
+  if (geoLevel === GEO_RISK.MODERATE)      return filled(3, '🟠') + ' · **CAUTION** — geopolitical drift in driver mix';
+  if (eventRisk === EVENT_RISK.MODERATE)   return filled(3, '🟡') + ' · **WATCH** — single high-impact catalyst forming';
+  return filled(2, '🟢') + ' · **CALM** — no scheduled high-impact catalyst';
+}
+
+// Dominant risk score header (5-disc, eventRisk-anchored). Mirrors
+// the Dark Horse FOH `🟥🟥🟥🟥⚫ 4/5 — High` shape so both surfaces
+// read in the same dialect.
+function fohDominantRiskBar(eventRisk, geoLevel) {
+  const score = riskScoreFromState(eventRisk, geoLevel);
+  const glyph = score === 1 ? '🟢' : score === 2 ? '🟡' : score === 3 ? '🟠' : '🔴';
+  const word  = eventRisk === EVENT_RISK.EXTREME ? 'Extreme'
+              : eventRisk === EVENT_RISK.HIGH    ? 'High'
+              : eventRisk === EVENT_RISK.MODERATE ? 'Moderate'
+              : 'Low';
+  return glyph.repeat(score) + '⚫'.repeat(5 - score) + ' · ' + score + '/5 — ' + word + ' scheduled event risk';
+}
+
+// ── Lifecycle (deterministic from stage / role) ────────────────
+// NEW WATCH → STILL ACTIVE → ESCALATING → RELEASE WINDOW → RESULT
+// IN → COOLING. INVALIDATED is reserved for cancelled / dropped
+// events. The scheduler already fires once per stage, so this
+// mapping is stateless — no extra cooldown bookkeeping.
+function fohLifecycleForStage(stage) {
+  switch (String(stage || '').toUpperCase()) {
+    case 'T-4H':       return { tag: 'NEW WATCH',      glyph: '🌱', note: 'first appearance in this scan window' };
+    case 'T-1H':       return { tag: 'STILL ACTIVE',   glyph: '🌿', note: 'event approaching, window narrowing' };
+    case 'T-30M':      return { tag: 'ESCALATING',     glyph: '🔥', note: 'final lead-in — liquidity thinning' };
+    case 'T-15M':      return { tag: 'ESCALATING',     glyph: '🚨', note: 'imminent release — stand-down zone' };
+    case 'T-RELEASE':  return { tag: 'RELEASE WINDOW', glyph: '🟥', note: 'first reaction live — wait for HTF close' };
+    default:           return { tag: 'NEW WATCH',      glyph: '🌱', note: 'event surfaced this scan' };
+  }
+}
+function fohLifecycleReleased()    { return { tag: 'RESULT IN',     glyph: '📊', note: 'data is live — read the reaction, not the headline' }; }
+function fohLifecycleForBulletinEvent(evt, now) {
+  const t = evt && evt.scheduled_time;
+  if (!Number.isFinite(t)) return { tag: 'NEW WATCH', glyph: '🌱' };
+  const minsOut = (t - now) / 60000;
+  if (minsOut < 0)     return { tag: 'RESULT IN',     glyph: '📊' };
+  if (minsOut <= 30)   return { tag: 'ESCALATING',    glyph: '🚨' };
+  if (minsOut <= 240)  return { tag: 'STILL ACTIVE',  glyph: '🌿' };
+  return                       { tag: 'NEW WATCH',    glyph: '🌱' };
+}
+
+// ── Impact tag glyph (red / orange / blue traffic-light) ───────
+function fohImpactTag(impact) {
+  const i = String(impact || '').toLowerCase();
+  if (i === 'high')   return '🟥 HIGH';
+  if (i === 'medium') return '🟧 MEDIUM';
+  return '🟦 LOW';
+}
+
+// ── Plain-English market-impact narration ──────────────────────
+// Driver-aware "why this matters" copy. No "prints" / "trigger" /
+// "Trigger Level" — uses bracketed structure language where
+// shorthand would otherwise leak. Compressed to keep stress-day
+// daily bulletin under the 1900-char Discord safe cap.
+function fohWhyThisMatters(rawEvent) {
+  const c = classifyEventDriver(rawEvent && rawEvent.title);
+  const ccy = (rawEvent && rawEvent.currency) || 'home currency';
+  const forecast = fmtVal(rawEvent && rawEvent.forecast);
+  if (!c) return `Surprise vs forecast ${forecast} reprices short-term rate expectations and correlated risk in ${ccy} pairs.`;
+  if (c.short === 'inflation')      return `Inflation surprise vs forecast ${forecast} reprices the front-end ${ccy} rate path; gold + US indices respond inverse to yields.`;
+  if (c.short === 'labour')         return `Labour surprise vs forecast ${forecast} resets the central-bank reaction function; front-end yields and ${ccy} move first.`;
+  if (c.short === 'central bank')   return `Tone vs the existing rate-path is the lever, not the headline. Hawkish lean supports ${ccy}; dovish lean pressures it; surprises produce outsized moves.`;
+  if (c.short === 'growth')         return `Growth surprise vs forecast ${forecast} resets terminal-rate expectations and risk appetite; ${ccy} + equity indices respond together.`;
+  if (c.short === 'consumer demand')return `Consumer-spending surprise vs forecast ${forecast} reprices growth + rate expectations; ${ccy} + cyclicals follow.`;
+  if (c.short === 'activity')       return `Above-50 vs sub-50 is the directional lever for ${ccy}; defensives + cyclicals rotate on the first 1H close.`;
+  if (c.short === 'geopolitical')   return `Geopolitical shock triggers safe-haven rotation — US Dollar Index (DXY) / CHF / JPY / XAU bid, equities + credit offered.`;
+  return `Surprise vs forecast ${forecast} reprices short-term rate expectations and ${ccy} pairs.`;
+}
+
+// ── BEFORE / DURING / AFTER framework for event intelligence ──
+function fohBeforeDuringAfter(rawEvent) {
+  const c = classifyEventDriver(rawEvent && rawEvent.title);
+  const ccy = (rawEvent && rawEvent.currency) || 'home currency';
+  const forecast = fmtVal(rawEvent && rawEvent.forecast);
+  const before = c && c.short === 'central bank'
+    ? `Market is pricing the existing rate-path; positioning is light into the decision.`
+    : c && c.short === 'geopolitical'
+    ? `Safe-haven assets carry a small risk premium into the headline; equities trade light.`
+    : `Market is positioning around the ${forecast} consensus; ${ccy} pairs and yields are most sensitive.`;
+  const during = c && c.short === 'central bank'
+    ? `Hawkish lean supports ${ccy}; dovish lean pressures it. The first 60–90s wick is rarely the move — wait for the next HTF close.`
+    : c && c.short === 'geopolitical'
+    ? `Safe-haven flow lifts US Dollar Index (DXY) / CHF / JPY / XAU; equities + credit offered. The first move often overshoots.`
+    : `First reaction may be a liquidity sweep. Above forecast supports ${ccy} / yields; below forecast pressures both.`;
+  const after = c && c.short === 'central bank'
+    ? `Press-conference colour confirms or cancels the tone read. A [Confirmed candle close] on 15M / 1H in tone direction validates continuation.`
+    : c && c.short === 'geopolitical'
+    ? `Durable safe-haven rotation shows up on the 1H / 4H close, not the headline wick. Reassess only after the close has formed.`
+    : `A 5M / 15M [Confirmed candle close] in surprise direction validates continuation. Reassess only after that close.`;
+  return { before, during, after };
+}
+
+// ── WHAT CONFIRMS / WHAT CANCELS (event-impact framing) ───────
+// Renamed from the spec's "CONFIRMATION PATH / CANCELLATION PATH"
+// because /\bconfirmation\s+path\b/i is banned by the FOMO
+// sanitiser (see darkHorseFomoControl.BANNED_PATTERNS). Same
+// semantic content — what proves the read, what kills it.
+function fohWhatConfirms(rawEvent) {
+  const c = classifyEventDriver(rawEvent && rawEvent.title);
+  if (!c) return 'A [Confirmed candle close] on 5M / 15M in surprise direction validates continuation.';
+  if (c.short === 'inflation')      return 'US Dollar Index (DXY) / yields lead; a [Confirmed candle close] on 5M / 15M in surprise direction validates.';
+  if (c.short === 'labour')         return 'Front-end yields reprice first; a [Confirmed candle close] on 5M / 15M in surprise direction confirms.';
+  if (c.short === 'central bank')   return 'Tone-vs-pricing match shows up in cross-pair flow; a [Confirmed candle close] on 15M / 1H in tone direction validates.';
+  if (c.short === 'growth')         return 'Risk indices respond on the first higher-timeframe close after the release.';
+  if (c.short === 'activity')       return 'Above-50 vs sub-50 confirms the directional lever; the first 1H close decides.';
+  if (c.short === 'consumer demand')return 'Consumer-cyclical leadership confirms; first 1H close in surprise direction validates.';
+  if (c.short === 'geopolitical')   return 'Durable safe-haven rotation across US Dollar Index (DXY) / CHF / JPY / XAU — visible on the 1H / 4H, not the headline wick.';
+  return 'A [Confirmed candle close] on 5M / 15M in surprise direction validates continuation.';
+}
+function fohWhatCancels(rawEvent) {
+  const c = classifyEventDriver(rawEvent && rawEvent.title);
+  if (c && c.short === 'central bank') return 'Press conference contradicts the headline tone — read flips on the back half of the window.';
+  if (c && c.short === 'geopolitical') return 'Headline walked back inside the same session; safe-haven bid fades on the next 1H close ([Failed recovery] cancels the read).';
+  return 'First reaction reverses inside 30M; pre-release reference area lost; directional read cancelled.';
+}
+
+// ── Probability provenance label (per-event basis) ─────────────
+// Market Intel doesn't surface bare %s — but every probabilistic
+// statement (bias / scenario / mood) must declare its evidence
+// basis. Hooks into macro/probabilityLabelling vocabulary.
+function fohProbabilityBasis(rawEvent, hasHistoricalAnchor) {
+  if (hasHistoricalAnchor) return 'historically sourced';
+  const hasActual = rawEvent && rawEvent.actual != null && rawEvent.actual !== '';
+  if (hasActual) return 'engine-derived';
+  const c = classifyEventDriver(rawEvent && rawEvent.title);
+  if (c && (c.short === 'central bank' || c.short === 'geopolitical')) return 'scenario estimate';
+  if (!c) return 'insufficient evidence';
+  return 'engine-derived';
+}
+
+// ── Source / provenance line ───────────────────────────────────
+// Always emit a compact `calendar=… · macro=… · probability=…`
+// row so operators can grep provenance from any Market Intel
+// post. `health` defaults to the legacy calendar mode strings.
+function fohSourceNote(health, probabilityBasis, quoteSource) {
+  const cal     = (health && health.source_used)    || 'Fallback';
+  const calMode = (health && health.calendar_mode)  || 'UNAVAILABLE';
+  const calTag  = calMode === 'LIVE' ? cal : (cal + '/' + calMode);
+  const probTag = probabilityBasis || 'engine-derived';
+  const parts   = [];
+  if (quoteSource) parts.push('quote=' + quoteSource);
+  parts.push('calendar=' + calTag);
+  parts.push('macro=ATLAS');
+  parts.push('probability=' + probTag);
+  return parts.join(' · ');
+}
+
+// ── Affected-markets compact block ─────────────────────────────
+// Embed-safe cap: 5 bucket rows × up to 5 symbols each. Anything
+// beyond is summarised as a "…+N more buckets" tail row so the
+// Discord cap (1900 chars) is preserved under stress windows.
+function fohAffectedBlock(buckets, opts) {
+  const maxRows = (opts && Number.isFinite(opts.maxRows)) ? opts.maxRows : 5;
+  const maxSymbols = (opts && Number.isFinite(opts.maxSymbols)) ? opts.maxSymbols : 5;
+  const rows = [];
+  let extraBuckets = 0;
+  for (const k of BUCKET_ORDER) {
+    if (buckets[k] && buckets[k].length) {
+      if (rows.length >= maxRows) { extraBuckets++; continue; }
+      const header = bucketHeaderLabel(k);
+      const cells = buckets[k].slice(0, maxSymbols).map(symbolDisplay).join(', ');
+      rows.push((cells === header) ? '• ' + header : '• ' + header + ' · ' + cells);
+    }
+  }
+  if (!rows.length) rows.push('• No mapped affected markets — driver-led tape.');
+  if (extraBuckets > 0) rows.push('• …+' + extraBuckets + ' more sector' + (extraBuckets === 1 ? '' : 's') + ' affected');
+  return rows.join('\n');
+}
+
+// ── Briefing summary (one-line digest) ─────────────────────────
+function fohBriefingSummary(eventRisk, driverLabels, headlineTitle) {
+  const riskWord = eventRisk === EVENT_RISK.EXTREME  ? 'Extreme'
+                 : eventRisk === EVENT_RISK.HIGH     ? 'High'
+                 : eventRisk === EVENT_RISK.MODERATE ? 'Moderate' : 'Low';
+  const driver = driverLabels && driverLabels.length ? driverLabels.join(' + ') : 'driver-led tape';
+  const focus = headlineTitle ? ' anchored by ' + humanizeTitle(headlineTitle) : '';
+  return riskWord + ' scheduled event risk · ' + driver + focus + '.';
+}
+
+// ── Numeric surprise wording (no "print" verb) ─────────────────
+// Released-event surprise tag — uses "above / below / in line"
+// language without invoking the banned "prints" / "print" verb.
+function fohSurpriseLine(rawEvent) {
+  const a = parseFloat(rawEvent && rawEvent.actual);
+  const f = parseFloat(rawEvent && rawEvent.forecast);
+  if (Number.isFinite(a) && Number.isFinite(f)) {
+    if (a > f)      return `Result · **above forecast** (${rawEvent.actual} vs ${rawEvent.forecast}).`;
+    if (a < f)      return `Result · **below forecast** (${rawEvent.actual} vs ${rawEvent.forecast}).`;
+    return                 `Result · **in line with forecast** (${rawEvent.actual}).`;
+  }
+  return `Result · actual ${fmtVal(rawEvent && rawEvent.actual)} · forecast ${fmtVal(rawEvent && rawEvent.forecast)} · previous ${fmtVal(rawEvent && rawEvent.previous)}.`;
+}
+
+// ── Expanded Terminology row (FOH v6 doctrine) ─────────────────
+// Doctrine: renamed from legacy "Learning Links". Same hyperlink
+// chip pattern as Dark Horse FOH (visible `[[Label]](url)` form)
+// but Market-Intel-flavoured terms so the surface reads in the
+// shared FOH v6 dialect.
+const FOH_TERMINOLOGY_LINE =
+  '🟦 **Expanded Terminology** · ' +
+  '[Structure Break] · [Initial-direction reversal] · [Confirmed candle close] · ' +
+  '[Retest held] · [Failed recovery] · [Shift in market control].';
+
+const FOH_BIAS_DISCLAIMER = '_' + BIAS_CONDITIONAL_DISCLAIMER + '_';
+
+// ============================================================
+// PRE-EVENT ALERT — FOH v6 (presentation rebuild)
+// ============================================================
+function buildPreEventAlertPayload(rawEvent, minutesOut, opts) {
   const a = analyseEvent(rawEvent);
   if (!a) return { content: '' };
   const stage = preEventStageLabel(minutesOut);
+  const lifecycle = fohLifecycleForStage(stage);
   const cleanTitle = humanizeTitle(a.title);
   const buckets = bucketAffected(a.affected);
-  const cautionByStage = {
-    'T-4H':  'Setup window. Confirm bias before any pre-positioning.',
-    'T-1H':  'Approach window. Execution becomes time-sensitive — avoid late entries.',
-    'T-30M': 'Final lead-in. Liquidity thins, spreads widen — do not chase.',
-    'T-15M': 'Imminent. Stand down unless a confirmed pre-event setup is already live.',
-    'T-RELEASE': 'Release window. The first move is rarely the move — wait for liquidity sweep + reclaim.',
+  const bda = fohBeforeDuringAfter(rawEvent);
+  const eventRiskAtStage = (stage === 'T-RELEASE' || stage === 'T-15M' || stage === 'T-30M')
+    ? EVENT_RISK.HIGH : EVENT_RISK.MODERATE;
+  const geoLevel = (opts && opts.geoLevel) || GEO_RISK.LOW;
+  const mood = fohMarketMoodScale(eventRiskAtStage, geoLevel);
+  const probBasis = fohProbabilityBasis(rawEvent);
+  const health = (opts && opts.health) || null;
+  const sourceNote = fohSourceNote(health, probBasis);
+
+  const nextReviewByStage = {
+    'T-4H':       'T-1H, T-30M, T-15M; final reassessment after the first 5M / 15M close post-release.',
+    'T-1H':       'T-30M and T-15M; final reassessment after the first 5M / 15M close post-release.',
+    'T-30M':      'T-15M; reassess after the first 5M / 15M close post-release.',
+    'T-15M':      'Stand down through the release; reassess on first 5M / 15M close after the release.',
+    'T-RELEASE':  'Reassess on the first 5M / 15M close once the wick has formed.',
   };
 
   const lines = [];
-  lines.push(`**ATLAS MARKET INTEL — PRE-EVENT ALERT (${stage})**`);
+  lines.push(fohBanner('ATLAS · MARKET INTEL — EVENT WATCH', 'v6 · pre-event surface · ' + stage));
   lines.push('');
-  lines.push(`**Event:** ${cleanTitle}`);
-  lines.push(`**Currency:** ${a.currency || 'unavailable'}${rawEvent.country ? ` (${rawEvent.country})` : ''}`);
-  lines.push(`**Time:** ${fmtAwstShort(a.scheduled_time)} AWST (${fmtUtcShort(a.scheduled_time)} UTC)`);
-  lines.push(`**Impact:** ${(rawEvent.impact || 'unavailable').toString().toUpperCase()}`);
+  lines.push(fohLifecycleSeparator(lifecycle.tag));
   lines.push('');
-  lines.push(`**Affected markets**`);
-  for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) {
-      const header = bucketHeaderLabel(k);
-      const cells = buckets[k].slice(0, 6).map(symbolDisplay).join(', ');
-      // Suppress redundant "Header: Header" rows (e.g. when the DXY
-      // bucket contains only the DXY ticker — the header already
-      // carries the expanded label).
-      const row = (cells === header) ? `• ${header}` : `• ${header}: ${cells}`;
-      lines.push(row);
-    }
-  }
+  lines.push('📍 **Event** · ' + cleanTitle);
+  lines.push('🌍 **Currency** · ' + (a.currency || 'pending') + (rawEvent.country ? ' (' + rawEvent.country + ')' : ''));
+  lines.push('⏰ **Time** · ' + fmtAwstShort(a.scheduled_time) + ' AWST · ' + fmtUtcShort(a.scheduled_time) + ' UTC');
+  lines.push('🎚️ **Impact** · ' + fohImpactTag(rawEvent.impact || 'high'));
+  lines.push('🧭 **Lifecycle** · ' + lifecycle.glyph + ' **' + lifecycle.tag + '** — ' + lifecycle.note);
   lines.push('');
-  lines.push(`**Mechanism chain**`);
-  lines.push(mechanismChainFor(rawEvent));
+  lines.push(fohSection('MARKET MOOD', '🎚️'));
   lines.push('');
-  lines.push(`**Market read**`);
-  lines.push(a.coreyView);
+  lines.push(mood);
   lines.push('');
-  lines.push(`**Trader guidance**`);
-  lines.push(`• ${cautionByStage[stage] || cautionByStage['T-1H']}`);
-  lines.push(`• Wait for price to sweep a visible high or low, then close back in favour on the 5M or 15M chart before treating the move as continuation.`);
-  lines.push(`• Trade smaller around the print; reassess once structure has formed.`);
+  lines.push(fohSection('WHY THIS MATTERS', '🧠'));
   lines.push('');
-  lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
+  lines.push(fohWhyThisMatters(rawEvent));
+  lines.push('');
+  lines.push(fohSection('BEFORE / DURING / AFTER', '🧭'));
+  lines.push('');
+  lines.push('🔵 **BEFORE** — ' + bda.before);
+  lines.push('🟡 **DURING** — ' + bda.during);
+  lines.push('🟢 **AFTER** — ' + bda.after);
+  lines.push('');
+  lines.push(fohSection('WHAT CONFIRMS', '✅'));
+  lines.push('');
+  lines.push(fohWhatConfirms(rawEvent));
+  lines.push('');
+  lines.push(fohSection('WHAT CANCELS', '❌'));
+  lines.push('');
+  lines.push(fohWhatCancels(rawEvent));
+  lines.push('');
+  lines.push(fohSection('AFFECTED MARKETS', '🎯'));
+  lines.push('');
+  lines.push(fohAffectedBlock(buckets));
+  lines.push('');
+  lines.push(fohSection('NEXT REVIEW', '🔚'));
+  lines.push('');
+  lines.push('⏳ ' + (nextReviewByStage[stage] || nextReviewByStage['T-1H']));
+  lines.push('');
+  lines.push(fohSection('SOURCE NOTE', '📚'));
+  lines.push('');
+  lines.push(sourceNote);
+  lines.push('');
+  lines.push(FOH_BIAS_DISCLAIMER);
 
   return { content: lines.join('\n'), stage };
 }
 
 // ============================================================
-// RELEASED EVENT ALERT — trader-grade rebuild
+// RELEASED EVENT ALERT — FOH v6 (presentation rebuild)
 // ============================================================
-function buildReleasedEventAlertPayload(rawEvent) {
+function buildReleasedEventAlertPayload(rawEvent, opts) {
   const a = analyseEvent(rawEvent);
   if (!a) return { content: '' };
   const cleanTitle = humanizeTitle(a.title);
   const buckets = bucketAffected(a.affected);
-
-  let surpriseLine;
-  const A = parseFloat(a.actual);
-  const F = parseFloat(a.forecast);
-  if (Number.isFinite(A) && Number.isFinite(F)) {
-    if (A > F)      surpriseLine = `Print came in **above forecast** (${a.actual} vs ${a.forecast}).`;
-    else if (A < F) surpriseLine = `Print came in **below forecast** (${a.actual} vs ${a.forecast}).`;
-    else            surpriseLine = `Print came in **in line with forecast** (${a.actual}).`;
-  } else {
-    surpriseLine = `Values: actual ${fmtVal(a.actual)} · forecast ${fmtVal(a.forecast)} · previous ${fmtVal(a.previous)}.`;
-  }
+  const lifecycle = fohLifecycleReleased();
+  const geoLevel = (opts && opts.geoLevel) || GEO_RISK.LOW;
+  const mood = fohMarketMoodScale(EVENT_RISK.HIGH, geoLevel);
+  const probBasis = fohProbabilityBasis(rawEvent);
+  const health = (opts && opts.health) || null;
+  const sourceNote = fohSourceNote(health, probBasis);
 
   const lines = [];
-  lines.push(`**ATLAS MARKET INTEL — RELEASED EVENT**`);
+  lines.push(fohBanner('ATLAS · MARKET INTEL — RELEASED EVENT', 'v6 · post-release surface'));
   lines.push('');
-  lines.push(`**Event:** ${cleanTitle}`);
-  lines.push(`**Released:** ${fmtAwstShort(a.scheduled_time)} AWST`);
-  lines.push(`**Result:** ${surpriseLine}`);
+  lines.push(fohLifecycleSeparator(lifecycle.tag));
   lines.push('');
-  lines.push(`**Likely affected markets**`);
-  for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) {
-      const header = bucketHeaderLabel(k);
-      const cells = buckets[k].slice(0, 6).map(symbolDisplay).join(', ');
-      lines.push((cells === header) ? `• ${header}` : `• ${header}: ${cells}`);
-    }
-  }
+  lines.push('📍 **Event** · ' + cleanTitle);
+  lines.push('🌍 **Currency** · ' + (a.currency || 'pending'));
+  lines.push('⏰ **Released** · ' + fmtAwstShort(a.scheduled_time) + ' AWST · ' + fmtUtcShort(a.scheduled_time) + ' UTC');
+  lines.push('🧭 **Lifecycle** · ' + lifecycle.glyph + ' **' + lifecycle.tag + '** — ' + lifecycle.note);
   lines.push('');
-  lines.push(`**Mechanism chain**`);
-  lines.push(mechanismChainFor(rawEvent));
+  lines.push(fohSection('MARKET MOOD', '🎚️'));
   lines.push('');
-  lines.push(`**Market read**`);
-  lines.push(a.coreyView);
+  lines.push(mood);
   lines.push('');
-  lines.push(`**First-reaction caution**`);
-  lines.push(`• Immediate volatility is high — do not chase the first spike.`);
-  lines.push(`• Wait for price to sweep a visible high or low, then close back in favour on the 5M or 15M chart before treating the move as continuation.`);
-  lines.push(`• Reassess bias only after the first higher-timeframe close has formed.`);
+  lines.push(fohSection('WHAT CHANGED', '📊'));
   lines.push('');
-  lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
+  lines.push(fohSurpriseLine(rawEvent));
+  lines.push('');
+  lines.push(fohSection('WHY THIS MATTERS', '🧠'));
+  lines.push('');
+  lines.push(fohWhyThisMatters(rawEvent));
+  lines.push('');
+  lines.push(fohSection('WHAT CONFIRMS', '✅'));
+  lines.push('');
+  lines.push(fohWhatConfirms(rawEvent));
+  lines.push('');
+  lines.push(fohSection('WHAT CANCELS', '❌'));
+  lines.push('');
+  lines.push(fohWhatCancels(rawEvent));
+  lines.push('');
+  lines.push(fohSection('AFFECTED MARKETS', '🎯'));
+  lines.push('');
+  lines.push(fohAffectedBlock(buckets));
+  lines.push('');
+  lines.push(fohSection('FIRST-REACTION CAUTION', '🚦'));
+  lines.push('');
+  lines.push('🟡 The first 60–90s wick is rarely the move. Stand down through the immediate release window; reassess only after the first higher-timeframe close.');
+  lines.push('');
+  lines.push(fohSection('NEXT REVIEW', '🔚'));
+  lines.push('');
+  lines.push('⏳ Reassess on the first 5M / 15M close; escalate to 1H / 4H if a [Confirmed candle close] forms in surprise direction.');
+  lines.push('');
+  lines.push(fohSection('SOURCE NOTE', '📚'));
+  lines.push('');
+  lines.push(sourceNote);
+  lines.push('');
+  lines.push(FOH_BIAS_DISCLAIMER);
 
   return { content: lines.join('\n') };
 }
@@ -797,21 +1096,17 @@ function nextMajor(eventsToday, eventsTomorrow, now) {
 }
 
 // ============================================================
-// DAILY ROADMAP — 9-section ATLAS Event Intelligence + Daily
-// Roadmap layer. Compressed Discord version of the locked
-// "ATLAS FX — Macro + Roadmap Master Brief v2.0" doctrine.
+// DAILY ROADMAP — FOH v6 (presentation rebuild)
 //
-// Sections (in order):
-//   0. Header + Dominant Risk Score
-//   1. THEME
-//   2. HEADLINE RISK
-//   3. EVENT INTELLIGENCE (full mechanism chain)
-//   4. KEY EVENT WINDOWS — AWST
-//   5. CURRENCY / ASSET NARRATIVES
-//   6. CLASH & LIQUIDITY RISKS
-//   7. ATLAS RESPONSE / TRADE WINDOWS
-//   8. PRIORITY WATCHLIST (bucketed)
-//   9. NEXT WATCH
+// Same doctrine surface as the legacy 9-section bulletin —
+// MARKET MOOD, EVENT/CATALYST WATCH, WHY THIS MATTERS, WHAT
+// CHANGED, WHAT CONFIRMS, WHAT CANCELS, AFFECTED MARKETS,
+// NEXT REVIEW, BRIEFING SUMMARY — but compressed into the
+// 1900-char Discord safe cap (validateMarketIntelPayload).
+// The legacy version produced ~3.8k chars and was being
+// silently truncated by the dispatch validator. This rebuild
+// keeps every doctrine field but compresses repeated prose
+// into labelled rows.
 // ============================================================
 function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   const NOW = now || Date.now();
@@ -830,7 +1125,6 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   const eventRisk    = classifyEventRisk(highToday.length, (geoCtx && geoCtx.level) || GEO_RISK.LOW);
   const geoLevel     = (geoCtx && geoCtx.level) || GEO_RISK.LOW;
   const driverLabels = inferDriverLabels(highToday);
-  const riskTone     = inferRiskTone(eventRisk, geoLevel, driverLabels);
   const next         = nextMajor(today, next24.filter(e => !today.includes(e)), NOW);
   const riskScore    = riskScoreFromState(eventRisk, geoLevel);
 
@@ -839,191 +1133,152 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
   const buckets = bucketAffected([...affected]);
 
-  // Sort + format event windows in AWST chronological order
-  const sortedHigh = highToday.slice().sort((a, b) => (a.scheduled_time || 0) - (b.scheduled_time || 0));
+  // Chronological catalysts (high-impact then high-interest)
+  const sortedHigh         = highToday.slice().sort((a, b) => (a.scheduled_time || 0) - (b.scheduled_time || 0));
   const sortedHighInterest = highInterestToday.slice().sort((a, b) => (a.scheduled_time || 0) - (b.scheduled_time || 0));
+  const headline           = sortedHigh[0] || null;
 
-  // Pick headline event (highest impact, earliest in the day)
-  const headline = sortedHigh[0] || null;
-
-  // Primary affected bucket name for the THEME line
-  // Build the THEME's "main volatility window for X, Y, Z" phrase from
-  // whichever buckets actually have symbols today. Preserves bucket case.
-  const themeAssets = [];
-  if (buckets['DXY'] || buckets['USD pairs']) themeAssets.push('USD pairs');
-  if (buckets['Metals']) themeAssets.push('gold');
-  if (buckets['US indices']) themeAssets.push('US indices');
-  if (!themeAssets.length) {
-    if (buckets['EUR pairs']) themeAssets.push('EUR pairs');
-    if (buckets['GBP pairs']) themeAssets.push('GBP pairs');
-    if (buckets['JPY crosses']) themeAssets.push('JPY crosses');
+  // ── WHAT CHANGED ──
+  // Lead-line summary of the day's change in event risk:
+  // cluster vs single-window vs quiet.
+  let whatChanged;
+  if (sortedHigh.length >= 2) {
+    const startT = fmtAwstShort(sortedHigh[0].scheduled_time);
+    const endT   = fmtAwstShort(sortedHigh[sortedHigh.length - 1].scheduled_time);
+    whatChanged = sortedHigh.length + ' high-impact catalysts cluster between ' + startT + '–' + endT + ' AWST. Cumulative spike risk; vol carries between releases.';
+  } else if (sortedHigh.length === 1) {
+    whatChanged = 'Single high-impact catalyst at ' + fmtAwstShort(sortedHigh[0].scheduled_time) + ' AWST — concentrated 30-minute risk envelope.';
+  } else {
+    whatChanged = 'No scheduled high-impact catalysts. Tape is driver-led — direction set by live US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields.';
   }
-  const primaryAffectedPhrase = themeAssets.length ? themeAssets.slice(0, 3).join(', ') : null;
+
+  // ── WHY THIS MATTERS ──
+  // Anchored on the headline; fall back to a driver-led read.
+  const whyThisMatters = headline
+    ? fohWhyThisMatters(headline)
+    : 'Driver-led tape — US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields set direction. No scheduled rate-path repricing today.';
+
+  // ── WHAT CONFIRMS / WHAT CANCELS (anchored on headline) ──
+  const whatConfirms = headline
+    ? fohWhatConfirms(headline)
+    : 'A regime change in live drivers — US Dollar Index (DXY) bias flip, CBOE Volatility Index (VIX) move > 2 points, 10y-2y curve cross — confirms direction.';
+  const whatCancels = headline
+    ? fohWhatCancels(headline)
+    : 'Drivers reverse inside the same session without a higher-timeframe close — the regime-change read is cancelled.';
+
+  // ── NEXT REVIEW ──
+  // Don't double-stamp the currency if humanizeTitle already
+  // surfaced it (e.g. "CPI (USD)" + currency=USD would render
+  // "CPI (USD) (USD)").
+  const _nextTitle = next ? humanizeTitle(next.title) : null;
+  const _nextCcy   = next && next.currency && _nextTitle && _nextTitle.indexOf('(' + next.currency + ')') === -1 ? ' (' + next.currency + ')' : '';
+  const nextReview = next
+    ? _nextTitle + _nextCcy + ' · ' + fmtAwstShort(next.scheduled_time) + ' AWST'
+    : 'No high-impact event scheduled in the next 48 hours — review on regime change in live drivers.';
+
+  // ── SOURCE NOTE ──
+  const probBasis = headline ? fohProbabilityBasis(headline) : 'insufficient evidence';
+  const sourceNote = fohSourceNote(health, probBasis);
+
+  // ── BRIEFING SUMMARY ──
+  const briefingSummary = fohBriefingSummary(eventRisk, driverLabels, headline ? headline.title : null);
 
   const briefingDate = fmtAwstDate(NOW);
   const lines = [];
 
-  // ── HEADER ──
-  lines.push(`**ATLAS MARKET INTEL — DAILY ROADMAP**`);
-  lines.push(`_${briefingDate} · AWST_`);
-  // Risk-score header per ATLAS Roadmap spec:
-  //   "🟥🟥🟥🟥/5 — Extreme scheduled event risk"
-  const riskWord =
-    eventRisk === EVENT_RISK.EXTREME    ? 'Extreme'
-    : eventRisk === EVENT_RISK.HIGH     ? 'High'
-    : eventRisk === EVENT_RISK.MODERATE ? 'Moderate'
-    : 'Low';
-  lines.push(`**Dominant Risk Score:** ${riskScoreEmoji(riskScore)} — ${riskWord} scheduled event risk`);
-  lines.push(`Geopolitical: ${geoLevel}`);
+  // ── BANNER + MARKET MOOD ──
+  // The mood disc-scale row encodes risk level + geopolitical
+  // tone in one line — the inline "dominant risk" / "geopolitical"
+  // headers are redundant and would crowd the embed cap on
+  // stress days.
+  lines.push(fohBanner('ATLAS · MARKET INTEL — DAILY ROADMAP', 'v6 · daily surface · ' + briefingDate + ' AWST'));
+  lines.push('');
+  lines.push(fohSection('MARKET MOOD', '🎚️'));
+  lines.push('');
+  lines.push(fohMarketMoodScale(eventRisk, geoLevel));
   lines.push('');
 
-  // ── 1. THEME ──
-  lines.push(`**1. THEME**`);
-  lines.push(buildDayTheme(highToday, driverLabels, primaryAffectedPhrase));
+  // ── EVENT / CATALYST WATCH ──
+  // Tight row format: `• HH:MM 🟥 EVENT (CCY) · 🌿 STATE` — impact
+  // glyph already encodes impact word; lifecycle glyph + tag tail.
+  // Capped at 4 high + 2 medium to keep Discord embed-safe in
+  // stress windows.
+  lines.push(fohSection('EVENT / CATALYST WATCH', '📅'));
   lines.push('');
-
-  // ── 2. HEADLINE RISK ──
-  lines.push(`**2. HEADLINE RISK**`);
-  if (headline) {
-    const ht = humanizeTitle(headline.title);
-    const c = classifyEventDriver(headline.title);
-    const why = c
-      ? (c.short === 'inflation' ? 'Inflation drives the Fed reaction function. A surprise in either direction repositions the rate path.'
-        : c.short === 'labour'    ? 'Labour data sets the central-bank reaction function. Strong/weak surprise reprices the front end.'
-        : c.short === 'central bank' ? 'Tone vs current market pricing is the lever. Hawkish/dovish lean reprices the rate path.'
-        : c.short === 'growth'    ? 'Growth surprise resets terminal-rate expectations and risk appetite.'
-        : c.short === 'consumer demand' ? 'Consumer-spending surprise reprices growth/rate expectations.'
-        : c.short === 'activity'  ? 'Activity sub-50 vs above-50 is the directional lever for the home currency.'
-        : c.short === 'geopolitical' ? 'Geopolitical shocks trigger fast safe-haven rotation across the major asset classes.'
-        : 'Surprise vs forecast reprices the rate path and risk appetite.')
-      : 'Surprise vs forecast reprices the rate path and risk appetite.';
-    const reaction = c
-      ? (c.short === 'inflation'  ? 'Hot print → USD/yields lift, gold + US indices pressured. Soft print → opposite.'
-        : c.short === 'labour'    ? 'Strong print → USD bid via rate-path repricing. Weak print → USD pressured, gold/indices supported.'
-        : c.short === 'central bank' ? 'Hawkish lean → home currency bid. Dovish lean → home currency pressured. Tone matters more than headline.'
-        : c.short === 'growth'    ? 'Stronger reading → home currency + indices supported. Weaker → both pressured.'
-        : c.short === 'consumer demand' ? 'Strong → home currency + consumer cyclicals supported. Weak → both pressured.'
-        : c.short === 'activity'  ? 'Above 50 → home currency supported. Sub-50 → home currency pressured, defensives bid.'
-        : c.short === 'geopolitical' ? 'US Dollar Index (DXY)/CHF/JPY/XAU bid; equities and credit offered; vol indices lift.'
-        : 'Direction depends on print vs forecast.')
-      : 'Direction depends on print vs forecast.';
-    lines.push(`• **Main event:** ${ht}`);
-    lines.push(`• **Time:** ${fmtAwstShort(headline.scheduled_time)} AWST`);
-    lines.push(`• **Why it matters:** ${why}`);
-    lines.push(`• **Possible market behaviour:** ${reaction}`);
-  } else {
-    lines.push(`• No scheduled high-impact catalyst today.`);
-    lines.push(`• Tape is driver-led — direction set by live CBOE Volatility Index (VIX) / US Dollar Index (DXY) / yields.`);
+  function _eventRow(e, impact) {
+    const lc = fohLifecycleForBulletinEvent(e, NOW);
+    const impGlyph = impact === 'medium' ? '🟧' : '🟥';
+    const _title = humanizeTitle(e.title);
+    // Don't double-stamp the currency suffix if humanizeTitle
+    // already includes it (e.g. "CPI (USD)" + currency=USD).
+    const ccy = (e.currency && _title.indexOf('(' + e.currency + ')') === -1) ? ' (' + e.currency + ')' : '';
+    return '• ' + fmtAwstShort(e.scheduled_time) + ' ' + impGlyph + ' ' + _title + ccy + ' · ' + lc.glyph + ' ' + lc.tag;
   }
-  lines.push('');
-
-  // ── 3. EVENT INTELLIGENCE ──
-  lines.push(`**3. EVENT INTELLIGENCE**`);
-  if (headline) {
-    const ht = humanizeTitle(headline.title);
-    const ccy = headline.currency || 'unavailable';
-    const summary = (function (e) {
-      const c = classifyEventDriver(e.title);
-      const ccyL = e.currency || 'home currency';
-      if (!c) return `${ccyL} data release. Direction of surprise vs forecast typically flows through ${ccyL} pairs and correlated risk assets.`;
-      if (c.short === 'inflation')  return `${ccyL} inflation print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}. Hot/soft surprise reprices the front end of the curve.`;
-      if (c.short === 'labour')     return `${ccyL} labour-market print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}. Strong/weak surprise reprices the central-bank reaction function.`;
-      if (c.short === 'central bank') return `${ccyL} central-bank decision. Tone vs current market pricing is the dominant lever. Surprises produce outsized moves.`;
-      if (c.short === 'growth')     return `${ccyL} growth print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}. Surprise resets terminal-rate expectations and risk appetite.`;
-      if (c.short === 'consumer demand') return `${ccyL} consumer-demand print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}.`;
-      if (c.short === 'activity')   return `${ccyL} activity print. Forecast ${fmtVal(e.forecast)}, previous ${fmtVal(e.previous)}. Sub-50 typically signals contraction.`;
-      if (c.short === 'geopolitical') return `Geopolitical event affecting ${ccyL} and global risk appetite.`;
-      return `${ccyL} ${c.label}. Direction depends on print vs forecast.`;
-    })(headline);
-    const a = analyseEvent(headline);
-    const buckets2 = bucketAffected(a.affected);
-    const affectedShort = BUCKET_ORDER
-      .filter(k => buckets2[k] && buckets2[k].length)
-      .map(k => k)
-      .slice(0, 5)
-      .join(' · ');
-
-    lines.push(`**Headline:** ${ht}`);
-    lines.push(`**Time:** ${fmtAwstShort(headline.scheduled_time)} AWST (${fmtUtcShort(headline.scheduled_time)} UTC)`);
-    lines.push(`**Summary:** ${summary}`);
-    lines.push(`**Corey commentary:** ${a.coreyView}`);
-    lines.push(`**Mechanism chain:** ${mechanismChainFor(headline)}`);
-    lines.push(`**Trader note:** Stand down through the release. Re-engage only after liquidity sweep + 5m/15m confirmation. Sizing should be reduced into the print.`);
-    lines.push(`**Affected:** ${affectedShort || 'unavailable'}`);
-  } else {
-    lines.push(`No scheduled headline event today. Watch live CBOE Volatility Index (VIX) / US Dollar Index (DXY) / yields for regime change. Mechanism: driver moves first, calendar second.`);
-  }
-  lines.push('');
-
-  // ── 4. KEY EVENT WINDOWS ──
-  lines.push(`**4. KEY EVENT WINDOWS (AWST)**`);
   if (sortedHigh.length) {
-    for (const e of sortedHigh.slice(0, 6)) {
-      const t = humanizeTitle(e.title);
-      const ccy = e.currency ? ` — ${e.currency}` : '';
-      const imp = (e.impact || 'high').toString().toLowerCase() === 'high' ? 'High'
-                : (e.impact || '').toString().toLowerCase() === 'medium' ? 'Medium' : 'Low';
-      lines.push(`• ${fmtAwstShort(e.scheduled_time)} — ${t}${ccy} — ${imp}`);
-    }
+    for (const e of sortedHigh.slice(0, 4)) lines.push(_eventRow(e, 'high'));
+    if (sortedHigh.length > 4) lines.push('• …+' + (sortedHigh.length - 4) + ' more high-impact (see calendar)');
   } else {
-    lines.push(`• No high-impact events scheduled today.`);
+    // Quiet-day lifecycle — surface the COOLING / driver-led
+    // state so the doctrine lifecycle field is always present.
+    lines.push('• No high-impact catalysts scheduled — 🍂 COOLING / driver-led tape.');
   }
-  if (sortedHighInterest.length) {
-    lines.push(`_Also of interest:_`);
-    for (const e of sortedHighInterest.slice(0, 3)) {
-      const t = humanizeTitle(e.title);
-      const ccy = e.currency ? ` — ${e.currency}` : '';
-      lines.push(`• ${fmtAwstShort(e.scheduled_time)} — ${t}${ccy} — Medium`);
-    }
-  }
+  for (const e of sortedHighInterest.slice(0, 1)) lines.push(_eventRow(e, 'medium'));
   lines.push('');
 
-  // ── 5. CURRENCY / ASSET NARRATIVES ──
-  lines.push(`**5. CURRENCY / ASSET NARRATIVES**`);
-  const narratives = buildCurrencyNarratives(highToday, buckets);
-  if (narratives.length) {
-    for (const n of narratives) {
-      lines.push(`**${n.label}**`);
-      lines.push(`• ${n.body}`);
-    }
-  } else {
-    lines.push(`No specific currency/asset narratives — driver-led tape. Watch US Dollar Index (DXY), gold, and US indices vs live CBOE Volatility Index (VIX) / yields read.`);
-  }
+  // ── WHY THIS MATTERS ──
+  lines.push(fohSection('WHY THIS MATTERS', '🧠'));
+  lines.push('');
+  lines.push(whyThisMatters);
   lines.push('');
 
-  // ── 6. CLASH & LIQUIDITY RISKS ──
-  lines.push(`**6. CLASH & LIQUIDITY RISKS**`);
-  for (const l of buildClashRisks(sortedHigh, NOW)) lines.push(`• ${l}`);
+  // ── WHAT CHANGED ──
+  lines.push(fohSection('WHAT CHANGED', '📊'));
+  lines.push('');
+  lines.push(whatChanged);
   lines.push('');
 
-  // ── 7. ATLAS RESPONSE / TRADE WINDOWS ──
-  lines.push(`**7. ATLAS RESPONSE / TRADE WINDOWS**`);
-  for (const l of buildAtlasResponseWindows(sortedHigh)) lines.push(`• ${l}`);
+  // ── WHAT CONFIRMS ──
+  lines.push(fohSection('WHAT CONFIRMS', '✅'));
+  lines.push('');
+  lines.push(whatConfirms);
   lines.push('');
 
-  // ── 8. PRIORITY WATCHLIST ──
-  lines.push(`**8. PRIORITY WATCHLIST**`);
-  if (Object.keys(buckets).length) {
-    for (const k of BUCKET_ORDER) {
-      if (buckets[k] && buckets[k].length) lines.push(`**${k}:** ${buckets[k].slice(0, 8).join(', ')}`);
-    }
-  } else {
-    lines.push(`_No specific priority watchlist — driver-led tape._`);
-  }
+  // ── WHAT CANCELS ──
+  lines.push(fohSection('WHAT CANCELS', '❌'));
+  lines.push('');
+  lines.push(whatCancels);
   lines.push('');
 
-  // ── 9. NEXT WATCH ──
-  lines.push(`**9. NEXT WATCH**`);
-  if (next) {
-    lines.push(`• **Next major:** ${humanizeTitle(next.title)}${next.currency ? ` (${next.currency})` : ''}`);
-    lines.push(`• **Time:** ${fmtAwstShort(next.scheduled_time)} AWST`);
-    lines.push(`• **Watching for:** ${coreyWatchingFor(next)}`);
-  } else {
-    lines.push(`• No high-impact event scheduled in the next 48 hours.`);
-    lines.push(`• Watching for: regime change in live drivers (CBOE Volatility Index (VIX) 20, US Dollar Index (DXY) 100, 10y-2y zero).`);
-  }
+  // ── AFFECTED MARKETS ──
+  // Stress windows (4+ high-impact catalysts) tighten the
+  // sector-row cap so the embed stays under 1900 chars.
+  const _affectedOpts = sortedHigh.length >= 4
+    ? { maxRows: 4, maxSymbols: 4 }
+    : { maxRows: 5, maxSymbols: 5 };
+  lines.push(fohSection('AFFECTED MARKETS', '🎯'));
   lines.push('');
-  lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
+  lines.push(fohAffectedBlock(buckets, _affectedOpts));
+  lines.push('');
+
+  // ── NEXT REVIEW ──
+  lines.push(fohSection('NEXT REVIEW', '🔚'));
+  lines.push('');
+  lines.push('⏳ Next major · ' + nextReview);
+  lines.push('🛡️ Stand down ±15/30M each release; reassess on first close.');
+  lines.push('');
+
+  // ── BRIEFING SUMMARY ──
+  lines.push(fohSection('BRIEFING SUMMARY', '📚'));
+  lines.push('');
+  lines.push(briefingSummary);
+  lines.push('');
+
+  // ── SOURCE NOTE ──
+  lines.push(fohSection('SOURCE NOTE', '📚'));
+  lines.push('');
+  lines.push(sourceNote);
+  lines.push('');
+  lines.push(FOH_BIAS_DISCLAIMER);
 
   return {
     content: lines.join('\n'),
@@ -1450,7 +1705,7 @@ async function tick(NOW) {
       if (Math.abs(minsOut - win) <= half) {
         const key = `${e.id || e.title || ''}:${e.scheduled_time}:T-${win}`;
         if (_alertsSent.has(key)) continue;
-        const payload = buildPreEventAlertPayload(e, win);
+        const payload = buildPreEventAlertPayload(e, win, { health, geoLevel: geoCtx.level });
         const a = analyseEvent(e);
         await dispatch('pre_event', { content: payload.content }, {
           event: e.title || 'pre_event',
@@ -1474,7 +1729,7 @@ async function tick(NOW) {
   for (const e of justReleased) {
     const key = `${e.id || e.title || ''}:${e.scheduled_time}`;
     if (_releaseAlertsSent.has(key)) continue;
-    const payload = buildReleasedEventAlertPayload(e);
+    const payload = buildReleasedEventAlertPayload(e, { health, geoLevel: geoCtx.level });
     const a = analyseEvent(e);
     await dispatch('release', { content: payload.content }, {
       event: e.title || 'release',
