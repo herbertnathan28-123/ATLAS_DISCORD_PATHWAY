@@ -672,57 +672,336 @@ function coreyWatchingFor(rawEvent) {
 }
 
 // ============================================================
+// MARKET INTEL FOH v6 — VISUAL SHELL
+// ----------------------------------------------------------------
+// Operator directive: Market Intel must adopt the Dark Horse v6
+// visual format (boxed hierarchy, premium black/gold visual
+// language, top briefing structure, card-style embed layout,
+// lifecycle treatment, dense mobile-friendly density), but the
+// CONTENT stays Market Intel-specific.
+//
+// Replace trade-setup language with the locked MI vocabulary:
+//   MARKET MOOD · EVENT / CATALYST WATCH · WHAT CHANGED ·
+//   WHY THIS MATTERS · AFFECTED MARKETS · CONFIRMATION PATH ·
+//   CANCELLATION PATH · NEXT REVIEW · BRIEFING SUMMARY
+//
+// Target: "Dark Horse v6 visual shell + Market Intel intelligence
+// content." NOT trade cards. NOT a lightweight summary.
+//
+// Helpers are LOCAL to coreyMarketIntel.js. We do not require
+// darkHorseFoh.js — Dark Horse FOH is the ATL-6 / Cursor lane and
+// this module must not couple to its private helpers.
+// ============================================================
+
+const MI_GLOSSARY_URL = 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
+
+const MI_ESC = '';
+const MI_ANSI_RESET = MI_ESC + '[0m';
+const MI_ANSI_GOLD  = MI_ESC + '[33;1m';
+
+const MI_COLOR = Object.freeze({
+  PRE_EVENT:        0xFAA61A, // gold — anticipatory
+  RELEASED_BULL:    0x23A55A, // green — bullish surprise
+  RELEASED_BEAR:    0xED4245, // red — bearish surprise
+  RELEASED_INLINE:  0x5BC0DE, // cyan — in-line print
+  HIGH_IMPACT:      0xE67E22, // amber — high-impact framing
+  EXTREME:          0xC0392B, // deep red — extreme event window
+});
+
+function _miPad2(n) { return (n < 10 ? '0' : '') + n; }
+function _miFmtUtcStamp(ms) {
+  const d = new Date(Number.isFinite(ms) ? ms : Date.now());
+  return d.getUTCFullYear() + '-' + _miPad2(d.getUTCMonth() + 1) + '-' + _miPad2(d.getUTCDate())
+    + ' ' + _miPad2(d.getUTCHours()) + ':' + _miPad2(d.getUTCMinutes()) + ' UTC';
+}
+function _miFmtAwstStamp(ms) {
+  const d = new Date((Number.isFinite(ms) ? ms : Date.now()) + 8 * 3600 * 1000);
+  return _miPad2(d.getUTCHours()) + ':' + _miPad2(d.getUTCMinutes()) + ' AWST';
+}
+
+// Visible-bracket terminology hyperlink (Pack-4 doctrine). No
+// backslash escapes. Form: `[[Label]](url)`. Mirrors the FOH v6
+// surface format established by PR #74; same operator brief D.
+function _miTermLink(label, url) {
+  return '[[' + label + ']](' + (url || MI_GLOSSARY_URL) + ')';
+}
+
+// 5-disc severity bar (Pack-3 doctrine). Glyph + ⚫ inactive. Form:
+// `🟠🟠🟠🟠⚫ 4/5 — Label`. Local helper — does not import the
+// Dark Horse FOH v6 module.
+function _miDiscScale(active, total, label, glyph) {
+  total = Number.isFinite(total) ? total : 5;
+  active = Math.max(0, Math.min(total, Number.isFinite(active) ? active : 0));
+  const filled = glyph || '🟢';
+  const dot = '⚫';
+  const discs = filled.repeat(active) + dot.repeat(total - active);
+  return discs + ' ' + active + '/' + total + (label ? ' — ' + label : '');
+}
+
+// Stage-aware Market Mood — Pre-event mood reflects how close the
+// event is + its impact tier. Released mood reflects surprise size.
+function _miMarketMoodForPreEvent(stage, rawEvent) {
+  const imp = String(rawEvent && rawEvent.impact || '').toLowerCase();
+  const isHi = imp === 'high';
+  // Active discs scale with both impact and timing pressure.
+  let active = 1; let glyph = '🟡'; let label = 'Forming';
+  if (stage === 'T-RELEASE') { active = isHi ? 5 : 4; glyph = isHi ? '🔴' : '🟠'; label = isHi ? 'EXTREME — peak liquidity' : 'High — release window'; }
+  else if (stage === 'T-15M') { active = isHi ? 5 : 4; glyph = isHi ? '🔴' : '🟠'; label = 'High — imminent'; }
+  else if (stage === 'T-30M') { active = isHi ? 4 : 3; glyph = isHi ? '🟠' : '🟡'; label = 'Elevated — final lead-in'; }
+  else if (stage === 'T-1H')  { active = isHi ? 4 : 3; glyph = isHi ? '🟠' : '🟡'; label = 'Elevated — approach window'; }
+  else if (stage === 'T-4H')  { active = isHi ? 3 : 2; glyph = '🟡'; label = 'Building — setup window'; }
+  return { discScale: _miDiscScale(active, 5, label, glyph), label, active };
+}
+
+function _miMarketMoodForReleased(rawEvent) {
+  const A = parseFloat(rawEvent && rawEvent.actual);
+  const F = parseFloat(rawEvent && rawEvent.forecast);
+  const imp = String(rawEvent && rawEvent.impact || '').toLowerCase();
+  const isHi = imp === 'high';
+  if (Number.isFinite(A) && Number.isFinite(F)) {
+    if (A === F) return { discScale: _miDiscScale(2, 5, 'IN-LINE — first-reaction calm', '🟡'), label: 'IN-LINE', active: 2 };
+    const direction = A > F ? 'above' : 'below';
+    return {
+      discScale: _miDiscScale(isHi ? 5 : 4, 5, isHi ? 'EXTREME — strong ' + direction + '-forecast surprise' : 'High — ' + direction + '-forecast surprise', isHi ? '🔴' : '🟠'),
+      label: isHi ? 'EXTREME' : 'High',
+      active: isHi ? 5 : 4,
+    };
+  }
+  return { discScale: _miDiscScale(3, 5, 'High — released, values incomplete', '🟠'), label: 'High', active: 3 };
+}
+
+// Top-of-message banner — mirrors the FOH v6 red NEW divider, with
+// Market Intel wording in place of "Dark Horse Scan".
+function _miRedNewDividerTop(nowMs, stage) {
+  const bar = '━'.repeat(50);
+  const stamp = _miFmtUtcStamp(nowMs) + '   ·   ' + _miFmtAwstStamp(nowMs)
+    + '   ·   ' + (stage === 'RELEASED' ? 'POST-RELEASE' : 'PRE-EVENT ' + (stage || ''));
+  return [
+    '```diff',
+    '- ' + bar,
+    '- ▼ ▼ ▼   N E W   M A R K E T   I N T E L   A L E R T   ▼ ▼ ▼',
+    '- ' + bar,
+    '-   🆕   ' + stamp + '   🆕',
+    '- ' + bar,
+    '```',
+  ].join('\n');
+}
+
+function _miGiantBanner(text) {
+  const inner = ' ' + text + ' ';
+  const pad = Math.max(2, 52 - inner.length);
+  return [
+    '```ansi',
+    MI_ANSI_GOLD + '╔' + '═'.repeat(52) + '╗' + MI_ANSI_RESET,
+    MI_ANSI_GOLD + '║' + inner + ' '.repeat(pad) + '║' + MI_ANSI_RESET,
+    MI_ANSI_GOLD + '╚' + '═'.repeat(52) + '╝' + MI_ANSI_RESET,
+    '```',
+  ].join('\n');
+}
+
+function _miSubheading(text) {
+  return ['```ansi', MI_ANSI_GOLD + '▸  ' + text + MI_ANSI_RESET, '```'].join('\n');
+}
+
+// CONFIRMATION PATH copy — what price action would confirm the
+// event's directional reaction. Pre-event reads the bias path
+// derived from the upstream analyseEvent() bias label so the
+// language stays event-specific.
+function _miConfirmationPath(rawEvent, a, isReleased) {
+  const ccy = (a && a.currency) || 'currency';
+  const surpriseDir = (function () {
+    const A = parseFloat(rawEvent && rawEvent.actual);
+    const F = parseFloat(rawEvent && rawEvent.forecast);
+    if (!Number.isFinite(A) || !Number.isFinite(F)) return null;
+    if (A > F) return 'above';
+    if (A < F) return 'below';
+    return 'inline';
+  })();
+  if (isReleased && surpriseDir === 'above') {
+    return [
+      '• ' + ccy + '-strength confirmation: the lead pair (e.g. USD pairs: ' + ccy + 'JPY) closes in the surprise direction on the 1H AND holds the post-print swing.',
+      '• Cross-asset confirmation: ' + ccy + '-sensitive risk assets (commodities + correlated equities) trade in the expected direction without immediate reversal.',
+      '• Required 5M/15M behaviour: a sweep of the pre-print range high, then a 5M body close back inside that range from the surprise side ({{confirmed directional structure}} test).',
+    ].join('\n');
+  }
+  if (isReleased && surpriseDir === 'below') {
+    return [
+      '• ' + ccy + '-weakness confirmation: the lead pair closes against ' + ccy + ' on the 1H AND holds the post-print swing.',
+      '• Cross-asset confirmation: defensive flows reach + hold (safe havens + risk-off proxies).',
+      '• Required 5M/15M behaviour: a sweep of the pre-print range low, then a 5M body close back inside that range from the surprise side.',
+    ].join('\n');
+  }
+  return [
+    '• Wait for a sweep of the pre-print range high or low.',
+    '• Then a 5M body close back inside that range from the same side (directional structure test).',
+    '• 1H close in the same direction as the 5M reclaim confirms the read; otherwise treat as no-bias.',
+  ].join('\n');
+}
+
+function _miCancellationPath(rawEvent, a, isReleased) {
+  const ccy = (a && a.currency) || 'currency';
+  if (isReleased) {
+    return [
+      '• First-spike fade: price retraces 100% of the post-print impulse within 30 min — directional bias OFF.',
+      '• Cross-asset disagreement: lead pair and ' + ccy + '-sensitive risk assets disagree on direction — stand aside.',
+      '• 1H close back inside the pre-print range cancels the surprise-direction bias entirely.',
+    ].join('\n');
+  }
+  return [
+    '• Pre-event range breaks early without confirmation candle — the move is liquidity, not direction.',
+    '• Major catalyst overrides this event (e.g. unscheduled headline) — re-read the new catalyst.',
+    '• Event postponed / delayed — bias is voided until the new release window.',
+  ].join('\n');
+}
+
+function _miNextReview(isReleased, stage, scheduledMs) {
+  if (isReleased) {
+    const tPlus30 = Date.now() + 30 * 60 * 1000;
+    return _miFmtUtcStamp(tPlus30) + ' / ' + _miFmtAwstStamp(tPlus30) + ' (T+30 — first-close confirmation phase)';
+  }
+  const t = Number.isFinite(scheduledMs) ? scheduledMs : Date.now();
+  return _miFmtUtcStamp(t) + ' / ' + _miFmtAwstStamp(t) + ' (event scheduled — re-read after print)';
+}
+
+// Affected markets block, condensed for embed field. Bucket order
+// preserved; each bucket shows up to 6 symbols. Suppresses
+// redundant "Header: Header" rows (e.g. solo DXY).
+function _miAffectedMarketsValue(buckets) {
+  const rows = [];
+  for (const k of BUCKET_ORDER) {
+    if (buckets[k] && buckets[k].length) {
+      const header = bucketHeaderLabel(k);
+      const cells = buckets[k].slice(0, 6).map(symbolDisplay).join(', ');
+      rows.push((cells === header) ? '• ' + header : '• ' + header + ': ' + cells);
+    }
+  }
+  return rows.length ? rows.join('\n') : '• No direct bucket mapping for this catalyst.';
+}
+
+// Build the structured Market Intel event card embed.
+function _miEventCardEmbed(rawEvent, a, opts) {
+  const isReleased = !!(opts && opts.released);
+  const stage = (opts && opts.stage) || null;
+  const buckets = bucketAffected(a.affected);
+  const cleanTitle = humanizeTitle(a.title);
+  const mood = isReleased ? _miMarketMoodForReleased(rawEvent) : _miMarketMoodForPreEvent(stage, rawEvent);
+  const impact = String(rawEvent.impact || 'unavailable').toUpperCase();
+  const colour = isReleased
+    ? (mood.active >= 4 ? (mood.label === 'EXTREME' ? MI_COLOR.EXTREME : MI_COLOR.RELEASED_BEAR) : MI_COLOR.RELEASED_INLINE)
+    : (impact === 'HIGH' ? MI_COLOR.HIGH_IMPACT : MI_COLOR.PRE_EVENT);
+
+  // WHAT CHANGED — pre-event: timing approach line; released: surprise line.
+  let whatChanged;
+  if (isReleased) {
+    const A = parseFloat(a.actual), F = parseFloat(a.forecast);
+    if (Number.isFinite(A) && Number.isFinite(F)) {
+      if (A > F)      whatChanged = '**Print landed ABOVE forecast** (' + a.actual + ' vs ' + a.forecast + '). Direction of surprise: bullish-for-' + (a.currency || 'currency') + ' under the standard mechanism.';
+      else if (A < F) whatChanged = '**Print landed BELOW forecast** (' + a.actual + ' vs ' + a.forecast + '). Direction of surprise: bearish-for-' + (a.currency || 'currency') + ' under the standard mechanism.';
+      else            whatChanged = '**Print landed IN LINE with forecast** (' + a.actual + '). No surprise-driven direction; reaction depends on positioning unwind.';
+    } else {
+      whatChanged = '**Print released — values incomplete.** Actual ' + fmtVal(a.actual) + ' · forecast ' + fmtVal(a.forecast) + ' · previous ' + fmtVal(a.previous) + '. Reassess as numbers populate.';
+    }
+  } else {
+    whatChanged = '**Event window opened: ' + (stage || 'T-1H') + '.** ' + cleanTitle + ' is approaching. Liquidity is thinning, spreads will widen, positioning is rotating.';
+  }
+
+  const fields = [
+    { name: 'EVENT / CATALYST WATCH',
+      value: '**' + cleanTitle + '**\n• Currency: ' + (a.currency || 'unavailable') + (rawEvent.country ? ' (' + rawEvent.country + ')' : '')
+             + '\n• Impact tier: ' + impact
+             + (isReleased ? '\n• Status: released' : '\n• Stage: ' + (stage || 'pre-event')),
+      inline: false },
+    { name: 'SCHEDULED RELEASE',
+      value: _miFmtAwstStamp(a.scheduled_time) + ' AWST\n(' + _miFmtUtcStamp(a.scheduled_time) + ')',
+      inline: true },
+    { name: 'EVENT RISK',
+      value: mood.discScale,
+      inline: true },
+    { name: 'WHAT CHANGED', value: whatChanged, inline: false },
+    { name: 'WHY THIS MATTERS',
+      value: mechanismChainFor(rawEvent) + '\n\n_Market read:_ ' + a.coreyView,
+      inline: false },
+    { name: 'AFFECTED MARKETS', value: _miAffectedMarketsValue(buckets), inline: false },
+    { name: 'CONFIRMATION PATH', value: _miConfirmationPath(rawEvent, a, isReleased), inline: false },
+    { name: 'CANCELLATION PATH', value: _miCancellationPath(rawEvent, a, isReleased), inline: false },
+    { name: 'NEXT REVIEW',
+      value: _miNextReview(isReleased, stage, a.scheduled_time),
+      inline: false },
+  ];
+
+  const title = isReleased
+    ? '🌐  MARKET INTEL · ' + cleanTitle + ' · RELEASED'
+    : '🌐  MARKET INTEL · ' + cleanTitle + ' · ' + (stage || 'PRE-EVENT');
+  const description = isReleased
+    ? 'Released-event intelligence read. Surprise direction sets the working bias; price-action confirmation governs whether the bias activates.'
+    : 'Pre-event intelligence read. ' + (impact === 'HIGH' ? 'High-impact' : 'Standard-impact') + ' catalyst inside the active window. Positioning rotates first; confirmation comes from post-print structure.';
+
+  return {
+    color: colour,
+    title,
+    description,
+    fields,
+    footer: { text: 'ATLAS Market Intel · ' + (isReleased ? 'release' : 'pre-event') + ' · ' + (a.currency || 'multi') + ' · ' + (stage || 'released') + ' · Bias remains conditional until price confirms through structure.' },
+  };
+}
+
+// Briefing summary tail content — dense single-paragraph recap.
+function _miBriefingSummary(rawEvent, a, opts) {
+  const isReleased = !!(opts && opts.released);
+  const stage = (opts && opts.stage) || (isReleased ? 'RELEASED' : 'PRE-EVENT');
+  const buckets = bucketAffected(a.affected);
+  const primaryBucket = BUCKET_ORDER.find(k => buckets[k] && buckets[k].length);
+  const primarySymbols = primaryBucket ? buckets[primaryBucket].slice(0, 3).map(symbolDisplay).join(' / ') : 'broad cross-asset';
+  return [
+    _miSubheading('Briefing Summary'),
+    '_' + stage + ' alert · ' + humanizeTitle(a.title) + ' · ' + (a.currency || 'multi-ccy') + '. Lead exposure: ' + primarySymbols + '._',
+    '_Mechanism: ' + a.coreyView + '_',
+    '_' + BIAS_CONDITIONAL_DISCLAIMER + '_',
+  ].join('\n');
+}
+
+// Banner content (multi-fence) — red NEW divider + gold MARKET INTEL
+// banner + Market Mood subheading + EXPANDED TERMINOLOGY row.
+function _miBannerContent(rawEvent, a, opts) {
+  const isReleased = !!(opts && opts.released);
+  const stage = (opts && opts.stage) || null;
+  const mood = isReleased ? _miMarketMoodForReleased(rawEvent) : _miMarketMoodForPreEvent(stage, rawEvent);
+  const headline = isReleased
+    ? humanizeTitle(a.title) + ' — just released'
+    : humanizeTitle(a.title) + ' — ' + (stage || 'pre-event') + ' window open';
+  const terms = [
+    _miTermLink('Mechanism Chain'),
+    _miTermLink('Confirmation Path'),
+    _miTermLink('Cancellation Path'),
+    _miTermLink('Event Risk'),
+    _miTermLink('Market Mood'),
+  ].join('  ·  ');
+  return [
+    _miRedNewDividerTop(Date.now(), isReleased ? 'RELEASED' : stage),
+    '',
+    _miGiantBanner('🌐  MARKET INTEL — EVENT / CATALYST WATCH'),
+    '',
+    '_' + headline + '._',
+    '',
+    '📘 **EXPANDED TERMINOLOGY HYPERLINKS**',
+    terms,
+    '',
+    _miSubheading('Market Mood  ·  ' + mood.discScale),
+    '',
+    _miBriefingSummary(rawEvent, a, opts),
+  ].join('\n');
+}
+
+// ============================================================
 // PRE-EVENT ALERT — trader-grade rebuild
 // ============================================================
 function buildPreEventAlertPayload(rawEvent, minutesOut) {
   const a = analyseEvent(rawEvent);
   if (!a) return { content: '' };
   const stage = preEventStageLabel(minutesOut);
-  const cleanTitle = humanizeTitle(a.title);
-  const buckets = bucketAffected(a.affected);
-  const cautionByStage = {
-    'T-4H':  'Setup window. Confirm bias before any pre-positioning.',
-    'T-1H':  'Approach window. Execution becomes time-sensitive — avoid late entries.',
-    'T-30M': 'Final lead-in. Liquidity thins, spreads widen — do not chase.',
-    'T-15M': 'Imminent. Stand down unless a confirmed pre-event setup is already live.',
-    'T-RELEASE': 'Release window. The first move is rarely the move — wait for liquidity sweep + reclaim.',
-  };
-
-  const lines = [];
-  lines.push(`**ATLAS MARKET INTEL — PRE-EVENT ALERT (${stage})**`);
-  lines.push('');
-  lines.push(`**Event:** ${cleanTitle}`);
-  lines.push(`**Currency:** ${a.currency || 'unavailable'}${rawEvent.country ? ` (${rawEvent.country})` : ''}`);
-  lines.push(`**Time:** ${fmtAwstShort(a.scheduled_time)} AWST (${fmtUtcShort(a.scheduled_time)} UTC)`);
-  lines.push(`**Impact:** ${(rawEvent.impact || 'unavailable').toString().toUpperCase()}`);
-  lines.push('');
-  lines.push(`**Affected markets**`);
-  for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) {
-      const header = bucketHeaderLabel(k);
-      const cells = buckets[k].slice(0, 6).map(symbolDisplay).join(', ');
-      // Suppress redundant "Header: Header" rows (e.g. when the DXY
-      // bucket contains only the DXY ticker — the header already
-      // carries the expanded label).
-      const row = (cells === header) ? `• ${header}` : `• ${header}: ${cells}`;
-      lines.push(row);
-    }
-  }
-  lines.push('');
-  lines.push(`**Mechanism chain**`);
-  lines.push(mechanismChainFor(rawEvent));
-  lines.push('');
-  lines.push(`**Market read**`);
-  lines.push(a.coreyView);
-  lines.push('');
-  lines.push(`**Trader guidance**`);
-  lines.push(`• ${cautionByStage[stage] || cautionByStage['T-1H']}`);
-  lines.push(`• Wait for price to sweep a visible high or low, then close back in favour on the 5M or 15M chart before treating the move as continuation.`);
-  lines.push(`• Trade smaller around the print; reassess once structure has formed.`);
-  lines.push('');
-  lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
-
-  return { content: lines.join('\n'), stage };
+  const content = _miBannerContent(rawEvent, a, { released: false, stage });
+  const embed = _miEventCardEmbed(rawEvent, a, { released: false, stage });
+  return { content, embeds: [embed], stage };
 }
 
 // ============================================================
@@ -731,50 +1010,9 @@ function buildPreEventAlertPayload(rawEvent, minutesOut) {
 function buildReleasedEventAlertPayload(rawEvent) {
   const a = analyseEvent(rawEvent);
   if (!a) return { content: '' };
-  const cleanTitle = humanizeTitle(a.title);
-  const buckets = bucketAffected(a.affected);
-
-  let surpriseLine;
-  const A = parseFloat(a.actual);
-  const F = parseFloat(a.forecast);
-  if (Number.isFinite(A) && Number.isFinite(F)) {
-    if (A > F)      surpriseLine = `Print came in **above forecast** (${a.actual} vs ${a.forecast}).`;
-    else if (A < F) surpriseLine = `Print came in **below forecast** (${a.actual} vs ${a.forecast}).`;
-    else            surpriseLine = `Print came in **in line with forecast** (${a.actual}).`;
-  } else {
-    surpriseLine = `Values: actual ${fmtVal(a.actual)} · forecast ${fmtVal(a.forecast)} · previous ${fmtVal(a.previous)}.`;
-  }
-
-  const lines = [];
-  lines.push(`**ATLAS MARKET INTEL — RELEASED EVENT**`);
-  lines.push('');
-  lines.push(`**Event:** ${cleanTitle}`);
-  lines.push(`**Released:** ${fmtAwstShort(a.scheduled_time)} AWST`);
-  lines.push(`**Result:** ${surpriseLine}`);
-  lines.push('');
-  lines.push(`**Likely affected markets**`);
-  for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) {
-      const header = bucketHeaderLabel(k);
-      const cells = buckets[k].slice(0, 6).map(symbolDisplay).join(', ');
-      lines.push((cells === header) ? `• ${header}` : `• ${header}: ${cells}`);
-    }
-  }
-  lines.push('');
-  lines.push(`**Mechanism chain**`);
-  lines.push(mechanismChainFor(rawEvent));
-  lines.push('');
-  lines.push(`**Market read**`);
-  lines.push(a.coreyView);
-  lines.push('');
-  lines.push(`**First-reaction caution**`);
-  lines.push(`• Immediate volatility is high — do not chase the first spike.`);
-  lines.push(`• Wait for price to sweep a visible high or low, then close back in favour on the 5M or 15M chart before treating the move as continuation.`);
-  lines.push(`• Reassess bias only after the first higher-timeframe close has formed.`);
-  lines.push('');
-  lines.push(`_${BIAS_CONDITIONAL_DISCLAIMER}_`);
-
-  return { content: lines.join('\n') };
+  const content = _miBannerContent(rawEvent, a, { released: true });
+  const embed = _miEventCardEmbed(rawEvent, a, { released: true });
+  return { content, embeds: [embed] };
 }
 
 // ============================================================
@@ -1373,7 +1611,13 @@ async function dispatch(messageType, payloadObj, extra) {
     return { sent: false, reason: `validator_${validation.failureReason}`, payload: validated, diagnostics: validation.diagnostics };
   }
   try {
-    const res = await sendWebhook(_webhookUrl, { content: validated.content });
+    // Forward embeds + content together so the v6 visual shell ships
+    // intact (banner content + structured event-card embed). Existing
+    // content-only callers are unaffected because validated.embeds
+    // is undefined unless the upstream builder sets it.
+    const body = { content: validated.content };
+    if (Array.isArray(validated.embeds) && validated.embeds.length) body.embeds = validated.embeds;
+    const res = await sendWebhook(_webhookUrl, body);
     if (res && res.status >= 200 && res.status < 300) {
       log(`[COREY-MARKET-INTEL] send_result=ok`);
       return { sent: true, status: res.status, payload: validated, diagnostics: validation.diagnostics };
