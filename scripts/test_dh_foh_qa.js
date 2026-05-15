@@ -477,6 +477,23 @@ console.log('\n[T15b] Chart-card specs render to Discord attachment images');
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, { now: Date.parse('2026-05-13T12:00:00Z') });
   ok('candidate embeds carry chart-card specs before transport render',
      out.messages.slice(1, 4).every(m => m.embeds && m.embeds[0] && m.embeds[0].chartCard));
+  ok('candidate chart cards include visual proof annotations',
+     out.messages.slice(1, 4).every(m => {
+       const labels = ((m.embeds[0].chartCard && m.embeds[0].chartCard.annotations) || []).map(a => a.label);
+       return labels.includes('DECISION LEVEL')
+         && labels.includes('ENTRY ZONE')
+         && labels.includes('WATCH LEVEL')
+         && labels.includes('INVALIDATION')
+         && labels.some(l => /^BREAK /.test(l))
+         && labels.some(l => /DEFENDING|RETEST HELD|FAILED RECLAIM|LOWER HIGH|HIGHER LOW/.test(l));
+     }));
+  ok('reference chart includes break/retest/confirmation teaching labels',
+     (() => {
+       const ref = out.messages[out.messages.length - 2].embeds[0].chartCard;
+       const labels = (ref.annotations || []).map(a => a.label);
+       return ['DECISION LEVEL', 'BREAK ABOVE', 'RETEST HELD', 'CONFIRMED CLOSE', 'ENTRY ZONE', 'WATCH LEVEL', 'INVALIDATION', 'LONG IDEA']
+         .every(l => labels.includes(l));
+     })());
   // `renderChartCardAttachments` is async; the promise is awaited in
   // the final summary gate below.
   global.__chartAttachmentPromise = foh.renderChartCardAttachments(out.messages).then(rendered => {
