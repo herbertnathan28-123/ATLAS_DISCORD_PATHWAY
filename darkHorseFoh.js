@@ -9,16 +9,16 @@
 //   - docs/foh/restoration/dh-foh-v6-parity-matrix.md (PR #73)
 //
 // Operator directives applied (B8–B14 + D):
-//   B8  — state derivation: trigger-not-broken / broken-and-held /
-//         broken-not-held / risk-off-hit. Risk-off is a single
+//   B8  — state derivation: decision-not-cleared /
+//         decision-cleared-and-held / risk-off-hit. Risk-off is a single
 //         invalidation level, never a range. Entry/watch/caution
 //         BANDS derived in FOH (B8.a) — no ranking changes.
 //   B9  — Conviction "Why X" reasoning sourced only from visible
-//         FOH evidence (structure, trigger proximity, market mood,
+//         FOH evidence (decision-level proximity, market mood,
 //         risk score, lifecycle, chart evidence, invalidation
 //         proximity).
-//   B10 — Trigger narrative restored: What This Means / What To
-//         Do Now / Dollar Risk This Trade / Trigger Level /
+//   B10 — Decision-level narrative restored: What This Means / What To
+//         Do Now / Dollar Risk / Decision Level /
 //         Risk-Off / What Confirms / What Cancels.
 //   B11 — Dollar-first risk examples restored as educational /
 //         simulation framing. Hybrid contract map: EURUSD,
@@ -110,6 +110,23 @@ const BANNED_PATTERNS = [
   /\bLearning Links?\b/i,
   /\bBOS\b/,
   /\bCHoCH\b/,
+  /\bprints?\b/i,
+  /\bTrigger Level\b/i,
+  /\btrigger\b/i,
+  /\bbroken level\b/i,
+  /\bfloor\b/i,
+  /\bceiling\b/i,
+  /\breclaim(?:ed)?\b/i,
+  /\bfighting structure\b/i,
+  /\bcleaner setup\b/i,
+  /\bbetter setups?\b/i,
+  /\bgive the trade more room\b/i,
+  /\beither side\b/i,
+  /\bMarginal setups?\b/i,
+  /\bLate-stage caveat\b/i,
+  /\bpath of least resistance\b/i,
+  /\bconfirmed directional structure\b/i,
+  /\bstructural anchors?\b/i,
   /─── NEW ───/,
 ];
 
@@ -226,7 +243,7 @@ function _candidateChartAnnotations(record, bands, candles, currentPrice) {
   const structureLabel = isShort ? 'LOWER HIGH' : 'HIGHER LOW';
   const retestLabel = (phase === 'late' || phase === 'exhaustion')
     ? structureLabel
-    : (isShort ? 'FAILED RECLAIM' : 'RETEST HELD');
+    : (isShort ? 'FAILED RECOVERY' : 'RETEST HELD');
   return [
     _chartAnnotation('DECISION LEVEL', bands.trigger, 2, 'decision', 'right'),
     _chartAnnotation(breakLabel, bands.trigger, 1, sideTone, 'left'),
@@ -514,14 +531,29 @@ const TERMINOLOGY = Object.freeze({
   'Expected Duration':                 'term-expected-duration',
   'Market Mood':                       'term-market-mood',
   'Mover Stage':                       'term-mover-stage',
-  'Trigger Level':                     'term-trigger-level',
+  'Decision Level':                    'term-decision-level',
   'Cycle Rank':                        'term-cycle-rank',
   'Long ▲':                            'term-long',
   'Short ▼':                           'term-short',
-  'Structure Break':                   'term-structure-break',
   'Risk-Off':                          'term-risk-off',
   'Initial-direction reversal':        'term-initial-direction-reversal',
-  'confirmed directional structure':   'term-confirmed-directional-structure',
+  'Confirmed Candle Close':            'term-confirmed-candle-close',
+  'Entry Zone':                        'term-entry-zone',
+  'Watch Level':                       'term-watch-level',
+  'Caution Zone':                      'term-caution-zone',
+  'Conviction':                        'term-conviction',
+  'Position Size':                     'term-position-size',
+  'Dollar Risk':                       'term-dollar-risk',
+  'Reward-to-Risk':                    'term-reward-to-risk',
+  'Fading Setup':                      'term-fading-setup',
+  'Fresh Setup':                       'term-fresh-setup',
+  'Still Active Setup':                'term-still-active-setup',
+  'Retest':                            'term-retest',
+  'Lower High':                        'term-lower-high',
+  'Higher Low':                        'term-higher-low',
+  'Risk Reduction':                    'term-risk-reduction',
+  'Late-Stage Move':                   'term-late-stage-move',
+  'Re-entry Structure':                'term-re-entry-structure',
 });
 
 function _routeTerminology(opts) {
@@ -641,7 +673,7 @@ function lifecycleStage(record) {
     stage:    'STILL ACTIVE',
     tone:     'active',
     narrative:'trending across multiple cycles',
-    sizeNote: 'full size allowed (structure proven)',
+    sizeNote: 'full size allowed after repeated level defence',
   };
 }
 
@@ -684,8 +716,8 @@ function _deriveBands(record, volatility) {
   const widthPct = (lvl === 'elevated' || lvl === 'extreme') ? 0.15 : 0.05;
   const bandWidth = span * widthPct;
 
-  // Trigger anchor: the level that flipped. For longs, the prior
-  // high (now broken). For shorts, the prior low (now broken).
+  // Decision anchor: the price level the card is built around.
+  // For longs, the prior high; for shorts, the prior low.
   const trigger = isShort ? lo : hi;
 
   // Entry band centred on the trigger ± half band width.
@@ -761,7 +793,7 @@ function _positionRule(lifecycle, volatility, contract) {
 function _moodDiscs(volatility) {
   const lvl = String((volatility && volatility.level) || '').toLowerCase();
   if (lvl === 'extreme')  return { discs: discScale(5, 5, 'Extreme',  '🔴'), tag: 'EXTREME',  trailer: 'broad swings, late-stage reversals likely' };
-  if (lvl === 'elevated') return { discs: discScale(4, 5, 'Elevated', '🟠'), tag: 'ELEVATED', trailer: 'broad market moving fast — bigger swings either side' };
+  if (lvl === 'elevated') return { discs: discScale(4, 5, 'Elevated', '🟠'), tag: 'ELEVATED', trailer: 'broad market moving fast — larger pullbacks and sharper reversals are more likely' };
   if (lvl === 'quiet')    return { discs: discScale(2, 5, 'Quiet',    '🟢'), tag: 'QUIET',    trailer: 'liquidity thin, moves feel larger than catalysts' };
   return                    { discs: discScale(3, 5, 'Forming',  '🟡'), tag: 'FORMING',  trailer: 'broad read still developing' };
 }
@@ -804,6 +836,29 @@ function _subheading(text, accent) {
 function _terminologyRow(terms, urlMap) {
   return terms.map(t => _termLink(t, urlMap)).join('  ·  ');
 }
+function _terminologyEmbed(urlMap) {
+  return {
+    color: COLOR.CHART_REFERENCE,
+    title: '📘 EXPANDED TERMINOLOGY HYPERLINKS',
+    fields: [
+      {
+        name: 'Core levels',
+        value: _terminologyRow(['Decision Level', 'Entry Zone', 'Watch Level', 'Caution Zone', 'Invalidation', 'Confirmed Candle Close'], urlMap),
+        inline: false,
+      },
+      {
+        name: 'Risk and lifecycle',
+        value: _terminologyRow(['Conviction', 'Position Size', 'Dollar Risk', 'Reward-to-Risk', 'Risk Reduction', 'Fresh Setup', 'Still Active Setup', 'Fading Setup', 'Late-Stage Move'], urlMap),
+        inline: false,
+      },
+      {
+        name: 'Chart reading',
+        value: _terminologyRow(['Pullback', 'Retest', 'Lower High', 'Higher Low', 'Support / Resistance', 'Re-entry Structure', 'Market Mood'], urlMap),
+        inline: false,
+      },
+    ],
+  };
+}
 
 // ── Market Mood block (B12 + Priority 1 doctrine) ───────────
 function _marketMoodBlock(volatility, urlMap) {
@@ -818,13 +873,13 @@ function _marketMoodBlock(volatility, urlMap) {
     '_Dollars-first guidance for today:_',
     '   🟢 Position size — if your normal risk is $500 on a $10k account,',
     '       reduce to ~$300 (60%) for the next 6 hours.',
-    '   🟡 Exit-points — give the trade more room. Tight exits get hit',
-    '       before direction confirms.',
-    '   🟠 Marginal setups — skip them. Only act when the trigger breaks',
-    '       AND the next candle closes beyond it (the {{caution:confirmed',
-    '       directional structure}} test).',
-    '   🛑 Do NOT chase already-extended moves. Wait for the structural',
-    '       test — the floor that was the ceiling.',
+    '   🟡 Exit-points — use the full invalidation level from the card.',
+    '       Tight exits get hit before the 5-minute close confirms.',
+    '   🟠 Lower-quality cards — skip them. Only act when price closes',
+    '       beyond the decision level AND the next candle confirms with',
+    '       a close in the required direction.',
+    '   🛑 Do NOT chase already-extended moves. Wait for price to return',
+    '       to the listed entry zone and confirm with a candle close.',
   ].join('\n');
 }
 
@@ -848,9 +903,6 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
       + (lifecycleCounts.fading > 0 ? lifecycleCounts.fading + ' fading'                  : '0 fading')
       + '._';
 
-  const terms = ['Breakout', 'Pullback', 'Invalidation', 'Market Mood'];
-  const termRow = _terminologyRow(terms, urlMap);
-
   const parts = [
     _redNewDividerTop(nowMs, universeSize),
     '',
@@ -859,7 +911,7 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
     standoutCountLine,
     '',
     '📘 **EXPANDED TERMINOLOGY HYPERLINKS**',
-    termRow,
+    '_See the terminology panel attached to this message._',
     '',
     _marketMoodBlock(volatility, urlMap),
   ];
@@ -916,34 +968,34 @@ function _lifecycleSeparator(record, lifecycle, idx, total) {
 // ── Candidate field builders ────────────────────────────────
 function _candidateDescription(record, stateBadge, bands, lifecycle) {
   const sym = record.symbol || 'instrument';
-  // FADING / late-stage gets the mature-trend caveat regardless
+  // FADING / late-stage gets the mature-trend warning regardless
   // of bands availability.
   if (lifecycle && lifecycle.stage === 'FADING') {
     const dirNoun = String(record.direction || '').toLowerCase() === 'bearish' ? 'downtrend' : 'uptrend';
     const ageBars = record.moveAge && record.moveAge > 0 ? record.moveAge : 4;
-    return sym + "'s " + dirNoun + ' has been running for ' + ageBars + ' cycles. Each new ' + (dirNoun === 'downtrend' ? 'low' : 'high') + ' is smaller than the last. The move is mature — wait for a structural test, do not chase.';
+    return sym + "'s " + dirNoun + ' has been running for ' + ageBars + ' cycles. Each new ' + (dirNoun === 'downtrend' ? 'low' : 'high') + ' is smaller than the last. The setup is late-stage — wait for price to return to the listed entry zone and confirm before acting.';
   }
   if (!bands) {
     if (stateBadge === STATE_BADGE.STRONG_BULLISH || stateBadge === STATE_BADGE.BULLISH_PRESSURE) {
-      return 'Buyers pushed ' + sym + ' through the prior ceiling and held the level on the close. The move is the first read this scan.';
+      return 'Buyers moved ' + sym + ' above the decision area and held a candle close above it. The move is the first read this scan.';
     }
     if (stateBadge === STATE_BADGE.STRONG_BEARISH || stateBadge === STATE_BADGE.BEARISH_PRESSURE) {
-      return 'Sellers cracked the prior floor on ' + sym + ' and the broken level has held as a ceiling on every bounce. Path of least resistance is down.';
+      return 'Sellers moved ' + sym + ' below the decision area. Each bounce back toward that area has stalled, which shows sellers are defending it.';
     }
-    return sym + ' is showing developing pressure. Wait for the next clean test before acting.';
+    return sym + ' is showing developing pressure. Wait for a decision-level close and a confirmed candle close before acting.';
   }
   // STILL ACTIVE / cycle 2+ — mid-stage continuation narrative.
   if (lifecycle && lifecycle.stage === 'STILL ACTIVE') {
     if (bands.isShort) {
-      return sym + ' broke below ' + bands.triggerText + ' on the close two cycles ago. Sellers are still in control and the broken level has held as a ceiling on every bounce since.';
+      return sym + ' closed below ' + bands.triggerText + ' two cycles ago. Each rally back toward that area has stalled, which shows sellers are still defending the decision level.';
     }
-    return sym + ' pushed above ' + bands.triggerText + ' two cycles ago and the broken level has held as support on every pullback since. Buyers stay in control.';
+    return sym + ' closed above ' + bands.triggerText + ' two cycles ago. Each pullback toward that area has held, which shows buyers are still defending the decision level.';
   }
   // FRESH default — new this scan.
   if (bands.isShort) {
-    return sym + ' broke below ' + bands.triggerText + ' on the close. Sellers are still in control and the broken level has held as a ceiling on every bounce since. The move is new this scan.';
+    return sym + ' closed below ' + bands.triggerText + '. Each bounce back toward that area has stalled, which shows sellers are defending the decision level. The move is new this scan.';
   }
-  return sym + ' pushed above ' + bands.triggerText + ' — a level that had capped price for the prior multi-session window — and held the level cleanly on the close. The move is new this scan.';
+  return sym + ' closed above ' + bands.triggerText + ' — the decision level for this card — and held a candle close above it. Buyers are defending that area on pullbacks. The move is new this scan.';
 }
 
 function _convictionFieldValue(record, stateBadge) {
@@ -960,11 +1012,11 @@ function _convictionFieldValue(record, stateBadge) {
 
   let reasoning;
   if (phase === 'early') {
-    reasoning = 'trigger level broke + momentum increased + retest held + the broken level is now defended by ' + movers + ' (all 4 criteria met)';
+    reasoning = 'price closed beyond the decision level + momentum increased + retest held + the decision area is defended by ' + movers + ' (all 4 criteria met)';
   } else if (phase === 'mid') {
-    reasoning = 'trigger level broke + ' + movers + ' defended every retest across 2 cycles + momentum holding (3 of 4 criteria met)';
+    reasoning = 'price closed beyond the decision level + ' + movers + ' defended each retest across 2 cycles + momentum is holding (3 of 4 criteria met)';
   } else if (phase === 'late') {
-    reasoning = 'trigger level still valid + ' + movers + ' still defending — BUT each new ' + (dir === 'bearish' ? 'low' : 'high') + ' is smaller than the last, and the move is ' + (record.moveAge || 4) + ' cycles old (2 of 4 criteria met, 2 weakening)';
+    reasoning = 'decision level still valid + ' + movers + ' still defending — BUT each new ' + (dir === 'bearish' ? 'low' : 'high') + ' is less efficient than the last, and the move is ' + (record.moveAge || 4) + ' cycles old (2 of 4 criteria met, 2 weakening)';
   } else if (phase === 'exhaustion') {
     reasoning = 'late-stage exhaustion + most criteria weakened (1 of 4 criteria met, 3 weakening)';
   } else {
@@ -974,26 +1026,29 @@ function _convictionFieldValue(record, stateBadge) {
   return disc + '\n_Why ' + label + ': ' + reasoning + '._';
 }
 
-function _triggerLevelFieldValue(record, urlMap, bands) {
-  const link = _termLink('Trigger Level', urlMap);
+function _decisionLevelFieldValue(record, urlMap, bands) {
+  const link = _termLink('Decision Level', urlMap);
   const dir = String(record.direction || '').toLowerCase();
   const phase = String(record.movePhase || '').toLowerCase();
   if (!bands) {
-    return link + ': pending — anchor not yet available\n_Why it matters: the level that flipped is the structural reference for this read._';
+    return link + ': pending — anchor not yet available\n_Why it matters: this is the price level the setup will be built around once the chart evidence is available._';
   }
   const priceText = bands.triggerText;
   const isShort = bands.isShort;
-  const flipNoun = isShort ? 'floor that flipped into a ceiling' : 'ceiling that flipped into a floor';
-  const flipVerb = isShort ? 'defend every bounce' : 'treat it as Support';
+  const defenders = isShort ? 'sellers' : 'buyers';
+  const directionText = isShort ? 'below' : 'above';
+  const retestText = isShort
+    ? 'Each rally back toward that price has stalled, which shows sellers are defending the area.'
+    : 'Each pullback toward that price has held, which shows buyers are defending the area.';
   const ageNote = (phase === 'early')
-    ? priceText + ' capped every push for multiple sessions'
+    ? priceText + ' is the price the setup is built around'
     : (phase === 'mid')
-      ? priceText + ' was the floor that held for the prior multi-session window'
-      : priceText + ' is the structural level the move rotates around';
+      ? priceText + ' has already been tested across multiple candles'
+      : priceText + ' remains the active decision price while this late-stage setup is monitored';
   return [
     link + ': **' + priceText + '**',
     '_Why it matters: ' + ageNote + '._',
-    '_It is now the ' + flipNoun + ' — buyers/sellers ' + flipVerb + '._',
+    '_Price must stay ' + directionText + ' this level for the ' + (isShort ? 'bearish' : 'bullish') + ' idea to remain valid. ' + retestText + '_',
   ].join('\n');
 }
 
@@ -1054,7 +1109,7 @@ function _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp)
     '   ' + movers + ' stepped in the last time the level was tested.',
     '   Required price behaviour: a 5-minute candle that opens inside the',
     '   band AND ' + bandHighLowDescriptor + ' (this is the',
-    '   {{caution:confirmed directional structure}} test).',
+    '   ' + _termLink('Confirmed Candle Close', urlMap) + ' test).',
     '   Action: ' + verb + ' on that candle close — start with the position',
     '   rule below ({{money:~$' + fullRiskDollars + '}} planned risk).',
     '',
@@ -1067,9 +1122,9 @@ function _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp)
     '   Action: hold what you have, do NOT add more.',
     '',
     '🟠 CAUTION zone  {{caution:' + bands.watchText + ' – ' + bands.cautionText + '}}',
-    '   {{caution:What this means: the other side is in control inside this band.}}',
-    '   {{caution:Holding from here means fighting the structure — exit risk}}',
-    '   {{caution:is now real, not theoretical.}}',
+    '   {{caution:What this means: price is moving against the setup inside this band.}}',
+    '   {{caution:Ignoring this warning means the planned loss can turn into a full}}',
+    '   {{caution:invalidation loss instead of a small controlled exit.}}',
     '   💲 Position drawdown 50–80% of planned risk',
     '   ({{money:~$' + drawdownDollars + '}} of the {{money:~$' + fullRiskDollars + '}}).',
     '   Action: scratch the trade for a small loss now. Re-read at next scan.',
@@ -1078,7 +1133,7 @@ function _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp)
     '   What this means: the ' + dirNoun + ' idea is OFF entirely.',
     '   💲 Full planned risk taken: {{money:$' + fullRiskDollars + '}} on the recommended size.',
     '   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for',
-    '   a fresh structure on a later scan.',
+    '   a new ' + _termLink('Re-entry Structure', urlMap) + ' on a later scan.',
     '',
     '🔵 Next review  ' + nextReviewStamp,
     '   ATLAS re-reads every zone at the next scan.',
@@ -1104,7 +1159,7 @@ function _dollarRiskFieldValue(record, lifecycle, position, contract, bands) {
   const headerNoun = lifecycle.stage === 'FRESH'
     ? 'half size for FRESH'
     : lifecycle.stage === 'FADING'
-      ? 'QUARTER size only (FADING)'
+      ? 'quarter-size only because this is a FADING card'
       : 'full size allowed (STILL ACTIVE)';
   const lines = [];
 
@@ -1117,26 +1172,30 @@ function _dollarRiskFieldValue(record, lifecycle, position, contract, bands) {
   // Recommended dollars at the lifecycle-adjusted multiplier.
   const baseExpected = lifecycle.stage === 'FRESH' ? 0.5 : lifecycle.stage === 'FADING' ? 0.25 : 1.0;
   const moodAppendix = position.multiplier !== baseExpected ? ' × ' + position.moodNote : '';
-  lines.push('💲 Recommended for this card (' + lifecycle.stage + ' · ' + position.lifecycleNote + moodAppendix + '): {{money:~' + position.dollarRiskText + '}}.');
+  if (lifecycle.stage === 'FADING') {
+    lines.push('💲 This card uses quarter-size because the setup is late-stage, so planned risk is {{money:~' + position.dollarRiskText + '}}.');
+  } else {
+    lines.push('💲 Recommended for this card (' + lifecycle.stage + ' · ' + position.lifecycleNote + moodAppendix + '): {{money:~' + position.dollarRiskText + '}}.');
+  }
 
   // Mood scaling hint (only when relevant).
   if (lifecycle.stage === 'STILL ACTIVE' && position.multiplier < 1.0) {
-    lines.push('💲 If Market Mood drops back to Quiet, scale up to full size after a clean re-read.');
+    lines.push('💲 If Market Mood drops back to Quiet, scale up to full size after a valid re-read.');
   }
   if (lifecycle.stage === 'FRESH') {
-    lines.push('💲 If Market Mood drops to Quiet (1/5) you can scale up to full size after a clean re-read.');
+    lines.push('💲 If Market Mood drops to Quiet (1/5) you can scale up to full size after a valid re-read.');
   }
 
   // Reward-target heuristic — fixed 2R or 3R based on lifecycle.
   if (bands) {
     const rewardR = lifecycle.stage === 'FADING' ? 1.3 : lifecycle.stage === 'FRESH' ? 5.7 : 3.0;
     const rewardDollar = Math.round(position.dollarRisk * rewardR);
-    lines.push('💲 Reward target on a clean follow-through: {{money:~$' + rewardDollar + '}} on the recommended size · {{money:' + rewardR.toFixed(1) + 'R}}.');
+    lines.push('💲 Reward target after confirmed follow-through: {{money:~$' + rewardDollar + '}} on the recommended size · {{money:' + rewardR.toFixed(1) + 'R}}.');
   }
 
   // Late-stage warning.
   if (lifecycle.stage === 'FADING') {
-    lines.push('⚠️ Reward-to-risk is below 2R — only take this card if no FRESH or STILL ACTIVE setups are available.');
+    lines.push('⚠️ Reward-to-risk is below 2R — only use this card if no higher-quality card is available. Higher-quality means stronger conviction, price closer to entry, better reward-to-risk, and less invalidation pressure.');
   }
 
   return { value: lines.join('\n'), header: headerNoun };
@@ -1144,19 +1203,18 @@ function _dollarRiskFieldValue(record, lifecycle, position, contract, bands) {
 
 function _whatThisMeansFieldValue(record, bands, urlMap) {
   if (!bands) {
-    return 'The path of least resistance is forming, but the structural anchors are not yet available. Re-read at the next scan.';
+    return 'The setup is forming, but the decision level and invalidation level are not available yet. Re-read at the next scan.';
   }
   const isShort = bands.isShort;
-  const dirNoun = isShort ? 'down' : 'up';
-  const holdNoun = isShort ? 'ceiling' : 'floor';
-  return 'The path of least resistance is ' + dirNoun + ' while {{invalid:' + bands.invalidationText + '}} holds. '
-    + (isShort ? 'Selling rallies' : 'Buying the dip') + ' into the tight green entry band is the trade ATLAS would take.';
+  return isShort
+    ? 'The bearish idea remains valid only while price stays below the decision level and below invalidation at {{invalid:' + bands.invalidationText + '}}. Selling a controlled rally into the green entry band is the planned read.'
+    : 'The bullish idea remains valid only while price stays above the decision level and above invalidation at {{invalid:' + bands.invalidationText + '}}. Buying a controlled pullback into the green entry band is the planned read.';
 }
 
 function _whatToDoNowFieldValue(record, lifecycle, position, bands, contract) {
   if (!bands) {
     return [
-      '① Wait for the next scan — structural anchors not yet wired.',
+      '① Wait for the next scan — decision, entry, watch, and invalidation levels are not available yet.',
       '② Re-read this card against price action at next review.',
     ].join('\n');
   }
@@ -1167,10 +1225,10 @@ function _whatToDoNowFieldValue(record, lifecycle, position, bands, contract) {
   if (lifecycle.stage === 'FADING') {
     return [
       '① QUARTER size at most — this is not a primary entry. {{money:' + position.dollarRiskText + ' risk}}.',
-      '② Only ' + verb.toLowerCase() + ' a clean pullback into {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}} that prints a strong defensive 5-min close.',
+      '② Only ' + verb.toLowerCase() + ' if price returns to {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}} and forms a strong 5-minute close in the required direction.',
       '③ Place the exit-point at {{invalid:' + bands.invalidationText + '}} ({{money:' + position.dollarRiskText + ' risk}}).',
       '④ If {{watch:' + bands.watchText + '}} closes ' + (isShort ? 'above' : 'below') + ' on 1H, exit ALL — late-stage cards do not give second chances.',
-      '⑤ Skip this card entirely if the FRESH or STILL ACTIVE standouts above offer a cleaner setup today.',
+      '⑤ Skip this card if another standout has stronger conviction, price closer to its entry zone, better reward-to-risk, and less invalidation pressure.',
     ].join('\n');
   }
   // FRESH / STILL ACTIVE common flow.
@@ -1184,25 +1242,23 @@ function _whatToDoNowFieldValue(record, lifecycle, position, bands, contract) {
 }
 
 function _whatConfirmsFieldValue(record, bands, urlMap) {
-  if (!bands) return 'Structural anchors pending — re-read at next scan.';
+  if (!bands) return 'Decision, entry, watch, and invalidation levels are pending — re-read at next scan.';
   const isShort = bands.isShort;
   const side = isShort ? 'below' : 'above';
   const bandEdge = isShort ? bands.entryLowText : bands.entryHighText;
   const dirNoun = isShort ? 'rallying into' : 'pulling back into';
   return 'A 5m close ' + side + ' {{entry:' + bandEdge + '}} after ' + dirNoun
-    + ' the entry band — the {{caution:confirmed directional structure}} test (price closes past the trigger AND the next candle holds beyond it).';
+    + ' the entry band — the ' + _termLink('Confirmed Candle Close', urlMap) + ' test (price closes beyond the decision level AND the next candle holds in the required direction).';
 }
 
 function _whatCancelsFieldValue(record, bands) {
-  if (!bands) return 'A close back across the invalidation level — to be confirmed when structural anchors are wired.';
+  if (!bands) return 'A close beyond the invalidation level — to be confirmed when decision and invalidation levels are available.';
   const isShort = bands.isShort;
-  const reachVerb = isShort ? 'reclaimed' : 'rolled over';
-  const sideNoun = isShort ? 'broken floor has been ' + reachVerb : 'ceiling-to-floor flip has failed and the move is ' + reachVerb;
-  return 'A 1H close ' + (isShort ? 'above' : 'below') + ' {{invalid:' + bands.invalidationText + '}}. At that point the ' + sideNoun + '.';
+  return 'A 1H close ' + (isShort ? 'above' : 'below') + ' {{invalid:' + bands.invalidationText + '}}. At that point price has invalidated the decision area and the ' + (isShort ? 'bearish' : 'bullish') + ' idea is cancelled.';
 }
 
 function _lateStageCaveatFieldValue() {
-  return 'Size {{caution:quarter}} — the move is late. The reward is small. Skip if better setups exist.';
+  return 'Use {{caution:quarter size}} because this is a ' + _termLink('Late-Stage Move') + '. Skip it if another standout has stronger conviction, price closer to entry, better reward-to-risk, and less invalidation pressure.';
 }
 
 // ── Candidate embed (full v6 field set) ─────────────────────
@@ -1222,20 +1278,20 @@ function _candidateEmbed(record, idx, total, isLast, opts, urlMap, volatility, c
     { name: 'Move Type',         value: _moveTypeFieldValue(record), inline: true },
     { name: 'Direction',         value: _directionFieldValue(record.direction, urlMap), inline: true },
     { name: 'Conviction',        value: _convictionFieldValue(record, stateBadge), inline: false },
-    { name: 'Trigger Level',     value: _triggerLevelFieldValue(record, urlMap, bands), inline: true },
+    { name: 'Decision Level',    value: _decisionLevelFieldValue(record, urlMap, bands), inline: true },
     { name: 'Expected Duration', value: _expectedDurationFieldValue(record, urlMap), inline: true },
     { name: "Today's Rank",      value: _todaysRankFieldValue(idx, total, urlMap), inline: true },
   ];
   fields.push(..._whereToActFields(record, bands, position, urlMap, nextReview));
 
   const dollarRisk = _dollarRiskFieldValue(record, lifecycle, position, contract, bands);
-  fields.push({ name: '💲 Dollar risk this trade — ' + dollarRisk.header, value: dollarRisk.value, inline: false });
+  fields.push({ name: '💲 Dollar Risk — ' + dollarRisk.header, value: dollarRisk.value, inline: false });
   fields.push({ name: 'What this means', value: _whatThisMeansFieldValue(record, bands, urlMap), inline: false });
   fields.push({ name: 'WHAT TO DO NOW',  value: _whatToDoNowFieldValue(record, lifecycle, position, bands, contract), inline: false });
   fields.push({ name: 'What confirms the idea', value: _whatConfirmsFieldValue(record, bands, urlMap), inline: false });
   fields.push({ name: 'What cancels the idea',  value: _whatCancelsFieldValue(record, bands), inline: false });
   if (lifecycle.stage === 'FADING') {
-    fields.push({ name: '⚠️  Late-stage caveat', value: _lateStageCaveatFieldValue(), inline: false });
+    fields.push({ name: '⚠️  Late-stage risk note', value: _lateStageCaveatFieldValue(), inline: false });
   }
 
   const title = '🐎  ' + (record.symbol || '?') + '  ·  ' + stateBadge;
@@ -1281,7 +1337,7 @@ function _buildingAndReferenceMessage(opts, urlMap) {
     description: 'Every Dark Horse candidate above is the same pattern in different markets. This is what it looks like on the chart, and what a trader actually does at each zone.',
     chartCard: _referenceChartCardSpec(),
     fields: [
-      { name: 'The story', value: 'Price pushed through a level that had capped it for weeks (the old high). It came back to test the same level. Buyers stepped in to defend it. The ceiling has flipped into a floor.', inline: false },
+      { name: 'What you are looking at', value: 'Price closed above the decision level, returned to test that same area, and held above it. Buyers defended the level, so the long idea remains valid while invalidation holds.', inline: false },
       { name: 'How a trader acts (concrete, dollars-first)', value: [
         '🟢 BUY the pullback into the {{entry:green ENTRY band}} — ONLY if the next 5-min candle opens inside the band AND closes above the band low.',
         '🔴 Place the exit-point just below the {{invalid:dashed red INVALIDATION line}}. If price closes below it on the 1H, exit immediately.',
@@ -1523,7 +1579,7 @@ function buildDarkHorseFohPayload(ranking, volatility, opts) {
   // preview-renderer surface; production Discord requires the
   // split.
   const bannerContent = _bannerContent(ranking, volatility, opts, urlMap, ctx);
-  messages.push({ content: bannerContent });
+  messages.push({ content: bannerContent, embeds: [_terminologyEmbed(urlMap)] });
 
   // ── Candidate messages — one per promoted standout.
   for (let i = 0; i < withAnchors.length; i++) {

@@ -110,7 +110,13 @@ const checks = [
   ['M1 has lifecycle decomposition (fresh / still active / fading)',
     /\d+ fresh.*\d+ still active.*\d+ fading/.test(m1)],
   ['M1 has 📘 EXPANDED TERMINOLOGY HYPERLINKS heading',     /📘 \*\*EXPANDED TERMINOLOGY HYPERLINKS\*\*/.test(m1)],
-  ['M1 has terminology row with visible-bracket [[Breakout]](url) form', /\[\[Breakout\]\]\(http/.test(m1)],
+  ['M1 points to terminology panel', /terminology panel/.test(m1)],
+  ['M1 terminology embed has required visible-bracket terms',
+    /\[\[Decision Level\]\]\(http/.test(allText)
+    && /\[\[Entry Zone\]\]\(http/.test(allText)
+    && /\[\[Dollar Risk\]\]\(http/.test(allText)
+    && /\[\[Reward-to-Risk\]\]\(http/.test(allText)
+    && /\[\[Confirmed Candle Close\]\]\(http/.test(allText)],
   ['M1 has Market Mood 5-disc bar',  /Market Mood {2}·\s*(🟢|🟡|🟠|🔴)+⚫* ?\d+\/5/.test(m1)],
   ['M1 Market Mood block carries Dollars-first guidance', /Dollars-first guidance/.test(m1)],
   ['M1 has ⭐ STANDOUTS — TODAY\'S STRONGEST MOVERS banner', /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(m1)],
@@ -135,12 +141,13 @@ const checks = [
   ['M2 has "Move Type" field',                               e2.fields.some(f => f.name === 'Move Type')],
   ['M2 has "Direction" field',                               e2.fields.some(f => f.name === 'Direction')],
   ['M2 has "Conviction" field',                              e2.fields.some(f => f.name === 'Conviction')],
-  ['M2 has "Trigger Level" field',                           e2.fields.some(f => f.name === 'Trigger Level')],
+  ['M2 has "Decision Level" field',                          e2.fields.some(f => f.name === 'Decision Level')],
+  ['M2 NO "Trigger Level" field',                            !e2.fields.some(f => f.name === 'Trigger Level')],
   ['M2 has "Expected Duration" field (renamed from Horizon)', e2.fields.some(f => f.name === 'Expected Duration')],
   ['M2 NO "Horizon" field',                                  !e2.fields.some(f => f.name === 'Horizon')],
   ['M2 has "Today\'s Rank" field',                           e2.fields.some(f => f.name === "Today's Rank")],
   ['M2 has "Where to Act" field',                            e2.fields.some(f => f.name === 'Where to Act')],
-  ['M2 has "💲 Dollar risk this trade" field',               e2.fields.some(f => /^💲 Dollar risk this trade/.test(f.name))],
+  ['M2 has "💲 Dollar Risk" field',                          e2.fields.some(f => /^💲 Dollar Risk/.test(f.name))],
   ['M2 has "What this means" field',                         e2.fields.some(f => f.name === 'What this means')],
   ['M2 has "WHAT TO DO NOW" field',                          e2.fields.some(f => f.name === 'WHAT TO DO NOW')],
   ['M2 has "What confirms the idea" field',                  e2.fields.some(f => f.name === 'What confirms the idea')],
@@ -151,7 +158,7 @@ const checks = [
   ['M2 chart card carries visual proof annotations',
     ['DECISION LEVEL', 'ENTRY ZONE', 'WATCH LEVEL', 'INVALIDATION'].every(l => (e2.chartCard.annotations || []).some(a => a.label === l))
     && (e2.chartCard.annotations || []).some(a => /^BREAK /.test(a.label))
-    && (e2.chartCard.annotations || []).some(a => /DEFENDING|RETEST HELD|FAILED RECLAIM/.test(a.label))],
+    && (e2.chartCard.annotations || []).some(a => /DEFENDING|RETEST HELD|FAILED RECOVERY/.test(a.label))],
 
   // Conviction — 5-disc + ⚫ inactive + Why-X reasoning
   ['Conviction value uses 5-disc with ⚫ inactive disc OR full-fill',
@@ -165,11 +172,11 @@ const checks = [
   ['Direction field has narrative tail ("expecting price to keep moving up")',
     /expecting price to keep moving up/.test(e2.fields.find(f => f.name === 'Direction').value)],
 
-  // Trigger Level — Why it matters narrative
-  ['Trigger Level value uses [[Trigger Level]](url) link form',
-    /\[\[Trigger Level\]\]\(http/.test(e2.fields.find(f => f.name === 'Trigger Level').value)],
-  ['Trigger Level value contains "Why it matters" narrative line',
-    /_Why it matters: /.test(e2.fields.find(f => f.name === 'Trigger Level').value)],
+  // Decision Level — Why it matters narrative
+  ['Decision Level value uses [[Decision Level]](url) link form',
+    /\[\[Decision Level\]\]\(http/.test(e2.fields.find(f => f.name === 'Decision Level').value)],
+  ['Decision Level value contains "Why it matters" narrative line',
+    /_Why it matters: /.test(e2.fields.find(f => f.name === 'Decision Level').value)],
 
   // Expected Duration — renamed field
   ['Expected Duration field uses [[Expected Duration]](url) link form',
@@ -194,25 +201,25 @@ const checks = [
 
   // Dollar Risk — lifecycle-aware
   ['M2 (FRESH) Dollar Risk header — "half size for FRESH"',
-    /half size for FRESH/.test(e2.fields.find(f => /Dollar risk this trade/.test(f.name)).name)],
+    /half size for FRESH/.test(e2.fields.find(f => /Dollar Risk/.test(f.name)).name)],
   ['M3 (STILL ACTIVE) Dollar Risk header — "full size allowed (STILL ACTIVE)"',
-    /full size allowed \(STILL ACTIVE\)/.test(e3.fields.find(f => /Dollar risk this trade/.test(f.name)).name)],
-  ['M4 (FADING) Dollar Risk header — "QUARTER size only (FADING)"',
-    /QUARTER size only \(FADING\)/.test(e4.fields.find(f => /Dollar risk this trade/.test(f.name)).name)],
+    /full size allowed \(STILL ACTIVE\)/.test(e3.fields.find(f => /Dollar Risk/.test(f.name)).name)],
+  ['M4 (FADING) Dollar Risk header explains reduced late-stage size',
+    /quarter-size only because this is a FADING card/.test(e4.fields.find(f => /Dollar Risk/.test(f.name)).name)],
 
   // WHAT TO DO NOW — ① ② ③ ④ ⑤ checklist
   ['WHAT TO DO NOW contains ① to ⑤ numbered steps',
     ['①', '②', '③', '④', '⑤'].every(g => e2.fields.find(f => f.name === 'WHAT TO DO NOW').value.indexOf(g) >= 0)],
 
-  // FADING — late-stage caveat present
-  ['FADING embed has ⚠️ Late-stage caveat field',
-    e4.fields.some(f => /Late-stage caveat/.test(f.name))],
+  // FADING — late-stage risk explanation present
+  ['FADING embed has ⚠️ Late-stage risk note field',
+    e4.fields.some(f => /Late-stage risk note/.test(f.name))],
 
   // M5 — BUILDING + Chart Reference
   ['M5 contains BUILDING heading "WARMING UP BELOW STANDOUT GRADE"', /WARMING UP BELOW STANDOUT GRADE/.test(m5.content)],
   ['M5 contains CHART REFERENCE heading "HOW TO READ THE FOUR ZONES"', /HOW TO READ THE FOUR ZONES/.test(m5.content)],
   ['M5 has reference embed titled "Clean Bullish Breakout — Reference"', /Clean Bullish Breakout — Reference/.test(m5.embeds[0].title)],
-  ['M5 reference embed has "The story" field', m5.embeds[0].fields.some(f => f.name === 'The story')],
+  ['M5 reference embed has "What you are looking at" field', m5.embeds[0].fields.some(f => f.name === 'What you are looking at')],
   ['M5 reference embed carries chart-card spec for PNG attachment lane', !!m5.embeds[0].chartCard],
   ['M5 reference chart carries break/retest/confirmation labels',
     ['DECISION LEVEL', 'BREAK ABOVE', 'RETEST HELD', 'CONFIRMED CLOSE', 'ENTRY ZONE', 'WATCH LEVEL', 'INVALIDATION', 'LONG IDEA']
