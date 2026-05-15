@@ -148,6 +148,10 @@ const checks = [
   ['M2 carries chart-card spec for PNG attachment lane',      !!e2.chartCard],
   ['M3 carries chart-card spec for PNG attachment lane',      !!e3.chartCard],
   ['M4 carries chart-card spec for PNG attachment lane',      !!e4.chartCard],
+  ['M2 chart card carries visual proof annotations',
+    ['DECISION LEVEL', 'ENTRY ZONE', 'WATCH LEVEL', 'INVALIDATION'].every(l => (e2.chartCard.annotations || []).some(a => a.label === l))
+    && (e2.chartCard.annotations || []).some(a => /^BREAK /.test(a.label))
+    && (e2.chartCard.annotations || []).some(a => /DEFENDING|RETEST HELD|FAILED RECLAIM/.test(a.label))],
 
   // Conviction — 5-disc + ⚫ inactive + Why-X reasoning
   ['Conviction value uses 5-disc with ⚫ inactive disc OR full-fill',
@@ -210,6 +214,9 @@ const checks = [
   ['M5 has reference embed titled "Clean Bullish Breakout — Reference"', /Clean Bullish Breakout — Reference/.test(m5.embeds[0].title)],
   ['M5 reference embed has "The story" field', m5.embeds[0].fields.some(f => f.name === 'The story')],
   ['M5 reference embed carries chart-card spec for PNG attachment lane', !!m5.embeds[0].chartCard],
+  ['M5 reference chart carries break/retest/confirmation labels',
+    ['DECISION LEVEL', 'BREAK ABOVE', 'RETEST HELD', 'CONFIRMED CLOSE', 'ENTRY ZONE', 'WATCH LEVEL', 'INVALIDATION', 'LONG IDEA']
+      .every(l => (m5.embeds[0].chartCard.annotations || []).some(a => a.label === l))],
   ['M5 reference embed does not call chart images a future lane', !/Future scans|next evolution|to be replaced/i.test(m5.embeds[0].fields.map(f => f.value).join('\n') + '\n' + (m5.embeds[0].footer && m5.embeds[0].footer.text || ''))],
 
   // Tail

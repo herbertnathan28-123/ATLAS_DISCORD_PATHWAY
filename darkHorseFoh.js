@@ -208,6 +208,36 @@ function _mkCandle(o, c, span) {
     l: Math.min(o, c) - wick,
   };
 }
+function _chartAnnotation(label, price, candleIndex, tone, anchor) {
+  return {
+    label,
+    price,
+    candleIndex,
+    tone: tone || 'info',
+    anchor: anchor || 'left',
+  };
+}
+function _candidateChartAnnotations(record, bands, candles, currentPrice) {
+  const phase = String((record && record.movePhase) || '').toLowerCase();
+  const isShort = !!(bands && bands.isShort);
+  const sideTone = isShort ? 'danger' : 'entry';
+  const defended = isShort ? 'SELLERS DEFENDING' : 'BUYERS DEFENDING';
+  const breakLabel = isShort ? 'BREAK BELOW' : 'BREAK ABOVE';
+  const structureLabel = isShort ? 'LOWER HIGH' : 'HIGHER LOW';
+  const retestLabel = (phase === 'late' || phase === 'exhaustion')
+    ? structureLabel
+    : (isShort ? 'FAILED RECLAIM' : 'RETEST HELD');
+  return [
+    _chartAnnotation('DECISION LEVEL', bands.trigger, 2, 'decision', 'right'),
+    _chartAnnotation(breakLabel, bands.trigger, 1, sideTone, 'left'),
+    _chartAnnotation(retestLabel, candles[3] ? candles[3].c : bands.trigger, 3, 'watch', 'left'),
+    _chartAnnotation(defended, candles[3] ? candles[3].h : bands.trigger, 3, sideTone, 'right'),
+    _chartAnnotation('ENTRY ZONE', (bands.entryHigh + bands.entryLow) / 2, 2, 'entry', 'left'),
+    _chartAnnotation('WATCH LEVEL', bands.watch, 1, 'watch', 'right'),
+    _chartAnnotation('INVALIDATION', bands.invalidation, 1, 'danger', 'right'),
+    _chartAnnotation(isShort ? 'SHORT IDEA' : 'LONG IDEA', currentPrice, 4, sideTone, 'right'),
+  ];
+}
 function _candidateChartCardSpec(record, bands) {
   if (!record || !bands) return null;
   const sym = String(record.symbol || 'SYMBOL').toUpperCase();
@@ -253,6 +283,7 @@ function _candidateChartCardSpec(record, bands) {
   return {
     symbol: sym + ' · 1H',
     direction: bands.isShort ? 'Bearish' : 'Bullish',
+    decisionLevel: bands.trigger,
     currentPrice,
     highPrice: Math.max.apply(null, prices),
     lowPrice: Math.min.apply(null, prices),
@@ -261,6 +292,7 @@ function _candidateChartCardSpec(record, bands) {
     watch: bands.watch,
     invalidation: bands.invalidation,
     candles,
+    annotations: _candidateChartAnnotations(record, bands, candles, currentPrice),
     caption: 'ATLAS chart card · ' + sym + ' · entry '
       + bands.entryLowText + '–' + bands.entryHighText
       + ' · watch ' + bands.watchText
@@ -277,14 +309,26 @@ function _referenceChartCardSpec() {
     entryLow: 96,
     watch: 92,
     invalidation: 88,
+    decisionLevel: 96,
     direction: 'Bullish',
-    caption: 'ATLAS chart card · reference pattern · four-zone read',
+    caption: 'ATLAS chart card · clean example · break, retest, confirmation, four-zone read',
     candles: [
       { o: 90, h: 94, l: 88, c: 91 },
       { o: 91, h: 96, l: 90, c: 92 },
       { o: 92, h: 100, l: 91, c: 99 },
       { o: 99, h: 105, l: 95, c: 96 },
       { o: 96, h: 108, l: 96, c: 107 },
+    ],
+    annotations: [
+      _chartAnnotation('DECISION LEVEL', 96, 1, 'decision', 'right'),
+      _chartAnnotation('BREAK ABOVE', 100, 2, 'entry', 'left'),
+      _chartAnnotation('RETEST HELD', 96, 3, 'watch', 'left'),
+      _chartAnnotation('CONFIRMED CLOSE', 107, 4, 'entry', 'right'),
+      _chartAnnotation('BUYERS DEFENDING', 96, 3, 'entry', 'right'),
+      _chartAnnotation('ENTRY ZONE', 98, 2, 'entry', 'left'),
+      _chartAnnotation('WATCH LEVEL', 92, 1, 'watch', 'right'),
+      _chartAnnotation('INVALIDATION', 88, 0, 'danger', 'right'),
+      _chartAnnotation('LONG IDEA', 107, 4, 'info', 'right'),
     ],
   };
 }
@@ -320,6 +364,14 @@ function _renderChartCardSvg(spec) {
     if (!Number.isFinite(p)) return '';
     return Math.abs(p) >= 1000 ? p.toFixed(2) : Math.abs(p) >= 10 ? p.toFixed(2) : p.toFixed(4);
   }
+  const toneColour = {
+    entry: '#23A55A',
+    watch: '#F1C40F',
+    caution: '#E67E22',
+    danger: '#ED4245',
+    decision: '#5BC0DE',
+    info: '#00B0FF',
+  };
   function zoneBand(p1, p2, colour, opacity) {
     if (!Number.isFinite(p1) || !Number.isFinite(p2)) return '';
     const y1 = yFor(Math.max(p1, p2));
@@ -327,10 +379,19 @@ function _renderChartCardSvg(spec) {
     return '<rect x="' + PADL + '" y="' + y1 + '" width="' + innerW + '" height="' + (y2 - y1) + '" fill="' + colour + '" opacity="' + opacity + '"/>';
   }
   let zones = zoneBand(spec.entryHigh, spec.entryLow, '#23A55A', '0.18');
+  if (Number.isFinite(spec.decisionLevel)) {
+    const y = yFor(spec.decisionLevel);
+    zones += '<line x1="' + PADL + '" y1="' + y + '" x2="' + (PADL + innerW) + '" y2="' + y + '" stroke="#5BC0DE" stroke-width="2" stroke-dasharray="10 5"/>';
+    zones += '<text x="' + (PADL + innerW - 150) + '" y="' + (y - 7) + '" fill="#5BC0DE" font-family="Consolas, monospace" font-size="14" font-weight="700">DECISION LEVEL</text>';
+  }
+  if (Number.isFinite(spec.entryHigh) && Number.isFinite(spec.entryLow)) {
+    const y = yFor((spec.entryHigh + spec.entryLow) / 2);
+    zones += '<text x="' + (PADL + 8) + '" y="' + (y + 5) + '" fill="#23A55A" font-family="Consolas, monospace" font-size="14" font-weight="700">ENTRY ZONE</text>';
+  }
   if (Number.isFinite(spec.watch)) {
     const y = yFor(spec.watch);
     zones += '<line x1="' + PADL + '" y1="' + y + '" x2="' + (PADL + innerW) + '" y2="' + y + '" stroke="#F1C40F" stroke-width="2" stroke-dasharray="7 6"/>';
-    zones += '<text x="' + (PADL + 8) + '" y="' + (y - 6) + '" fill="#F1C40F" font-family="Consolas, monospace" font-size="14" font-weight="700">WATCH</text>';
+    zones += '<text x="' + (PADL + 8) + '" y="' + (y - 6) + '" fill="#F1C40F" font-family="Consolas, monospace" font-size="14" font-weight="700">WATCH LEVEL</text>';
   }
   if (Number.isFinite(spec.invalidation)) {
     const y = yFor(spec.invalidation);
@@ -350,6 +411,27 @@ function _renderChartCardSvg(spec) {
     candlesSvg += '<line x1="' + cx + '" y1="' + hY + '" x2="' + cx + '" y2="' + lY + '" stroke="' + fill + '" stroke-width="2"/>';
     candlesSvg += '<rect x="' + (cx - candleW / 2) + '" y="' + bodyTop + '" width="' + candleW + '" height="' + bodyH + '" fill="' + fill + '"/>';
   }
+  function annotationSvg(a, idx) {
+    if (!a || !Number.isFinite(a.price)) return '';
+    const colour = toneColour[a.tone] || toneColour.info;
+    const candleIdx = Number.isFinite(a.candleIndex) ? Math.max(0, Math.min(candles.length - 1, a.candleIndex)) : Math.floor(candles.length / 2);
+    const pointX = xFor(candleIdx);
+    const pointY = yFor(a.price);
+    const right = a.anchor === 'right';
+    const boxW = Math.min(150, Math.max(78, String(a.label || '').length * 8 + 16));
+    let boxX = right ? pointX + 18 : pointX - boxW - 18;
+    boxX = Math.max(PADL, Math.min(PADL + innerW - boxW, boxX));
+    let boxY = pointY - 55 + (idx % 3) * 20;
+    boxY = Math.max(PADT + 4, Math.min(PADT + innerH - 24, boxY));
+    return '<line x1="' + pointX + '" y1="' + pointY + '" x2="' + (right ? boxX : boxX + boxW) + '" y2="' + (boxY + 10) + '" stroke="' + colour + '" stroke-width="1.5" opacity="0.95"/>'
+      + '<circle cx="' + pointX + '" cy="' + pointY + '" r="4" fill="' + colour + '" stroke="#131722" stroke-width="1.5"/>'
+      + '<rect x="' + boxX + '" y="' + boxY + '" width="' + boxW + '" height="22" rx="4" fill="#1F2430" stroke="' + colour + '" stroke-width="1.5"/>'
+      + '<text x="' + (boxX + 7) + '" y="' + (boxY + 15) + '" fill="' + colour + '" font-family="Consolas, monospace" font-size="12" font-weight="700">' + _xmlEscape(a.label || '') + '</text>';
+  }
+  const annotations = (Array.isArray(spec.annotations) ? spec.annotations : [])
+    .slice(0, 9)
+    .map(annotationSvg)
+    .join('');
   function priceLabel(p, bg, fg, label) {
     if (!Number.isFinite(p)) return '';
     const y = yFor(p);
@@ -366,7 +448,7 @@ function _renderChartCardSvg(spec) {
     + '<rect x="0" y="0" width="' + W + '" height="' + H + '" fill="#131722"/>'
     + '<rect x="12" y="12" width="' + (W - 24) + '" height="' + (H - 24) + '" rx="8" fill="#131722" stroke="#2B313C" stroke-width="2"/>'
     + '<text x="' + PADL + '" y="25" fill="#DCDDDE" font-family="Arial, sans-serif" font-size="16" font-weight="700">' + _xmlEscape(spec.symbol || 'ATLAS chart card') + '</text>'
-    + zones + candlesSvg + labels
+    + zones + candlesSvg + annotations + labels
     + '<text x="' + PADL + '" y="' + (H - 20) + '" fill="#72767D" font-family="Consolas, monospace" font-size="13">' + _xmlEscape(spec.caption || 'ATLAS chart card') + '</text>'
     + '</svg>';
 }
