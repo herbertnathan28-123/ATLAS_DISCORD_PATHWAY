@@ -1,0 +1,415 @@
+=== STAGING HARNESS — MARKET INTEL FOH v6 ===
+mode:            DRY-RUN (no network)
+staging urlHash: (none)
+fixtures built:  6
+
+size report:
+  F1 [pre-event T-1H · CPI USD]:  content=1472 / 2000   embeds=1865 (≤ 6000 each)
+  F2 [pre-event T-15M · NFP USD]:  content=1397 / 2000   embeds=1779 (≤ 6000 each)
+  F3 [pre-event T-30M · ECB Rate Decision]:  content=1447 / 2000   embeds=1799 (≤ 6000 each)
+  F4 [pre-event T-RELEASE · Geopolitical shock]:  content=1477 / 2000   embeds=1858 (≤ 6000 each)
+  F5 [released · CPI USD hot]:  content=1486 / 2000   embeds=2124 (≤ 6000 each)
+  F6 [released · NFP USD soft]:  content=1418 / 2000   embeds=1893 (≤ 6000 each)
+
+=== WEBHOOK BODY 1 / 6 — pre-event T-1H · CPI USD ===
+-- content (1472 chars) --
+```diff
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- ▼ ▼ ▼   N E W   M A R K E T   I N T E L   A L E R T   ▼ ▼ ▼
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-   🆕   2026-05-16 01:33 UTC   ·   09:33 AWST   ·   PRE-EVENT T-1H   🆕
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```ansi
+[33;1m╔════════════════════════════════════════════════════╗[0m
+[33;1m║ 🌐  MARKET INTEL — EVENT / CATALYST WATCH          ║[0m
+[33;1m╚════════════════════════════════════════════════════╝[0m
+```
+
+_CPI (USD) — T-1H window open._
+
+📘 **EXPANDED TERMINOLOGY HYPERLINKS**
+[[Mechanism Chain]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Confirmation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Cancellation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Event Risk]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+
+```ansi
+[33;1m▸  Market Mood  ·  🟠🟠🟠🟠⚫ 4/5 — Elevated — approach window[0m
+```
+
+```ansi
+[33;1m▸  Briefing Summary[0m
+```
+_T-1H alert · CPI (USD) · USD. Lead exposure: US Dollar Index (DXY)._
+_Mechanism: This is a major USD and yield-sensitive release. A strong inflation print may support USD and yields while pressuring gold and US indices. A weaker print may pressure USD / yields and support gold / risk assets._
+_Bias remains conditional until price confirms through structure._
+-- embed 1 (color=0xe67e22) --
+title:       🌐  MARKET INTEL · CPI (USD) · T-1H
+description: Pre-event intelligence read. High-impact catalyst inside the active window. Positioning rotates first; confirmation comes from post-print structure.
+  [EVENT / CATALYST WATCH]
+    **CPI (USD)**
+    • Currency: USD
+    • Impact tier: HIGH
+    • Stage: T-1H
+  [SCHEDULED RELEASE] (inline)
+    10:33 AWST AWST
+    (2026-05-16 02:33 UTC)
+  [EVENT RISK] (inline)
+    🟠🟠🟠🟠⚫ 4/5 — Elevated — approach window
+  [WHAT CHANGED]
+    **Event window opened: T-1H.** CPI (USD) is approaching. Liquidity is thinning, spreads will widen, positioning is rotating.
+  [WHY THIS MATTERS]
+    cause: USD inflation surprise vs forecast → expectation: rate-path repricing in the front end → market reaction: USD and yields move first → asset impact: US Dollar Index (DXY) direction sets gold and US-index reaction
+    
+    _Market read:_ This is a major USD and yield-sensitive release. A strong inflation print may support USD and yields while pressuring gold and US indices. A weaker print may pressure USD / yields and support gold / risk assets.
+  [AFFECTED MARKETS]
+    • US Dollar Index (DXY)
+    • USD pairs: EURUSD, GBPUSD, USDJPY, USDCAD, USDCHF, AUDUSD
+    • Metals: XAUUSD
+    • US indices: NAS100, US500, US30
+  [CONFIRMATION PATH]
+    • Wait for a sweep of the pre-print range high or low.
+    • Then a 5M body close back inside that range from the same side (directional structure test).
+    • 1H close in the same direction as the 5M reclaim confirms the read; otherwise treat as no-bias.
+  [CANCELLATION PATH]
+    • Pre-event range breaks early without confirmation candle — the move is liquidity, not direction.
+    • Major catalyst overrides this event (e.g. unscheduled headline) — re-read the new catalyst.
+    • Event postponed / delayed — bias is voided until the new release window.
+  [NEXT REVIEW]
+    2026-05-16 02:33 UTC / 10:33 AWST (event scheduled — re-read after print)
+footer:      ATLAS Market Intel · pre-event · USD · T-1H · Bias remains conditional until price confirms through structure.
+
+=== WEBHOOK BODY 2 / 6 — pre-event T-15M · NFP USD ===
+-- content (1397 chars) --
+```diff
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- ▼ ▼ ▼   N E W   M A R K E T   I N T E L   A L E R T   ▼ ▼ ▼
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-   🆕   2026-05-16 01:33 UTC   ·   09:33 AWST   ·   PRE-EVENT T-15M   🆕
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```ansi
+[33;1m╔════════════════════════════════════════════════════╗[0m
+[33;1m║ 🌐  MARKET INTEL — EVENT / CATALYST WATCH          ║[0m
+[33;1m╚════════════════════════════════════════════════════╝[0m
+```
+
+_Non Farm Payrolls — T-15M window open._
+
+📘 **EXPANDED TERMINOLOGY HYPERLINKS**
+[[Mechanism Chain]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Confirmation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Cancellation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Event Risk]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+
+```ansi
+[33;1m▸  Market Mood  ·  🔴🔴🔴🔴🔴 5/5 — High — imminent[0m
+```
+
+```ansi
+[33;1m▸  Briefing Summary[0m
+```
+_T-15M alert · Non Farm Payrolls · USD. Lead exposure: US Dollar Index (DXY)._
+_Mechanism: This is a USD data release. Direction of surprise versus forecast typically flows through USD pairs and correlated risk assets._
+_Bias remains conditional until price confirms through structure._
+-- embed 1 (color=0xe67e22) --
+title:       🌐  MARKET INTEL · Non Farm Payrolls · T-15M
+description: Pre-event intelligence read. High-impact catalyst inside the active window. Positioning rotates first; confirmation comes from post-print structure.
+  [EVENT / CATALYST WATCH]
+    **Non Farm Payrolls**
+    • Currency: USD
+    • Impact tier: HIGH
+    • Stage: T-15M
+  [SCHEDULED RELEASE] (inline)
+    09:48 AWST AWST
+    (2026-05-16 01:48 UTC)
+  [EVENT RISK] (inline)
+    🔴🔴🔴🔴🔴 5/5 — High — imminent
+  [WHAT CHANGED]
+    **Event window opened: T-15M.** Non Farm Payrolls is approaching. Liquidity is thinning, spreads will widen, positioning is rotating.
+  [WHY THIS MATTERS]
+    cause: surprise vs forecast → expectation: short-term rate-path repricing → market reaction: USD repositions in the front end → asset impact: USD pairs and correlated risk respond on the first close
+    
+    _Market read:_ This is a USD data release. Direction of surprise versus forecast typically flows through USD pairs and correlated risk assets.
+  [AFFECTED MARKETS]
+    • US Dollar Index (DXY)
+    • USD pairs: EURUSD, GBPUSD, USDJPY, USDCAD, USDCHF, AUDUSD
+    • Metals: XAUUSD
+    • US indices: NAS100, US500, US30
+  [CONFIRMATION PATH]
+    • Wait for a sweep of the pre-print range high or low.
+    • Then a 5M body close back inside that range from the same side (directional structure test).
+    • 1H close in the same direction as the 5M reclaim confirms the read; otherwise treat as no-bias.
+  [CANCELLATION PATH]
+    • Pre-event range breaks early without confirmation candle — the move is liquidity, not direction.
+    • Major catalyst overrides this event (e.g. unscheduled headline) — re-read the new catalyst.
+    • Event postponed / delayed — bias is voided until the new release window.
+  [NEXT REVIEW]
+    2026-05-16 01:48 UTC / 09:48 AWST (event scheduled — re-read after print)
+footer:      ATLAS Market Intel · pre-event · USD · T-15M · Bias remains conditional until price confirms through structure.
+
+=== WEBHOOK BODY 3 / 6 — pre-event T-30M · ECB Rate Decision ===
+-- content (1447 chars) --
+```diff
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- ▼ ▼ ▼   N E W   M A R K E T   I N T E L   A L E R T   ▼ ▼ ▼
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-   🆕   2026-05-16 01:33 UTC   ·   09:33 AWST   ·   PRE-EVENT T-30M   🆕
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```ansi
+[33;1m╔════════════════════════════════════════════════════╗[0m
+[33;1m║ 🌐  MARKET INTEL — EVENT / CATALYST WATCH          ║[0m
+[33;1m╚════════════════════════════════════════════════════╝[0m
+```
+
+_ECB Rate Decision — T-30M window open._
+
+📘 **EXPANDED TERMINOLOGY HYPERLINKS**
+[[Mechanism Chain]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Confirmation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Cancellation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Event Risk]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+
+```ansi
+[33;1m▸  Market Mood  ·  🟠🟠🟠🟠⚫ 4/5 — Elevated — final lead-in[0m
+```
+
+```ansi
+[33;1m▸  Briefing Summary[0m
+```
+_T-30M alert · ECB Rate Decision · EUR. Lead exposure: EURUSD._
+_Mechanism: This is a central-bank communication event. A hawkish lean supports EUR; a dovish lean pressures EUR. Tone versus current market pricing matters more than the headline decision itself._
+_Bias remains conditional until price confirms through structure._
+-- embed 1 (color=0xe67e22) --
+title:       🌐  MARKET INTEL · ECB Rate Decision · T-30M
+description: Pre-event intelligence read. High-impact catalyst inside the active window. Positioning rotates first; confirmation comes from post-print structure.
+  [EVENT / CATALYST WATCH]
+    **ECB Rate Decision**
+    • Currency: EUR
+    • Impact tier: HIGH
+    • Stage: T-30M
+  [SCHEDULED RELEASE] (inline)
+    10:03 AWST AWST
+    (2026-05-16 02:03 UTC)
+  [EVENT RISK] (inline)
+    🟠🟠🟠🟠⚫ 4/5 — Elevated — final lead-in
+  [WHAT CHANGED]
+    **Event window opened: T-30M.** ECB Rate Decision is approaching. Liquidity is thinning, spreads will widen, positioning is rotating.
+  [WHY THIS MATTERS]
+    cause: tone vs current market pricing → expectation: rate-path lean shifts → market reaction: EUR repositions on tone, not headline → asset impact: cross-pair flow and rate-sensitive assets follow
+    
+    _Market read:_ This is a central-bank communication event. A hawkish lean supports EUR; a dovish lean pressures EUR. Tone versus current market pricing matters more than the headline decision itself.
+  [AFFECTED MARKETS]
+    • USD pairs: EURUSD
+    • EUR pairs: EURGBP, EURJPY, EURAUD, EURCAD, EURCHF
+    • EU indices: GER40
+  [CONFIRMATION PATH]
+    • Wait for a sweep of the pre-print range high or low.
+    • Then a 5M body close back inside that range from the same side (directional structure test).
+    • 1H close in the same direction as the 5M reclaim confirms the read; otherwise treat as no-bias.
+  [CANCELLATION PATH]
+    • Pre-event range breaks early without confirmation candle — the move is liquidity, not direction.
+    • Major catalyst overrides this event (e.g. unscheduled headline) — re-read the new catalyst.
+    • Event postponed / delayed — bias is voided until the new release window.
+  [NEXT REVIEW]
+    2026-05-16 02:03 UTC / 10:03 AWST (event scheduled — re-read after print)
+footer:      ATLAS Market Intel · pre-event · EUR · T-30M · Bias remains conditional until price confirms through structure.
+
+=== WEBHOOK BODY 4 / 6 — pre-event T-RELEASE · Geopolitical shock ===
+-- content (1477 chars) --
+```diff
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- ▼ ▼ ▼   N E W   M A R K E T   I N T E L   A L E R T   ▼ ▼ ▼
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-   🆕   2026-05-16 01:33 UTC   ·   09:33 AWST   ·   PRE-EVENT T-RELEASE   🆕
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```ansi
+[33;1m╔════════════════════════════════════════════════════╗[0m
+[33;1m║ 🌐  MARKET INTEL — EVENT / CATALYST WATCH          ║[0m
+[33;1m╚════════════════════════════════════════════════════╝[0m
+```
+
+_Tariff Announcement (USD) — T-RELEASE window open._
+
+📘 **EXPANDED TERMINOLOGY HYPERLINKS**
+[[Mechanism Chain]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Confirmation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Cancellation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Event Risk]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+
+```ansi
+[33;1m▸  Market Mood  ·  🔴🔴🔴🔴🔴 5/5 — EXTREME — peak liquidity[0m
+```
+
+```ansi
+[33;1m▸  Briefing Summary[0m
+```
+_T-RELEASE alert · Tariff Announcement (USD) · USD. Lead exposure: US Dollar Index (DXY)._
+_Mechanism: This is a geopolitical shock. Safe-haven rotation is the dominant mechanism: US Dollar Index (DXY) / CHF / JPY / XAU typically bid, equities and credit typically offered._
+_Bias remains conditional until price confirms through structure._
+-- embed 1 (color=0xe67e22) --
+title:       🌐  MARKET INTEL · Tariff Announcement (USD) · T-RELEASE
+description: Pre-event intelligence read. High-impact catalyst inside the active window. Positioning rotates first; confirmation comes from post-print structure.
+  [EVENT / CATALYST WATCH]
+    **Tariff Announcement (USD)**
+    • Currency: USD
+    • Impact tier: HIGH
+    • Stage: T-RELEASE
+  [SCHEDULED RELEASE] (inline)
+    09:34 AWST AWST
+    (2026-05-16 01:34 UTC)
+  [EVENT RISK] (inline)
+    🔴🔴🔴🔴🔴 5/5 — EXTREME — peak liquidity
+  [WHAT CHANGED]
+    **Event window opened: T-RELEASE.** Tariff Announcement (USD) is approaching. Liquidity is thinning, spreads will widen, positioning is rotating.
+  [WHY THIS MATTERS]
+    cause: geopolitical shock event → expectation: safe-haven rotation → market reaction: US Dollar Index (DXY)/CHF/JPY/XAU bid → asset impact: equities and credit offered, vol indices lift
+    
+    _Market read:_ This is a geopolitical shock. Safe-haven rotation is the dominant mechanism: US Dollar Index (DXY) / CHF / JPY / XAU typically bid, equities and credit typically offered.
+  [AFFECTED MARKETS]
+    • US Dollar Index (DXY)
+    • USD pairs: EURUSD, GBPUSD, USDJPY, USDCAD, USDCHF, AUDUSD
+    • Metals: XAUUSD
+    • US indices: NAS100, US500, US30
+  [CONFIRMATION PATH]
+    • Wait for a sweep of the pre-print range high or low.
+    • Then a 5M body close back inside that range from the same side (directional structure test).
+    • 1H close in the same direction as the 5M reclaim confirms the read; otherwise treat as no-bias.
+  [CANCELLATION PATH]
+    • Pre-event range breaks early without confirmation candle — the move is liquidity, not direction.
+    • Major catalyst overrides this event (e.g. unscheduled headline) — re-read the new catalyst.
+    • Event postponed / delayed — bias is voided until the new release window.
+  [NEXT REVIEW]
+    2026-05-16 01:34 UTC / 09:34 AWST (event scheduled — re-read after print)
+footer:      ATLAS Market Intel · pre-event · USD · T-RELEASE · Bias remains conditional until price confirms through structure.
+
+=== WEBHOOK BODY 5 / 6 — released · CPI USD hot ===
+-- content (1486 chars) --
+```diff
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- ▼ ▼ ▼   N E W   M A R K E T   I N T E L   A L E R T   ▼ ▼ ▼
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-   🆕   2026-05-16 01:33 UTC   ·   09:33 AWST   ·   POST-RELEASE   🆕
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```ansi
+[33;1m╔════════════════════════════════════════════════════╗[0m
+[33;1m║ 🌐  MARKET INTEL — EVENT / CATALYST WATCH          ║[0m
+[33;1m╚════════════════════════════════════════════════════╝[0m
+```
+
+_CPI (USD) — just released._
+
+📘 **EXPANDED TERMINOLOGY HYPERLINKS**
+[[Mechanism Chain]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Confirmation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Cancellation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Event Risk]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+
+```ansi
+[33;1m▸  Market Mood  ·  🔴🔴🔴🔴🔴 5/5 — EXTREME — strong above-forecast surprise[0m
+```
+
+```ansi
+[33;1m▸  Briefing Summary[0m
+```
+_RELEASED alert · CPI (USD) · USD. Lead exposure: US Dollar Index (DXY)._
+_Mechanism: This is a major USD and yield-sensitive release. A strong inflation print may support USD and yields while pressuring gold and US indices. A weaker print may pressure USD / yields and support gold / risk assets._
+_Bias remains conditional until price confirms through structure._
+-- embed 1 (color=0xc0392b) --
+title:       🌐  MARKET INTEL · CPI (USD) · RELEASED
+description: Released-event intelligence read. Surprise direction sets the working bias; price-action confirmation governs whether the bias activates.
+  [EVENT / CATALYST WATCH]
+    **CPI (USD)**
+    • Currency: USD
+    • Impact tier: HIGH
+    • Status: released
+  [SCHEDULED RELEASE] (inline)
+    09:28 AWST AWST
+    (2026-05-16 01:28 UTC)
+  [EVENT RISK] (inline)
+    🔴🔴🔴🔴🔴 5/5 — EXTREME — strong above-forecast surprise
+  [WHAT CHANGED]
+    **Print landed ABOVE forecast** (3.5% vs 3.2%). Direction of surprise: bullish-for-USD under the standard mechanism.
+  [WHY THIS MATTERS]
+    cause: USD inflation surprise vs forecast → expectation: rate-path repricing in the front end → market reaction: USD and yields move first → asset impact: US Dollar Index (DXY) direction sets gold and US-index reaction
+    
+    _Market read:_ This is a major USD and yield-sensitive release. A strong inflation print may support USD and yields while pressuring gold and US indices. A weaker print may pressure USD / yields and support gold / risk assets.
+  [AFFECTED MARKETS]
+    • US Dollar Index (DXY)
+    • USD pairs: EURUSD, GBPUSD, USDJPY, USDCAD, USDCHF, AUDUSD
+    • Metals: XAUUSD
+    • US indices: NAS100, US500, US30
+  [CONFIRMATION PATH]
+    • USD-strength confirmation: the lead pair (e.g. USD pairs: USDJPY) closes in the surprise direction on the 1H AND holds the post-print swing.
+    • Cross-asset confirmation: USD-sensitive risk assets (commodities + correlated equities) trade in the expected direction without immediate reversal.
+    • Required 5M/15M behaviour: a sweep of the pre-print range high, then a 5M body close back inside that range from the surprise side ({{confirmed directional structure}} test).
+  [CANCELLATION PATH]
+    • First-spike fade: price retraces 100% of the post-print impulse within 30 min — directional bias OFF.
+    • Cross-asset disagreement: lead pair and USD-sensitive risk assets disagree on direction — stand aside.
+    • 1H close back inside the pre-print range cancels the surprise-direction bias entirely.
+  [NEXT REVIEW]
+    2026-05-16 02:03 UTC / 10:03 AWST (T+30 — first-close confirmation phase)
+footer:      ATLAS Market Intel · release · USD · released · Bias remains conditional until price confirms through structure.
+
+=== WEBHOOK BODY 6 / 6 — released · NFP USD soft ===
+-- content (1418 chars) --
+```diff
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- ▼ ▼ ▼   N E W   M A R K E T   I N T E L   A L E R T   ▼ ▼ ▼
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-   🆕   2026-05-16 01:33 UTC   ·   09:33 AWST   ·   POST-RELEASE   🆕
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```ansi
+[33;1m╔════════════════════════════════════════════════════╗[0m
+[33;1m║ 🌐  MARKET INTEL — EVENT / CATALYST WATCH          ║[0m
+[33;1m╚════════════════════════════════════════════════════╝[0m
+```
+
+_Non Farm Payrolls — just released._
+
+📘 **EXPANDED TERMINOLOGY HYPERLINKS**
+[[Mechanism Chain]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Confirmation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Cancellation Path]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Event Risk]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+
+```ansi
+[33;1m▸  Market Mood  ·  🔴🔴🔴🔴🔴 5/5 — EXTREME — strong below-forecast surprise[0m
+```
+
+```ansi
+[33;1m▸  Briefing Summary[0m
+```
+_RELEASED alert · Non Farm Payrolls · USD. Lead exposure: US Dollar Index (DXY)._
+_Mechanism: This is a USD data release. Direction of surprise versus forecast typically flows through USD pairs and correlated risk assets._
+_Bias remains conditional until price confirms through structure._
+-- embed 1 (color=0xc0392b) --
+title:       🌐  MARKET INTEL · Non Farm Payrolls · RELEASED
+description: Released-event intelligence read. Surprise direction sets the working bias; price-action confirmation governs whether the bias activates.
+  [EVENT / CATALYST WATCH]
+    **Non Farm Payrolls**
+    • Currency: USD
+    • Impact tier: HIGH
+    • Status: released
+  [SCHEDULED RELEASE] (inline)
+    09:28 AWST AWST
+    (2026-05-16 01:28 UTC)
+  [EVENT RISK] (inline)
+    🔴🔴🔴🔴🔴 5/5 — EXTREME — strong below-forecast surprise
+  [WHAT CHANGED]
+    **Print landed BELOW forecast** (90k vs 180k). Direction of surprise: bearish-for-USD under the standard mechanism.
+  [WHY THIS MATTERS]
+    cause: surprise vs forecast → expectation: short-term rate-path repricing → market reaction: USD repositions in the front end → asset impact: USD pairs and correlated risk respond on the first close
+    
+    _Market read:_ This is a USD data release. Direction of surprise versus forecast typically flows through USD pairs and correlated risk assets.
+  [AFFECTED MARKETS]
+    • US Dollar Index (DXY)
+    • USD pairs: EURUSD, GBPUSD, USDJPY, USDCAD, USDCHF, AUDUSD
+    • Metals: XAUUSD
+    • US indices: NAS100, US500, US30
+  [CONFIRMATION PATH]
+    • USD-weakness confirmation: the lead pair closes against USD on the 1H AND holds the post-print swing.
+    • Cross-asset confirmation: defensive flows reach + hold (safe havens + risk-off proxies).
+    • Required 5M/15M behaviour: a sweep of the pre-print range low, then a 5M body close back inside that range from the surprise side.
+  [CANCELLATION PATH]
+    • First-spike fade: price retraces 100% of the post-print impulse within 30 min — directional bias OFF.
+    • Cross-asset disagreement: lead pair and USD-sensitive risk assets disagree on direction — stand aside.
+    • 1H close back inside the pre-print range cancels the surprise-direction bias entirely.
+  [NEXT REVIEW]
+    2026-05-16 02:03 UTC / 10:03 AWST (T+30 — first-close confirmation phase)
+footer:      ATLAS Market Intel · release · USD · released · Bias remains conditional until price confirms through structure.
+
+[DRY-RUN] No network calls were made. Re-run with --post --confirm-staging to deliver to the staging webhook.
