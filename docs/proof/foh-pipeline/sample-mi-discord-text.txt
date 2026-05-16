@@ -1,6 +1,6 @@
 **ATLAS · Market Intel · Daily Roadmap**
 Risk State: 🟠🟠🟠🟠⚫ High — clustered catalyst exposure
-Generated: 2026-05-16 22:47 UTC
+Generated: 2026-05-16 23:20 UTC
 
 __Briefing Summary__
 Primary read: Three high-impact catalysts cluster early week — USD inflation + EUR policy tone dominate; gold and US indices most sensitive.
@@ -8,17 +8,18 @@ Operational meaning: Position size at 50% of normal risk for the catalyst window
 Key markets: DXY · EURUSD · XAUUSD · US500
 Current risk: 🟠🟠🟠🟠⚫ High — clustered catalyst exposure — reactivity elevated through the catalyst window; mean-reversion expected thereafter.
 
-__What To Do Now__
-1. Reduce position size to 50% of normal risk for the next 6 hours.
-   why: Catalyst-driven sessions widen spreads and stop ranges. Smaller size keeps planned-risk discipline.
-   $$: If normal risk is $500 on a $10k account, reduce to ~$250 per trade for the window.
-2. Cancel marginal setups. Only act on triggers where the next candle closes BEYOND the level (confirmed directional structure test).
-   why: Sweeps and false breaks dominate the first 15 minutes after a high-impact print.
-   $$: Avoids the $300 – $800 drawdown band typical of chasing a first-move fake.
-3. Widen exit-points by ~30% on existing positions; tight exits get hit before direction confirms.
-   why: Initial volatility expansion pushes price beyond historical 1-σ before the real direction prints.
-   $$: Avoids being stopped on a wick that mean-reverts within 5 minutes — protects $150 – $400 of carry on $100k notional.
-
 __Market Impact__
 Market impact: cause: CPI (USD) → expectation: front-end rate-path repricing → market reaction: USD lead, cross-asset cascade through DXY, EURUSD, XAUUSD, US500
-Price reaction path: Initial impulse (0–60s) → first 5-min close confirms direction → 15-min…
+Price reaction path: Initial impulse (0–60s) → first 5-min close confirms direction → 15-min close gives the real trend → 1H close locks in the bias for the rest of the session.
+Liquidity effect: Spreads widen 2–4× across the announcement candle; market-depth thins through T+5; normalises by T+15.
+Volatility effect: ATR doubles on the announcement candle; expect overshoot beyond historical 1-σ
+Trader consequence: Chasing the first 60 seconds creates the $800–$1,500 drawdown band; waiting for the 5-min close and trading the next pullback flips the same setup into a clean $300–$800 gain on $100k EURUSD.
+
+__Confirmation / Cancellation__
+Confirms: First 5-min close in the surprise direction PLUS confirming structure on DXY / lead pair.
+Cancels: First 15-min close fails to follow through OR geopolitical override hits the wire inside the window.
+
+__Source / Provenance__
+Source: TradingView · ATLAS macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y) · freshness: LIVE · confidence: engine-derived
+
+__…

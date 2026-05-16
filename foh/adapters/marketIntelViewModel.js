@@ -60,6 +60,9 @@ const REQUIRED_ANCHORS = Object.freeze([
   'RISK_ESCALATION_CAUTION', 'RISK_ESCALATION_DANGER', 'RISK_ESCALATION_INVALIDATION',
   'WHAT_TO_DO_NOW', 'CONFIRMS_WHEN', 'CANCELS_WHEN', 'SOURCE_PROVENANCE',
   'GENERATED_AT_UTC',
+  // Operator brief 2026-05-17 (master order):
+  'TODAYS_ANNOUNCEMENTS', 'PRIMARY_EVENT_FOCUS', 'NEXT_24_TO_72_HOURS',
+  'AFFECTED_MARKETS_EXPANDED', 'PRICE_MAP', 'OPERATIONAL_NARRATIVE',
 ]);
 
 function _fmtTraderAction(ta) {
@@ -122,7 +125,110 @@ function _fmtEventDay(e) {
 
 function _fmtWhatToDoNow(steps) {
   if (!Array.isArray(steps) || !steps.length) return 'No actions priced in this cycle — stand aside.';
-  return steps.map(s => `${s.step}. ${s.action}\n   why: ${s.reason}\n   $$: ${s.dollarConsequence}`).join('\n');
+  // Operator brief 2026-05-17: every action carries ACTION · WHY ·
+  // IF IGNORED · CONFIRMATION · ACTION CHANGES WHEN · $$.
+  return steps.map(s => {
+    const lines = [];
+    lines.push(s.step + '. ' + (s.action || '—'));
+    lines.push('   WHY: ' + (s.why || s.reason || '—'));
+    lines.push('   IF IGNORED: ' + (s.ifIgnored || 'Position takes wider drawdown than the planned-risk model assumes.'));
+    lines.push('   CONFIRMATION: ' + (s.confirmation || 'Action lands on the next ATLAS scan with the parameter applied.'));
+    lines.push('   ACTION CHANGES WHEN: ' + (s.actionChangesWhen || 'Market mood drops back to LOW or the catalyst window closes.'));
+    lines.push('   $$: ' + (s.dollarConsequence || '—'));
+    return lines.join('\n');
+  }).join('\n');
+}
+
+// CHUNK 3 — full-day Market Intel coverage.
+function _fmtTodaysAnnouncements(rows) {
+  if (!Array.isArray(rows) || !rows.length) return 'No high-impact events on the calendar today — driver-led tape.';
+  // Group by session for the operator's required layout.
+  const bySession = {};
+  for (const r of rows) {
+    const s = r.session || 'unscheduled';
+    if (!bySession[s]) bySession[s] = [];
+    bySession[s].push(r);
+  }
+  const order = ['Asia', 'London', 'New York', 'late-NY', 'unscheduled'];
+  const lines = [];
+  for (const s of order) {
+    if (!bySession[s]) continue;
+    lines.push(s + ' session:');
+    for (const r of bySession[s]) {
+      lines.push('  ' + (r.timeUTC || '—') + ' UTC · ' + (r.currency || 'multi') + ' · ' + (r.title || '—') + ' · ' + (r.severityDiscs || r.severity || '—'));
+      lines.push('    why: ' + (r.whyItMatters || '—'));
+      lines.push('    affected: ' + (Array.isArray(r.affectedInstruments) ? r.affectedInstruments.join(' · ') : (r.affectedInstruments || '—')));
+    }
+  }
+  return lines.join('\n');
+}
+
+function _fmtPrimaryEventFocus(p) {
+  if (!p) return 'No primary event this cycle.';
+  return [
+    'Event: ' + (p.eventName || '—'),
+    'Time (UTC): ' + (p.eventTimeUTC || '—'),
+    'Severity: ' + (p.severityDiscs || p.severity || '—'),
+    'Volatility window: ' + (p.volatilityWindow || '—'),
+    'Affected symbols: ' + (Array.isArray(p.affectedSymbols) ? p.affectedSymbols.join(' · ') : (p.affectedSymbols || '—')),
+    'Key price zones:',
+    ...(Array.isArray(p.keyPriceZones) ? p.keyPriceZones.map(z => '  - ' + z) : []),
+    'Likely paths:',
+    ...(Array.isArray(p.likelyPaths) ? p.likelyPaths.map(z => '  - ' + z) : []),
+    'Confirmation: ' + (p.confirmation || '—'),
+    'Cancellation: ' + (p.cancellation || '—'),
+  ].join('\n');
+}
+
+function _fmtNext24To72Hours(rows) {
+  if (!Array.isArray(rows) || !rows.length) return 'No upcoming high-impact events in the next 24–72 hours — monitor cross-asset only.';
+  return rows.map(r => [
+    (r.timeUTC || '—') + ' UTC · ' + (r.currency || 'multi') + ' · ' + (r.title || '—') + ' · ' + (r.severityDiscs || r.severity || '—'),
+    '  expected sensitivity: ' + (r.expectedSensitivity || '—'),
+    '  prep: ' + (r.preparationGuidance || '—'),
+  ].join('\n')).join('\n');
+}
+
+// CHUNK 4 — affected markets expanded.
+function _fmtAffectedMarketsExpanded(rows) {
+  if (!Array.isArray(rows) || !rows.length) return 'No affected markets identified this cycle.';
+  return rows.map(r => [
+    r.instrument || '—',
+    '  HOW: ' + (r.howAffected || '—'),
+    '  STRONGER-THAN-EXPECTED: ' + (r.strongerResult || '—'),
+    '  WEAKER-THAN-EXPECTED: ' + (r.weakerResult || '—'),
+    '  CONFIRMATION: ' + (r.confirmation || '—'),
+    '  INVALIDATION: ' + (r.invalidation || '—'),
+    '  KEY PRICE LEVELS: ' + (r.keyPriceLevels || '—'),
+    '  RISK NOTE: ' + (r.riskNote || '—'),
+  ].join('\n')).join('\n\n');
+}
+
+// CHUNK 5 — price map.
+function _fmtPriceMap(rows) {
+  if (!Array.isArray(rows) || !rows.length) return 'No operational price levels mapped this cycle.';
+  return rows.map(r => [
+    (r.instrument || '—') + ' — ' + (r.level || '—') + ' (' + (r.role || 'level') + ')',
+    '  WHY MATTERS: ' + (r.whyMatters || '—'),
+    '  IF IT HOLDS: ' + (r.ifHolds || '—'),
+    '  IF IT FAILS: ' + (r.ifFails || '—'),
+    '  CONFIRMATION: ' + (r.confirmation || '—'),
+    '  INVALIDATION: ' + (r.invalidation || '—'),
+    '  $$ CONSEQUENCE: ' + (r.dollarConsequence || '—'),
+  ].join('\n')).join('\n\n');
+}
+
+// CHUNK 7 — operational narrative.
+function _fmtOperationalNarrative(n) {
+  if (!n) return 'No operational read this cycle.';
+  return [
+    'Current phase: ' + (n.currentPhase || '—'),
+    'What the market is doing: ' + (n.whatTheMarketIsDoing || '—'),
+    'Why it is doing it: ' + (n.whyItIsDoingIt || '—'),
+    'What changes next: ' + (n.whatChangesNext || '—'),
+    'What traders should avoid: ' + (n.whatTradersShouldAvoid || '—'),
+    'When conditions become safer again: ' + (n.whenConditionsBecomeSaferAgain || '—'),
+  ].join('\n');
 }
 
 function _fmtProvenance(p) {
@@ -190,6 +296,16 @@ function toViewModel(packet) {
     CANCELS_WHEN:                  cc.cancelsWhen || '—',
     SOURCE_PROVENANCE:             _fmtProvenance(prov),
     GENERATED_AT_UTC:              (packet.meta && packet.meta.generatedAtUTC) || header.generatedAtUTC || '—',
+    // CHUNK 3 — full-day coverage anchors.
+    TODAYS_ANNOUNCEMENTS:          _fmtTodaysAnnouncements(packet.todaysAnnouncements),
+    PRIMARY_EVENT_FOCUS:           _fmtPrimaryEventFocus(packet.primaryEventFocus),
+    NEXT_24_TO_72_HOURS:           _fmtNext24To72Hours(packet.next24To72Hours),
+    // CHUNK 4 — affected markets expanded.
+    AFFECTED_MARKETS_EXPANDED:     _fmtAffectedMarketsExpanded(packet.affectedMarketsExpanded),
+    // CHUNK 5 — price map.
+    PRICE_MAP:                     _fmtPriceMap(packet.priceMap),
+    // CHUNK 7 — event-day operational storytelling.
+    OPERATIONAL_NARRATIVE:         _fmtOperationalNarrative(packet.operationalNarrative),
   };
   return _scrubAll(anchors);
 }

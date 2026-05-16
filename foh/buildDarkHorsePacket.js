@@ -38,12 +38,21 @@ function _volSeverity(level) {
   if (/mod/.test(v))                return 'MED';
   return 'LOW';
 }
+// Operator brief 2026-05-17: colour-coded severity discs.
+//   EXTREME = full red (5/5)
+//   HIGH    = red (4/5)
+//   ELEV    = orange (4/5)
+//   MED     = orange (3/5)
+//   LOW     = blue / cyan (2/5)
 function _discScale(sev) {
-  switch (sev) {
-    case 'HIGH': return '🔴🔴🔴🔴🔴 5/5 — Storm';
-    case 'ELEV': return '🟠🟠🟠🟠⚫ 4/5 — Elevated';
-    case 'MED':  return '🟡🟡🟡⚫⚫ 3/5 — Active';
-    default:     return '🟢🟢⚫⚫⚫ 2/5 — Calm';
+  switch (String(sev || '').toUpperCase()) {
+    case 'EXTREME':
+    case 'STORM': return '🔴🔴🔴🔴🔴 5/5 — Extreme';
+    case 'HIGH':  return '🔴🔴🔴🔴⚫ 4/5 — High';
+    case 'ELEV':  return '🟠🟠🟠🟠⚫ 4/5 — Elevated';
+    case 'MED':   return '🟠🟠🟠⚫⚫ 3/5 — Medium';
+    case 'LOW':   return '🔵🔵⚫⚫⚫ 2/5 — Low';
+    default:      return '🔵⚫⚫⚫⚫ 1/5 — Calm';
   }
 }
 

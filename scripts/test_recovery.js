@@ -294,6 +294,12 @@ function ok(name, cond, info) {
     { label: '(F3) FOH prototype anchors',      file: 'tests/fohPrototypeAnchors.test.js' },
     { label: '(F4) FOH terminology',            file: 'tests/fohTerminology.test.js' },
     { label: '(F5) FOH operational anchors',    file: 'tests/fohOperationalAnchors.test.js' },
+    { label: '(F6) FOH contract — Market Intel', file: 'tests/fohContract.marketIntel.test.js' },
+    { label: '(F7) Engine Corey validation',     file: 'tests/engineCoreyValidation.test.js' },
+    { label: '(F8) Engine Corey Clone validation', file: 'tests/engineCoreyCloneValidation.test.js' },
+    { label: '(F9) Engine Spidey validation',    file: 'tests/engineSpideyValidation.test.js' },
+    { label: '(F10) Engine Jane validation',     file: 'tests/engineJaneValidation.test.js' },
+    { label: '(F11) Engine consensus',           file: 'tests/engineConsensus.test.js' },
   ];
   for (const g of guards) {
     try {

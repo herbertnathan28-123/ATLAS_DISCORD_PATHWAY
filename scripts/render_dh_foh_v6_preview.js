@@ -20,9 +20,9 @@
 //                consequences.
 //   Priority 3 — Dollar-first execution everywhere. "Reduce size
 //                to 60%" → "If your normal risk is $500, reduce to
-//                ~$300". "Half size" → "0.5 lot (~$150 risk vs
+//                ~$300". "Half size" → "HALF dollar exposure (~$150 risk vs
 //                $300 normal)". "Exit half" → "Exit half of your
-//                remaining position (0.25 lot of the original 0.5)".
+//                remaining dollar exposure (quarter of the original HALF entry)".
 //   Priority 4 — Colour doctrine on prices. Watch level YELLOW,
 //                Caution zone ORANGE, Invalidation RED, Entry GREEN.
 //                Applied inline via {{watch:X}} {{caution:X}}
@@ -140,7 +140,7 @@ function marketMoodSection() {
 }
 
 // ── v6 Where to Act zones — tighter bands + coloured prices ─
-function whereToActZonesV6({ direction, entryLow, entryHigh, watch, caution, invalidation, dollarRiskPerLot, lotEquivalent, lotReduced, dollarReduced, nextReviewStamp, plannedDollarRisk }) {
+function whereToActZonesV6({ direction, entryLow, entryHigh, watch, caution, invalidation, dollarRiskStandard, exposureLabel, exposureReduced, dollarReduced, nextReviewStamp, plannedDollarRisk }) {
   const isShort = direction === 'Bearish';
   const buySell = isShort ? 'SELL' : 'BUY';
   const direction2 = isShort ? 'sellers' : 'buyers';
@@ -153,27 +153,27 @@ function whereToActZonesV6({ direction, entryLow, entryHigh, watch, caution, inv
     `   band AND closes ${isShort ? 'below the band high' : 'above the band low'} (this is the {{entry:confirmed`,
     `   directional structure}} test).`,
     `   Action: ${buySell} on that candle close — start with HALF your`,
-    `   normal trade size. Concrete: if your normal trade is 1 lot,`,
-    `   begin with **0.5 lot** = **{{money:~$${Math.round(dollarRiskPerLot * 0.5)}}}** risk.`,
+    `   normal dollar exposure for this card. Concrete: at standard dollar risk for this card,`,
+    `   begin with HALF dollar exposure = **{{money:~$${Math.round(dollarRiskStandard * 0.5)}}}** risk.`,
     ``,
     `🟡 WATCH level  {{watch:${watch}}}`,
     `   What this means: ${direction2} are losing initial control. The`,
     `   first warning sign that the move is weakening.`,
     `   💲 If price closes ${reachDir} {{watch:${watch}}} on the 1H, the`,
     `   half-size position is typically down 30–50% of planned risk`,
-    `   ({{money:~$${Math.round(dollarRiskPerLot * 0.5 * 0.4)}}} of the {{money:~$${Math.round(dollarRiskPerLot * 0.5)}}} at risk).`,
+    `   ({{money:~$${Math.round(dollarRiskStandard * 0.5 * 0.4)}}} of the {{money:~$${Math.round(dollarRiskStandard * 0.5)}}} at risk).`,
     `   Action: hold what you have, do NOT add more.`,
     ``,
     `🟠 CAUTION zone  {{caution:${watch} – ${caution}}}`,
     `   {{caution:What this means: the other side is in control inside this band.}}`,
     `   {{caution:Holding from here means fighting the structure — exit risk}}`,
     `   {{caution:is now real, not theoretical.}}`,
-    `   💲 Position drawdown 50–80% of planned risk ({{money:~$${Math.round(dollarRiskPerLot * 0.5 * 0.65)}}} of the {{money:~$${Math.round(dollarRiskPerLot * 0.5)}}}).`,
+    `   💲 Position drawdown 50–80% of planned risk ({{money:~$${Math.round(dollarRiskStandard * 0.5 * 0.65)}}} of the {{money:~$${Math.round(dollarRiskStandard * 0.5)}}}).`,
     `   Action: scratch the trade for a small loss now. Re-read at next scan.`,
     ``,
     `🔴 ${TERM.invalidation}  {{invalid:${invalidation}}}`,
     `   What this means: the ${isShort ? 'bearish' : 'bullish'} idea is OFF entirely.`,
-    `   💲 Full planned risk taken: {{money:$${Math.round(dollarRiskPerLot * 0.5)}}} on ${lotReduced}.`,
+    `   💲 Full planned risk taken: {{money:$${Math.round(dollarRiskStandard * 0.5)}}} on ${exposureReduced}.`,
     `   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for`,
     `   a fresh structure on a later scan.`,
     ``,
@@ -271,24 +271,24 @@ const SAMPLE_MESSAGES = [
             entryLow: '1.0924', entryHigh: '1.0928',
             watch: '1.0900', caution: '1.0880',
             invalidation: '1.0875',
-            dollarRiskPerLot: 300, lotEquivalent: '1 lot ($100k notional)',
-            lotReduced: '0.5 lot ($50k notional)',
+            dollarRiskStandard: 300, exposureLabel: 'standard contract ($100k notional exposure)',
+            exposureReduced: 'HALF dollar exposure ($50k notional)',
             dollarReduced: '$150',
             plannedDollarRisk: 150,
             nextReviewStamp: NEXT_REVIEW,
           }), inline: false },
         { name: '💲 Dollar risk this trade — half size for FRESH', value: [
-            `💲 Standard plan: **{{money:$300 risk on 1 lot EURUSD}}** ({{entry:entry 1.0925}}, {{invalid:exit 1.0895}}, 30-point distance).`,
-            `💲 Recommended start (HALF size on a FRESH candidate): **0.5 lot = {{money:~$150 risk}}**.`,
-            `💲 If Market Mood drops to Calm (1/5) you can scale up to full 1 lot after a clean re-read.`,
-            `💲 Reward target if EURUSD reaches 1.1010 first: **{{money:~$255}}** on 0.5 lot · **{{money:5.7R}}**.`,
+            `💲 Standard plan: **{{money:$300 risk at $100k EURUSD notional exposure}}** ({{entry:entry 1.0925}}, {{invalid:exit 1.0895}}, 30-point distance).`,
+            `💲 Recommended start (HALF size on a FRESH candidate): **HALF dollar exposure = {{money:~$150 risk}}**.`,
+            `💲 If Market Mood drops to Calm (1/5) you can scale dollar exposure back up to the full standard plan after a clean re-read.`,
+            `💲 Reward target if EURUSD reaches 1.1010 first: **{{money:~$255}}** on the HALF-exposure entry · **{{money:5.7R}}**.`,
           ].join('\n'), inline: false },
         { name: 'What this means', value: 'The path of least resistance is up while {{invalid:1.0875}} holds. Buying the dip into the tight green entry band is the trade ATLAS would take.', inline: false },
         { name: 'WHAT TO DO NOW', value: [
             '① Wait for a 5-min candle to open inside {{entry:1.0924 – 1.0928}}.',
-            '② BUY that candle\'s close — {{money:0.5 lot}} of your normal 1-lot trade size.',
+            '② BUY that candle\'s close — {{money:HALF dollar exposure}} of normal.',
             '③ Place the exit-point at {{invalid:1.0895}} ({{money:~$150 risk}}).',
-            '④ If {{watch:1.0900}} closes below on 1H, exit half of your remaining position (0.25 lot, freeing {{money:~$75}}) and hold the rest with the exit-point unchanged.',
+            '④ If {{watch:1.0900}} closes below on 1H, exit half of your remaining position (quarter dollar exposure, freeing {{money:~$75}}) and hold the rest with the exit-point unchanged.',
             '⑤ Full exit at {{invalid:1.0875}} if reached — the bullish idea is OFF.',
           ].join('\n'), inline: false },
         { name: 'What confirms the idea', value: 'A 5m close above {{entry:1.0928}} after pulling back into the entry band — the {{caution:confirmed directional structure}} test (price closes past the trigger AND the next candle holds beyond it).', inline: false },
@@ -322,24 +322,24 @@ const SAMPLE_MESSAGES = [
             entryLow: '2398', entryHigh: '2401',
             watch: '2406', caution: '2412',
             invalidation: '2415',
-            dollarRiskPerLot: 1350, lotEquivalent: '1 lot XAUUSD (100 oz)',
-            lotReduced: '0.5 lot (50 oz)',
+            dollarRiskStandard: 1350, exposureLabel: 'standard XAUUSD contract (100 oz notional)',
+            exposureReduced: 'HALF dollar exposure (50 oz)',
             dollarReduced: '$675',
             plannedDollarRisk: 675,
             nextReviewStamp: NEXT_REVIEW,
           }), inline: false },
         { name: '💲 Dollar risk this trade — full size allowed (STILL ACTIVE)', value: [
-            `💲 Standard plan: **{{money:$1,350 risk on 1 lot XAUUSD}}** ({{entry:entry 2401}}, {{invalid:exit 2415}}, $13.50/oz × 100 oz).`,
-            `💲 STILL ACTIVE candidates have proven their structure across 2+ cycles, so full size is acceptable — but Market Mood ELEVATED reduces to **0.7 lot ≈ {{money:$945}}**.`,
-            `💲 Reward target if XAUUSD reaches 2360 first: **{{money:~$2,870}}** on 0.7 lot · **{{money:3.0R}}**.`,
+            `💲 Standard plan: **{{money:$1,350 risk at standard XAUUSD notional exposure}}** ({{entry:entry 2401}}, {{invalid:exit 2415}}, $13.50/oz × 100 oz).`,
+            `💲 STILL ACTIVE candidates have proven their structure across 2+ cycles, so full size is acceptable — but Market Mood ELEVATED reduces dollar exposure to **≈{{money:$945}}**.`,
+            `💲 Reward target if XAUUSD reaches 2360 first: **{{money:~$2,870}}** on the reduced-exposure entry · **{{money:3.0R}}**.`,
           ].join('\n'), inline: false },
         { name: 'What this means', value: 'The path of least resistance is down while {{invalid:2415}} holds. Selling rallies into the tight green entry band is the trade.', inline: false },
         { name: 'WHAT TO DO NOW', value: [
             '① Wait for price to rally into {{entry:2398 – 2401}}.',
             '② Look for the candle to stall (small range body, no close above 2401).',
-            '③ SELL that stall — {{money:0.7 lot}} (Market Mood ELEVATED reduction).',
+            '③ SELL that stall — {{money:reduced-exposure entry}} (Market Mood ELEVATED reduction).',
             '④ Place the exit-point at {{invalid:2415}} ({{money:~$945 risk}}).',
-            '⑤ If {{watch:2406}} closes above on 1H, exit half (0.35 lot, freeing {{money:~$470}}).',
+            '⑤ If {{watch:2406}} closes above on 1H, exit half (quarter dollar exposure, freeing {{money:~$470}}).',
           ].join('\n'), inline: false },
         { name: 'What confirms the idea', value: 'A 5m close below {{entry:2398}} after rallying into the entry band, with the next candle holding below.', inline: false },
         { name: 'What cancels the idea', value: 'A 1H close above {{invalid:2415}}. At that point the broken floor has been reclaimed and the bearish idea is OFF.', inline: false },
@@ -372,8 +372,8 @@ const SAMPLE_MESSAGES = [
             entryLow: '919.00', entryHigh: '921.00',
             watch: '912.80', caution: '906.00',
             invalidation: '902.50',
-            dollarRiskPerLot: 1860, lotEquivalent: '100 shares NVDA',
-            lotReduced: '25 shares',
+            dollarRiskStandard: 1860, exposureLabel: '100 shares NVDA',
+            exposureReduced: '25 shares',
             dollarReduced: '$465',
             plannedDollarRisk: 465,
             nextReviewStamp: NEXT_REVIEW,
@@ -455,8 +455,8 @@ const SAMPLE_MESSAGES = [
       '',
       subheading('Briefing summary', 'CYAN'),
       '_3 standouts today (1 FRESH, 1 STILL ACTIVE, 1 FADING). Market Mood 🟠🟠🟠🟠⚫ 4/5 — Elevated. Cut your normal $500/trade risk to ~$300._',
-      '_The FRESH EURUSD card is the cleanest reward-to-risk: **0.5 lot = {{money:~$150 risk}}**, target **{{money:~$255}}** at 1.1010 (5.7R)._',
-      '_The STILL ACTIVE XAUUSD short allows up to 0.7 lot ({{money:~$945 risk}}) since structure has held across 2 cycles._',
+      '_The FRESH EURUSD card is the cleanest reward-to-risk: **HALF dollar exposure = {{money:~$150 risk}}**, target **{{money:~$255}}** at 1.1010 (5.7R)._',
+      '_The STILL ACTIVE XAUUSD short allows up to reduced dollar exposure ({{money:~$945 risk}}) since structure has held across 2 cycles._',
       '_The FADING NVDA card is a 25-share quarter-size scalp only ({{money:~$465 risk}}, 1.3R) — skip if better setups exist._',
       '_Next scan ' + NEXT_REVIEW + '._',
     ].join('\n'),
