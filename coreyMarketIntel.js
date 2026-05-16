@@ -707,8 +707,23 @@ function fohBanner(label, subtitle) {
   ].filter(Boolean).join('\n');
 }
 
-function fohSection(label, glyph) {
-  return FOH_SUB + ' ' + (glyph || '📡') + ' ' + label + ' ' + FOH_SUB;
+// ── Section heading (yellow-gold doctrine — PR #101 live standard) ──
+// Heading marker maps to the same colour vocabulary as Dark Horse
+// FOH v6 (_sectionBanner / _subheading in darkHorseFoh.js):
+//   gold    → 🟨🟨  primary section heading (default)
+//   cyan    → 🟦🟦  info / context surface (SOURCE NOTE, BRIEFING SUMMARY, NEXT REVIEW)
+//   magenta → 🟧🟧  caution / elevated-risk surface (WHAT CANCELS, FIRST-REACTION CAUTION)
+// Orange (🟧) is reserved for caution/elevated only — per
+// operator directive 2026-05-15. The legacy SUB-wrapped header
+// (`━━━━━━━━━━ glyph label ━━━━━━━━━━`) is replaced with the
+// Discord-native bold-emoji form so hierarchy survives across
+// mobile + desktop clients.
+function fohSection(label, glyph, accent) {
+  const marker = accent === 'cyan'    ? '🟦'
+               : accent === 'magenta' ? '🟧'
+               : '🟨';
+  const inner = (glyph ? glyph + ' ' : '') + label;
+  return marker + marker + ' **' + inner + '** ' + marker + marker;
 }
 
 function fohLifecycleSeparator(label) {
@@ -989,7 +1004,7 @@ function buildPreEventAlertPayload(rawEvent, minutesOut, opts) {
   lines.push('');
   lines.push(fohWhatConfirms(rawEvent));
   lines.push('');
-  lines.push(fohSection('WHAT CANCELS', '❌'));
+  lines.push(fohSection('WHAT CANCELS', '❌', 'magenta'));
   lines.push('');
   lines.push(fohWhatCancels(rawEvent));
   lines.push('');
@@ -997,11 +1012,11 @@ function buildPreEventAlertPayload(rawEvent, minutesOut, opts) {
   lines.push('');
   lines.push(fohAffectedBlock(buckets));
   lines.push('');
-  lines.push(fohSection('NEXT REVIEW', '🔚'));
+  lines.push(fohSection('NEXT REVIEW', '🔚', 'cyan'));
   lines.push('');
   lines.push('⏳ ' + (nextReviewByStage[stage] || nextReviewByStage['T-1H']));
   lines.push('');
-  lines.push(fohSection('SOURCE NOTE', '📚'));
+  lines.push(fohSection('SOURCE NOTE', '📚', 'cyan'));
   lines.push('');
   lines.push(sourceNote);
   lines.push('');
@@ -1051,7 +1066,7 @@ function buildReleasedEventAlertPayload(rawEvent, opts) {
   lines.push('');
   lines.push(fohWhatConfirms(rawEvent));
   lines.push('');
-  lines.push(fohSection('WHAT CANCELS', '❌'));
+  lines.push(fohSection('WHAT CANCELS', '❌', 'magenta'));
   lines.push('');
   lines.push(fohWhatCancels(rawEvent));
   lines.push('');
@@ -1059,15 +1074,15 @@ function buildReleasedEventAlertPayload(rawEvent, opts) {
   lines.push('');
   lines.push(fohAffectedBlock(buckets));
   lines.push('');
-  lines.push(fohSection('FIRST-REACTION CAUTION', '🚦'));
+  lines.push(fohSection('FIRST-REACTION CAUTION', '🚦', 'magenta'));
   lines.push('');
   lines.push('🟡 The first 60–90s wick is rarely the move. Stand down through the immediate release window; reassess only after the first higher-timeframe close.');
   lines.push('');
-  lines.push(fohSection('NEXT REVIEW', '🔚'));
+  lines.push(fohSection('NEXT REVIEW', '🔚', 'cyan'));
   lines.push('');
   lines.push('⏳ Reassess on the first 5M / 15M close; escalate to 1H / 4H if a [Confirmed candle close] forms in surprise direction.');
   lines.push('');
-  lines.push(fohSection('SOURCE NOTE', '📚'));
+  lines.push(fohSection('SOURCE NOTE', '📚', 'cyan'));
   lines.push('');
   lines.push(sourceNote);
   lines.push('');
@@ -1244,7 +1259,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   lines.push('');
 
   // ── WHAT CANCELS ──
-  lines.push(fohSection('WHAT CANCELS', '❌'));
+  lines.push(fohSection('WHAT CANCELS', '❌', 'magenta'));
   lines.push('');
   lines.push(whatCancels);
   lines.push('');
@@ -1261,20 +1276,20 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   lines.push('');
 
   // ── NEXT REVIEW ──
-  lines.push(fohSection('NEXT REVIEW', '🔚'));
+  lines.push(fohSection('NEXT REVIEW', '🔚', 'cyan'));
   lines.push('');
   lines.push('⏳ Next major · ' + nextReview);
   lines.push('🛡️ Stand down ±15/30M each release; reassess on first close.');
   lines.push('');
 
   // ── BRIEFING SUMMARY ──
-  lines.push(fohSection('BRIEFING SUMMARY', '📚'));
+  lines.push(fohSection('BRIEFING SUMMARY', '📚', 'cyan'));
   lines.push('');
   lines.push(briefingSummary);
   lines.push('');
 
   // ── SOURCE NOTE ──
-  lines.push(fohSection('SOURCE NOTE', '📚'));
+  lines.push(fohSection('SOURCE NOTE', '📚', 'cyan'));
   lines.push('');
   lines.push(sourceNote);
   lines.push('');
