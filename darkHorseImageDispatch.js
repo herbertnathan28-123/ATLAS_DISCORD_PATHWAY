@@ -155,8 +155,13 @@ async function tryPostDarkHorseAsImage(webhookUrl, ranking, volatility, opts) {
   const glossaryUrl = (payload && payload.glossaryUrl)
     || (payload && payload.glossaryTerms && payload.glossaryTerms.glossaryUrl)
     || null;
+  // Operator directive 2026-05-17 PHASE 2: post DH as multi-card
+  // split through the prototype v6 shell with surgical data
+  // adapter. The view model the dhV6Adapter consumes is the
+  // existing FOH packet — its standouts[] / marketMood / etc.
+  // map 1:1 to the adapter's expected fields.
   try {
-    const sent = await foh.postFohExportToDiscord({
+    const sent = await foh.postFohSplitToDiscord({
       kind: 'dark_horse',
       payload,
       webhookUrl,

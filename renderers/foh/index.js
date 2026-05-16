@@ -44,6 +44,9 @@ const { renderMarketIntelCard } = require('./marketIntelCard');
 const { renderMarketIntelPrototypeCards } = require('./marketIntelPrototypeCard');
 const { renderDarkHorseCard }   = require('./darkHorseCard');
 const { renderMacroCard }       = require('./macroCard');
+const protoShell                = require('./protoShell');
+const miV3Adapter               = require('./marketIntelV3Adapter');
+const dhV6Adapter               = require('./darkHorseV6Adapter');
 
 const DEFAULT_MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024; // 8 MB safe webhook cap
 
@@ -210,35 +213,67 @@ async function postFohExportToDiscord({ kind, payload, webhookUrl, caption, dash
 // rendered but visually unusable). PDF stays single-document.
 // Currently MI only; DH / Macro pass through to single-card path.
 async function renderFohSplit({ kind, payload, opts }) {
-  if (kind !== 'market_intel') {
-    // Non-MI kinds: single card + PDF (back-compat).
-    const single = await renderFohExport({ kind, payload, opts });
-    if (!single.ok) return single;
-    return Object.assign({}, single, { pngs: single.png ? [{ png: single.png, label: 'card-1', width: single.width, height: single.height, bytes: single.png.length }] : [] });
+  // Operator directive 2026-05-17 (PHASE 1/2/3): route MI + DH
+  // through the prototype HTML SHELL with surgical data adapter
+  // injection. Every byte of the prototype HTML is preserved
+  // except the named anchor points the adapter substitutes.
+  if (kind === 'market_intel') {
+    const protoHtml = protoShell.getMarketIntelV3Html();
+    if (!protoHtml) {
+      // Fall back to the older template-substitution path so the
+      // dispatch chain still works if the prototype file is
+      // missing for any reason (defensive — shouldn't happen).
+      const single = await renderFohExport({ kind, payload, opts });
+      if (!single.ok) return single;
+      return Object.assign({}, single, { pngs: single.png ? [{ png: single.png, label: 'card-1', width: single.width, height: single.height, bytes: single.png.length }] : [] });
+    }
+    const adapted = miV3Adapter.adapt(protoHtml, payload || {});
+    const cards = protoShell.buildMarketIntelV3Cards(adapted);
+    const start = Date.now();
+    const [pngBatch, pdfSingle] = await Promise.all([
+      renderHtmlsToPngs(cards.map(c => c.html), opts || {}),
+      renderHtmlToPdf(adapted, opts || {}),
+    ]);
+    if (!pngBatch.ok) return { ok: false, reason: pngBatch.reason || 'png_batch_failed', error: pngBatch.error, kind };
+    return {
+      ok: true,
+      kind,
+      pngs: pngBatch.pngs.map((p, i) => Object.assign({ label: cards[i].label }, p)),
+      pdf: pdfSingle && pdfSingle.ok ? pdfSingle.pdf : null,
+      pdfBytes: pdfSingle && pdfSingle.ok ? pdfSingle.pdf.length : 0,
+      pdfError: pdfSingle && !pdfSingle.ok ? pdfSingle.error : null,
+      elapsedMs: Date.now() - start,
+    };
   }
-  let cards;
-  try { cards = renderMarketIntelPrototypeCards(payload); }
-  catch (e) { return { ok: false, reason: 'html_build_failed', error: e.message, kind }; }
-  const htmls = cards.map(c => c.html);
-  const start = Date.now();
-  // Run PNG batch + single-document PDF in parallel.
-  const [pngBatch, pdfSingle] = await Promise.all([
-    renderHtmlsToPngs(htmls, opts || {}),
-    renderHtmlToPdf(renderMarketIntelCard(payload), opts || {}),
-  ]);
-  if (!pngBatch.ok) {
-    return { ok: false, reason: pngBatch.reason || 'png_batch_failed', error: pngBatch.error, kind };
+  if (kind === 'dark_horse') {
+    const protoHtml = protoShell.getDarkHorseV6Html();
+    if (!protoHtml) {
+      const single = await renderFohExport({ kind, payload, opts });
+      if (!single.ok) return single;
+      return Object.assign({}, single, { pngs: single.png ? [{ png: single.png, label: 'card-1', width: single.width, height: single.height, bytes: single.png.length }] : [] });
+    }
+    const adapted = dhV6Adapter.adapt(protoHtml, payload || {});
+    const cards = protoShell.buildDarkHorseV6Cards(adapted);
+    const start = Date.now();
+    const [pngBatch, pdfSingle] = await Promise.all([
+      renderHtmlsToPngs(cards.map(c => c.html), opts || {}),
+      renderHtmlToPdf(adapted, opts || {}),
+    ]);
+    if (!pngBatch.ok) return { ok: false, reason: pngBatch.reason || 'png_batch_failed', error: pngBatch.error, kind };
+    return {
+      ok: true,
+      kind,
+      pngs: pngBatch.pngs.map((p, i) => Object.assign({ label: cards[i].label }, p)),
+      pdf: pdfSingle && pdfSingle.ok ? pdfSingle.pdf : null,
+      pdfBytes: pdfSingle && pdfSingle.ok ? pdfSingle.pdf.length : 0,
+      pdfError: pdfSingle && !pdfSingle.ok ? pdfSingle.error : null,
+      elapsedMs: Date.now() - start,
+    };
   }
-  const pngs = pngBatch.pngs.map((p, i) => Object.assign({ label: cards[i].label }, p));
-  return {
-    ok: true,
-    kind,
-    pngs,
-    pdf: pdfSingle && pdfSingle.ok ? pdfSingle.pdf : null,
-    pdfBytes: pdfSingle && pdfSingle.ok ? pdfSingle.pdf.length : 0,
-    pdfError: pdfSingle && !pdfSingle.ok ? pdfSingle.error : null,
-    elapsedMs: Date.now() - start,
-  };
+  // Non-MI / non-DH kinds: single card + PDF (back-compat).
+  const single = await renderFohExport({ kind, payload, opts });
+  if (!single.ok) return single;
+  return Object.assign({}, single, { pngs: single.png ? [{ png: single.png, label: 'card-1', width: single.width, height: single.height, bytes: single.png.length }] : [] });
 }
 
 // POST split MI render to Discord as multi-attachment message:
