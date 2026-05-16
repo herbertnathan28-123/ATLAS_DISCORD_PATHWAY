@@ -30,6 +30,7 @@
 const fs = require('fs');
 const path = require('path');
 const { renderFormatBadges } = require('./badges');
+const { renderMarketIntelPrototypeCard } = require('./marketIntelPrototypeCard');
 
 const _CSS = fs.readFileSync(path.join(__dirname, 'shared.css'), 'utf8');
 
@@ -640,10 +641,12 @@ function _renderRichMarketIntelCard(packet) {
 
 function renderMarketIntelCard(payload) {
   payload = payload || {};
-  // Rich FOH packet path (operator brief 2026-05-16) — full
-  // product depth. Detected via marketState + eventClusters.
+  // Rich FOH packet path. Operator directive 2026-05-17: route
+  // through the EXACT prototype reproduction (v3) — not the
+  // custom institutional layout. Parity comes first, controlled
+  // doctrine improvements come AFTER.
   if (_isRichPacket(payload)) {
-    return _renderRichMarketIntelCard(payload);
+    return renderMarketIntelPrototypeCard(payload);
   }
   const why = payload.whyThisMatters ? `
     <div class="foh-section">
