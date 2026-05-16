@@ -40,9 +40,20 @@ html, body {
   padding: 0;
   background: var(--atlas-bg);
   color: var(--atlas-text);
-  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  /* Stack starts with a Render-available default ("DejaVu Sans" is
+     bundled with Debian/Ubuntu base images that Chromium uses on
+     Render Standard). Inter / Segoe UI / system-ui are kept as
+     hints for environments where they exist. Explicit letter /
+     word spacing + ligature disable defeat the PDF text-extraction
+     kerning artefact that fragmented words like "Confi rmed",
+     "Y oY", "Infl ation" in the live MI PDF (operator brief
+     2026-05-16).  */
+  font-family: 'Inter', 'Segoe UI', 'DejaVu Sans', system-ui, -apple-system, Roboto, Arial, sans-serif;
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 1.55;
+  letter-spacing: normal;
+  word-spacing: normal;
+  font-feature-settings: "liga" 0, "clig" 0;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -58,20 +69,32 @@ body { padding: 24px; }
   box-shadow: 0 8px 32px rgba(0,0,0,0.6);
 }
 
-/* ── BANNER (top of card) ─────────────────────────────────── */
+/* ── BANNER (top of card) ───────────────────────────────────
+   Top-of-card banner. The right side (subtitle + download
+   badges) sits at flex-end on the same row when there's room;
+   on narrow widths the row wraps cleanly without splitting the
+   title across two lines (operator screenshot 2026-05-17:
+   "Weekend / Monday Open" + "Prep" wrap was unacceptable).    */
 .foh-banner {
   background: linear-gradient(180deg, var(--atlas-card-soft) 0%, var(--atlas-card) 100%);
   border-bottom: 2px solid var(--atlas-gold);
   padding: 18px 26px;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
 }
 .foh-banner-title {
   color: var(--atlas-gold);
   font-weight: 800;
   font-size: 22px;
   letter-spacing: 0.6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;          /* keep on ONE line; PNG width is 1080px which is wide enough for the longest title */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .foh-banner-sub {
   color: var(--atlas-text-dim);
@@ -136,45 +159,226 @@ body { padding: 24px; }
   margin-left: 4px;
 }
 
-/* ── SECTIONS ─────────────────────────────────────────────── */
+/* ── SECTIONS ─────────────────────────────────────────────────
+   Section banner doctrine (operator brief 2026-05-16, refined):
+   the SECTION HEADER carries the severity colour as a full
+   coloured banner. The BODY stays neutral high-readability
+   institutional typography — never colour-washed. Visual
+   hierarchy comes from the banner, not from body tinting.    */
 .foh-section {
-  border-top: 1px solid var(--atlas-line);
-  padding: 16px 26px;
+  padding: 0;
 }
-.foh-section:first-of-type { border-top: none; }
+.foh-section + .foh-section { border-top: 1px solid var(--atlas-line); }
 
 .foh-section-heading {
   font-weight: 800;
-  font-size: 13px;
-  letter-spacing: 1.1px;
+  font-size: 12px;
+  letter-spacing: 1.4px;
   text-transform: uppercase;
-  margin: 0 0 10px 0;
+  margin: 0;
+  padding: 10px 26px;
   display: flex;
   align-items: center;
   gap: 8px;
+  color: #fff;
+  background: var(--atlas-card-soft);
+  border-left: 6px solid var(--atlas-gold);
+  border-bottom: 1px solid var(--atlas-line);
 }
-.foh-section-heading.gold  { color: var(--atlas-gold); }
-.foh-section-heading.cyan  { color: var(--atlas-cyan); }
-.foh-section-heading.red   { color: var(--atlas-red); }
-.foh-section-heading.amber { color: var(--atlas-amber); }
-.foh-section-heading.green { color: var(--atlas-green); }
-.foh-section-heading::before {
-  content: '';
-  display: inline-block;
-  width: 4px;
-  height: 16px;
-  background: currentColor;
-  border-radius: 2px;
-}
+.foh-section-heading.gold    { background: linear-gradient(90deg, rgba(255,215,0,0.18) 0%, var(--atlas-card-soft) 70%); border-left-color: var(--atlas-gold); color: var(--atlas-gold); }
+.foh-section-heading.cyan    { background: linear-gradient(90deg, rgba(91,192,222,0.18) 0%, var(--atlas-card-soft) 70%); border-left-color: var(--atlas-cyan); color: var(--atlas-cyan); }
+.foh-section-heading.red     { background: linear-gradient(90deg, rgba(192,57,43,0.28) 0%, var(--atlas-card-soft) 70%); border-left-color: var(--sev-high); color: #FF8A6A; }
+.foh-section-heading.amber   { background: linear-gradient(90deg, rgba(230,126,34,0.22) 0%, var(--atlas-card-soft) 70%); border-left-color: var(--sev-elev); color: #FFB07C; }
+.foh-section-heading.green   { background: linear-gradient(90deg, rgba(0,255,90,0.14) 0%, var(--atlas-card-soft) 70%); border-left-color: var(--atlas-green); color: #6FE8A0; }
+.foh-section-heading.neutral { background: linear-gradient(90deg, rgba(149,165,166,0.12) 0%, var(--atlas-card-soft) 70%); border-left-color: var(--sev-low); color: #C8CDD2; }
 
-.foh-body { color: var(--atlas-text); font-size: 14px; }
-.foh-body p { margin: 4px 0; }
+/* Section bodies live OUTSIDE the heading. Neutral background,
+   institutional typography. No colour wash — colour is reserved
+   for the heading banner above and for inline emphasis spans. */
+.foh-section-body {
+  padding: 14px 26px 16px 26px;
+  background: var(--atlas-card);
+  color: var(--atlas-text);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.foh-section-body p { margin: 6px 0; }
+.foh-section-body em { color: var(--atlas-text-dim); font-style: italic; }
+.foh-section-body strong { color: var(--atlas-gold); font-weight: 700; }
+
+/* Legacy class names still emitted by some helpers — keep them
+   alias-mapped to the neutral body block above so old call-sites
+   compose cleanly with the new hierarchy. */
+.foh-body { color: var(--atlas-text); font-size: 14px; line-height: 1.6; padding: 14px 26px 16px 26px; background: var(--atlas-card); }
+.foh-body p { margin: 6px 0; }
 .foh-body em { color: var(--atlas-text-dim); font-style: italic; }
 .foh-body strong { color: var(--atlas-gold); font-weight: 700; }
 
-/* ── SEVERITY PANELS (HIGH / ELEV / MED / LOW) ────────────── */
+/* ── EVENT CARD (institutional rhythm) ───────────────────────
+   Each event inside a cluster renders as a card with:
+     - severity-coloured HEADER BANNER (filled, bold uppercase)
+     - neutral BODY (typography, no colour wash)
+     - structured subsections: numerics strip, WHY narrative,
+       MARKET IMPACT quote, BEFORE/DURING/AFTER stack,
+       CONFIRMS / CANCELS twin labelled panels (neutral bodies,
+       coloured labels), HISTORICAL REACTION outlined footer. */
+.foh-event-card {
+  background: var(--atlas-card);
+  border: 1px solid var(--atlas-line);
+  border-radius: 8px;
+  margin: 12px 0;
+  overflow: hidden;
+}
+.foh-event-header {
+  padding: 12px 18px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--atlas-line);
+}
+.foh-event-header.high  { background: linear-gradient(90deg, rgba(192,57,43,0.55) 0%, rgba(192,57,43,0.18) 90%); color: #fff; border-left: 6px solid var(--sev-high); }
+.foh-event-header.elev  { background: linear-gradient(90deg, rgba(230,126,34,0.55) 0%, rgba(230,126,34,0.18) 90%); color: #fff; border-left: 6px solid var(--sev-elev); }
+.foh-event-header.med   { background: linear-gradient(90deg, rgba(241,196,15,0.45) 0%, rgba(241,196,15,0.16) 90%); color: #1a1a1a; border-left: 6px solid var(--sev-med); }
+.foh-event-header.low   { background: linear-gradient(90deg, rgba(91,150,222,0.40) 0%, rgba(91,150,222,0.14) 90%); color: #fff; border-left: 6px solid #5B96DE; }
+.foh-event-header.neutral { background: linear-gradient(90deg, rgba(149,165,166,0.28) 0%, rgba(149,165,166,0.10) 90%); color: #fff; border-left: 6px solid var(--sev-low); }
+.foh-event-header-tier {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.4);
+  color: #fff;
+}
+.foh-event-header-title {
+  font-size: 16px;
+  font-weight: 800;
+}
+.foh-event-header-meta {
+  font-size: 12px;
+  color: rgba(255,255,255,0.85);
+  font-weight: 500;
+}
+.foh-event-body {
+  padding: 14px 18px;
+  color: var(--atlas-text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.foh-event-body p { margin: 6px 0; }
+.foh-event-meta-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--atlas-text-dim);
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--atlas-line);
+  margin-bottom: 10px;
+}
+.foh-event-meta-row span strong { color: var(--atlas-text); font-weight: 700; margin-left: 4px; }
+.foh-event-numerics {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+.foh-event-numerics .num {
+  background: #0f121a;
+  border: 1px solid var(--atlas-line);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.foh-event-numerics .num .label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--atlas-text-dim);
+  font-weight: 700;
+}
+.foh-event-numerics .num .value { font-weight: 700; color: var(--atlas-gold); font-size: 14px; }
+.foh-event-subsection {
+  margin-top: 10px;
+}
+.foh-event-subsection-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--atlas-amber);
+  margin-bottom: 4px;
+}
+.foh-event-subsection-label.cyan  { color: var(--atlas-cyan); }
+.foh-event-subsection-label.green { color: #6FE8A0; }
+.foh-event-subsection-label.red   { color: #FF8A6A; }
+.foh-event-subsection-label.gold  { color: var(--atlas-gold); }
+.foh-event-quote {
+  border-left: 3px solid var(--atlas-amber);
+  padding: 6px 12px;
+  background: #0f121a;
+  border-radius: 0 4px 4px 0;
+  margin: 4px 0;
+  font-size: 13px;
+}
+.foh-event-bda {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin: 6px 0;
+}
+.foh-event-bda-row {
+  background: #0f121a;
+  border-left: 3px solid var(--atlas-cyan);
+  padding: 6px 12px;
+  border-radius: 0 4px 4px 0;
+  font-size: 13px;
+}
+.foh-event-bda-row .stage-label {
+  font-weight: 800;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--atlas-cyan);
+  margin-right: 8px;
+}
+.foh-event-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 8px 0;
+}
+.foh-event-actions .action {
+  background: #0f121a;
+  border: 1px solid var(--atlas-line);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.foh-event-actions .action.confirms { border-top: 3px solid var(--atlas-green); }
+.foh-event-actions .action.cancels  { border-top: 3px solid var(--atlas-red); }
+.foh-event-actions .action .action-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  display: block;
+}
+.foh-event-actions .action.confirms .action-label { color: #6FE8A0; }
+.foh-event-actions .action.cancels  .action-label { color: #FF8A6A; }
+
+/* ── SEVERITY BANNER (legacy compatibility) ────────────────────
+   Some helpers still emit `.foh-severity-panel` for compact
+   mood-bar / disc-scale rows. Re-style as a thin neutral
+   banner so the body content beneath retains its institutional
+   feel — left-border carries the severity, but the body
+   beneath is no longer colour-washed.                          */
 .foh-severity-panel {
-  padding: 12px 16px;
+  padding: 10px 14px;
   border-radius: 6px;
   font-weight: 600;
   margin: 6px 0;
@@ -182,11 +386,15 @@ body { padding: 24px; }
   justify-content: space-between;
   align-items: center;
   font-size: 13px;
+  background: #0f121a;
+  border-left-width: 4px;
+  border-left-style: solid;
+  color: var(--atlas-text);
 }
-.foh-severity-panel.high  { background: var(--sev-high-soft); border-left: 4px solid var(--sev-high); color: #FF7B6A; }
-.foh-severity-panel.elev  { background: var(--sev-elev-soft); border-left: 4px solid var(--sev-elev); color: #FFB07C; }
-.foh-severity-panel.med   { background: var(--sev-med-soft);  border-left: 4px solid var(--sev-med);  color: #FFE57F; }
-.foh-severity-panel.low   { background: var(--sev-low-soft);  border-left: 4px solid var(--sev-low);  color: #BDC3C7; }
+.foh-severity-panel.high  { border-left-color: var(--sev-high); }
+.foh-severity-panel.elev  { border-left-color: var(--sev-elev); }
+.foh-severity-panel.med   { border-left-color: var(--sev-med); }
+.foh-severity-panel.low   { border-left-color: var(--sev-low); }
 .foh-severity-tag {
   font-weight: 800;
   letter-spacing: 0.8px;
@@ -194,6 +402,7 @@ body { padding: 24px; }
   padding: 2px 8px;
   border-radius: 10px;
   background: rgba(0,0,0,0.4);
+  color: var(--atlas-text);
 }
 
 /* ── DISC BAR (5-disc traffic-light) ──────────────────────── */
