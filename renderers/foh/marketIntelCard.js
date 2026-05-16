@@ -105,7 +105,7 @@ function renderEventClusters(payload) {
   return `
   <div class="foh-section">
     <h3 class="foh-section-heading gold">Event clusters</h3>
-    <div class="foh-body">${blocks}</div>
+    <div class="foh-section-body">${blocks}</div>
   </div>`;
 }
 
@@ -117,7 +117,7 @@ function renderCrossAsset(payload) {
   return `
   <div class="foh-section">
     <h3 class="foh-section-heading gold">Cross-asset consequences</h3>
-    <div class="foh-body">${rows}</div>
+    <div class="foh-section-body">${rows}</div>
   </div>`;
 }
 
@@ -128,7 +128,7 @@ function renderOperatorGuidance(g) {
   return `
   <div class="foh-section">
     <h3 class="foh-section-heading cyan">Operator guidance</h3>
-    <div class="foh-body">${confirms}${cancels}</div>
+    <div class="foh-section-body">${confirms}${cancels}</div>
   </div>`;
 }
 
@@ -216,7 +216,7 @@ function _renderMarketStateSection(ms) {
   return `
   <div class="foh-section">
     <h3 class="foh-section-heading cyan">Market state · macro regime</h3>
-    <div class="foh-body">
+    <div class="foh-section-body">
       <p><strong>US Dollar Index:</strong> bias ${esc(ms.dxy.bias)} · level ${esc(ms.dxy.level)}</p>
       <p><strong>CBOE Volatility Index:</strong> ${esc(ms.vix.level)}</p>
       <p><strong>Yield curve:</strong> ${esc(ms.yield.regime)}</p>
@@ -227,48 +227,71 @@ function _renderMarketStateSection(ms) {
 
 function _renderMondayFocusSection(mof) {
   if (!mof || !mof.available) return ''; // weekend-only section — silent when not weekend
+  // The narrative already contains a "Lead exposure: …" phrase; do
+  // NOT emit a second redundant "Lead exposure:" line below it.
+  // Operator screenshots 2026-05-17 flagged the duplicate line.
   return `
   <div class="foh-section">
     <h3 class="foh-section-heading gold">Monday open focus</h3>
-    <div class="foh-body">
+    <div class="foh-section-body">
       <p>${esc(mof.narrative)}</p>
-      ${Array.isArray(mof.focusInstruments) && mof.focusInstruments.length
-        ? '<p><strong>Lead exposure:</strong> ' + mof.focusInstruments.map(esc).join(' · ') + '</p>'
-        : ''}
     </div>
   </div>`;
 }
 
 function _renderRichEvent(ev) {
-  const sevCls = ev.severity === 'HIGH' ? 'high' : ev.severity === 'MEDIUM' ? 'med' : 'low';
+  const sevCls = ev.severity === 'HIGH' ? 'high' : ev.severity === 'MEDIUM' ? 'med' : ev.severity === 'ELEVATED' ? 'elev' : 'low';
   const sevTag = ev.severity + ' IMPACT';
-  const numerics = [
-    ev.actual   != null ? '<strong>Actual:</strong> ' + esc(ev.actual)   : null,
-    ev.forecast != null ? '<strong>Forecast:</strong> ' + esc(ev.forecast) : null,
-    ev.previous != null ? '<strong>Previous:</strong> ' + esc(ev.previous) : null,
-  ].filter(Boolean).join(' · ');
+  // Numeric strip — Actual / Forecast / Previous as labelled chips.
+  const numChips = [];
+  if (ev.actual   != null) numChips.push('<div class="num"><span class="label">Actual</span><span class="value">' + esc(ev.actual) + '</span></div>');
+  if (ev.forecast != null) numChips.push('<div class="num"><span class="label">Forecast</span><span class="value">' + esc(ev.forecast) + '</span></div>');
+  if (ev.previous != null) numChips.push('<div class="num"><span class="label">Previous</span><span class="value">' + esc(ev.previous) + '</span></div>');
+  const numericsBlock = numChips.length ? '<div class="foh-event-numerics">' + numChips.join('') + '</div>' : '';
+  // Driver line drop when generic "Scheduled CCY release" — keep
+  // only when distinct from whyExpanded (avoids redundancy).
+  const driverLine = ev.driverLine && !/^Scheduled [A-Z]{3} release/.test(ev.driverLine)
+    ? '<p style="color:var(--atlas-text-dim);font-size:13px;margin:0 0 8px 0;">' + esc(ev.driverLine) + '</p>'
+    : '';
+  // Historical reaction — neutral outlined footer, never washed.
   const histPanel = (ev.historicalReaction && ev.historicalReaction.available)
     ? renderHistoricalPanel({ rows: ev.historicalReaction.rows, basis: ev.historicalReaction.basis, sampleN: ev.historicalReaction.sampleN })
     : `<div class="foh-historical"><div class="foh-historical-title">📅 Historical reaction</div><p><em style="color:var(--atlas-text-dim);">sourced unavailable (${esc((ev.historicalReaction && ev.historicalReaction.reason) || 'no sample')})</em></p></div>`;
   const bda = ev.beforeDuringAfter || {};
   return `
-  <div class="foh-severity-panel ${sevCls}" style="display:block;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-      <span><strong style="color:var(--atlas-gold);">${esc(ev.title)}</strong> · ${esc(ev.time)} · ${esc(ev.currency)}</span>
-      <span class="foh-severity-tag">${esc(sevTag)}</span>
+  <div class="foh-event-card">
+    <div class="foh-event-header ${sevCls}">
+      <span>
+        <span class="foh-event-header-tier">${esc(sevTag)}</span>
+        &nbsp;&nbsp;<span class="foh-event-header-title">${esc(ev.title)}</span>
+      </span>
+      <span class="foh-event-header-meta">${esc(ev.time)} · ${esc(ev.currency)}</span>
     </div>
-    <p style="margin:4px 0;color:var(--atlas-text-dim);font-size:12px;">${esc(ev.driverLine)}</p>
-    ${numerics ? '<p style="margin:4px 0;font-size:13px;">' + numerics + '</p>' : ''}
-    <p style="margin:8px 0 4px 0;"><strong style="color:var(--atlas-gold);">Why this matters:</strong> ${esc(ev.whyExpanded)}</p>
-    <p style="margin:4px 0;"><strong style="color:var(--atlas-amber);">Market impact:</strong> ${esc(ev.marketImpact)}</p>
-    <div style="margin:6px 0;font-size:12px;">
-      <strong style="color:var(--atlas-cyan);">Before:</strong> ${esc(bda.before || '—')}<br>
-      <strong style="color:var(--atlas-cyan);">During:</strong> ${esc(bda.during || '—')}<br>
-      <strong style="color:var(--atlas-cyan);">After:</strong> ${esc(bda.after || '—')}
+    <div class="foh-event-body">
+      ${driverLine}
+      ${numericsBlock}
+      <div class="foh-event-subsection">
+        <div class="foh-event-subsection-label gold">Why this matters</div>
+        <p style="margin:0;">${esc(ev.whyExpanded)}</p>
+      </div>
+      <div class="foh-event-subsection">
+        <div class="foh-event-subsection-label">Market impact · transmission chain</div>
+        <div class="foh-event-quote">${esc(ev.marketImpact)}</div>
+      </div>
+      <div class="foh-event-subsection">
+        <div class="foh-event-subsection-label cyan">Before · During · After</div>
+        <div class="foh-event-bda">
+          <div class="foh-event-bda-row"><span class="stage-label">BEFORE</span>${esc(bda.before || '—')}</div>
+          <div class="foh-event-bda-row"><span class="stage-label">DURING</span>${esc(bda.during || '—')}</div>
+          <div class="foh-event-bda-row"><span class="stage-label">AFTER</span>${esc(bda.after || '—')}</div>
+        </div>
+      </div>
+      <div class="foh-event-actions">
+        <div class="action confirms"><span class="action-label">Confirms</span>${esc(ev.confirmationPath)}</div>
+        <div class="action cancels"><span class="action-label">Cancels</span>${esc(ev.cancellationPath)}</div>
+      </div>
+      ${histPanel}
     </div>
-    <p style="margin:4px 0;font-size:12px;"><strong style="color:var(--atlas-green);">Confirms:</strong> ${esc(ev.confirmationPath)}</p>
-    <p style="margin:4px 0;font-size:12px;"><strong style="color:var(--atlas-red);">Cancels:</strong> ${esc(ev.cancellationPath)}</p>
-    ${histPanel}
   </div>`;
 }
 
@@ -289,7 +312,7 @@ function _renderRichEventClusters(clusters, mode) {
   return `
   <div class="foh-section">
     <h3 class="foh-section-heading gold">Event clusters${mode === 'weekend' ? ' · weekly window' : ''}</h3>
-    <div class="foh-body">${blocks}</div>
+    <div class="foh-section-body">${blocks}</div>
   </div>`;
 }
 
@@ -302,7 +325,7 @@ function _renderAggregateSection(label, accent, obj) {
   return `
   <div class="foh-section">
     <h3 class="foh-section-heading ${accent}">${esc(label)}</h3>
-    <div class="foh-body"><p>${esc(body)}</p></div>
+    <div class="foh-section-body"><p>${esc(body)}</p></div>
   </div>`;
 }
 
@@ -315,7 +338,7 @@ function _renderRichOperatorGuidance(g) {
   return `
   <div class="foh-section">
     <h3 class="foh-section-heading cyan">Operator guidance</h3>
-    <div class="foh-body">${confirms}${cancels}</div>
+    <div class="foh-section-body">${confirms}${cancels}</div>
   </div>`;
 }
 
@@ -326,11 +349,19 @@ function _renderRichAffectedMarkets(am) {
   const rows = [];
   for (const k of Object.keys(am.buckets)) {
     if (am.buckets[k] && am.buckets[k].length) {
-      rows.push(`<p>• <strong>${esc(k)}:</strong> ${esc(am.buckets[k].slice(0, 6).join(', '))}</p>`);
+      const cells = am.buckets[k].slice(0, 6).map(s => String(s)).join(', ');
+      // Suppress redundant "Header: Header" row (e.g. solo DXY) —
+      // same dedup the text-builder enforces; image renderer was
+      // previously emitting "• DXY: DXY" (banned regression).
+      if (cells === k) {
+        rows.push('<p>• <strong>' + esc(k) + '</strong></p>');
+      } else {
+        rows.push('<p>• <strong>' + esc(k) + ':</strong> ' + esc(cells) + '</p>');
+      }
     }
   }
   if (!rows.length) return `<div class="foh-section"><h3 class="foh-section-heading amber">Affected markets</h3>${_unavail('Affected markets')}</div>`;
-  return `<div class="foh-section"><h3 class="foh-section-heading amber">Affected markets</h3><div class="foh-body">${rows.join('')}</div></div>`;
+  return `<div class="foh-section"><h3 class="foh-section-heading amber">Affected markets</h3><div class="foh-section-body">${rows.join('')}</div></div>`;
 }
 
 function _renderRichHistoricalAggregate(h) {
@@ -340,7 +371,7 @@ function _renderRichHistoricalAggregate(h) {
   return `
   <div class="foh-section">
     <h3 class="foh-section-heading amber">Historical reaction · lead event${h.eventLabel ? ' · ' + esc(h.eventLabel) : ''}</h3>
-    <div class="foh-body">${renderHistoricalPanel(h)}</div>
+    <div class="foh-section-body">${renderHistoricalPanel(h)}</div>
   </div>`;
 }
 
@@ -423,28 +454,28 @@ function renderMarketIntelCard(payload) {
   const why = payload.whyThisMatters ? `
     <div class="foh-section">
       <h3 class="foh-section-heading gold">Why this matters</h3>
-      <div class="foh-body"><p>${esc(payload.whyThisMatters)}</p></div>
+      <div class="foh-section-body"><p>${esc(payload.whyThisMatters)}</p></div>
     </div>` : '';
   const market = payload.marketImpact ? `
     <div class="foh-section">
       <h3 class="foh-section-heading amber">Market impact · transmission chain</h3>
-      <div class="foh-body"><p>${esc(payload.marketImpact)}</p></div>
+      <div class="foh-section-body"><p>${esc(payload.marketImpact)}</p></div>
     </div>` : '';
   const hist = renderHistoricalPanel(payload.historical);
   const histSection = hist ? `
     <div class="foh-section">
       <h3 class="foh-section-heading amber">Historical reaction</h3>
-      <div class="foh-body">${hist}</div>
+      <div class="foh-section-body">${hist}</div>
     </div>` : '';
   const briefing = payload.briefingSummary ? `
     <div class="foh-section">
       <h3 class="foh-section-heading cyan">Briefing summary</h3>
-      <div class="foh-body"><p><em>${esc(payload.briefingSummary)}</em></p></div>
+      <div class="foh-section-body"><p><em>${esc(payload.briefingSummary)}</em></p></div>
     </div>` : '';
   const nextWatch = payload.nextWatch ? `
     <div class="foh-section">
       <h3 class="foh-section-heading cyan">Next watch window</h3>
-      <div class="foh-body"><p>⏳ ${esc(payload.nextWatch)}</p></div>
+      <div class="foh-section-body"><p>⏳ ${esc(payload.nextWatch)}</p></div>
     </div>` : '';
 
   return `<!doctype html>
