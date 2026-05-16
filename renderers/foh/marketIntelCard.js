@@ -29,6 +29,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { renderFormatBadges } = require('./badges');
 
 const _CSS = fs.readFileSync(path.join(__dirname, 'shared.css'), 'utf8');
 
@@ -145,10 +146,11 @@ function renderBanner(payload) {
     daily:     'v6 · daily surface',
     weekend:   'v6 · weekend / Monday open prep surface',
   };
+  const badges = renderFormatBadges(payload);
   return `
   <div class="foh-banner">
     <div class="foh-banner-title">${esc(titleMap[k] || titleMap.pre_event)}</div>
-    <div class="foh-banner-sub">${esc(subtitleMap[k] || '')}</div>
+    <div class="foh-banner-sub">${esc(subtitleMap[k] || '')}${badges}</div>
   </div>`;
 }
 

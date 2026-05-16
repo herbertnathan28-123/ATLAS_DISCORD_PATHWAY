@@ -35,6 +35,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { renderFormatBadges } = require('./badges');
 
 const _CSS = fs.readFileSync(path.join(__dirname, 'shared.css'), 'utf8');
 
@@ -166,13 +167,14 @@ function renderMacroCard(payload) {
   payload = payload || {};
   const sourceNote = payload.sourceNote || {};
 
+  const badges = renderFormatBadges(payload);
   return `<!doctype html>
 <html><head><meta charset="utf-8"><style>${_CSS}</style></head>
 <body>
   <div class="foh-card">
     <div class="foh-banner">
       <div class="foh-banner-title">ATLAS · Macro — Institutional Briefing</div>
-      <div class="foh-banner-sub">v6 · macro surface · ${esc(payload.dateLabel || '')}</div>
+      <div class="foh-banner-sub">v6 · macro surface · ${esc(payload.dateLabel || '')}${badges}</div>
     </div>
     ${renderRegimeRow(payload.regime)}
     ${renderDominantBias(payload.dominantBias)}

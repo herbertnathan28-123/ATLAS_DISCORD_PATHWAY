@@ -51,6 +51,14 @@ assert(miHtml && miHtml.indexOf('foh-hyperlinks') !== -1, 'MI HTML has hyperlink
 assert(miHtml && miHtml.indexOf('🟠🟠🟠🟠⚫') !== -1, 'MI HTML carries disc-bar glyphs');
 assert(miHtml && /<a [^>]*>Dovish<\/a>/.test(miHtml), 'MI HTML emits terminology link');
 
+// Download-format badges (operator brief 2026-05-16): both badges
+// render by default, far-right of the banner subtitle.
+assert(miHtml && /foh-format-badge png/.test(miHtml), 'MI HTML emits ↓ PNG badge in banner');
+assert(miHtml && /foh-format-badge pdf/.test(miHtml), 'MI HTML emits ↓ PDF badge in banner');
+const miLinked = renderMarketIntelCard(Object.assign({}, miPayload, { dashboardDownloadUrls: { png: 'https://atlas.fx/dl/x.png', pdf: 'https://atlas.fx/dl/x.pdf' } }));
+assert(/href="https:\/\/atlas\.fx\/dl\/x\.png"/.test(miLinked), 'MI badge wraps to clickable <a> when dashboardDownloadUrls.png supplied');
+assert(/href="https:\/\/atlas\.fx\/dl\/x\.pdf"/.test(miLinked), 'MI badge wraps to clickable <a> when dashboardDownloadUrls.pdf supplied');
+
 // MI weekend (event clusters)
 const miWeekend = Object.assign({}, miPayload, {
   kind: 'weekend',
@@ -83,6 +91,8 @@ assert(dhHtml && dhHtml.indexOf('foh-dh-candidate fading') !== -1, 'DH HTML has 
 assert(dhHtml && dhHtml.indexOf('Risk reminder') !== -1, 'DH HTML has Risk reminder heading');
 assert(dhHtml && /First detected: <strong>12:00 UTC<\/strong>/.test(dhHtml), 'DH HTML carries first-detected timestamp');
 assert(dhHtml && /still Dark Horse valid after <strong>2h 30m<\/strong>/.test(dhHtml), 'DH HTML carries duration-alive');
+assert(dhHtml && /foh-format-badge png/.test(dhHtml), 'DH HTML emits ↓ PNG badge');
+assert(dhHtml && /foh-format-badge pdf/.test(dhHtml), 'DH HTML emits ↓ PDF badge');
 
 // Macro
 const macroPayload = {
@@ -101,6 +111,8 @@ assert(macroHtml && macroHtml.indexOf('Dominant bias') !== -1, 'Macro HTML has D
 assert(macroHtml && macroHtml.indexOf('Execution logic') !== -1, 'Macro HTML has Execution logic heading');
 assert(macroHtml && macroHtml.indexOf('IF X THEN Y') !== -1, 'Macro HTML carries IF/THEN line');
 assert(macroHtml && macroHtml.indexOf('⬆️') !== -1, 'Macro HTML carries directional arrow');
+assert(macroHtml && /foh-format-badge png/.test(macroHtml), 'Macro HTML emits ↓ PNG badge');
+assert(macroHtml && /foh-format-badge pdf/.test(macroHtml), 'Macro HTML emits ↓ PDF badge');
 
 // ── PNG render assertions ──
 console.log('\nT2 — PNG render path:');

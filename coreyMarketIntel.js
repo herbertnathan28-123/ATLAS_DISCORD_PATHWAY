@@ -1043,6 +1043,187 @@ const FOH_TERMINOLOGY_LINE =
 const FOH_BIAS_DISCLAIMER = '_' + BIAS_CONDITIONAL_DISCLAIMER + '_';
 
 // ============================================================
+// IMAGE-PAYLOAD HELPERS (FOH_IMAGE_RENDER_ENABLED wire-in)
+// ============================================================
+// When `FOH_IMAGE_RENDER_ENABLED=true`, dispatch() prefers the
+// PNG+PDF renderer (renderers/foh) over the text webhook send.
+// Each MI builder attaches a structured `imagePayload` object
+// alongside the text `content` so the renderer can produce the
+// premium card without re-deriving the data from text. If the
+// renderer fails or the flag is unset, the text send remains
+// the fallback path (operator brief 2026-05-16).
+function _miImpactSeverity(impact) {
+  const v = String(impact || '').toLowerCase();
+  if (v === 'high') return 'HIGH';
+  if (v === 'medium') return 'MEDIUM';
+  return 'LOW';
+}
+
+function _miBuildHistoricalRows(history) {
+  if (!Array.isArray(history) || !history.length) return null;
+  return {
+    rows: history.slice(0, 3).map(h => ({
+      label:        h.dateLabel || h.label || '—',
+      actual:       h.actual    || '—',
+      magnitude:    h.magnitude || '',
+      dir:          h.surpriseDir || h.dir || 'in-line',
+      reaction:     h.reaction  || '',
+    })),
+    basis:    history.length >= 3 ? 'engine-derived' : 'insufficient evidence',
+    sampleN:  history.length,
+  };
+}
+
+function _miBuildCrossAsset(buckets) {
+  const out = [];
+  const fxParts = [];
+  if (buckets['DXY'] && buckets['DXY'].length) fxParts.push('US Dollar Index (DXY)');
+  if (buckets['USD pairs']) fxParts.push('USD pairs (' + buckets['USD pairs'].slice(0,4).map(symbolDisplay).join(', ') + ')');
+  if (buckets['EUR pairs']) fxParts.push('EUR pairs (' + buckets['EUR pairs'].slice(0,3).map(symbolDisplay).join(', ') + ')');
+  if (buckets['GBP pairs']) fxParts.push('GBP pairs (' + buckets['GBP pairs'].slice(0,3).map(symbolDisplay).join(', ') + ')');
+  if (buckets['JPY crosses']) fxParts.push('JPY crosses (' + buckets['JPY crosses'].slice(0,3).map(symbolDisplay).join(', ') + ')');
+  if (buckets['AUD/NZD pairs']) fxParts.push('AUD / NZD pairs');
+  if (fxParts.length) out.push({ classLabel: 'FX', body: fxParts.join(' · ') + ' — direction historically tracks the rate-path repricing first.' });
+  const ix = [];
+  if (buckets['US indices']) ix.push('US (' + buckets['US indices'].slice(0,3).map(symbolDisplay).join(', ') + ')');
+  if (buckets['EU indices']) ix.push('EU (' + buckets['EU indices'].slice(0,2).map(symbolDisplay).join(', ') + ')');
+  if (buckets['Asia indices']) ix.push('Asia (' + buckets['Asia indices'].slice(0,2).map(symbolDisplay).join(', ') + ')');
+  if (ix.length) out.push({ classLabel: 'Indices', body: ix.join(' · ') + ' — rate-sensitivity favours the inverse of the yield reaction.' });
+  const cm = [];
+  if (buckets['Metals']) cm.push('Metals (' + buckets['Metals'].slice(0,2).map(symbolDisplay).join(', ') + ')');
+  if (buckets['Energy']) cm.push('Energy (' + buckets['Energy'].slice(0,2).map(symbolDisplay).join(', ') + ')');
+  if (cm.length) out.push({ classLabel: 'Commodities', body: cm.join(' · ') + ' — historically inverse to USD / yields.' });
+  return out;
+}
+
+// Build the structured image payload for a single pre-event /
+// released-event surface. Mirrors the text builder's data so
+// `renderers/foh.marketIntelCard` can produce the premium PNG
+// without re-deriving event mechanics.
+function _buildMarketIntelImagePayload(rawEvent, a, opts) {
+  const isReleased = !!(opts && opts.released);
+  const stage = (opts && opts.stage) || (isReleased ? 'RELEASED' : 'PRE-EVENT');
+  const lifecycle = isReleased ? fohLifecycleReleased() : fohLifecycleForStage(stage);
+  const buckets = bucketAffected(a.affected);
+  const eventRiskAtStage = (stage === 'T-RELEASE' || stage === 'T-15M' || stage === 'T-30M')
+    ? EVENT_RISK.HIGH : EVENT_RISK.MODERATE;
+  const geoLevel = (opts && opts.geoLevel) || GEO_RISK.LOW;
+  const moodText = fohMarketMoodScale(eventRiskAtStage, geoLevel);
+  // Parse mood text "🟠🟠🟠🟠⚫ · **ELEVATED** — defensive flow..."
+  // into discs + label + severity for the structured payload.
+  const moodMatch = /^(\S+)\s*·\s*\*\*([A-Z]+)\*\*\s*—\s*(.+)$/.exec(moodText) || [];
+  const discs = moodMatch[1] || '⚫⚫⚫⚫⚫';
+  const moodWord = moodMatch[2] || 'WATCH';
+  const moodTail = moodMatch[3] || '';
+  const severityMap = { STORM: 'HIGH', ELEVATED: 'ELEV', CAUTION: 'ELEV', WATCH: 'MED', CALM: 'LOW' };
+  const moodSeverity = severityMap[moodWord] || 'MED';
+
+  const probabilityBasis = fohProbabilityBasis(rawEvent);
+  const health = (opts && opts.health) || null;
+  const calMode = (health && health.calendar_mode) || 'UNAVAILABLE';
+  const calSrc  = (health && health.source_used)    || 'unavailable';
+
+  // Operator guidance — re-use the existing copy generators.
+  const confirms = fohWhatConfirms(rawEvent);
+  const cancels  = fohWhatCancels(rawEvent);
+
+  return {
+    kind: isReleased ? 'released' : 'pre_event',
+    headline: {
+      title:     humanizeTitle(a.title),
+      currency:  a.currency || 'pending',
+      country:   rawEvent && rawEvent.country,
+      impact:    fohImpactTag(rawEvent && rawEvent.impact || 'high'),
+      time:      fmtAwstShort(a.scheduled_time) + ' AWST · ' + fmtUtcShort(a.scheduled_time) + ' UTC',
+      stage:     stage,
+      lifecycle: lifecycle.tag,
+    },
+    mood: { discs, label: moodWord + ' — ' + moodTail, severity: moodSeverity },
+    whyThisMatters: fohWhyThisMatters(rawEvent),
+    marketImpact:   mechanismChainFor(rawEvent),
+    crossAsset:     _miBuildCrossAsset(buckets),
+    operatorGuidance: { confirms, cancels },
+    nextWatch: isReleased
+      ? 'Reassess on first 5M / 15M close; escalate to 1H / 4H if confirmed candle close in surprise direction.'
+      : ('Event time: ' + fmtUtcShort(a.scheduled_time) + ' UTC. First reaction 0–15 min. Reassess on first 1H close.'),
+    historical: _miBuildHistoricalRows(opts && opts.history),
+    terminology: ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep'],
+    glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
+    sourceNote:  { source: calSrc, mode: calMode, probabilityBasis },
+    briefingSummary: stage + ' alert · ' + humanizeTitle(a.title) + ' · ' + (a.currency || 'multi-ccy') + '. Bias remains conditional until price confirms through structure.',
+  };
+}
+
+// Build the daily-bulletin image payload from a calendar
+// snapshot + geo context. Currency-grouped event clusters.
+function _buildDailyBulletinImagePayload(snapshot, geoCtx, now) {
+  const NOW = now || Date.now();
+  const events = (snapshot && snapshot.events) || [];
+  const health = (snapshot && snapshot.health) || { calendar_mode: 'UNAVAILABLE', source_used: 'unavailable' };
+  const dayStart = new Date(NOW); dayStart.setUTCHours(0,0,0,0);
+  const dayEnd   = new Date(NOW); dayEnd.setUTCHours(23,59,59,999);
+  const today = events.filter(e => e.scheduled_time >= dayStart.getTime() && e.scheduled_time <= dayEnd.getTime());
+  const highToday = today.filter(e => deriveRelevance(e) === RELEVANCE.HIGH);
+  const eventRisk = classifyEventRisk(highToday.length, (geoCtx && geoCtx.level) || GEO_RISK.LOW);
+  const geoLevel  = (geoCtx && geoCtx.level) || GEO_RISK.LOW;
+  const moodText  = fohMarketMoodScale(eventRisk, geoLevel);
+  const moodMatch = /^(\S+)\s*·\s*\*\*([A-Z]+)\*\*\s*—\s*(.+)$/.exec(moodText) || [];
+  const discs = moodMatch[1] || '⚫⚫⚫⚫⚫';
+  const moodWord = moodMatch[2] || 'WATCH';
+  const moodTail = moodMatch[3] || '';
+  const severityMap = { STORM: 'HIGH', ELEVATED: 'ELEV', CAUTION: 'ELEV', WATCH: 'MED', CALM: 'LOW' };
+  // Group today's high-impact events by currency for the
+  // event-cluster cards on the weekend / daily surface.
+  const byCcy = new Map();
+  for (const ev of highToday) {
+    const ccy = ev.currency || 'OTHER';
+    if (!byCcy.has(ccy)) byCcy.set(ccy, []);
+    byCcy.get(ccy).push({
+      title: humanizeTitle(ev.title),
+      time:  fmtAwstShort(ev.scheduled_time) + ' AWST',
+      impactSeverity: _miImpactSeverity(ev.impact),
+    });
+  }
+  const eventClusters = [...byCcy.entries()].map(([ccy, evs]) => ({ currency: ccy, events: evs }));
+
+  // Affected symbols + cross-asset narrative.
+  const affected = new Set();
+  for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
+  const buckets = bucketAffected([...affected]);
+
+  return {
+    kind: 'daily',
+    headline: {
+      title:     'Daily Roadmap',
+      currency:  'multi',
+      time:      fmtAwstDate(NOW) + ' AWST',
+      stage:     'DAILY',
+      lifecycle: 'NEW WATCH',
+    },
+    mood: { discs, label: moodWord + ' — ' + moodTail, severity: severityMap[moodWord] || 'MED' },
+    whyThisMatters: highToday.length
+      ? (highToday.length + ' high-impact catalyst' + (highToday.length === 1 ? '' : 's') + ' today. Rate-path repricing + cross-asset flow dominate the session.')
+      : 'Flow-led session — DXY, VIX, and yields set direction. No scheduled high-impact rate-path repricing today.',
+    marketImpact: highToday[0]
+      ? mechanismChainFor(highToday[0])
+      : 'No dominant catalyst — driver-led tape; read cross-asset from the live macro state rather than from the calendar.',
+    crossAsset: _miBuildCrossAsset(buckets),
+    eventClusters,
+    nextWatch: 'Stand down ±15/30M each release; reassess on first close.',
+    terminology: ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep'],
+    glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
+    sourceNote: {
+      source: health.source_used || 'unavailable',
+      mode:   health.calendar_mode || 'UNAVAILABLE',
+      probabilityBasis: highToday.length ? fohProbabilityBasis(highToday[0]) : 'insufficient evidence',
+    },
+    briefingSummary: highToday.length
+      ? (eventRisk + ' scheduled event risk · ' + highToday.length + ' high-impact catalyst' + (highToday.length === 1 ? '' : 's') + '.')
+      : 'Calm session · no scheduled high-impact catalyst.',
+  };
+}
+
+// ============================================================
 // PRE-EVENT ALERT — FOH v6 (presentation rebuild)
 // ============================================================
 function buildPreEventAlertPayload(rawEvent, minutesOut, opts) {
@@ -1129,7 +1310,8 @@ function buildPreEventAlertPayload(rawEvent, minutesOut, opts) {
   lines.push('');
   lines.push(FOH_BIAS_DISCLAIMER);
 
-  return { content: lines.join('\n'), stage };
+  const imagePayload = _buildMarketIntelImagePayload(rawEvent, a, Object.assign({}, opts || {}, { released: false, stage, history: opts && opts.history }));
+  return { content: lines.join('\n'), stage, imagePayload };
 }
 
 // ============================================================
@@ -1207,7 +1389,8 @@ function buildReleasedEventAlertPayload(rawEvent, opts) {
   lines.push('');
   lines.push(FOH_BIAS_DISCLAIMER);
 
-  return { content: lines.join('\n') };
+  const imagePayload = _buildMarketIntelImagePayload(rawEvent, a, Object.assign({}, opts || {}, { released: true }));
+  return { content: lines.join('\n'), imagePayload };
 }
 
 // ============================================================
@@ -1418,8 +1601,10 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   lines.push('');
   lines.push(FOH_BIAS_DISCLAIMER);
 
+  const imagePayload = _buildDailyBulletinImagePayload(snapshot, geoCtx, NOW);
   return {
     content: lines.join('\n'),
+    imagePayload,
     counts: {
       highImpactTodayCount: highToday.length,
       highInterestTodayCount: highInterestToday.length,
@@ -1765,6 +1950,36 @@ async function dispatch(messageType, payloadObj, extra) {
     log(`[COREY-MARKET-INTEL] skipped_reason=validator_${validation.failureReason}`);
     return { sent: false, reason: `validator_${validation.failureReason}`, payload: validated, diagnostics: validation.diagnostics };
   }
+  // ── FOH_IMAGE_RENDER_ENABLED — opt-in image path ──
+  // When the env flag is set AND the builder attached an
+  // imagePayload field AND `renderers/foh` loads cleanly, render
+  // the premium PNG+PDF card and POST it to the same Discord
+  // webhook. Any failure (puppeteer unavailable, render error,
+  // post non-2xx) falls through to the existing text send.
+  // Production behaviour is unchanged unless the operator flips
+  // the env flag.
+  if (process.env.FOH_IMAGE_RENDER_ENABLED === 'true' && payloadObj && payloadObj.imagePayload) {
+    try {
+      const foh = require('./renderers/foh');
+      const captionLine = 'ATLAS Market Intel · ' + (extra.event || messageType);
+      const imageRes = await foh.postFohExportToDiscord({
+        kind: 'market_intel',
+        payload: payloadObj.imagePayload,
+        webhookUrl: _webhookUrl,
+        caption: captionLine,
+        dashboardUrl: payloadObj.imagePayload.glossaryUrl || null,
+      });
+      if (imageRes && imageRes.ok) {
+        log(`[COREY-MARKET-INTEL] send_result=ok image_render=true status=${imageRes.status} png_kb=${Math.round(((imageRes.attachments && imageRes.attachments[0] && imageRes.attachments[0].bytes) || 0) / 1024)} pdf_skipped=${imageRes.pdfSkipped ? 'true' : 'false'}`);
+        return { sent: true, status: imageRes.status, mode: 'image', payload: validated, attachments: imageRes.attachments, pdfSkipped: imageRes.pdfSkipped, diagnostics: validation.diagnostics };
+      }
+      log(`[COREY-MARKET-INTEL] image_render=fail reason=${imageRes && imageRes.reason} fallback=text`);
+    } catch (e) {
+      log(`[COREY-MARKET-INTEL] image_render=fail reason=exception:${e.message} fallback=text`);
+    }
+    // Fall through to existing text send.
+  }
+
   try {
     const res = await sendWebhook(_webhookUrl, { content: validated.content });
     if (res && res.status >= 200 && res.status < 300) {
