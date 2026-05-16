@@ -39,7 +39,7 @@ async function _withRenderedPage(html, opts, callback) {
   opts = opts || {};
   const width  = Number.isFinite(opts.width) ? opts.width : 1080;
   const dpr    = Number.isFinite(opts.deviceScaleFactor) ? opts.deviceScaleFactor : 2;
-  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 20000;
+  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 30000;
 
   const puppeteer = _puppeteerLazy();
   if (!puppeteer) {

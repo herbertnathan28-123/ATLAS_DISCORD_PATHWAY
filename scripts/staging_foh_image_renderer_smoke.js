@@ -70,8 +70,49 @@ function urlHash(u) {
   return crypto.createHash('sha256').update(u).digest('hex').slice(0, 12);
 }
 
-// ── FIXTURES ──
+// ── FOH product-depth packet fixtures (operator brief 2026-05-16) ──
+// These exercise the rich packet path the live tick assembles.
+// The thin-payload fixtures below remain as back-compat coverage.
+const mi = require(path.join(__dirname, '..', 'coreyMarketIntel.js'));
+const HEALTH_LIVE = { available: true, calendar_mode: 'LIVE', source_used: 'TradingView' };
+const SAT_NOW  = Date.parse('2026-05-16T12:00:00Z');
+const TUES_NOW = Date.parse('2026-05-19T08:00:00Z');
+const RICH_WEEKEND_SNAP = {
+  health: HEALTH_LIVE,
+  events: [
+    { title: 'CPI (USD)',           currency: 'USD', impact: 'high', scheduled_time: SAT_NOW + 3*24*3600*1000, forecast: '3.2%', previous: '3.0%' },
+    { title: 'Non Farm Payrolls',   currency: 'USD', impact: 'high', scheduled_time: SAT_NOW + 4*24*3600*1000, forecast: '180k', previous: '160k' },
+    { title: 'ECB Rate Decision',   currency: 'EUR', impact: 'high', scheduled_time: SAT_NOW + 2*24*3600*1000 },
+    { title: 'ECB Press Conference',currency: 'EUR', impact: 'high', scheduled_time: SAT_NOW + 2*24*3600*1000 + 45*60*1000 },
+    { title: 'BOE Rate Decision',   currency: 'GBP', impact: 'high', scheduled_time: SAT_NOW + 3*24*3600*1000 + 5*3600*1000 },
+    { title: 'UK CPI',              currency: 'GBP', impact: 'high', scheduled_time: SAT_NOW + 2*24*3600*1000 + 5*3600*1000, forecast: '2.4%', previous: '2.2%' },
+  ],
+};
+const RICH_DAILY_SNAP = {
+  health: HEALTH_LIVE,
+  events: [
+    { title: 'CPI (USD)',           currency: 'USD', impact: 'high', scheduled_time: TUES_NOW + 4*3600*1000, forecast: '3.2%', previous: '3.0%' },
+    { title: 'Fed Speech',          currency: 'USD', impact: 'medium', scheduled_time: TUES_NOW + 6*3600*1000 },
+  ],
+};
+const RICH_FIXTURES = [
+  { kind: 'market_intel', label: 'mi-foh-packet-weekend',
+    caption: 'TEST RENDER PROOF — Market Intel · Weekend / Monday Open Prep (FOH packet)',
+    payload: mi.buildDailyBulletinPayload(RICH_WEEKEND_SNAP, { level: 'moderate' }, SAT_NOW).fohPacket },
+  { kind: 'market_intel', label: 'mi-foh-packet-daily',
+    caption: 'TEST RENDER PROOF — Market Intel · Daily Roadmap (FOH packet)',
+    payload: mi.buildDailyBulletinPayload(RICH_DAILY_SNAP, { level: 'low' }, TUES_NOW).fohPacket },
+  { kind: 'market_intel', label: 'mi-foh-packet-pre-event',
+    caption: 'TEST RENDER PROOF — Market Intel · CPI T-1H (FOH packet)',
+    payload: mi.buildPreEventAlertPayload({ title: 'CPI (USD)', currency: 'USD', impact: 'high', scheduled_time: TUES_NOW + 60*60*1000, forecast: '3.2%', previous: '3.0%' }, 60, { health: HEALTH_LIVE }).fohPacket },
+  { kind: 'market_intel', label: 'mi-foh-packet-released',
+    caption: 'TEST RENDER PROOF — Market Intel · CPI released (FOH packet)',
+    payload: mi.buildReleasedEventAlertPayload({ title: 'CPI (USD)', currency: 'USD', impact: 'high', scheduled_time: TUES_NOW - 5*60*1000, actual: '3.5%', forecast: '3.2%', previous: '3.0%' }, { health: HEALTH_LIVE }).fohPacket },
+];
+
+// ── FIXTURES (thin payload — back-compat coverage) ──
 const FIXTURES = [
+  ...RICH_FIXTURES,
   {
     kind: 'market_intel',
     label: 'mi-pre-event-cpi-usd',
