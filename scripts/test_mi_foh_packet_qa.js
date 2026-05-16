@@ -131,8 +131,38 @@ const thin = {
 const thinHtml = renderMarketIntelCard(thin);
 assert(thinHtml.indexOf('Why this matters') !== -1, 'thin payload still renders legacy heading');
 
-// ── T8 — PNG render against the rich packet ──
-console.log('\nT8 — PNG render of rich packet:');
+// ── T8 — Prototype depth content present on packet (NEW) ──
+console.log('\nT8 — Prototype depth content present on packet:');
+const featCluster = wp.eventClusters.find(c => c.severity === 'HIGH') || wp.eventClusters[0];
+const featEvent = featCluster && featCluster.events && featCluster.events[0];
+assert(wp.featuredEventKey && wp.featuredEventKey.indexOf(featEvent.title) !== -1, 'featuredEventKey points at featured event');
+assert(featEvent && featEvent.dollarImpactRange && featEvent.dollarImpactRange.available === true, 'featured event has dollarImpactRange.available=true');
+assert(Array.isArray(featEvent.dollarImpactRange.first60sRanges) && featEvent.dollarImpactRange.first60sRanges.length >= 4, 'dollarImpactRange has ≥ 4 per-asset rows');
+assert(featEvent && featEvent.reactionPaths && featEvent.reactionPaths.available === true, 'featured event has reactionPaths.available=true');
+assert(featEvent.reactionPaths.scenarios.length === 4, 'reactionPaths has all 4 outcomes (hawkish/dovish/inline/reversal)');
+assert(featEvent && featEvent.whatToWatch && featEvent.whatToWatch.available === true, 'featured event has whatToWatch.available=true');
+assert(Array.isArray(featEvent.whatToWatch.preEvent) && featEvent.whatToWatch.preEvent.length >= 3, 'whatToWatch.preEvent has ≥ 3 indicators');
+assert(wp.riskEscalation && wp.riskEscalation.available === true, 'packet has riskEscalation');
+assert(Array.isArray(wp.riskEscalation.stages) && wp.riskEscalation.stages.length >= 4, 'riskEscalation has ≥ 4 stages');
+assert(wp.eventDayReference && wp.eventDayReference.available === true, 'packet has eventDayReference');
+assert(Array.isArray(wp.eventDayReference.windows) && wp.eventDayReference.windows.length === 4, 'eventDayReference has exactly 4 windows');
+assert(wp.comparisonNotes && wp.comparisonNotes.available === true, 'packet has comparisonNotes');
+assert(typeof wp.comparisonNotes.whyThisRating === 'string' && wp.comparisonNotes.whyThisRating.length > 30, 'comparisonNotes has whyThisRating narrative');
+assert(wp.briefingActions && wp.briefingActions.available === true, 'packet has briefingActions');
+assert(Array.isArray(wp.briefingActions.actions) && wp.briefingActions.actions.length === 5, 'briefingActions has exactly 5 numbered actions');
+
+// ── T9 — Rendered HTML emits every depth section ──
+console.log('\nT9 — Rendered HTML emits every depth section:');
+const depthHtml = renderMarketIntelCard(wp);
+for (const heading of ['Dollar impact range','Reaction paths · 4 outcomes','Risk escalation','What traders should watch','Event-day reference · 4 windows','Why this rating · what changes it','Briefing actions']) {
+  assert(depthHtml.indexOf(heading) !== -1, 'rendered HTML contains depth heading: ' + heading);
+}
+// Featured event renders as full card; non-featured renders as compact row.
+assert(/foh-event-row /.test(depthHtml), 'non-featured events render as compact rows');
+assert(/HAWKISH/.test(depthHtml) && /DOVISH/.test(depthHtml) && /INLINE/.test(depthHtml) && /REVERSAL/.test(depthHtml), 'all 4 reaction-path scenario tiers rendered');
+
+// ── T10 — PNG render against the rich packet ──
+console.log('\nT10 — PNG render of rich packet:');
 (async () => {
   const r = await foh.renderFohPng({ kind: 'market_intel', payload: wp });
   assert(r.ok === true, 'rich packet renders to PNG', r.error);
