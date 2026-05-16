@@ -235,26 +235,35 @@ const FIXTURES = [
   let okCount = 0, failCount = 0;
   for (const f of FIXTURES) {
     const t0 = Date.now();
-    const rendered = await foh.renderFohPng({ kind: f.kind, payload: f.payload });
+    // Render BOTH PNG + PDF in a single Puppeteer launch. PNG is
+    // the Discord preview, PDF is the downloadable carry-around.
+    const rendered = await foh.renderFohExport({ kind: f.kind, payload: f.payload });
     const elapsedMs = Date.now() - t0;
     if (!rendered.ok) {
       failCount++;
       console.error('[' + f.label + '] RENDER FAIL — reason=' + rendered.reason + ' error=' + rendered.error);
       continue;
     }
-    const outPath = path.join(outDir, f.label + '.png');
-    fs.writeFileSync(outPath, rendered.png);
     okCount++;
-    console.log('[' + f.label + '] OK — ' + rendered.width + 'x' + rendered.height + ' @' + rendered.devicePixelRatio + 'x · ' + Math.round(rendered.bytes/1024) + ' KB · ' + elapsedMs + 'ms · → ' + outPath);
+    const pngPath = path.join(outDir, f.label + '.png');
+    const pdfPath = path.join(outDir, f.label + '.pdf');
+    if (rendered.png) fs.writeFileSync(pngPath, rendered.png);
+    if (rendered.pdf) fs.writeFileSync(pdfPath, rendered.pdf);
+    const pngLine = rendered.png ? Math.round(rendered.pngBytes / 1024) + ' KB' : '(failed: ' + rendered.pngError + ')';
+    const pdfLine = rendered.pdf ? Math.round(rendered.pdfBytes / 1024) + ' KB' : '(failed: ' + (rendered.pdfError || 'no-pdf') + ')';
+    console.log('[' + f.label + '] OK — ' + rendered.width + 'x' + rendered.height + ' @' + rendered.devicePixelRatio + 'x · ' + elapsedMs + 'ms');
+    console.log('  PNG: ' + pngLine + (rendered.png ? '  → ' + pngPath : ''));
+    console.log('  PDF: ' + pdfLine + (rendered.pdf ? '  → ' + pdfPath : ''));
 
     if (POST_MODE) {
-      const captionFull = f.caption + (f.payload.glossaryUrl ? '\n→ ' + f.payload.glossaryUrl : '');
-      const sent = await foh.postFohPngToDiscord({
+      const sent = await foh.postFohExportToDiscord({
         kind: f.kind, payload: f.payload, webhookUrl: STAGING_URL,
         caption: f.caption, dashboardUrl: f.payload.glossaryUrl,
       });
       if (sent.ok) {
-        console.log('  [POST] urlHash=' + urlHash(STAGING_URL) + ' status=' + sent.status + ' bytes=' + (sent.attachment && sent.attachment.bytes));
+        const attached = (sent.attachments || []).map(a => a.contentType + ' ' + Math.round(a.bytes / 1024) + 'KB').join(' + ');
+        const pdfFlag = sent.pdfSkipped ? ' [pdf-skipped: ' + sent.pdfSkipReason + ']' : '';
+        console.log('  [POST] urlHash=' + urlHash(STAGING_URL) + ' status=' + sent.status + ' attached=[' + attached + ']' + pdfFlag);
       } else {
         console.error('  [POST FAIL] reason=' + sent.reason + ' error=' + sent.error + ' fallback=' + sent.fallback);
       }

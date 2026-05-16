@@ -117,14 +117,74 @@ console.log('\nT2 — PNG render path:');
     }
   }
 
+  // ── PDF render assertions ──
+  console.log('\nT3 — PDF render path:');
+  for (const [kind, payload] of [['market_intel', miPayload], ['dark_horse', dhPayload], ['macro', macroPayload]]) {
+    const r = await foh.renderFohPdf({ kind, payload });
+    assert(r.ok === true, kind + ' PDF render ok', r.error);
+    if (r.ok) {
+      assert(r.pdf && r.pdf.length > 1024, kind + ' PDF buffer non-trivial size (' + (r.pdf && r.pdf.length || 0) + ' bytes)');
+      // PDF magic header: %PDF (0x25 0x50 0x44 0x46)
+      assert(r.pdf[0] === 0x25 && r.pdf[1] === 0x50 && r.pdf[2] === 0x44 && r.pdf[3] === 0x46, kind + ' PDF buffer has valid %PDF signature');
+      assert(r.elapsedMs < 30000, kind + ' PDF render under 30s (' + r.elapsedMs + 'ms)');
+    }
+  }
+
+  // ── Combined PNG + PDF export ──
+  console.log('\nT4 — Combined PNG + PDF export (single Puppeteer launch):');
+  const exp = await foh.renderFohExport({ kind: 'market_intel', payload: miPayload });
+  assert(exp.ok === true, 'combined export ok', exp.error);
+  if (exp.ok) {
+    assert(exp.png && exp.png.length > 1024, 'combined export PNG present');
+    assert(exp.pdf && exp.pdf.length > 1024, 'combined export PDF present');
+    assert(exp.png[0] === 0x89 && exp.png[1] === 0x50, 'combined export PNG has PNG signature');
+    assert(exp.pdf[0] === 0x25 && exp.pdf[1] === 0x50, 'combined export PDF has %PDF signature');
+    assert(typeof exp.pngBytes === 'number' && exp.pngBytes > 0, 'combined export reports pngBytes');
+    assert(typeof exp.pdfBytes === 'number' && exp.pdfBytes > 0, 'combined export reports pdfBytes');
+  }
+
   // ── Safe-fail: unknown kind ──
-  console.log('\nT3 — Safe-fail contract:');
+  console.log('\nT5 — Safe-fail contract:');
   const bad = await foh.renderFohPng({ kind: 'nonsense', payload: {} });
   assert(bad.ok === false && bad.reason === 'html_build_failed', 'unknown kind → ok:false html_build_failed');
+
+  const badPdf = await foh.renderFohPdf({ kind: 'nonsense', payload: {} });
+  assert(badPdf.ok === false && badPdf.reason === 'html_build_failed', 'unknown kind PDF → ok:false html_build_failed');
+
+  const badExport = await foh.renderFohExport({ kind: 'nonsense', payload: {} });
+  assert(badExport.ok === false && badExport.reason === 'html_build_failed', 'unknown kind export → ok:false html_build_failed');
 
   // ── Discord post: no webhook URL → ok:false ──
   const noUrl = await foh.postFohPngToDiscord({ kind: 'market_intel', payload: miPayload, webhookUrl: '' });
   assert(noUrl.ok === false && noUrl.reason === 'no_webhook_url', 'missing webhookUrl → ok:false no_webhook_url');
+
+  const noUrlExport = await foh.postFohExportToDiscord({ kind: 'market_intel', payload: miPayload, webhookUrl: '' });
+  assert(noUrlExport.ok === false && noUrlExport.reason === 'no_webhook_url', 'missing webhookUrl on export post → ok:false no_webhook_url');
+
+  // ── PDF-skipped path: tiny cap forces PNG-only attachment ──
+  // We monkey-patch fetch to capture the multipart attachments so
+  // we can verify only PNG was attached when PDF exceeds the cap.
+  console.log('\nT6 — PDF-skipped path when over cap:');
+  const origFetch = global.fetch;
+  let capturedAttachments = null;
+  global.fetch = async (_url, init) => {
+    // Parse multipart body to find attachment filenames.
+    const body = init.body instanceof Buffer ? init.body.toString('binary') : String(init.body || '');
+    const names = [...body.matchAll(/filename="([^"]+)"/g)].map(m => m[1]);
+    capturedAttachments = names;
+    return { ok: true, status: 200 };
+  };
+  const FAKE_URL = 'https://discord.com/api/webhooks/123/abc';
+  const skipResult = await foh.postFohExportToDiscord({
+    kind: 'market_intel', payload: miPayload, webhookUrl: FAKE_URL,
+    caption: 'qa', maxAttachmentBytes: 1024,  // tiny cap forces PDF skip
+  });
+  global.fetch = origFetch;
+  assert(skipResult.ok === true, 'tiny-cap post still ok with PNG only');
+  assert(skipResult.pdfSkipped === true, 'tiny-cap post flags pdfSkipped=true');
+  assert(/pdf_exceeds_cap/.test(skipResult.pdfSkipReason || ''), 'tiny-cap post records pdf_exceeds_cap reason');
+  assert(capturedAttachments && capturedAttachments.length === 1, 'tiny-cap post attached only 1 file (PNG)');
+  assert(capturedAttachments && /\.png$/.test(capturedAttachments[0] || ''), 'tiny-cap post attachment is PNG');
 
   // ── Summary ──
   console.log('\n==========================');
