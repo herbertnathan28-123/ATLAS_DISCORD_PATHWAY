@@ -704,13 +704,23 @@ function fohBox(label, glyph, accent) {
                : accent === 'red' ? '🟥'
                : accent === 'green' ? '🟩'
                : '🟨';
-  const text = (marker + ' ' + (glyph ? glyph + ' ' : '') + label + ' ' + marker).trim();
-  return '▛ ' + text + ' ▜';
+  // Lane 2 render-fix (operator brief 2026-05-16): replace Unicode
+  // box-drawing brackets (▛ ▜) — which rendered as inline text glyphs
+  // on Discord rather than as a true box — with native Discord
+  // `## H2` heading markdown. Renders as large, bold, visually
+  // hierarchical text across all Discord clients (desktop, mobile,
+  // web) and saves ~5 chars per heading vs the bracketed form,
+  // freeing 1900-char cap headroom.
+  const text = (marker + ' ' + (glyph ? glyph + ' ' : '') + label).trim();
+  return '## ' + text;
 }
 
 function fohBanner(label, subtitle) {
+  // Banner uses native Discord `# H1` (biggest heading) so the
+  // top-of-message branding is unambiguously the highest in the
+  // visual hierarchy. Sections beneath use H2 via fohBox.
   return [
-    fohBox(label, '📰', 'gold'),
+    '# 🟨 📰 ' + label,
     subtitle ? '*' + subtitle + '*' : null,
   ].filter(Boolean).join('\n');
 }
