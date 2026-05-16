@@ -112,13 +112,38 @@ assert(dp.marketState.available === false, 'marketState.available=false when cor
 assert(typeof dp.marketState.reason === 'string' && dp.marketState.reason.length, 'marketState carries reason when unavailable');
 
 // ── T6 — renderer detects rich packet + emits sections ──
-console.log('\nT6 — Renderer outputs new sections from rich packet:');
+console.log('\nT6 — Renderer outputs prototype-v3 sections from rich packet:');
 const html = renderMarketIntelCard(wp);
-for (const heading of ['Market state · macro regime','Monday open focus','Event clusters · weekly window','Market impact · transmission chain','Confirmation path','Cancellation path','Operator guidance','Historical reaction · lead event','Expanded Terminology']) {
-  assert(html.indexOf(heading) !== -1, 'rendered HTML contains heading: ' + heading);
+// Prototype reproduction (operator directive 2026-05-17): renderer
+// emits Discord-channel-mockup with 7 message blocks matching the
+// v3 reference at docs/screenshots/market-intel-foh-v3.html.
+for (const fragment of [
+  'class="channel"',                                  // Discord channel mockup root
+  'data-idx="0"',                                     // Msg 0 (banner + mood + events)
+  'data-idx="1"',                                     // Msg 1 (primary event embed)
+  'data-idx="2"',                                     // Msg 2 (reaction paths)
+  'data-idx="3"',                                     // Msg 3 (risk escalation)
+  'data-idx="4"',                                     // Msg 4 (what to watch)
+  'data-idx="5"',                                     // Msg 5 (event-day reference)
+  'data-idx="6"',                                     // Msg 6 (briefing summary)
+  'N E W   M A R K E T   I N T E L',                  // top red diff fence
+  'MARKET INTEL — LIVE MACRO BRIEFING',               // gold banner
+  'EXPANDED TERMINOLOGY HYPERLINKS',                  // terminology row
+  'GLOBAL MARKET MOOD',                               // mood banner
+  'Risk State',                                       // mood subheading
+  'MAJOR EVENTS',                                     // blurple events banner
+  'PRIMARY EVENT',                                    // Msg 1 red diff
+  'embed-title',                                      // embed card class
+  'chart-card',                                       // chart card class
+  'Dollar impact range',                              // embed field
+  'POSSIBLE MARKET REACTION PATHS',                   // reaction paths banner
+  'RISK ESCALATION',                                  // escalation banner
+  'WHAT TRADERS SHOULD WATCH',                        // what to watch banner
+  'EVENT-DAY REFERENCE',                              // event-day reference banner
+  'Briefing summary',                                 // Msg 6 footer label
+]) {
+  assert(html.indexOf(fragment) !== -1, 'prototype-v3 HTML contains: ' + fragment);
 }
-// "sourced unavailable" label appears for unavailable sections
-assert(/sourced unavailable/.test(html), 'rendered HTML carries "sourced unavailable" label for missing sections');
 
 // ── T7 — renderer back-compat: legacy thin imagePayload still renders ──
 console.log('\nT7 — Renderer back-compat with legacy thin imagePayload:');
@@ -154,12 +179,20 @@ assert(Array.isArray(wp.briefingActions.actions) && wp.briefingActions.actions.l
 // ── T9 — Rendered HTML emits every depth section ──
 console.log('\nT9 — Rendered HTML emits every depth section:');
 const depthHtml = renderMarketIntelCard(wp);
-for (const heading of ['Dollar impact range','Reaction paths · 4 outcomes','Risk escalation','What traders should watch','Event-day reference · 4 windows','Why this rating · what changes it','Briefing actions']) {
-  assert(depthHtml.indexOf(heading) !== -1, 'rendered HTML contains depth heading: ' + heading);
+// Prototype reproduction depth (operator directive 2026-05-17).
+for (const fragment of [
+  'Dollar impact range',                              // Msg 1 embed field
+  'POSSIBLE MARKET REACTION PATHS',                   // Msg 2 banner
+  'RISK ESCALATION',                                  // Msg 3 banner
+  'WHAT TRADERS SHOULD WATCH',                        // Msg 4 banner
+  'EVENT-DAY REFERENCE',                              // Msg 5 banner
+  'What changes this risk state',                     // Msg 3 footnote
+  'Briefing summary',                                 // Msg 6 footer
+]) {
+  assert(depthHtml.indexOf(fragment) !== -1, 'prototype-v3 depth contains: ' + fragment);
 }
-// Featured event renders as full card; non-featured renders as compact row.
-assert(/foh-event-row /.test(depthHtml), 'non-featured events render as compact rows');
-assert(/HAWKISH/.test(depthHtml) && /DOVISH/.test(depthHtml) && /INLINE/.test(depthHtml) && /REVERSAL/.test(depthHtml), 'all 4 reaction-path scenario tiers rendered');
+// All 4 reaction scenarios rendered in Msg 2 (Hawkish/Dovish/In-Line/Reversal).
+assert(/Hawkish/i.test(depthHtml) && /Dovish/i.test(depthHtml) && /In-Line/i.test(depthHtml) && /Reversal/i.test(depthHtml), 'all 4 reaction-path scenario tiers rendered');
 
 // ── T10 — PNG render against the rich packet ──
 console.log('\nT10 — PNG render of rich packet:');
