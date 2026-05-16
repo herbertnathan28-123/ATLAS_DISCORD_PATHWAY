@@ -22,6 +22,65 @@
 
 const fomo = require('./darkHorseFomoControl');
 
+// ── FIRST-NOTICED TRACKING ───────────────────────────────────
+// Runtime memory for "when did ATLAS first notice this active
+// Dark Horse read?". It is presentation metadata only; scoring,
+// thresholds, ranking order, scheduler, and transport stay unchanged.
+const DH_FIRST_SEEN_RESET_MS = 72 * 60 * 60 * 1000;
+const _firstSeenBySymbolDirection = new Map();
+
+function _candidateSeenAt(candidate, opts) {
+  if (opts && Number.isFinite(opts.now)) return opts.now;
+  if (candidate && Number.isFinite(candidate.timestamp)) return candidate.timestamp;
+  return Date.now();
+}
+
+function _firstSeenKey(candidate) {
+  const symbol = String((candidate && candidate.symbol) || '').toUpperCase();
+  const direction = String((candidate && candidate.direction) || 'Neutral');
+  return symbol + '|' + direction;
+}
+
+function annotateFirstSeen(candidate, opts) {
+  const now = _candidateSeenAt(candidate, opts || {});
+  const provided = candidate && Number.isFinite(candidate.firstSeenAt)
+    ? candidate.firstSeenAt
+    : candidate && Number.isFinite(candidate.firstActiveAt)
+    ? candidate.firstActiveAt
+    : candidate && Number.isFinite(candidate.firstNoticedAt)
+    ? candidate.firstNoticedAt
+    : null;
+
+  if (provided != null) {
+    return {
+      firstSeenAt: provided,
+      lastSeenAt: now,
+      activeCycleCount: Math.max(1, Number(candidate.activeCycleCount) || 1),
+      firstSeenSource: 'candidate',
+    };
+  }
+
+  const key = _firstSeenKey(candidate);
+  const prior = _firstSeenBySymbolDirection.get(key);
+  if (!prior || now - Number(prior.lastSeenAt || 0) > DH_FIRST_SEEN_RESET_MS) {
+    const next = { firstSeenAt: now, lastSeenAt: now, activeCycleCount: 1 };
+    _firstSeenBySymbolDirection.set(key, next);
+    return Object.assign({ firstSeenSource: 'runtime' }, next);
+  }
+
+  const next = {
+    firstSeenAt: prior.firstSeenAt,
+    lastSeenAt: now,
+    activeCycleCount: (Number(prior.activeCycleCount) || 1) + 1,
+  };
+  _firstSeenBySymbolDirection.set(key, next);
+  return Object.assign({ firstSeenSource: 'runtime' }, next);
+}
+
+function __resetFirstSeenForTests() {
+  _firstSeenBySymbolDirection.clear();
+}
+
 // ── SECTIONS ─────────────────────────────────────────────────
 const SECTIONS = {
   FX_MAJORS:    'fx_majors',
@@ -180,6 +239,7 @@ function enrichCandidate(candidate, htfCandles, sectionAvgScore, opts) {
   const moveSpeed = computeMoveSpeed(htfCandles);
   const movePhase = classifyMovePhase(moveAge, moveSpeed, candidate.score);
   const relStr = computeRelativeStrength(candidate, sectionAvgScore);
+  const firstSeen = annotateFirstSeen(candidate, opts);
 
   return {
     symbol: candidate.symbol,
@@ -205,6 +265,11 @@ function enrichCandidate(candidate, htfCandles, sectionAvgScore, opts) {
     macroEventLink:          opts.macroEventLink || 'unavailable — no anchor event mapped to this symbol',
     whyNotWatch:             whyNotWatch(candidate.score, opts.watchThreshold || 8),
     atlasState:              atlasStateFromPhase(movePhase),
+    firstSeenAt:             firstSeen.firstSeenAt,
+    firstNoticedAt:          firstSeen.firstSeenAt,
+    lastSeenAt:              firstSeen.lastSeenAt,
+    activeCycleCount:        firstSeen.activeCycleCount,
+    firstSeenSource:         firstSeen.firstSeenSource,
     // Education-layer evidence anchors. partial when only 1D data
     // is wired (current state); pending when no candles arrived.
     // Follow-up: wire 15m/5m OHLC into the ranking pipeline so the
@@ -1399,6 +1464,7 @@ async function buildRanking(candidates, candleProvider, opts) {
     enriched.push(enrichCandidate(c, candles, sectionAvg, {
       watchThreshold: opts.watchThreshold,
       macroEventLink: macroLink,
+      now: opts.now,
     }));
   }
   const ranking = rankCandidates(enriched, opts);
@@ -1422,6 +1488,7 @@ module.exports = {
   whyNotWatch, atlasStateFromPhase,
 
   enrichCandidate, rankCandidates, buildRanking,
+  annotateFirstSeen, __resetFirstSeenForTests,
   buildExpandedDetail, buildCompactDetail, buildRankedMovementDigestPayload,
   emitRankingLogs,
 

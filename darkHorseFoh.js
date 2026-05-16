@@ -205,6 +205,43 @@ function _fmtNextReviewUTC(nowMs, intervalMs) {
   const interval = Number.isFinite(intervalMs) ? intervalMs : 15 * 60 * 1000;
   return _fmtUtcStamp(now + interval);
 }
+function _fmtShortUtc(ms) {
+  if (!Number.isFinite(ms)) return 'first scan pending';
+  const d = new Date(ms);
+  return _pad2(d.getUTCDate()) + '/' + _pad2(d.getUTCMonth() + 1) + '/' +
+    String(d.getUTCFullYear()).slice(-2) + ' ' + _pad2(d.getUTCHours()) + ':' +
+    _pad2(d.getUTCMinutes()) + ' UTC';
+}
+function _durationText(ms) {
+  const totalMins = Math.max(0, Math.floor((Number(ms) || 0) / 60000));
+  const days = Math.floor(totalMins / 1440);
+  const hrs = Math.floor((totalMins % 1440) / 60);
+  const mins = totalMins % 60;
+  const bits = [];
+  if (days) bits.push(days + ' day' + (days === 1 ? '' : 's'));
+  if (hrs || days) bits.push(hrs + ' hr' + (hrs === 1 ? '' : 's'));
+  bits.push(mins + ' min' + (mins === 1 ? '' : 's'));
+  return bits.join(' ');
+}
+function _firstSeenAt(record, nowMs) {
+  const v = record && (record.firstSeenAt || record.firstNoticedAt || record.firstActiveAt);
+  return Number.isFinite(v) ? v : (Number.isFinite(nowMs) ? nowMs : Date.now());
+}
+function _validityAgeMs(record, nowMs) {
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  return Math.max(0, now - _firstSeenAt(record, now));
+}
+function _validityDay(ageMs) {
+  return Math.max(1, Math.floor(Math.max(0, ageMs) / (24 * 60 * 60 * 1000)) + 1);
+}
+function _validityAccent(lifecycle, ageMs) {
+  if (lifecycle && lifecycle.stage === 'FRESH') return { marker: '🟨', label: 'INITIAL' };
+  if (lifecycle && lifecycle.stage === 'FADING') return { marker: '🟥', label: 'FADING' };
+  const day = _validityDay(ageMs);
+  if (day <= 2) return { marker: '🟧', label: 'DAY ' + day };
+  if (day <= 3) return { marker: '🟪', label: 'DAY ' + day };
+  return { marker: '🟥', label: 'DAY ' + day };
+}
 function _fmtPrice(v) {
   if (!Number.isFinite(v)) return null;
   if (Math.abs(v) >= 1000) return v.toFixed(2);
@@ -1100,6 +1137,9 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
       + '  ·  '
       + (lifecycleCounts.fading > 0 ? lifecycleCounts.fading + ' fading'                  : '0 fading')
       + '._';
+  const colourKeyLine = promoted === 0
+    ? null
+    : '_Colour key: 🟨 initial standout today · 🟧/🟪/🟥 added validity days · 🟥 fading._';
 
   const parts = [
     _redNewDividerTop(nowMs, universeSize),
@@ -1107,6 +1147,7 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
     _sectionBanner('🐎  DARK HORSE — GLOBAL MOVER RADAR', 'gold'),
     '',
     standoutCountLine,
+    colourKeyLine,
     '',
     '📘 **EXPANDED TERMINOLOGY HYPERLINKS**',
     '_See the terminology panel attached to this message._',
@@ -1119,23 +1160,35 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
     parts.push(_sectionBanner("⭐  STANDOUTS — TODAY'S STRONGEST MOVERS", 'gold'));
   }
 
-  return parts.join('\n');
+  return parts.filter(x => x != null).join('\n');
 }
 
 // ── Per-candidate lifecycle separator content ───────────────
 // Goes IN FRONT of the candidate's embed in messages 2..N. M1's
 // FRESH candidate gets a lifecycle line appended to the banner.
-function _lifecycleSeparator(record, lifecycle, idx, total) {
+function _validityLine(record, lifecycle, nowMs) {
+  const firstSeen = _firstSeenAt(record, nowMs);
+  const ageMs = _validityAgeMs(record, nowMs);
+  if (lifecycle && lifecycle.stage === 'FRESH') {
+    return 'First logged ' + _fmtShortUtc(firstSeen) + ' · initial standout for this scan.';
+  }
+  return 'First logged ' + _fmtShortUtc(firstSeen) + ' · still Dark Horse-worthy after ' + _durationText(ageMs) + '.';
+}
+
+function _lifecycleSeparator(record, lifecycle, idx, total, nowMs) {
   const rankLabel = 'STANDOUT #' + (idx + 1) + ' of ' + total;
   const symbolNote = (record.symbol || 'unknown') + ' — ' + lifecycle.narrative;
+  const ageMs = _validityAgeMs(record, nowMs);
+  const accent = _validityAccent(lifecycle, ageMs);
+  const validity = _validityLine(record, lifecycle, nowMs);
   if (lifecycle.tone === 'fresh') {
-    // FRESH keeps the red diff surface because Discord renders it
-    // consistently and it signals new-cycle urgency.
+    // Initial standouts are yellow. Carryover days use separate
+    // colour chips so age remains visible in Discord.
     return [
-      '```diff',
-      '- ' + BAR_HEAVY,
-      '-   🆕   FRESH   ·   ' + rankLabel + '   ·   ' + symbolNote,
-      '- ' + BAR_HEAVY,
+      '```',
+      accent.marker + accent.marker + '  FRESH · ' + rankLabel + '  ' + accent.marker + accent.marker,
+      symbolNote,
+      validity,
       '```',
     ].join('\n');
   }
@@ -1144,16 +1197,18 @@ function _lifecycleSeparator(record, lifecycle, idx, total) {
     // visible when Discord renders ANSI box colours as white.
     return [
       '```',
-      '🟨🟨  STILL ACTIVE · ' + rankLabel + '  🟨🟨',
+      accent.marker + accent.marker + '  STILL ACTIVE · VALIDITY ' + accent.label + ' · ' + rankLabel + '  ' + accent.marker + accent.marker,
       symbolNote,
+      validity,
       '```',
     ].join('\n');
   }
   // FADING stays visually distinct without ANSI colour dependency.
   return [
     '```',
-    '🟧🟧  FADING · ' + rankLabel + '  🟧🟧',
+    accent.marker + accent.marker + '  FADING · VALIDITY ' + accent.label + ' · ' + rankLabel + '  ' + accent.marker + accent.marker,
     symbolNote,
+    validity,
     '```',
   ].join('\n');
 }
@@ -1264,6 +1319,20 @@ function _todaysRankFieldValue(idx, total, urlMap) {
   const link = _termLink('Cycle Rank', urlMap);
   const ord = _ordinal(idx + 1);
   return link + ": " + ord + " of today's " + total + ' standout' + (total === 1 ? '' : 's');
+}
+
+function _validityFieldValue(record, lifecycle, nowMs) {
+  const ageMs = _validityAgeMs(record, nowMs);
+  const accent = _validityAccent(lifecycle, ageMs);
+  const firstSeen = _firstSeenAt(record, nowMs);
+  const cycleCount = Number(record && record.activeCycleCount);
+  const cycleTail = Number.isFinite(cycleCount) && cycleCount > 1
+    ? '\nActive scan count in this run: ' + cycleCount + '.'
+    : '';
+  return accent.marker + ' ' + lifecycle.stage + ' · validity ' + accent.label + '\n' +
+    _validityLine(record, lifecycle, nowMs) + '\n' +
+    'First active/noticed timestamp: **' + _fmtShortUtc(firstSeen) + '**.' +
+    cycleTail;
 }
 
 function _directionFieldValue(direction, urlMap) {
@@ -1464,6 +1533,7 @@ function _candidateEmbed(record, idx, total, isLast, opts, urlMap, volatility, c
     { name: 'Decision Level',    value: _decisionLevelFieldValue(record, urlMap, bands), inline: true },
     { name: 'Expected Duration', value: _expectedDurationFieldValue(record, urlMap), inline: true },
     { name: "Today's Rank",      value: _todaysRankFieldValue(idx, total, urlMap), inline: true },
+    { name: 'Validity',          value: _validityFieldValue(record, lifecycle, nowMs), inline: false },
   ];
   fields.push(..._whereToActFields(record, bands, position, urlMap, nextReview));
 
@@ -1770,7 +1840,7 @@ function buildDarkHorseFohPayload(ranking, volatility, opts) {
   for (let i = 0; i < withAnchors.length; i++) {
     const record = withAnchors[i];
     const lifecycle = lifecycleStage(record);
-    const separator = _lifecycleSeparator(record, lifecycle, i, withAnchors.length);
+    const separator = _lifecycleSeparator(record, lifecycle, i, withAnchors.length, opts.now);
     const isLast = (i === withAnchors.length - 1);
     const embed = _candidateEmbed(record, i, withAnchors.length, isLast, opts, urlMap, volatility, ctx);
     messages.push({ content: separator, embeds: [embed] });
