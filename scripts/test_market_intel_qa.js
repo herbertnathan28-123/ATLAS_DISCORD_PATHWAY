@@ -92,6 +92,9 @@ const PROBABILITY_BASES = ['historically sourced', 'engine-derived', 'scenario e
 
 function auditPresence(content) {
   const errors = [];
+  function hasBoxed(label) {
+    return new RegExp('▛[^\\n]*' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\\n]*▜').test(content);
+  }
   // SOURCE NOTE provenance row.
   if (!/calendar=\S+\s*·\s*macro=ATLAS\s*·\s*probability=/.test(content)) {
     errors.push({ kind: 'missing-presence', token: 'SOURCE NOTE', context: 'calendar=… · macro=ATLAS · probability=… line absent' });
@@ -105,28 +108,32 @@ function auditPresence(content) {
     errors.push({ kind: 'missing-presence', token: 'PROBABILITY BASIS', context: 'no probability basis label found in SOURCE NOTE' });
   }
   // MARKET MOOD section.
-  if (!/MARKET MOOD/.test(content)) {
-    errors.push({ kind: 'missing-presence', token: 'MARKET MOOD', context: 'MARKET MOOD section absent' });
+  if (!hasBoxed('MARKET MOOD')) {
+    errors.push({ kind: 'missing-presence', token: 'MARKET MOOD', context: 'boxed MARKET MOOD section absent' });
   }
   // WHY THIS MATTERS section.
-  if (!/WHY THIS MATTERS/.test(content)) {
-    errors.push({ kind: 'missing-presence', token: 'WHY THIS MATTERS', context: 'WHY THIS MATTERS section absent' });
+  if (!hasBoxed('WHY THIS MATTERS')) {
+    errors.push({ kind: 'missing-presence', token: 'WHY THIS MATTERS', context: 'boxed WHY THIS MATTERS section absent' });
   }
   // WHAT CONFIRMS section (renamed from CONFIRMATION PATH due to fomo ban).
-  if (!/WHAT CONFIRMS/.test(content)) {
-    errors.push({ kind: 'missing-presence', token: 'WHAT CONFIRMS', context: 'WHAT CONFIRMS section absent' });
+  if (!hasBoxed('WHAT CONFIRMS')) {
+    errors.push({ kind: 'missing-presence', token: 'WHAT CONFIRMS', context: 'boxed WHAT CONFIRMS section absent' });
   }
   // WHAT CANCELS section.
-  if (!/WHAT CANCELS/.test(content)) {
-    errors.push({ kind: 'missing-presence', token: 'WHAT CANCELS', context: 'WHAT CANCELS section absent' });
+  if (!hasBoxed('WHAT CANCELS')) {
+    errors.push({ kind: 'missing-presence', token: 'WHAT CANCELS', context: 'boxed WHAT CANCELS section absent' });
   }
   // AFFECTED MARKETS section.
-  if (!/AFFECTED MARKETS/.test(content)) {
-    errors.push({ kind: 'missing-presence', token: 'AFFECTED MARKETS', context: 'AFFECTED MARKETS section absent' });
+  if (!hasBoxed('AFFECTED MARKETS')) {
+    errors.push({ kind: 'missing-presence', token: 'AFFECTED MARKETS', context: 'boxed AFFECTED MARKETS section absent' });
   }
   // NEXT REVIEW section.
-  if (!/NEXT REVIEW/.test(content)) {
-    errors.push({ kind: 'missing-presence', token: 'NEXT REVIEW', context: 'NEXT REVIEW section absent' });
+  if (!hasBoxed('NEXT REVIEW')) {
+    errors.push({ kind: 'missing-presence', token: 'NEXT REVIEW', context: 'boxed NEXT REVIEW section absent' });
+  }
+  // SOURCE NOTE section.
+  if (!hasBoxed('SOURCE NOTE')) {
+    errors.push({ kind: 'missing-presence', token: 'SOURCE NOTE BOX', context: 'boxed SOURCE NOTE section absent' });
   }
   // Conditional-bias disclaimer footer.
   if (!/Bias remains conditional/.test(content)) {
@@ -268,6 +275,18 @@ for (const f of RELEASED_FIXTURES) {
 for (const f of DAILY_FIXTURES) {
   const p = mi.buildDailyBulletinPayload(f.snapshot, f.geoCtx, NOW);
   runFixture(f.label, p && p.content, { requireBDA: false });
+  if (f.label.indexOf('quiet day') >= 0) {
+    total++;
+    const c = p && p.content || '';
+    const ok = /AFFECTED MARKETS — driver-led exposure map/.test(c) && !/No mapped affected markets/.test(c);
+    if (!ok) {
+      fails++;
+      header(f.label + ' driver-led affected map — FAIL');
+      console.error('  - [missing-presence] AFFECTED MARKETS driver-led exposure map absent or legacy fallback present');
+    } else {
+      console.log('[MARKET-INTEL-QA] ' + f.label + ' driver-led affected map — clean');
+    }
+  }
 }
 
 console.log('\n[MARKET-INTEL-QA] size report:');

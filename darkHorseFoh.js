@@ -1007,27 +1007,32 @@ function _redNewDividerTop(nowMs, universeSize) {
 
 // ── Discord-native section headings ─────────────────────────
 // Discord clients render ANSI box colours inconsistently (some
-// clients turn bright codes white). Use bold markdown plus colour
-// emoji so hierarchy survives across desktop/mobile.
+// clients turn bright codes white). Use plain Discord code blocks
+// so the text sits inside an actual rendered container.
+function _boxedHeading(text, marker) {
+  const label = marker + ' ' + text + ' ' + marker;
+  const width = Math.min(66, Math.max(32, label.length + 2));
+  const inner = label.slice(0, width - 2).padEnd(width - 2, ' ');
+  return [
+    '```',
+    '┌' + '─'.repeat(width) + '┐',
+    '│ ' + inner + ' │',
+    '└' + '─'.repeat(width) + '┘',
+    '```',
+  ].join('\n');
+}
+
 function _sectionBanner(text, accent) {
   const marker = accent === 'cyan' ? '🟦'
                : accent === 'magenta' ? '🟧'
                : '🟨';
-  return [
-    '```',
-    marker + marker + '  ' + text + '  ' + marker + marker,
-    '```',
-  ].join('\n');
+  return _boxedHeading(text, marker + marker);
 }
 
 // ── Discord-native subheading ("▸  …") ──────────────────────
 function _subheading(text, accent) {
   const marker = accent === 'cyan' ? '🟦' : '🟨';
-  return [
-    '```',
-    marker + '  ▸  ' + text + '  ' + marker,
-    '```',
-  ].join('\n');
+  return _boxedHeading('▸  ' + text, marker);
 }
 
 // ── Terminology row — visible-bracket hyperlinks ────────────
@@ -1143,18 +1148,14 @@ function _lifecycleSeparator(record, lifecycle, idx, total) {
     // Use blockquote markdown, not ANSI boxes, so the state remains
     // visible when Discord renders ANSI box colours as white.
     return [
-      '```',
-      '🟨🟨  STILL ACTIVE · ' + rankLabel + '  🟨🟨',
-      symbolNote,
-      '```',
+      _boxedHeading('STILL ACTIVE · ' + rankLabel, '🟧🟧'),
+      '**' + symbolNote + '**',
     ].join('\n');
   }
   // FADING stays visually distinct without ANSI colour dependency.
   return [
-    '```',
-    '🟧🟧  FADING · ' + rankLabel + '  🟧🟧',
-    symbolNote,
-    '```',
+    _boxedHeading('FADING · ' + rankLabel, '🟥🟧'),
+    '**' + symbolNote + '**',
   ].join('\n');
 }
 
