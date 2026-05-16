@@ -300,6 +300,7 @@ function ok(name, cond, info) {
     { label: '(F9) Engine Spidey validation',    file: 'tests/engineSpideyValidation.test.js' },
     { label: '(F10) Engine Jane validation',     file: 'tests/engineJaneValidation.test.js' },
     { label: '(F11) Engine consensus',           file: 'tests/engineConsensus.test.js' },
+    { label: '(F12) FOH live dispatch text',     file: 'tests/fohLiveDispatchText.test.js' },
   ];
   for (const g of guards) {
     try {

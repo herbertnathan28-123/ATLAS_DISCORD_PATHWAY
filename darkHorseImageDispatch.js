@@ -150,19 +150,19 @@ async function tryPostDarkHorseAsImage(webhookUrl, ranking, volatility, opts) {
     try { payload = buildDarkHorseImagePayload(ranking, volatility, opts || {}); }
     catch (e) { return { ok: false, reason: 'payload_build_failed', error: e.message }; }
   }
-  const standoutCount = Array.isArray(payload && payload.standouts) ? payload.standouts.length : 0;
-  // Operator directive 2026-05-17 PHASE 2: post DH as multi-card
-  // split through the prototype v6 shell with surgical data
-  // adapter. The view model the dhV6Adapter consumes is the
-  // existing FOH packet — its standouts[] / marketMood / etc.
-  // map 1:1 to the adapter's expected fields. Discord message
-  // body carries the intelligence directly; no external links.
+  // Operator directive 2026-05-17 PHASE 2 + master order: route DH
+  // through the fixed-contract pipeline so the Discord message body
+  // carries the expanded FOH intelligence — not just a thin caption.
+  // sendDarkHorseFoh builds the FOH packet → view model → expanded
+  // Discord text → renders PNG/PDF cards → POSTs all in one message.
   try {
-    const sent = await foh.postFohSplitToDiscord({
-      kind: 'dark_horse',
-      payload,
+    const { sendDarkHorseFoh } = require('./foh/dispatch/sendDarkHorseFoh');
+    const sent = await sendDarkHorseFoh({
+      ranking,
+      volatility,
+      legacyPayload: payload,
       webhookUrl,
-      caption: 'ATLAS Dark Horse · ' + standoutCount + ' standout' + (standoutCount === 1 ? '' : 's'),
+      opts: opts || {},
     });
     return sent;
   } catch (e) {

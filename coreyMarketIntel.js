@@ -2019,34 +2019,50 @@ async function dispatch(messageType, payloadObj, extra) {
   }
   // ── FOH_IMAGE_RENDER_ENABLED — opt-in image path ──
   // When the env flag is set AND the builder attached an
-  // imagePayload field AND `renderers/foh` loads cleanly, render
-  // the premium PNG+PDF card and POST it to the same Discord
-  // webhook. Any failure (puppeteer unavailable, render error,
-  // post non-2xx) falls through to the existing text send.
-  // Production behaviour is unchanged unless the operator flips
-  // the env flag.
+  // imagePayload field AND `foh/dispatch/sendMarketIntelFoh.js`
+  // loads cleanly, render the premium PNG+PDF cards AND build the
+  // expanded fixed-contract Discord message body (operator brief
+  // 2026-05-17: Discord-native text must be useful BEFORE opening
+  // attachments). Failure falls through to the existing text send.
   if (process.env.FOH_IMAGE_RENDER_ENABLED === 'true' && payloadObj && (payloadObj.fohPacket || payloadObj.imagePayload)) {
     try {
-      const foh = require('./renderers/foh');
-      const captionLine = 'ATLAS Market Intel · ' + (extra.event || messageType);
-      // Prefer the richer FOH product packet when available;
-      // fall back to the legacy thinner imagePayload otherwise.
-      const renderPayload = payloadObj.fohPacket || payloadObj.imagePayload;
-      // Operator directive 2026-05-17: MI must POST as 6 PNG cards
-      // + 1 PDF in a single Discord message (single 12,000px PNG
-      // was unusable). postFohSplitToDiscord handles both.
-      const imageRes = await foh.postFohSplitToDiscord({
-        kind: 'market_intel',
-        payload: renderPayload,
+      const { sendMarketIntelFoh } = require('./foh/dispatch/sendMarketIntelFoh');
+      // Engine input for the fixed-contract pipeline. The legacy
+      // imagePayload (kind / mood / eventClusters / headline / ...)
+      // is shape-compatible with the new buildMarketIntelPacket
+      // engine input. legacyPacket is the same object — used by the
+      // prototype-shell renderer for surgical adapter substitution.
+      const engineInput = payloadObj.imagePayload || payloadObj.fohPacket;
+      const legacyPacket = payloadObj.fohPacket || payloadObj.imagePayload;
+      const fixedRes = await sendMarketIntelFoh({
+        engine: engineInput,
+        legacyPacket,
         webhookUrl: _webhookUrl,
-        caption: captionLine,
-        dashboardUrl: (renderPayload && (renderPayload.glossaryUrl || (renderPayload.glossaryTerms && renderPayload.glossaryTerms.glossaryUrl))) || null,
+        opts: {},
       });
-      if (imageRes && imageRes.ok) {
-        log(`[COREY-MARKET-INTEL] send_result=ok image_render=true status=${imageRes.status} png_kb=${Math.round(((imageRes.attachments && imageRes.attachments[0] && imageRes.attachments[0].bytes) || 0) / 1024)} pdf_skipped=${imageRes.pdfSkipped ? 'true' : 'false'}`);
-        return { sent: true, status: imageRes.status, mode: 'image', payload: validated, attachments: imageRes.attachments, pdfSkipped: imageRes.pdfSkipped, diagnostics: validation.diagnostics };
+      if (fixedRes && fixedRes.ok) {
+        log(`[COREY-MARKET-INTEL] send_result=ok image_render=true mode=fixed_contract status=${fixedRes.status} attachments=${(fixedRes.attachments || []).length} pdf_skipped=${fixedRes.pdfSkipped ? 'true' : 'false'} report_id=${fixedRes.reportId || 'n/a'}`);
+        return { sent: true, status: fixedRes.status, mode: 'image_fixed_contract', payload: validated, attachments: fixedRes.attachments, pdfSkipped: fixedRes.pdfSkipped, reportId: fixedRes.reportId, diagnostics: validation.diagnostics };
       }
-      log(`[COREY-MARKET-INTEL] image_render=fail reason=${imageRes && imageRes.reason} fallback=text`);
+      log(`[COREY-MARKET-INTEL] image_render=fail reason=${fixedRes && (fixedRes.reason || (fixedRes.failures && fixedRes.failures[0]))} fallback=expanded_text_only`);
+      // EXPANDED-TEXT FALLBACK — operator brief: Discord-native
+      // text must carry the FOH intelligence even when image render
+      // fails. The new dispatcher exposes `discordText` on the
+      // failure result so we can ship the expanded body without
+      // attachments rather than collapse back to the legacy
+      // 1714-char wrapper.
+      if (fixedRes && fixedRes.discordText && fixedRes.discordText.length > 0) {
+        try {
+          const textRes = await sendWebhook(_webhookUrl, { content: fixedRes.discordText });
+          if (textRes && textRes.status >= 200 && textRes.status < 300) {
+            log(`[COREY-MARKET-INTEL] send_result=ok image_render=false mode=fixed_contract_text_only status=${textRes.status} content_len=${fixedRes.discordText.length}`);
+            return { sent: true, status: textRes.status, mode: 'fixed_contract_text_only', payload: validated, content_len: fixedRes.discordText.length, diagnostics: validation.diagnostics };
+          }
+          log(`[COREY-MARKET-INTEL] expanded_text_fallback=fail status=${textRes && textRes.status}`);
+        } catch (e2) {
+          log(`[COREY-MARKET-INTEL] expanded_text_fallback=exception ${e2.message}`);
+        }
+      }
     } catch (e) {
       log(`[COREY-MARKET-INTEL] image_render=fail reason=exception:${e.message} fallback=text`);
     }
