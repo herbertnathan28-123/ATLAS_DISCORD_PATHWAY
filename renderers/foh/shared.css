@@ -1,0 +1,318 @@
+/* ============================================================
+   renderers/foh/shared.css
+   ATLAS FOH Image Renderer — black/gold theme
+   Used by marketIntelCard / darkHorseCard / macroCard.
+   Inlined into each HTML template at render time so Puppeteer
+   does not need filesystem access for stylesheets.
+   ============================================================ */
+
+:root {
+  --atlas-bg:           #0d0f14;
+  --atlas-card:         #131722;
+  --atlas-card-soft:    #1a1d2a;
+  --atlas-line:         #2a2e3a;
+  --atlas-gold:         #FFD700;
+  --atlas-gold-soft:    #FAA61A;
+  --atlas-text:         #E8E8E8;
+  --atlas-text-dim:     #95A5A6;
+  --atlas-cyan:         #5BC0DE;
+  --atlas-cyan-soft:    rgba(91,192,222,0.18);
+  --atlas-green:        #00FF5A;
+  --atlas-red:          #FF0015;
+  --atlas-orange:       #FF9100;
+  --atlas-amber:        #FAA61A;
+
+  /* Severity colour panels */
+  --sev-high:           #C0392B;
+  --sev-elev:           #E67E22;
+  --sev-med:            #F1C40F;
+  --sev-low:            #95A5A6;
+  --sev-high-soft:      rgba(192,57,43,0.18);
+  --sev-elev-soft:      rgba(230,126,34,0.16);
+  --sev-med-soft:       rgba(241,196,15,0.12);
+  --sev-low-soft:       rgba(149,165,166,0.08);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--atlas-bg);
+  color: var(--atlas-text);
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+body { padding: 24px; }
+
+.foh-card {
+  max-width: 1080px;
+  margin: 0 auto;
+  background: var(--atlas-card);
+  border: 2px solid var(--atlas-gold);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+
+/* ── BANNER (top of card) ─────────────────────────────────── */
+.foh-banner {
+  background: linear-gradient(180deg, var(--atlas-card-soft) 0%, var(--atlas-card) 100%);
+  border-bottom: 2px solid var(--atlas-gold);
+  padding: 18px 26px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.foh-banner-title {
+  color: var(--atlas-gold);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: 0.6px;
+}
+.foh-banner-sub {
+  color: var(--atlas-text-dim);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ── META ROW (compact key:value strip) ───────────────────── */
+.foh-meta-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  padding: 14px 26px;
+  background: #0f121a;
+  border-bottom: 1px solid var(--atlas-line);
+  font-size: 12px;
+}
+.foh-meta-cell {
+  color: var(--atlas-text-dim);
+}
+.foh-meta-cell strong {
+  color: var(--atlas-text);
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+/* ── SECTIONS ─────────────────────────────────────────────── */
+.foh-section {
+  border-top: 1px solid var(--atlas-line);
+  padding: 16px 26px;
+}
+.foh-section:first-of-type { border-top: none; }
+
+.foh-section-heading {
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  margin: 0 0 10px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.foh-section-heading.gold  { color: var(--atlas-gold); }
+.foh-section-heading.cyan  { color: var(--atlas-cyan); }
+.foh-section-heading.red   { color: var(--atlas-red); }
+.foh-section-heading.amber { color: var(--atlas-amber); }
+.foh-section-heading.green { color: var(--atlas-green); }
+.foh-section-heading::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 16px;
+  background: currentColor;
+  border-radius: 2px;
+}
+
+.foh-body { color: var(--atlas-text); font-size: 14px; }
+.foh-body p { margin: 4px 0; }
+.foh-body em { color: var(--atlas-text-dim); font-style: italic; }
+.foh-body strong { color: var(--atlas-gold); font-weight: 700; }
+
+/* ── SEVERITY PANELS (HIGH / ELEV / MED / LOW) ────────────── */
+.foh-severity-panel {
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-weight: 600;
+  margin: 6px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+.foh-severity-panel.high  { background: var(--sev-high-soft); border-left: 4px solid var(--sev-high); color: #FF7B6A; }
+.foh-severity-panel.elev  { background: var(--sev-elev-soft); border-left: 4px solid var(--sev-elev); color: #FFB07C; }
+.foh-severity-panel.med   { background: var(--sev-med-soft);  border-left: 4px solid var(--sev-med);  color: #FFE57F; }
+.foh-severity-panel.low   { background: var(--sev-low-soft);  border-left: 4px solid var(--sev-low);  color: #BDC3C7; }
+.foh-severity-tag {
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(0,0,0,0.4);
+}
+
+/* ── DISC BAR (5-disc traffic-light) ──────────────────────── */
+.foh-disc-bar {
+  font-size: 18px;
+  letter-spacing: 2px;
+}
+.foh-disc-bar-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--atlas-text-dim);
+  margin-left: 8px;
+}
+
+/* ── EXPANDED TERMINOLOGY HYPERLINKS (cyan chips) ─────────── */
+.foh-hyperlinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 26px;
+  background: var(--atlas-cyan-soft);
+  border-top: 1px solid rgba(91,192,222,0.25);
+  border-bottom: 1px solid rgba(91,192,222,0.25);
+}
+.foh-hyperlinks-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--atlas-cyan);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-right: 6px;
+  align-self: center;
+}
+.foh-hyperlinks a {
+  color: var(--atlas-cyan);
+  text-decoration: none;
+  border: 1px solid rgba(91,192,222,0.45);
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(91,192,222,0.04);
+}
+
+/* ── HISTORICAL REACTION PANEL ────────────────────────────── */
+.foh-historical {
+  background: #161a26;
+  border-left: 3px solid var(--atlas-amber);
+  padding: 12px 16px;
+  font-size: 13px;
+  margin: 6px 0;
+  border-radius: 0 4px 4px 0;
+}
+.foh-historical-title {
+  font-weight: 700;
+  color: var(--atlas-amber);
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.foh-historical ul {
+  margin: 0; padding: 0 0 0 18px;
+}
+.foh-historical li {
+  margin: 2px 0;
+  color: var(--atlas-text);
+}
+.foh-historical-basis {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--atlas-text-dim);
+  font-style: italic;
+}
+
+/* ── EVENT CLUSTER (country block) ────────────────────────── */
+.foh-event-cluster {
+  background: #11141d;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  border-top: 3px solid var(--atlas-gold-soft);
+}
+.foh-event-cluster-title {
+  color: var(--atlas-gold);
+  font-weight: 800;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 8px;
+}
+.foh-event-cluster ul {
+  margin: 0; padding: 0; list-style: none;
+}
+.foh-event-cluster li {
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--atlas-line);
+  font-size: 13px;
+}
+.foh-event-cluster li:last-child { border-bottom: none; }
+
+/* ── PILL / TAG ───────────────────────────────────────────── */
+.foh-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  margin-right: 6px;
+}
+.foh-pill.fresh    { background: var(--atlas-green); color: #000; }
+.foh-pill.active   { background: var(--atlas-amber); color: #000; }
+.foh-pill.fading   { background: var(--atlas-red);   color: #fff; }
+.foh-pill.high     { background: var(--sev-high);    color: #fff; }
+.foh-pill.elev     { background: var(--sev-elev);    color: #000; }
+.foh-pill.med      { background: var(--sev-med);     color: #000; }
+.foh-pill.low      { background: var(--sev-low);     color: #fff; }
+
+/* ── DARK HORSE CARD ──────────────────────────────────────── */
+.foh-dh-candidate {
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin: 12px 0;
+  background: #0f121a;
+  border-left: 5px solid;
+}
+.foh-dh-candidate.fresh  { border-left-color: var(--atlas-green); }
+.foh-dh-candidate.active { border-left-color: var(--atlas-amber); }
+.foh-dh-candidate.fading { border-left-color: var(--atlas-red); }
+.foh-dh-candidate-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.foh-dh-candidate-sym {
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--atlas-gold);
+  letter-spacing: 0.4px;
+}
+.foh-dh-candidate-meta {
+  font-size: 12px;
+  color: var(--atlas-text-dim);
+  margin-top: 6px;
+}
+.foh-dh-candidate-meta strong { color: var(--atlas-text); }
+
+/* ── FOOTER ───────────────────────────────────────────────── */
+.foh-footer {
+  padding: 12px 26px;
+  background: #0a0c12;
+  font-size: 11px;
+  color: var(--atlas-text-dim);
+  text-align: center;
+  letter-spacing: 0.4px;
+}
+.foh-footer .gold { color: var(--atlas-gold); }
+.foh-footer .cyan { color: var(--atlas-cyan); }
