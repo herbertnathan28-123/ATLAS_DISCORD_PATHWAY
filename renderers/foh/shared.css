@@ -371,6 +371,44 @@ body { padding: 24px; }
 .foh-event-actions .action.confirms .action-label { color: #6FE8A0; }
 .foh-event-actions .action.cancels  .action-label { color: #FF8A6A; }
 
+/* ── Compact event row (non-featured events) ───────────────
+   Single-line row inside an event cluster. Severity colour
+   appears ONLY in the left-border + tier pill, body text stays
+   neutral. Keeps the surface scannable on weekend/daily mode
+   where many events surface but only ONE gets the full deep
+   dive (operator brief 2026-05-17: featured event only).     */
+.foh-event-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--atlas-card);
+  border-left: 4px solid var(--sev-low);
+  border-bottom: 1px solid var(--atlas-line);
+  font-size: 13px;
+}
+.foh-event-row:last-child { border-bottom: none; }
+.foh-event-row.high  { border-left-color: var(--sev-high); }
+.foh-event-row.elev  { border-left-color: var(--sev-elev); }
+.foh-event-row.med   { border-left-color: var(--sev-med); }
+.foh-event-row.low   { border-left-color: var(--sev-low); }
+.foh-event-row-tier {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.4);
+  color: var(--atlas-text);
+  flex-shrink: 0;
+}
+.foh-event-row-tier.high { color: #FF8A6A; }
+.foh-event-row-tier.elev { color: #FFB07C; }
+.foh-event-row-tier.med  { color: #FFE57F; }
+.foh-event-row-tier.low  { color: #BDC3C7; }
+.foh-event-row-title { flex: 1 1 auto; color: var(--atlas-text); font-weight: 600; }
+.foh-event-row-meta  { color: var(--atlas-text-dim); font-size: 12px; flex-shrink: 0; }
+
 /* ── SEVERITY BANNER (legacy compatibility) ────────────────────
    Some helpers still emit `.foh-severity-panel` for compact
    mood-bar / disc-scale rows. Re-style as a thin neutral

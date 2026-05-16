@@ -44,6 +44,11 @@
 // the same snapshot/geoCtx/now/mode it returns the same packet.
 // ============================================================
 
+const fs = require('fs');
+const path = require('path');
+
+const depth = require('./marketIntelDepthContent');
+
 function _unavail(reason) { return { available: false, reason: reason || 'no-source' }; }
 
 function _marketStateFrom(liveCtx, geoCtx) {
@@ -161,6 +166,13 @@ function _buildEventEntry(rawEvent, helpers) {
     cancellationPath: cancels,
     operatorGuidance: confirms + ' Cancels if ' + cancels.replace(/^[A-Z]/, c => c.toLowerCase()),
     beforeDuringAfter: bda,
+    // ── PROTOTYPE DEPTH CONTENT (operator brief 2026-05-17) ──
+    // Each event carries the prototype-grade decision context so
+    // the renderer can produce institutional-quality output.
+    category:           driverShort,
+    dollarImpactRange:  depth.buildDollarImpactRange(rawEvent, driverShort),
+    reactionPaths:      depth.buildReactionPaths(rawEvent, driverShort),
+    whatToWatch:        depth.buildWhatToWatch(rawEvent, driverShort),
   };
 }
 
@@ -271,11 +283,18 @@ function buildDailyFohPacket(snapshot, geoCtx, liveCtx, helpers, mode, now) {
   const affectedMarkets = _affectedMarketsFrom(events, helpers);
   const operatorGuidance = _operatorGuidanceFrom(clusters);
   const historicalReaction = _historicalReactionAggregate(clusters);
-  return {
+  // Featured event — the first HIGH-severity event in the
+  // earliest cluster gets the full prototype-grade deep dive;
+  // others render as compact rows.
+  const featuredCluster = clusters.find(c => c.severity === 'HIGH') || clusters[0];
+  const featuredEvent = featuredCluster && featuredCluster.events && featuredCluster.events[0];
+  const featuredEventKey = featuredEvent ? (featuredCluster.currency + '::' + featuredEvent.title + '::' + featuredEvent.time) : null;
+  const packet = {
     mode: mode || 'daily',
     marketState,
     mondayOpenFocus,
     eventClusters: clusters,
+    featuredEventKey,
     historicalReaction,
     marketImpact,
     affectedMarkets,
@@ -288,6 +307,8 @@ function buildDailyFohPacket(snapshot, geoCtx, liveCtx, helpers, mode, now) {
     operatorGuidance: operatorGuidance.available
       ? { available: true, confirms: operatorGuidance.confirms, cancels: operatorGuidance.cancels }
       : _unavail(operatorGuidance.reason),
+    riskEscalation:    featuredEvent ? depth.buildRiskEscalation(featuredEvent, mode === 'released' ? 'released' : 'pre_event') : _unavail('no featured event'),
+    eventDayReference: depth.buildEventDayReference(),
     sourceNote: {
       available: !!(health.source_used),
       source:    health.source_used   || 'unavailable',
@@ -302,6 +323,9 @@ function buildDailyFohPacket(snapshot, geoCtx, liveCtx, helpers, mode, now) {
     },
     formats: ['png', 'pdf'],
   };
+  packet.comparisonNotes = depth.buildComparisonNotes(packet);
+  packet.briefingActions = depth.buildBriefingActions(packet);
+  return packet;
 }
 
 // Build the pre-event / released-event FOH packet for a single
@@ -318,11 +342,16 @@ function buildEventFohPacket(rawEvent, geoCtx, liveCtx, helpers, mode, opts) {
   const operatorGuidance = _operatorGuidanceFrom(clusters);
   const historicalReaction = _historicalReactionAggregate(clusters);
   const health = opts.health || { source_used: null, calendar_mode: 'UNAVAILABLE' };
-  return {
+  // Single-event surface: this IS the featured event.
+  const featuredCluster = clusters[0];
+  const featuredEvent = featuredCluster && featuredCluster.events && featuredCluster.events[0];
+  const featuredEventKey = featuredEvent ? (featuredCluster.currency + '::' + featuredEvent.title + '::' + featuredEvent.time) : null;
+  const packet = {
     mode: mode || 'pre_event',
     marketState,
     mondayOpenFocus: _unavail('not weekend mode'),
     eventClusters: clusters,
+    featuredEventKey,
     historicalReaction,
     marketImpact,
     affectedMarkets,
@@ -335,6 +364,8 @@ function buildEventFohPacket(rawEvent, geoCtx, liveCtx, helpers, mode, opts) {
     operatorGuidance: operatorGuidance.available
       ? { available: true, confirms: operatorGuidance.confirms, cancels: operatorGuidance.cancels }
       : _unavail(operatorGuidance.reason),
+    riskEscalation:    featuredEvent ? depth.buildRiskEscalation(featuredEvent, mode === 'released' ? 'released' : 'pre_event') : _unavail('no featured event'),
+    eventDayReference: depth.buildEventDayReference(),
     sourceNote: {
       available: !!(health.source_used),
       source:    health.source_used   || 'unavailable',
@@ -349,6 +380,9 @@ function buildEventFohPacket(rawEvent, geoCtx, liveCtx, helpers, mode, opts) {
     },
     formats: ['png', 'pdf'],
   };
+  packet.comparisonNotes = depth.buildComparisonNotes(packet);
+  packet.briefingActions = depth.buildBriefingActions(packet);
+  return packet;
 }
 
 module.exports = { buildDailyFohPacket, buildEventFohPacket };

@@ -295,14 +295,30 @@ function _renderRichEvent(ev) {
   </div>`;
 }
 
-function _renderRichEventClusters(clusters, mode) {
+// Compact event row — used for non-featured events on the daily
+// / weekend surface. Keeps the surface scannable while the
+// featured event gets the full prototype-grade depth.
+function _renderCompactEvent(ev, currency) {
+  const sevCls = ev.severity === 'HIGH' ? 'high' : ev.severity === 'MEDIUM' ? 'med' : 'low';
+  return `
+  <div class="foh-event-row ${sevCls}">
+    <span class="foh-event-row-tier ${sevCls}">${esc(ev.severity + ' IMPACT')}</span>
+    <span class="foh-event-row-title">${esc(ev.title)}</span>
+    <span class="foh-event-row-meta">${esc(ev.time)} · ${esc(ev.currency || currency || 'multi')}</span>
+  </div>`;
+}
+
+function _renderRichEventClusters(clusters, mode, featuredEventKey) {
   if (!Array.isArray(clusters) || !clusters.length) {
     return `<div class="foh-section"><h3 class="foh-section-heading gold">Event clusters</h3>${_unavail('No clustered catalysts inside the window')}</div>`;
   }
   const blocks = clusters.map(c => {
     const sevCls = c.severity === 'HIGH' ? 'high' : c.severity === 'MEDIUM' ? 'med' : 'low';
     const flag = c.country ? esc(c.country) + ' · ' : '';
-    const events = (c.events || []).map(_renderRichEvent).join('');
+    const events = (c.events || []).map(ev => {
+      const evKey = c.currency + '::' + ev.title + '::' + ev.time;
+      return evKey === featuredEventKey ? _renderRichEvent(ev) : _renderCompactEvent(ev, c.currency);
+    }).join('');
     return `
     <div class="foh-event-cluster">
       <div class="foh-event-cluster-title">${flag}${esc(c.currency || 'BLOCK')} BLOCK · ${(c.events || []).length} event${(c.events || []).length === 1 ? '' : 's'} <span class="foh-pill ${sevCls}">${esc(c.severity)}</span></div>
@@ -313,6 +329,164 @@ function _renderRichEventClusters(clusters, mode) {
   <div class="foh-section">
     <h3 class="foh-section-heading gold">Event clusters${mode === 'weekend' ? ' · weekly window' : ''}</h3>
     <div class="foh-section-body">${blocks}</div>
+  </div>`;
+}
+
+// ── DEPTH RENDERERS (prototype-grade decision context) ──────
+
+function _renderDollarImpactRange(dir, label) {
+  if (!dir || !dir.available) {
+    return `<div class="foh-section"><h3 class="foh-section-heading amber">💲 Dollar impact range${label ? ' · ' + esc(label) : ''}</h3>${_unavail('Dollar impact range', dir && dir.reason)}</div>`;
+  }
+  const rows = dir.first60sRanges.map(r => `<li><strong>${esc(r.range)}</strong> on ${esc(r.asset)}</li>`).join('');
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading amber">💲 Dollar impact range${label ? ' · ' + esc(label) : ''}</h3>
+    <div class="foh-section-body">
+      <p><strong style="color:var(--atlas-gold);">First-60-second swing range:</strong></p>
+      <ul style="margin:4px 0 8px 18px;padding:0;">${rows}</ul>
+      <p><strong style="color:var(--atlas-gold);">Post-settle trend move:</strong> ${esc(dir.postSettleRange)}</p>
+      <p style="margin-top:6px;font-size:11px;color:var(--atlas-text-dim);font-style:italic;">basis: ${esc(dir.basis)}</p>
+    </div>
+  </div>`;
+}
+
+function _renderReactionPaths(rp, label) {
+  if (!rp || rp.available === false || !Array.isArray(rp.scenarios)) {
+    return `<div class="foh-section"><h3 class="foh-section-heading red">🎯 Reaction paths · 4 outcomes${label ? ' · ' + esc(label) : ''}</h3>${_unavail('Reaction paths', rp && rp.reason)}</div>`;
+  }
+  const scenarioColour = (id) => id === 'hawkish' ? 'red' : id === 'dovish' ? 'green' : id === 'inline' ? 'cyan' : 'amber';
+  const blocks = rp.scenarios.map(s => {
+    const colour = scenarioColour(s.id);
+    const markets = (s.affectedMarkets || []).map(m => '<span class="foh-pill low" style="margin-right:4px;font-weight:600;">' + esc(m) + '</span>').join('');
+    const beh = (s.expectedBehaviour || []).map(b => '<li>' + esc(b) + '</li>').join('');
+    const impact = (s.dollarImpactPerAsset || []).map(i =>
+      '<li><strong>' + esc(i.asset) + ':</strong> ' + esc(i.impact) + ' (' + esc(i.direction) + ')</li>'
+    ).join('');
+    const shouldDo = (s.shouldDo || []).map(x => '<li>✓ ' + esc(x) + '</li>').join('');
+    const shouldNot = (s.shouldNotDo || []).map(x => '<li>✘ ' + esc(x) + '</li>').join('');
+    return `
+    <div class="foh-event-card" style="margin:10px 0;">
+      <div class="foh-event-header ${colour === 'red' ? 'high' : colour === 'green' ? 'low' : colour === 'cyan' ? 'neutral' : 'elev'}">
+        <span><span class="foh-event-header-tier">${esc(s.id.toUpperCase())}</span>&nbsp;&nbsp;<span class="foh-event-header-title">${esc(s.label)}</span></span>
+      </div>
+      <div class="foh-event-body">
+        <div class="foh-event-subsection">
+          <div class="foh-event-subsection-label gold">Affected markets</div>
+          <div>${markets}</div>
+        </div>
+        <div class="foh-event-subsection">
+          <div class="foh-event-subsection-label">Expected behaviour</div>
+          <ul style="margin:4px 0 0 18px;padding:0;">${beh}</ul>
+        </div>
+        ${impact ? `<div class="foh-event-subsection">
+          <div class="foh-event-subsection-label gold">💲 Dollar impact (first 30 min post-release)</div>
+          <ul style="margin:4px 0 0 18px;padding:0;">${impact}</ul>
+        </div>` : ''}
+        <div class="foh-event-actions">
+          <div class="action confirms"><span class="action-label">What you should do</span><ul style="margin:4px 0 0 18px;padding:0;">${shouldDo}</ul></div>
+          <div class="action cancels"><span class="action-label">What you should NOT do</span><ul style="margin:4px 0 0 18px;padding:0;">${shouldNot}</ul></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading red">🎯 Reaction paths · 4 outcomes${label ? ' · ' + esc(label) : ''}</h3>
+    <div class="foh-section-body">${blocks}</div>
+  </div>`;
+}
+
+function _renderRiskEscalation(re) {
+  if (!re || re.available === false || !Array.isArray(re.stages)) {
+    return `<div class="foh-section"><h3 class="foh-section-heading red">⚠️ Risk escalation · time-windowed behaviour</h3>${_unavail('Risk escalation', re && re.reason)}</div>`;
+  }
+  const sevToCls = (sev) => sev === 'HIGH' ? 'high' : sev === 'MEDIUM' ? 'med' : 'low';
+  const rows = re.stages.map(s => `
+    <div class="foh-event-card" style="margin:8px 0;">
+      <div class="foh-event-header ${sevToCls(s.severity)}">
+        <span><span class="foh-event-header-tier">${esc(s.stage)}</span>&nbsp;&nbsp;<span class="foh-event-header-title">${esc(s.label)}</span></span>
+        <span class="foh-event-header-meta">${esc(s.timeWindow)}</span>
+      </div>
+      <div class="foh-event-body">
+        <p style="margin:0 0 6px 0;">${esc(s.description)}</p>
+        <p style="margin:0 0 6px 0;"><strong style="color:var(--atlas-gold);">💲 $ cost:</strong> ${esc(s.dollarCost)}</p>
+        <p style="margin:0;"><strong style="color:#6FE8A0;">Action:</strong> ${esc(s.action)}</p>
+      </div>
+    </div>`).join('');
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading red">⚠️ Risk escalation · time-windowed behaviour</h3>
+    <div class="foh-section-body">${rows}</div>
+  </div>`;
+}
+
+function _renderWhatToWatch(wtw) {
+  if (!wtw || wtw.available === false) {
+    return `<div class="foh-section"><h3 class="foh-section-heading amber">👀 What traders should watch</h3>${_unavail('What to watch', wtw && wtw.reason)}</div>`;
+  }
+  const fmt = (items, label, colour) => {
+    if (!Array.isArray(items) || !items.length) return '';
+    const rows = items.map(it => `<li><strong>${esc(it.indicator)}:</strong> ${esc(it.meaning)}${it.action ? ' <em style="color:#6FE8A0;">Action: ' + esc(it.action) + '</em>' : ''}</li>`).join('');
+    return `
+    <div class="foh-event-subsection">
+      <div class="foh-event-subsection-label ${colour}">${esc(label)}</div>
+      <ul style="margin:4px 0 0 18px;padding:0;">${rows}</ul>
+    </div>`;
+  };
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading amber">👀 What traders should watch</h3>
+    <div class="foh-section-body">
+      ${fmt(wtw.preEvent, 'Pre-event indicators (now → T-5)', 'gold')}
+      ${fmt(wtw.during, 'During the event (T-0 → T+5)', 'red')}
+      ${fmt(wtw.postEvent, 'Post-event reassessment (T+5 onwards)', 'cyan')}
+    </div>
+  </div>`;
+}
+
+function _renderEventDayReference(ref) {
+  if (!ref || ref.available === false) return '';
+  const rows = (ref.windows || []).map(w => `
+    <div class="foh-event-bda-row">
+      <span class="stage-label">${esc(w.label).toUpperCase()}</span>
+      <strong>${esc(w.range)}</strong> — ${esc(w.candleBehaviour)}.
+      <br><span style="color:var(--atlas-gold);">💲 ${esc(w.dollarContext)}.</span>
+      <br><span style="color:#6FE8A0;">Action: ${esc(w.action)}.</span>
+    </div>`).join('');
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading cyan">📚 Event-day reference · 4 windows</h3>
+    <div class="foh-section-body">
+      <p style="margin:0 0 8px 0;">${esc(ref.storyBy4Windows)}</p>
+      <div class="foh-event-bda">${rows}</div>
+    </div>
+  </div>`;
+}
+
+function _renderComparisonNotes(cn) {
+  if (!cn || cn.available === false) return '';
+  const what = (cn.whatChangesThisState || []).map(x => '<li>' + esc(x) + '</li>').join('');
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading neutral">📊 Why this rating · what changes it</h3>
+    <div class="foh-section-body">
+      <p style="margin:0 0 8px 0;"><strong style="color:var(--atlas-gold);">Why this rating, not lower or higher:</strong> ${esc(cn.whyThisRating)}</p>
+      <p style="margin:0 0 4px 0;"><strong style="color:var(--atlas-cyan);">What changes this state:</strong></p>
+      <ul style="margin:4px 0 0 18px;padding:0;">${what}</ul>
+    </div>
+  </div>`;
+}
+
+function _renderBriefingActions(ba) {
+  if (!ba || ba.available === false || !Array.isArray(ba.actions)) return '';
+  const rows = ba.actions.map((a, i) => `<li><strong style="color:var(--atlas-gold);">${i + 1}.</strong> ${esc(a)}</li>`).join('');
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading gold">📋 Briefing actions</h3>
+    <div class="foh-section-body">
+      <ol style="margin:4px 0 0 0;padding:0 0 0 4px;list-style:none;">${rows}</ol>
+    </div>
   </div>`;
 }
 
@@ -423,7 +597,20 @@ function _renderRichBanner(packet) {
   </div>`;
 }
 
+function _featuredEvent(packet) {
+  if (!packet || !packet.featuredEventKey || !Array.isArray(packet.eventClusters)) return null;
+  for (const c of packet.eventClusters) {
+    for (const ev of (c.events || [])) {
+      const k = c.currency + '::' + ev.title + '::' + ev.time;
+      if (k === packet.featuredEventKey) return ev;
+    }
+  }
+  return null;
+}
+
 function _renderRichMarketIntelCard(packet) {
+  const featured = _featuredEvent(packet);
+  const featLabel = featured ? featured.title : null;
   return `<!doctype html>
 <html><head><meta charset="utf-8"><style>${_CSS}</style></head>
 <body>
@@ -431,13 +618,20 @@ function _renderRichMarketIntelCard(packet) {
     ${_renderRichBanner(packet)}
     ${_renderMarketStateSection(packet.marketState)}
     ${_renderMondayFocusSection(packet.mondayOpenFocus)}
-    ${_renderRichEventClusters(packet.eventClusters, packet.mode)}
+    ${_renderRichEventClusters(packet.eventClusters, packet.mode, packet.featuredEventKey)}
+    ${featured ? _renderDollarImpactRange(featured.dollarImpactRange, featLabel) : ''}
+    ${featured ? _renderReactionPaths(featured.reactionPaths, featLabel) : ''}
+    ${_renderRiskEscalation(packet.riskEscalation)}
+    ${featured ? _renderWhatToWatch(featured.whatToWatch) : ''}
+    ${_renderEventDayReference(packet.eventDayReference)}
     ${_renderAggregateSection('Market impact · transmission chain', 'amber', packet.marketImpact)}
     ${_renderRichAffectedMarkets(packet.affectedMarkets)}
     ${_renderAggregateSection('Confirmation path', 'green', packet.confirmationPath)}
     ${_renderAggregateSection('Cancellation path', 'red',   packet.cancellationPath)}
     ${_renderRichOperatorGuidance(packet.operatorGuidance)}
     ${_renderRichHistoricalAggregate(packet.historicalReaction)}
+    ${_renderComparisonNotes(packet.comparisonNotes)}
+    ${_renderBriefingActions(packet.briefingActions)}
     ${_renderRichTerminologyChip(packet)}
     ${_renderRichFooter(packet)}
   </div>
