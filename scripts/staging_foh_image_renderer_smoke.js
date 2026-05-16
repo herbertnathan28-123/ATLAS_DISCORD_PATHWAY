@@ -103,6 +103,10 @@ const FIXTURES = [
       },
       terminology: ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep'],
       glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
+      dashboardDownloadUrls: {
+        png: 'https://atlas.fx/foh/download.png?card=' + Date.now(),
+        pdf: 'https://atlas.fx/foh/download.pdf?card=' + Date.now(),
+      },
       sourceNote: { source: 'TradingView', mode: 'LIVE', probabilityBasis: 'engine-derived', macroNote: 'macro=ATLAS · UUP/VXX proxies live · FRED T10Y2Y normal' },
       briefingSummary: 'T-1H alert · CPI (USD). Macro is dollar-yield-led; cross-asset consequences cascade through US Dollar Index on direction of surprise. Working bias conditional until price confirms through structure.',
     },
@@ -145,6 +149,10 @@ const FIXTURES = [
       nextWatch: 'Asia reopen Sun 22:00 UTC. London 07:00 UTC Mon. NY 13:30 UTC Mon.',
       terminology: ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep', 'Confirmed candle close'],
       glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
+      dashboardDownloadUrls: {
+        png: 'https://atlas.fx/foh/download.png?card=' + Date.now(),
+        pdf: 'https://atlas.fx/foh/download.pdf?card=' + Date.now(),
+      },
       sourceNote: { source: 'TradingView', mode: 'LIVE', probabilityBasis: 'engine-derived', macroNote: 'Preparation intelligence only — live confirmation required after market open.' },
       briefingSummary: 'Weekend prep · 3 currency blocks · 8 high-impact catalysts inside the week. USD inflation + EUR policy tone dominate. No execution authority until live price confirms after reopen.',
     },
@@ -180,6 +188,10 @@ const FIXTURES = [
       riskReminder: 'Every zone above is what ATLAS sees right now. Live price moves, the zones move with it. Cross-check current price against the zone before acting.',
       terminology: ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Dollar Risk','Reward-to-Risk','Fresh Setup','Still Active Setup','Fading Setup'],
       glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
+      dashboardDownloadUrls: {
+        png: 'https://atlas.fx/foh/download.png?card=' + Date.now(),
+        pdf: 'https://atlas.fx/foh/download.pdf?card=' + Date.now(),
+      },
       sourceNote: { source: 'TradingView', mode: 'LIVE', probabilityBasis: 'engine-derived' },
       briefingSummary: '3 standouts today (1 FRESH, 1 STILL ACTIVE, 1 FADING). Market mood elevated. EURUSD cleanest reward-to-risk; XAUUSD highest conviction continuation; NVDA late-stage scalp.',
     },
@@ -216,6 +228,10 @@ const FIXTURES = [
       roadmapUrl: 'https://atlas.fx/roadmap/2026-05-18',
       terminology: ['Dovish','Hawkish','Yield curve','Risk-off','Confirmed candle close','Structure break','Liquidity sweep'],
       glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
+      dashboardDownloadUrls: {
+        png: 'https://atlas.fx/foh/download.png?card=' + Date.now(),
+        pdf: 'https://atlas.fx/foh/download.pdf?card=' + Date.now(),
+      },
       sourceNote: { source: 'TradingView', mode: 'LIVE', probabilityBasis: 'historically sourced' },
     },
   },

@@ -1435,6 +1435,36 @@ async function runDarkHorseScan(universeOrOpts) {
             watchThreshold: DH_SCORE_WATCH,
           });
           rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
+          // ── FOH_IMAGE_RENDER_ENABLED — opt-in image path ──
+          // When the env flag is set, render the premium PNG+PDF
+          // card via the sibling darkHorseImageDispatch module
+          // and POST as a single Discord message. Any failure
+          // (puppeteer unavailable, render error, post non-2xx)
+          // falls through to the existing 6-message text digest
+          // below. Production behaviour unchanged unless operator
+          // flips the env flag. NEVER reads/writes engine state.
+          if (process.env.FOH_IMAGE_RENDER_ENABLED === 'true') {
+            try {
+              const dhImage = require('./darkHorseImageDispatch');
+              const imgRes = await dhImage.tryPostDarkHorseAsImage(DH_WEBHOOK_URL, ranking, volatility, {
+                universeSize: DH_UNIVERSE.length,
+              });
+              if (imgRes && imgRes.ok) {
+                _markDigestPosted({
+                  set_by: 'movement_digest_send_ok',
+                  reason: 'discord_2xx_ack_foh_v6_image',
+                  status: imgRes.status,
+                  kind: 'movement_digest_foh_v1_0_image',
+                });
+                dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=image status=${imgRes.status} pdf_skipped=${imgRes.pdfSkipped ? 'true' : 'false'}`);
+                return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
+              }
+              dhLog('WARN', `[DH-FOH-IMAGE] image render path returned not-ok reason=${imgRes && imgRes.reason}, falling through to text`);
+            } catch (imgErr) {
+              dhLog('WARN', `[DH-FOH-IMAGE] image render path threw, falling through to text: ${imgErr.message}`);
+            }
+            // Fall through to existing text FOH v6 path below.
+          }
           const fohPayload = foh.buildDarkHorseFohPayload(ranking, volatility, {
             now: Date.now(),
             universeSize: DH_UNIVERSE.length,

@@ -30,6 +30,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { renderFormatBadges } = require('./badges');
 
 const _CSS = fs.readFileSync(path.join(__dirname, 'shared.css'), 'utf8');
 
@@ -134,13 +135,14 @@ function renderDarkHorseCard(payload) {
       <div style="margin-top:4px;">Live confirmation required before execution.</div>
     </div>`;
 
+  const badges = renderFormatBadges(payload);
   return `<!doctype html>
 <html><head><meta charset="utf-8"><style>${_CSS}</style></head>
 <body>
   <div class="foh-card">
     <div class="foh-banner">
       <div class="foh-banner-title">ATLAS · Dark Horse — Live Scan</div>
-      <div class="foh-banner-sub">v6 · ${esc(standouts.length)} standout${standouts.length === 1 ? '' : 's'} · scan ${esc(payload.scanTime || 'now')}${payload.marketsScanned ? ' · ' + esc(payload.marketsScanned) + ' markets scanned' : ''}</div>
+      <div class="foh-banner-sub">v6 · ${esc(standouts.length)} standout${standouts.length === 1 ? '' : 's'} · scan ${esc(payload.scanTime || 'now')}${payload.marketsScanned ? ' · ' + esc(payload.marketsScanned) + ' markets scanned' : ''}${badges}</div>
     </div>
     <div class="foh-section">
       <h3 class="foh-section-heading amber">Market mood · regime</h3>

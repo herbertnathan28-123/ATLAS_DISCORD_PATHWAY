@@ -79,6 +79,44 @@ body { padding: 24px; }
   font-weight: 500;
 }
 
+/* ── DOWNLOAD-FORMAT BADGES ────────────────────────────────────
+   Small pill-shaped indicators in the banner subtitle row showing
+   which formats are available for download. Cyan/gold tinted so
+   they read as informational, not as primary actions — they do
+   not overpower the banner title. Each badge can be wrapped in
+   an <a> when the card renderer is given dashboardDownloadUrls
+   for PNG/PDF (real link buttons on the dashboard). Inside the
+   PNG/PDF itself the badge is decorative — the file IS the
+   download, so the badge advertises availability rather than
+   triggering a new fetch.                                       */
+.foh-format-badges {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 12px;
+}
+.foh-format-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border: 1px solid;
+  color: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.foh-format-badge.png  { color: var(--atlas-cyan); border-color: rgba(91,192,222,0.45); background: rgba(91,192,222,0.08); }
+.foh-format-badge.pdf  { color: var(--atlas-gold); border-color: rgba(255,215,0,0.45);  background: rgba(255,215,0,0.06); }
+.foh-format-badge::before {
+  content: '↓';
+  font-size: 11px;
+  font-weight: 700;
+}
+
 /* ── META ROW (compact key:value strip) ───────────────────── */
 .foh-meta-row {
   display: grid;
