@@ -26,7 +26,6 @@
 //     validity:     'paragraph',
 //     roadmapUrl:   'https://...',
 //     terminology:  [ ... ],
-//     glossaryUrl:  'https://...',
 //     sourceNote:   { source, mode, probabilityBasis },
 //   }
 //
@@ -64,8 +63,7 @@ function renderTerminologyChip(payload) {
   const terms = Array.isArray(payload.terminology) && payload.terminology.length
     ? payload.terminology
     : ['Dovish','Hawkish','Yield curve','Risk-off','Confirmed candle close','Structure break'];
-  const url = payload.glossaryUrl || 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
-  const chips = terms.map(t => `<a href="${esc(url)}">${esc(t)}</a>`).join('');
+  const chips = terms.map(t => `<span class="foh-term-chip">${esc(t)}</span>`).join('');
   return `<div class="foh-hyperlinks">
     <span class="foh-hyperlinks-label">📘 Expanded Terminology</span>
     ${chips}

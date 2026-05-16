@@ -282,6 +282,29 @@ function ok(name, cond, info) {
   ok('(E3) triggerMap output banned-token-free', sweep(tmOut).ok, `hits: ${sweep(tmOut).hits.join(', ')}`);
 }
 
+// ─── (F) FOH fixed-contract pipeline guards (operator 2026-05-17) ──────
+// Runs the four standalone FOH guards as child processes. Each script
+// exits 0 on PASS / non-zero on FAIL. Counts one acceptance check per
+// guard so the recovery suite remains the single CI scoreboard.
+{
+  const { execFileSync } = require('child_process');
+  const guards = [
+    { label: '(F1) FOH no private links', file: 'tests/fohNoPrivateLinks.test.js' },
+    { label: '(F2) FOH required fields',  file: 'tests/fohRequiredFields.test.js' },
+    { label: '(F3) FOH prototype anchors', file: 'tests/fohPrototypeAnchors.test.js' },
+    { label: '(F4) FOH terminology',      file: 'tests/fohTerminology.test.js' },
+  ];
+  for (const g of guards) {
+    try {
+      execFileSync(process.execPath, [g.file], { stdio: 'pipe' });
+      ok(g.label, true);
+    } catch (e) {
+      const out = (e.stdout ? e.stdout.toString() : '') + (e.stderr ? e.stderr.toString() : '');
+      ok(g.label, false, out.split('\n').slice(-8).join(' | '));
+    }
+  }
+}
+
 // ─── Summary ────────────────────────────────────────────────────────────
 console.log('');
 console.log('==========================');

@@ -1,0 +1,24 @@
+**ATLAS · Market Intel · Daily Roadmap**
+Risk State: 🟠🟠🟠🟠⚫ High — clustered catalyst exposure
+Generated: 2026-05-16 21:32 UTC
+
+__Briefing Summary__
+Primary read: Three high-impact catalysts cluster early week — USD inflation + EUR policy tone dominate; gold and US indices most sensitive.
+Operational meaning: Position size at 50% of normal risk for the catalyst window; widen exits ~30%; cancel marginal setups.
+Key markets: DXY · EURUSD · XAUUSD · US500
+Current risk: 🟠🟠🟠🟠⚫ High — clustered catalyst exposure — reactivity elevated through the catalyst window; mean-reversion expected thereafter.
+
+__What To Do Now__
+1. Reduce position size to 50% of normal risk for the next 6 hours.
+   why: Catalyst-driven sessions widen spreads and stop ranges. Smaller size keeps planned-risk discipline.
+   $$: If normal risk is $500 on a $10k account, reduce to ~$250 per trade for the window.
+2. Cancel marginal setups. Only act on triggers where the next candle closes BEYOND the level (confirmed directional structure test).
+   why: Sweeps and false breaks dominate the first 15 minutes after a high-impact print.
+   $$: Avoids the $300 – $800 drawdown band typical of chasing a first-move fake.
+3. Widen exit-points by ~30% on existing positions; tight exits get hit before direction confirms.
+   why: Initial volatility expansion pushes price beyond historical 1-σ before the real direction prints.
+   $$: Avoids being stopped on a wick that mean-reverts within 5 minutes — protects $150 – $400 of carry on $100k notional.
+
+__Market Impact__
+Market impact: cause: CPI (USD) → expectation: front-end rate-path repricing → market reaction: USD lead, cross-asset cascade through DXY, EURUSD, XAUUSD, US500
+Price reaction path: Initial impulse (0–60s) → first 5-min close confirms direction → 15-min…

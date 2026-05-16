@@ -1,0 +1,42 @@
+{
+  "top10": [
+    {
+      "symbol": "EURUSD",
+      "movePhase": "early",
+      "score": 9,
+      "direction": "Bullish",
+      "summary": "Structure 2/2, Corey live macro USD weakening, FRESH on this scan.",
+      "decisionLevel": "Above 1.0915 confirms; entry 1.0925–1.0935",
+      "invalidation": "Below 1.0890",
+      "dollarRiskLabel": "~$40",
+      "rewardRLabel": "5.7R",
+      "sizeLabel": "half size for FRESH"
+    },
+    {
+      "symbol": "XAUUSD",
+      "movePhase": "mid",
+      "score": 8,
+      "direction": "Bullish",
+      "summary": "Continuation watch · 1H close held above 2415.",
+      "decisionLevel": "Above 2425 confirms",
+      "invalidation": "Below 2408",
+      "dollarRiskLabel": "~$92",
+      "rewardRLabel": "3.0R",
+      "sizeLabel": "full size × mood reduction",
+      "durationAliveLabel": "2h 30m"
+    },
+    {
+      "symbol": "NVDA",
+      "movePhase": "late",
+      "score": 7,
+      "direction": "Bullish",
+      "summary": "Late-stage move · momentum cooling on 4H.",
+      "decisionLevel": "Above $980 only on confirmed close",
+      "invalidation": "Below $965",
+      "dollarRiskLabel": "~$59",
+      "rewardRLabel": "1.3R",
+      "sizeLabel": "quarter-size only — FADING card"
+    }
+  ],
+  "allCount": 33
+}

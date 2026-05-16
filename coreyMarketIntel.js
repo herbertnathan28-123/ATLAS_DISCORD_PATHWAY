@@ -976,18 +976,16 @@ function fohSurpriseLine(rawEvent) {
 // but Market-Intel-flavoured terms so the surface reads in the
 // shared FOH v6 dialect.
 //
-// Lane-1 hardening (operator brief 2026-05-16):
-//   - Single CYAN hyperlink chip wrapping the macro term list,
-//     anchored to the Notion glossary. ONE link wraps the full
-//     term group so the URL footprint stays constant regardless
-//     of term count (1900-char Discord cap discipline).
+// Lane-1 hardening (operator brief 2026-05-17):
+//   - Glossary chip is now a plain styled vocabulary marker —
+//     the intelligence is embedded directly in the briefing
+//     surface. No external workspace links surface user-side.
 //   - Includes the operator-requested macro vocabulary: Dovish /
 //     Hawkish / Yield curve / Risk-off / Liquidity sweep, plus
 //     the structure-vocabulary anchors (Confirmed close /
 //     Structure break) for cross-doctrine continuity.
-const FOH_GLOSSARY_URL = 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
 function fohGlossaryChip() {
-  return '📘 [[Glossary · Dovish · Hawkish · Yield curve · Risk-off · Liquidity sweep]](' + FOH_GLOSSARY_URL + ')';
+  return '📘 *Glossary · Dovish · Hawkish · Yield curve · Risk-off · Liquidity sweep*';
 }
 
 // ── Historical reaction context (operator brief 2026-05-16) ─────
@@ -1215,7 +1213,6 @@ function _buildMarketIntelImagePayload(rawEvent, a, opts) {
       : ('Event time: ' + fmtUtcShort(a.scheduled_time) + ' UTC. First reaction 0–15 min. Reassess on first 1H close.'),
     historical: _miBuildHistoricalRows(opts && opts.history),
     terminology: ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep'],
-    glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
     sourceNote:  { source: calSrc, mode: calMode, probabilityBasis },
     briefingSummary: stage + ' alert · ' + humanizeTitle(a.title) + ' · ' + (a.currency || 'multi-ccy') + '. Bias remains conditional until price confirms through structure.',
   };
@@ -1278,7 +1275,6 @@ function _buildDailyBulletinImagePayload(snapshot, geoCtx, now) {
     eventClusters,
     nextWatch: 'Stand down ±15/30M each release; reassess on first close.',
     terminology: ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep'],
-    glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
     sourceNote: {
       source: health.source_used || 'unavailable',
       mode:   health.calendar_mode || 'UNAVAILABLE',

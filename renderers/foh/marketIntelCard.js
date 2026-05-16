@@ -19,7 +19,6 @@
 //     historical:   { rows: [{label, actual, magnitude, dir, reaction}], basis, sampleN } | null,
 //     eventClusters?: [{ currency, country, events: [{title, time, impactSeverity}] }, ...],
 //     terminology:  [ 'Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep' ],
-//     glossaryUrl:  'https://...',
 //     sourceNote:   { source, mode, probabilityBasis, macroNote? },
 //     briefingSummary: 'paragraph',
 //   }
@@ -62,8 +61,7 @@ function renderTerminologyChip(payload) {
   const terms = Array.isArray(payload.terminology) && payload.terminology.length
     ? payload.terminology
     : ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep'];
-  const url = payload.glossaryUrl || 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
-  const chips = terms.map(t => `<a href="${esc(url)}">${esc(t)}</a>`).join('');
+  const chips = terms.map(t => `<span class="foh-term-chip">${esc(t)}</span>`).join('');
   return `<div class="foh-hyperlinks">
     <span class="foh-hyperlinks-label">📘 Expanded Terminology</span>
     ${chips}
@@ -567,9 +565,8 @@ function _renderRichFooter(packet) {
 function _renderRichTerminologyChip(packet) {
   const g = packet.glossaryTerms || {};
   if (!g.available) return '';
-  const url = g.glossaryUrl || 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
   const terms = Array.isArray(g.terms) && g.terms.length ? g.terms : ['Dovish','Hawkish','Yield curve','Risk-off','Liquidity sweep'];
-  const chips = terms.map(t => '<a href="' + esc(url) + '">' + esc(t) + '</a>').join('');
+  const chips = terms.map(t => '<span class="foh-term-chip">' + esc(t) + '</span>').join('');
   return `<div class="foh-hyperlinks">
     <span class="foh-hyperlinks-label">📘 Expanded Terminology</span>
     ${chips}

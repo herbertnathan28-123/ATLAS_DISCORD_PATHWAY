@@ -247,7 +247,6 @@ function buildDarkHorseFohPacket(ranking, volatility, liveCtx, opts) {
     glossaryTerms: {
       available: true,
       terms: ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Dollar Risk','Reward-to-Risk','Fresh Setup','Still Active Setup','Fading Setup','Late-Stage Move'],
-      glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
     },
     formats: ['png', 'pdf'],
   };

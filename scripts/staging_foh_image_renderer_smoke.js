@@ -143,7 +143,6 @@ const FIXTURES = [
         sampleN: 3,
       },
       terminology: ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep'],
-      glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
       dashboardDownloadUrls: {
         png: 'https://atlas.fx/foh/download.png?card=' + Date.now(),
         pdf: 'https://atlas.fx/foh/download.pdf?card=' + Date.now(),
@@ -189,7 +188,6 @@ const FIXTURES = [
       },
       nextWatch: 'Asia reopen Sun 22:00 UTC. London 07:00 UTC Mon. NY 13:30 UTC Mon.',
       terminology: ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep', 'Confirmed candle close'],
-      glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
       dashboardDownloadUrls: {
         png: 'https://atlas.fx/foh/download.png?card=' + Date.now(),
         pdf: 'https://atlas.fx/foh/download.pdf?card=' + Date.now(),
@@ -228,7 +226,6 @@ const FIXTURES = [
       ],
       riskReminder: 'Every zone above is what ATLAS sees right now. Live price moves, the zones move with it. Cross-check current price against the zone before acting.',
       terminology: ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Dollar Risk','Reward-to-Risk','Fresh Setup','Still Active Setup','Fading Setup'],
-      glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
       dashboardDownloadUrls: {
         png: 'https://atlas.fx/foh/download.png?card=' + Date.now(),
         pdf: 'https://atlas.fx/foh/download.pdf?card=' + Date.now(),
@@ -268,7 +265,6 @@ const FIXTURES = [
       validity: 'Validity window: Monday 2026-05-18 Asia open through Friday 2026-05-22 NY close. Reassess after each clustered catalyst (ECB, CPI, BOE, NFP).',
       roadmapUrl: 'https://atlas.fx/roadmap/2026-05-18',
       terminology: ['Dovish','Hawkish','Yield curve','Risk-off','Confirmed candle close','Structure break','Liquidity sweep'],
-      glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
       dashboardDownloadUrls: {
         png: 'https://atlas.fx/foh/download.png?card=' + Date.now(),
         pdf: 'https://atlas.fx/foh/download.pdf?card=' + Date.now(),
