@@ -75,6 +75,10 @@ const FIXED_BANNED = [
   { name: 'raw_CHoCH',             re: /\bCHoCH\b/ },
   { name: 'prints_verb',           re: /\bprints?\b/i },
   { name: 'trigger_level',         re: /\bTrigger Level\b/i },
+  // Lane 5 audit recommendation (2026-05-16): hard-ban certainty
+  // verbs on the user surface. Doctrine: use "expected pressure",
+  // "favours", "historically tends" instead.
+  { name: 'certainty_verb',        re: /\bwill\s+(?:go\s+up|drop|fall|rise|crash|spike)\b/i },
 ];
 
 const ABBREV_RULES = [
@@ -93,7 +97,10 @@ const PROBABILITY_BASES = ['historically sourced', 'engine-derived', 'scenario e
 function auditPresence(content) {
   const errors = [];
   function hasBoxed(label) {
-    return new RegExp('▛[^\\n]*' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\\n]*▜').test(content);
+    // Lane 2 render-fix (operator brief 2026-05-16): boxed sections
+    // now render as native Discord `## H2` headings (was bracketed
+    // ▛...▜ chars that rendered as inline text glyphs, not boxes).
+    return new RegExp('##\\s+[^\\n]*' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[^\\n]*').test(content);
   }
   // SOURCE NOTE provenance row.
   if (!/calendar=\S+\s*·\s*macro=ATLAS\s*·\s*probability=/.test(content)) {
