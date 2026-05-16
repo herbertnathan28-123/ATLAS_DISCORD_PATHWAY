@@ -1,0 +1,116 @@
+{
+  "meta": {
+    "module": "dark_horse",
+    "reportId": "dh-40efaf10",
+    "generatedAtUTC": "2026-05-16 21:32 UTC",
+    "audience": "front_of_house",
+    "source": "atlas_runtime",
+    "noExternalWorkspaceLinks": true
+  },
+  "header": {
+    "title": "ATLAS · Dark Horse",
+    "subtitle": "3 standouts on this scan · 33 markets scanned",
+    "riskState": "Elevated — broad market moving fast",
+    "severityDiscs": "🟠🟠🟠🟠⚫ 4/5 — Elevated",
+    "generatedAtUTC": "2026-05-16 21:32 UTC"
+  },
+  "briefingSummary": {
+    "primaryRead": "3 standouts (1 FRESH · 1 STILL ACTIVE · 1 FADING). Lead: EURUSD FRESH.",
+    "operationalMeaning": "Standouts are listed in priority order; each carries a confirmed-close trigger and an explicit invalidation level. Position size per the lifecycle tag (FRESH half-size, FADING quarter-size).",
+    "keyMarkets": [
+      "EURUSD",
+      "XAUUSD",
+      "NVDA"
+    ],
+    "currentRisk": "🟠🟠🟠🟠⚫ 4/5 — Elevated — elevated reactivity, size down per standout lifecycle"
+  },
+  "eventDayReference": {
+    "eventName": "EURUSD · FRESH Bullish",
+    "eventTimeUTC": "2026-05-16 21:32 UTC",
+    "expectedDuration": "15–60 minutes for the first confirmation candle to print",
+    "whatToWatch": "Watch EURUSD: trigger Above 1.0915 confirms; entry 1.0925–1.0935; invalidation Below 1.0890.",
+    "chartStudyTimeframe": "1H structural map + 5M / 15M execution"
+  },
+  "fourWayOutcomes": {
+    "higher": {
+      "behaviour": "EURUSD carries a FRESH bullish read. Structure 2/2, Corey live macro USD weakening, FRESH on this scan.",
+      "affectedMarkets": [
+        "EURUSD"
+      ],
+      "traderAction": "Enter on confirmed close into the entry zone (Above 1.0915 confirms; entry 1.0925–1.0935); half size; invalidate on Below 1.0890.",
+      "dollarImpact": "planned risk ~$40 · target 5.7R"
+    },
+    "lower": {
+      "behaviour": "XAUUSD carries a STILL ACTIVE bullish read. Continuation watch · 1H close held above 2415.",
+      "affectedMarkets": [
+        "XAUUSD"
+      ],
+      "traderAction": "Enter on confirmed close into the entry zone (Above 2425 confirms); full size × current mood multiplier; invalidate on Below 2408.",
+      "dollarImpact": "planned risk ~$92 · target 3.0R"
+    },
+    "inline": {
+      "behaviour": "NVDA carries a FADING bullish read. Late-stage move · momentum cooling on 4H.",
+      "affectedMarkets": [
+        "NVDA"
+      ],
+      "traderAction": "Enter on confirmed close into the entry zone (Above $980 only on confirmed close); quarter size only; invalidate on Below $965.",
+      "dollarImpact": "planned risk ~$59 · target 1.3R"
+    },
+    "reversal": {
+      "behaviour": "Re-entry watch — if a standout invalidates intraday, wait for the structural re-test on next scan before re-engaging.",
+      "affectedMarkets": [
+        "EURUSD",
+        "XAUUSD",
+        "NVDA"
+      ],
+      "traderAction": "No averaging into an invalidated zone — wait for the next confirmed close.",
+      "dollarImpact": "Re-entry sizing always starts at half of the original planned risk."
+    }
+  },
+  "marketImpact": {
+    "mechanism": "Standout setups derive from structural Bullish alignment + Corey live macro confirmation + Dark Horse rank score ≥ 7/10.",
+    "priceReactionPath": "Trigger close → entry zone → watch level → caution zone → invalidation; each level annotated with dollar consequence on the rendered card.",
+    "liquidityEffect": "Standouts are filtered against current spreads; FRESH cards require live confirmation that the trigger zone has held under the current quote depth.",
+    "volatilityEffect": "Elevated regime: standout sizing already adjusted via lifecycle tag",
+    "traderConsequence": "Hitting the planned-risk line is the cost of the read being wrong; chasing past invalidation turns a $150 loss into a $400+ loss with no upside symmetry."
+  },
+  "riskEscalation": {
+    "healthy": "PRE-TRIGGER: scan is fresh; structural read in place; sizing per the FRESH / STILL ACTIVE / FADING pill.",
+    "caution": "AT TRIGGER: confirmed close required — do NOT pre-position above the trigger.",
+    "danger": "POST-TRIGGER WICK: if price returns inside the entry band within 5 min on a wick, the trigger close is not yet confirmed; wait the next 5-min close.",
+    "invalidation": "STAND-ASIDE: invalidation level is the cost of the read being wrong. No averaging, no re-entry without a fresh structural re-test on the next scan."
+  },
+  "whatToDoNow": [
+    {
+      "step": 1,
+      "action": "Primary standout — EURUSD (FRESH Bullish): enter on confirmed close into Above 1.0915 confirms; entry 1.0925–1.0935",
+      "reason": "Structure 2/2, Corey live macro USD weakening, FRESH on this scan.",
+      "dollarConsequence": "~$40 · reward 5.7R · half size for FRESH"
+    },
+    {
+      "step": 2,
+      "action": "Secondary — XAUUSD (STILL ACTIVE Bullish): enter on confirmed close into Above 2425 confirms",
+      "reason": "Continuation watch · 1H close held above 2415.",
+      "dollarConsequence": "~$92 · reward 3.0R · full size × mood reduction"
+    },
+    {
+      "step": 3,
+      "action": "Tertiary — NVDA (FADING Bullish): enter on confirmed close into Above $980 only on confirmed close",
+      "reason": "Late-stage move · momentum cooling on 4H.",
+      "dollarConsequence": "~$59 · reward 1.3R · quarter-size only — FADING card"
+    }
+  ],
+  "confirmationCancellation": {
+    "confirmsWhen": "Confirmed close above Above 1.0915 confirms; entry 1.0925–1.0935 on the trigger timeframe.",
+    "cancelsWhen": "Close below Below 1.0890 on the trigger timeframe.",
+    "dangerIf": "A standout invalidates while you are positioned: exit at the next 1-min close. Do not average. Do not re-enter without a fresh structural test on a later scan."
+  },
+  "provenance": {
+    "sources": [
+      "ATLAS Dark Horse scanner",
+      "Corey live macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y)"
+    ],
+    "dataFreshness": "LIVE",
+    "confidenceBasis": "engine-derived"
+  }
+}

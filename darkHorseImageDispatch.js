@@ -115,7 +115,6 @@ function buildDarkHorseImagePayload(ranking, volatility, opts) {
     standouts:       standouts,
     riskReminder:    'Every zone above is what ATLAS sees right now. Live price moves, the zones move with it. Cross-check current price against the zone before acting.',
     terminology:     ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Dollar Risk','Reward-to-Risk','Fresh Setup','Still Active Setup','Fading Setup'],
-    glossaryUrl:     'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
     sourceNote:      { source: 'TradingView', mode: 'LIVE', probabilityBasis: 'engine-derived' },
     briefingSummary: standouts.length
       ? (standouts.length + ' standout' + (standouts.length === 1 ? '' : 's') + ' on this scan. ' + standouts.map(s => s.symbol + ' (' + s.lifecycle + ')').join(' · ') + '.')
@@ -152,21 +151,18 @@ async function tryPostDarkHorseAsImage(webhookUrl, ranking, volatility, opts) {
     catch (e) { return { ok: false, reason: 'payload_build_failed', error: e.message }; }
   }
   const standoutCount = Array.isArray(payload && payload.standouts) ? payload.standouts.length : 0;
-  const glossaryUrl = (payload && payload.glossaryUrl)
-    || (payload && payload.glossaryTerms && payload.glossaryTerms.glossaryUrl)
-    || null;
   // Operator directive 2026-05-17 PHASE 2: post DH as multi-card
   // split through the prototype v6 shell with surgical data
   // adapter. The view model the dhV6Adapter consumes is the
   // existing FOH packet — its standouts[] / marketMood / etc.
-  // map 1:1 to the adapter's expected fields.
+  // map 1:1 to the adapter's expected fields. Discord message
+  // body carries the intelligence directly; no external links.
   try {
     const sent = await foh.postFohSplitToDiscord({
       kind: 'dark_horse',
       payload,
       webhookUrl,
       caption: 'ATLAS Dark Horse · ' + standoutCount + ' standout' + (standoutCount === 1 ? '' : 's'),
-      dashboardUrl: glossaryUrl,
     });
     return sent;
   } catch (e) {

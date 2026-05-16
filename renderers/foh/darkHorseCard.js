@@ -21,7 +21,6 @@
 //     riskReminder:    'paragraph',
 //     briefingSummary: 'paragraph',
 //     terminology:     ['Decision Level','Entry Zone',...],
-//     glossaryUrl:     'https://...',
 //     sourceNote:      { source, mode, probabilityBasis, macroNote? },
 //   }
 //
@@ -68,8 +67,7 @@ function renderTerminologyChip(payload) {
   const terms = Array.isArray(payload.terminology) && payload.terminology.length
     ? payload.terminology
     : ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Dollar Risk','Reward-to-Risk'];
-  const url = payload.glossaryUrl || 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
-  const chips = terms.map(t => `<a href="${esc(url)}">${esc(t)}</a>`).join('');
+  const chips = terms.map(t => `<span class="foh-term-chip">${esc(t)}</span>`).join('');
   return `<div class="foh-hyperlinks">
     <span class="foh-hyperlinks-label">📘 Expanded Terminology</span>
     ${chips}

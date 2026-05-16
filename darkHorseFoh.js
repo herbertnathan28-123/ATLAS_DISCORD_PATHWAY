@@ -130,7 +130,12 @@ const BANNED_PATTERNS = [
   /─── NEW ───/,
 ];
 
-const GLOSSARY_URL = 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
+// Operator directive 2026-05-17: Notion is private backend material and
+// must never surface user-side. When no caller-provided override exists,
+// the terminology helper renders plain bracket chips `[Label]` instead of
+// link-wrapped chips. The constant is retained for module-export back-
+// compat but is intentionally a non-link sentinel rather than a URL.
+const GLOSSARY_URL = '';
 
 // ── Section ordering (preserved from v1.x) ──────────────────
 const SECTION_DISPLAY_ORDER = [
@@ -583,21 +588,30 @@ const TERMINOLOGY = Object.freeze({
 
 function _routeTerminology(opts) {
   const urls = (opts && opts.terminologyUrls) || null;
-  const map = { __default__: GLOSSARY_URL };
+  // No default URL — Notion-backed fallback removed per operator
+  // directive 2026-05-17. Only caller-supplied, sanctioned ATLAS-
+  // facing URLs are honoured; otherwise the chip stays plain text.
+  const map = {};
   if (urls && typeof urls === 'object') {
     for (const k of Object.keys(urls)) {
       const v = urls[k];
-      if (typeof v === 'string' && /^https?:\/\//.test(v)) map[k] = v;
+      if (typeof v === 'string' && /^https?:\/\//.test(v) && !/notion\.(so|com|site)/i.test(v)) map[k] = v;
     }
   }
   return { status: urls ? 'partial' : 'fallback', urlMap: map };
 }
 
-// Visible-bracket hyperlink: `[[Label]](url)` — Discord renders as
-// "[Label]" styled in link colour. No backslash escapes.
+// Visible terminology chip. Operator directive 2026-05-17: when no
+// caller-supplied URL exists the chip renders as a plain bracket
+// label `[Label]` rather than a Notion-backed `[[Label]](url)`
+// hyperlink — Notion is private backend material and must not
+// surface user-side. Callers may still pass `terminologyUrls` to
+// route to a sanctioned ATLAS-facing destination; otherwise the
+// chip stays plain.
 function _termLink(label, urlMap) {
   const slug = TERMINOLOGY[label] || null;
-  const url = (urlMap && slug && urlMap[slug]) || (urlMap && urlMap.__default__) || GLOSSARY_URL;
+  const url = (urlMap && slug && urlMap[slug]) || (urlMap && urlMap.__default__) || '';
+  if (!url) return '[' + label + ']';
   return '[[' + label + ']](' + url + ')';
 }
 

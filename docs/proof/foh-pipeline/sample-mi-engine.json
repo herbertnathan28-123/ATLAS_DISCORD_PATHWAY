@@ -1,0 +1,50 @@
+{
+  "kind": "daily",
+  "mood": {
+    "severity": "HIGH",
+    "label": "High — clustered catalyst exposure",
+    "discs": "🟠🟠🟠🟠⚫"
+  },
+  "eventClusters": [
+    {
+      "currency": "USD",
+      "severity": "HIGH",
+      "events": [
+        {
+          "title": "CPI (USD)",
+          "severity": "HIGH",
+          "time": "12:30 AWST · 04:30 UTC",
+          "currency": "USD"
+        },
+        {
+          "title": "Non Farm Payrolls",
+          "severity": "HIGH",
+          "time": "14:30 AWST · 06:30 UTC",
+          "currency": "USD"
+        }
+      ]
+    },
+    {
+      "currency": "EUR",
+      "severity": "HIGH",
+      "events": [
+        {
+          "title": "ECB Rate Decision",
+          "severity": "HIGH",
+          "time": "20:30 AWST · 12:30 UTC",
+          "currency": "EUR"
+        }
+      ]
+    }
+  ],
+  "marketMood": {
+    "discs": "🟠🟠🟠🟠⚫",
+    "label": "4/5 — Elevated"
+  },
+  "sourceNote": {
+    "source": "TradingView",
+    "mode": "LIVE",
+    "probabilityBasis": "engine-derived"
+  },
+  "briefingSummary": "Three high-impact catalysts cluster early week — USD inflation + EUR policy tone dominate; gold and US indices most sensitive."
+}

@@ -319,7 +319,6 @@ function buildDailyFohPacket(snapshot, geoCtx, liveCtx, helpers, mode, now) {
     glossaryTerms: {
       available: true,
       terms: ['Dovish','Hawkish','Yield curve','Risk-off','Liquidity sweep','Confirmed candle close'],
-      glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
     },
     formats: ['png', 'pdf'],
   };
@@ -376,7 +375,6 @@ function buildEventFohPacket(rawEvent, geoCtx, liveCtx, helpers, mode, opts) {
     glossaryTerms: {
       available: true,
       terms: ['Dovish','Hawkish','Yield curve','Risk-off','Liquidity sweep','Confirmed candle close'],
-      glossaryUrl: 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a',
     },
     formats: ['png', 'pdf'],
   };

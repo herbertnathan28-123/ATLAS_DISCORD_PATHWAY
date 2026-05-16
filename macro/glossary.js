@@ -28,18 +28,17 @@ const TERMS = {
 
 function lookup(tag) { return TERMS[tag] || null; }
 
-// Pack-4 visible-bracket hyperlink helper. Returns the operator-
-// doctrine `[[Label]](url)` form (no backslash escapes, no
-// `\[Label\]` form). The `url` defaults to the locked Notion
-// glossary fallback used throughout the repo; callers may pass an
-// override via opts.glossaryUrl. Matches the PR #74 v6 hyperlink
-// pattern on `darkHorseFoh.js` so macro + DH speak the same surface
-// dialect.
-const NOTION_GLOSSARY_URL = 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
+// Pack-4 terminology chip. Operator directive 2026-05-17: Notion is
+// private backend material and must never surface user-side. Renders
+// as a plain bracket label `[Label]` unless the caller supplies a
+// sanctioned ATLAS-facing URL via opts.glossaryUrl. Notion URLs are
+// rejected even when explicitly passed.
 function termLink(label, opts) {
-  const url = (opts && typeof opts.glossaryUrl === 'string' && /^https?:\/\//.test(opts.glossaryUrl))
-    ? opts.glossaryUrl
-    : NOTION_GLOSSARY_URL;
+  const candidate = (opts && typeof opts.glossaryUrl === 'string') ? opts.glossaryUrl : '';
+  const url = (candidate && /^https?:\/\//.test(candidate) && !/notion\.(so|com|site)/i.test(candidate))
+    ? candidate
+    : '';
+  if (!url) return '[' + String(label) + ']';
   return '[[' + String(label) + ']](' + url + ')';
 }
 

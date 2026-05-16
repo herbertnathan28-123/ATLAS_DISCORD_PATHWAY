@@ -1,0 +1,26 @@
+**ATLAS · Dark Horse · 3 standouts on this scan · 33 markets scanned**
+Risk State: 🟠🟠🟠🟠⚫ 4/5 — Elevated
+Generated: 2026-05-16 21:32 UTC
+
+__Briefing Summary__
+Primary read: 3 standouts (1 FRESH · 1 STILL ACTIVE · 1 FADING). Lead: EURUSD FRESH.
+Operational meaning: Standouts are listed in priority order; each carries a confirmed-close trigger and an explicit invalidation level. Position size per the lifecycle tag (FRESH half-size, FADING quarter-size).
+Key markets: EURUSD · XAUUSD · NVDA
+Current risk: 🟠🟠🟠🟠⚫ 4/5 — Elevated — elevated reactivity, size down per standout lifecycle
+
+__What To Do Now__
+1. Primary standout — EURUSD (FRESH Bullish): enter on confirmed close into Above 1.0915 confirms; entry 1.0925–1.0935
+   why: Structure 2/2, Corey live macro USD weakening, FRESH on this scan.
+   $$: ~$40 · reward 5.7R · half size for FRESH
+2. Secondary — XAUUSD (STILL ACTIVE Bullish): enter on confirmed close into Above 2425 confirms
+   why: Continuation watch · 1H close held above 2415.
+   $$: ~$92 · reward 3.0R · full size × mood reduction
+3. Tertiary — NVDA (FADING Bullish): enter on confirmed close into Above $980 only on confirmed close
+   why: Late-stage move · momentum cooling on 4H.
+   $$: ~$59 · reward 1.3R · quarter-size only — FADING card
+
+__Market Impact__
+Market impact: Standout setups derive from structural Bullish alignment + Corey live macro confirmation + Dark Horse rank score ≥ 7/10.
+Price reaction path: Trigger close → entry zone → watch level → caution zone → invalidation; each level annotated with dollar consequence on the rendered card.
+Liquidity effect: Standouts are filtered against current spreads; FRESH cards require live confirmation that the trigger zone has held under the current quote depth.
+Volatility effect: Elevated regime: standout siz…

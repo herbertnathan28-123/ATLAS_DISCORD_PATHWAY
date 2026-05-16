@@ -654,13 +654,12 @@ function _wrap(body) {
 // footer rows so they stand alongside the briefing summary.
 function _card6Footer(packet) {
   const glossaryTerms = (packet.glossaryTerms && packet.glossaryTerms.terms) || ['Dovish','Hawkish','Yield curve','Risk-off','Liquidity sweep','Confirmed candle close'];
-  const url = (packet.glossaryTerms && packet.glossaryTerms.glossaryUrl) || 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
   const chips = glossaryTerms.map(t => `<span style="color:#5BC0DE;font-weight:700">${esc(t)}]</span>`).join('  ');
   const source = packet.sourceNote || {};
   const sourceLine = `calendar=<span style="color:#5BC0DE">${esc(source.source || 'unavailable')}${source.mode ? '/' + esc(source.mode) : ''}</span> · macro=<span style="color:#FAA61A">ATLAS</span>${source.macroProxies ? ' · ' + esc(source.macroProxies) : ''} · probability=${esc(source.probabilityBasis || 'engine-derived')}`;
   return `
     <div class="message" data-idx="footer">
-      <div class="message-content">${_ansiFence(_ansi('#FAA61A', '▸  Expanded Terminology', 700))}<br>📘 [<a class="term-link" href="${esc(url)}">${chips}</a>]<br><br>${_ansiFence(_ansi('#5BC0DE', '▸  Source / provenance', 700))}<br>${sourceLine}<br><br>_Bias remains conditional until price confirms through structure._</div>
+      <div class="message-content">${_ansiFence(_ansi('#FAA61A', '▸  Expanded Terminology', 700))}<br>📘 ${chips}<br><br>${_ansiFence(_ansi('#5BC0DE', '▸  Source / provenance', 700))}<br>${sourceLine}<br><br>_Bias remains conditional until price confirms through structure._</div>
     </div>`;
 }
 
