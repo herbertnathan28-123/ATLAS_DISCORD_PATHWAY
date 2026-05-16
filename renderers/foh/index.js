@@ -39,8 +39,9 @@
 //     passed in explicitly by the caller.
 // ============================================================
 
-const { renderHtmlToPng, renderHtmlToPdf, renderHtmlBoth } = require('./pngRenderer');
+const { renderHtmlToPng, renderHtmlToPdf, renderHtmlBoth, renderHtmlsToPngs } = require('./pngRenderer');
 const { renderMarketIntelCard } = require('./marketIntelCard');
+const { renderMarketIntelPrototypeCards } = require('./marketIntelPrototypeCard');
 const { renderDarkHorseCard }   = require('./darkHorseCard');
 const { renderMacroCard }       = require('./macroCard');
 
@@ -203,11 +204,106 @@ async function postFohExportToDiscord({ kind, payload, webhookUrl, caption, dash
   };
 }
 
+// ── MULTI-CARD SPLIT (operator directive 2026-05-17) ─────────
+// Splits the prototype reproduction into 6 separate PNG cards
+// for Discord readability (single 12,000px PNG was technically
+// rendered but visually unusable). PDF stays single-document.
+// Currently MI only; DH / Macro pass through to single-card path.
+async function renderFohSplit({ kind, payload, opts }) {
+  if (kind !== 'market_intel') {
+    // Non-MI kinds: single card + PDF (back-compat).
+    const single = await renderFohExport({ kind, payload, opts });
+    if (!single.ok) return single;
+    return Object.assign({}, single, { pngs: single.png ? [{ png: single.png, label: 'card-1', width: single.width, height: single.height, bytes: single.png.length }] : [] });
+  }
+  let cards;
+  try { cards = renderMarketIntelPrototypeCards(payload); }
+  catch (e) { return { ok: false, reason: 'html_build_failed', error: e.message, kind }; }
+  const htmls = cards.map(c => c.html);
+  const start = Date.now();
+  // Run PNG batch + single-document PDF in parallel.
+  const [pngBatch, pdfSingle] = await Promise.all([
+    renderHtmlsToPngs(htmls, opts || {}),
+    renderHtmlToPdf(renderMarketIntelCard(payload), opts || {}),
+  ]);
+  if (!pngBatch.ok) {
+    return { ok: false, reason: pngBatch.reason || 'png_batch_failed', error: pngBatch.error, kind };
+  }
+  const pngs = pngBatch.pngs.map((p, i) => Object.assign({ label: cards[i].label }, p));
+  return {
+    ok: true,
+    kind,
+    pngs,
+    pdf: pdfSingle && pdfSingle.ok ? pdfSingle.pdf : null,
+    pdfBytes: pdfSingle && pdfSingle.ok ? pdfSingle.pdf.length : 0,
+    pdfError: pdfSingle && !pdfSingle.ok ? pdfSingle.error : null,
+    elapsedMs: Date.now() - start,
+  };
+}
+
+// POST split MI render to Discord as multi-attachment message:
+// up to 6 PNG cards + 1 PDF in a SINGLE Discord message. Caption
+// + dashboard link in the message content. Skips PDF when over
+// maxAttachmentBytes (default 8 MB). Skips any PNG that exceeds
+// the cap with a per-card pdfSkipped equivalent on the result.
+async function postFohSplitToDiscord({ kind, payload, webhookUrl, caption, dashboardUrl, opts, maxAttachmentBytes }) {
+  if (!webhookUrl || typeof webhookUrl !== 'string') {
+    return { ok: false, reason: 'no_webhook_url', error: 'webhookUrl is required' };
+  }
+  const cap = Number.isFinite(maxAttachmentBytes) ? maxAttachmentBytes : DEFAULT_MAX_ATTACHMENT_BYTES;
+  const rendered = await renderFohSplit({ kind, payload, opts });
+  if (!rendered.ok) {
+    return { ok: false, reason: rendered.reason, error: rendered.error, fallback: 'use_text_payload' };
+  }
+  const stamp = Date.now();
+  const attachments = [];
+  const skipped = [];
+  rendered.pngs.forEach((p, i) => {
+    if (!p.png) { skipped.push({ label: p.label, reason: 'render_failed:' + (p.error || 'unknown') }); return; }
+    if (p.bytes > cap) { skipped.push({ label: p.label, reason: 'exceeds_cap:' + p.bytes + '>' + cap }); return; }
+    attachments.push({
+      name: 'atlas-foh-' + kind + '-' + p.label + '-' + stamp + '.png',
+      contentType: 'image/png',
+      data: p.png,
+    });
+  });
+  let pdfSkipped = false, pdfSkipReason = null;
+  if (rendered.pdf) {
+    if (rendered.pdfBytes <= cap) {
+      attachments.push({
+        name: 'atlas-foh-' + kind + '-full-' + stamp + '.pdf',
+        contentType: 'application/pdf',
+        data: rendered.pdf,
+      });
+    } else {
+      pdfSkipped = true; pdfSkipReason = 'pdf_exceeds_cap:' + rendered.pdfBytes + '>' + cap;
+    }
+  } else if (rendered.pdfError) {
+    pdfSkipped = true; pdfSkipReason = 'pdf_render_error:' + rendered.pdfError;
+  }
+  if (!attachments.length) {
+    return { ok: false, reason: 'no_attachments_buildable', error: JSON.stringify(skipped), fallback: 'use_text_payload' };
+  }
+  const content = [caption, dashboardUrl ? '→ ' + dashboardUrl : null].filter(Boolean).join('\n');
+  const sent = await _postMultipart(webhookUrl, { content }, attachments);
+  return {
+    ok: sent.ok,
+    status: sent.status,
+    error: sent.error,
+    attachments: attachments.map(a => ({ name: a.name, contentType: a.contentType, bytes: a.data.length })),
+    skipped,
+    pdfSkipped,
+    pdfSkipReason,
+  };
+}
+
 module.exports = {
   renderFohPng,
   renderFohPdf,
   renderFohExport,
+  renderFohSplit,
   postFohPngToDiscord,
   postFohExportToDiscord,
+  postFohSplitToDiscord,
   DEFAULT_MAX_ATTACHMENT_BYTES,
 };

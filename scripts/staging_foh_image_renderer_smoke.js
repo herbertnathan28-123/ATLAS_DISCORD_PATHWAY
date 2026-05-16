@@ -292,9 +292,13 @@ const FIXTURES = [
   let okCount = 0, failCount = 0;
   for (const f of FIXTURES) {
     const t0 = Date.now();
-    // Render BOTH PNG + PDF in a single Puppeteer launch. PNG is
-    // the Discord preview, PDF is the downloadable carry-around.
-    const rendered = await foh.renderFohExport({ kind: f.kind, payload: f.payload });
+    // Operator directive 2026-05-17: MI must split into 6 PNG
+    // cards + 1 PDF (single 12,000px PNG unusable in Discord).
+    // DH / Macro keep single-card export.
+    const useSplit = f.kind === 'market_intel' && f.payload && Array.isArray(f.payload.eventClusters);
+    const rendered = useSplit
+      ? await foh.renderFohSplit({ kind: f.kind, payload: f.payload })
+      : await foh.renderFohExport({ kind: f.kind, payload: f.payload });
     const elapsedMs = Date.now() - t0;
     if (!rendered.ok) {
       failCount++;
@@ -302,25 +306,41 @@ const FIXTURES = [
       continue;
     }
     okCount++;
-    const pngPath = path.join(outDir, f.label + '.png');
-    const pdfPath = path.join(outDir, f.label + '.pdf');
-    if (rendered.png) fs.writeFileSync(pngPath, rendered.png);
-    if (rendered.pdf) fs.writeFileSync(pdfPath, rendered.pdf);
-    const pngLine = rendered.png ? Math.round(rendered.pngBytes / 1024) + ' KB' : '(failed: ' + rendered.pngError + ')';
-    const pdfLine = rendered.pdf ? Math.round(rendered.pdfBytes / 1024) + ' KB' : '(failed: ' + (rendered.pdfError || 'no-pdf') + ')';
-    console.log('[' + f.label + '] OK — ' + rendered.width + 'x' + rendered.height + ' @' + rendered.devicePixelRatio + 'x · ' + elapsedMs + 'ms');
-    console.log('  PNG: ' + pngLine + (rendered.png ? '  → ' + pngPath : ''));
-    console.log('  PDF: ' + pdfLine + (rendered.pdf ? '  → ' + pdfPath : ''));
+    if (useSplit) {
+      // Multi-card MI: write each card + the single-document PDF
+      console.log('[' + f.label + '] OK — split ' + rendered.pngs.length + ' cards · ' + elapsedMs + 'ms');
+      rendered.pngs.forEach((p, idx) => {
+        if (!p.png) { console.error('  card ' + (idx + 1) + ' RENDER FAIL — ' + p.error); return; }
+        const cardPath = path.join(outDir, f.label + '-' + p.label + '.png');
+        fs.writeFileSync(cardPath, p.png);
+        console.log('  card ' + (idx + 1) + ' (' + p.label + '): ' + p.width + 'x' + p.height + ' · ' + Math.round(p.bytes / 1024) + ' KB');
+      });
+      if (rendered.pdf) {
+        const pdfPath = path.join(outDir, f.label + '-full.pdf');
+        fs.writeFileSync(pdfPath, rendered.pdf);
+        console.log('  PDF (full): ' + Math.round(rendered.pdfBytes / 1024) + ' KB');
+      }
+    } else {
+      const pngPath = path.join(outDir, f.label + '.png');
+      const pdfPath = path.join(outDir, f.label + '.pdf');
+      if (rendered.png) fs.writeFileSync(pngPath, rendered.png);
+      if (rendered.pdf) fs.writeFileSync(pdfPath, rendered.pdf);
+      const pngLine = rendered.png ? Math.round(rendered.pngBytes / 1024) + ' KB' : '(failed: ' + rendered.pngError + ')';
+      const pdfLine = rendered.pdf ? Math.round(rendered.pdfBytes / 1024) + ' KB' : '(failed: ' + (rendered.pdfError || 'no-pdf') + ')';
+      console.log('[' + f.label + '] OK — ' + rendered.width + 'x' + rendered.height + ' @' + rendered.devicePixelRatio + 'x · ' + elapsedMs + 'ms');
+      console.log('  PNG: ' + pngLine + (rendered.png ? '  → ' + pngPath : ''));
+      console.log('  PDF: ' + pdfLine + (rendered.pdf ? '  → ' + pdfPath : ''));
+    }
 
     if (POST_MODE) {
-      const sent = await foh.postFohExportToDiscord({
-        kind: f.kind, payload: f.payload, webhookUrl: STAGING_URL,
-        caption: f.caption, dashboardUrl: f.payload.glossaryUrl,
-      });
+      const sent = useSplit
+        ? await foh.postFohSplitToDiscord({ kind: f.kind, payload: f.payload, webhookUrl: STAGING_URL, caption: f.caption, dashboardUrl: f.payload.glossaryUrl })
+        : await foh.postFohExportToDiscord({ kind: f.kind, payload: f.payload, webhookUrl: STAGING_URL, caption: f.caption, dashboardUrl: f.payload.glossaryUrl });
       if (sent.ok) {
         const attached = (sent.attachments || []).map(a => a.contentType + ' ' + Math.round(a.bytes / 1024) + 'KB').join(' + ');
         const pdfFlag = sent.pdfSkipped ? ' [pdf-skipped: ' + sent.pdfSkipReason + ']' : '';
-        console.log('  [POST] urlHash=' + urlHash(STAGING_URL) + ' status=' + sent.status + ' attached=[' + attached + ']' + pdfFlag);
+        const cardFlag = sent.skipped && sent.skipped.length ? ' [cards-skipped: ' + sent.skipped.length + ']' : '';
+        console.log('  [POST] urlHash=' + urlHash(STAGING_URL) + ' status=' + sent.status + ' attached=[' + attached + ']' + pdfFlag + cardFlag);
       } else {
         console.error('  [POST FAIL] reason=' + sent.reason + ' error=' + sent.error + ' fallback=' + sent.fallback);
       }

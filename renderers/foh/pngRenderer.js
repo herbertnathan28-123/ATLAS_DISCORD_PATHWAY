@@ -169,4 +169,58 @@ async function renderHtmlBoth(html, opts) {
   });
 }
 
-module.exports = { renderHtmlToPng, renderHtmlToPdf, renderHtmlBoth };
+// Render an ARRAY of HTML docs to an array of PNG Buffers using
+// a SINGLE Puppeteer launch (much faster than N separate launches
+// for the 6-card MI split). Returns
+//   { ok, pngs: [{ png, width, height, bytes }, ...], elapsedMs }
+// or { ok: false, reason, error } on launch failure.
+async function renderHtmlsToPngs(htmls, opts) {
+  opts = opts || {};
+  const width = Number.isFinite(opts.width) ? opts.width : 820;
+  const dpr   = Number.isFinite(opts.deviceScaleFactor) ? opts.deviceScaleFactor : 2;
+  const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 30000;
+  const puppeteer = _puppeteerLazy();
+  if (!puppeteer) return { ok: false, reason: 'puppeteer_unavailable', error: 'puppeteer not installed' };
+  let browser = null;
+  const start = Date.now();
+  try {
+    browser = await puppeteer.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--font-render-hinting=none', '--disable-gpu'],
+      headless: 'new',
+      timeout: timeoutMs,
+    });
+    const out = [];
+    for (let i = 0; i < htmls.length; i++) {
+      const html = htmls[i];
+      const page = await browser.newPage();
+      try {
+        await page.setViewport({ width, height: 1, deviceScaleFactor: dpr });
+        await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
+        try { await page.evaluate(() => (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve()); }
+        catch (_e) { /* ignore */ }
+        const height = await page.evaluate(() => {
+          const root = document.querySelector('.channel') || document.querySelector('.foh-card') || document.body;
+          const rect = root.getBoundingClientRect();
+          const bodyStyle = getComputedStyle(document.body);
+          const padTop    = parseInt(bodyStyle.paddingTop, 10)    || 0;
+          const padBottom = parseInt(bodyStyle.paddingBottom, 10) || 0;
+          return Math.ceil(rect.height + padTop + padBottom);
+        });
+        await page.setViewport({ width, height: Math.max(height, 400), deviceScaleFactor: dpr });
+        const png = await page.screenshot({ type: 'png', omitBackground: false, fullPage: false });
+        out.push({ png, width, height, bytes: png.length });
+      } catch (e) {
+        out.push({ png: null, error: e.message });
+      } finally {
+        try { await page.close(); } catch (_e) { /* swallow */ }
+      }
+    }
+    return { ok: true, pngs: out, elapsedMs: Date.now() - start };
+  } catch (e) {
+    return { ok: false, reason: 'render_failed', error: e.message };
+  } finally {
+    if (browser) { try { await browser.close(); } catch (_e) { /* swallow */ } }
+  }
+}
+
+module.exports = { renderHtmlToPng, renderHtmlToPdf, renderHtmlBoth, renderHtmlsToPngs };

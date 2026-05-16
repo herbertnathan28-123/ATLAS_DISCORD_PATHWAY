@@ -625,4 +625,56 @@ function renderMarketIntelPrototypeCard(packet) {
 </body></html>`;
 }
 
-module.exports = { renderMarketIntelPrototypeCard };
+// ── MULTI-CARD SPLIT (operator directive 2026-05-17) ─────────
+// One 12,000px-tall PNG was technically rendered but visually
+// unusable in Discord. Split into 6 separate cards so each is
+// a readable Discord attachment. Card mapping per operator:
+//   Card 1 — Market Mood / Major Events / Primary Event (Msgs 0+1)
+//   Card 2 — Reaction Paths                              (Msg 2)
+//   Card 3 — Risk Escalation                             (Msg 3)
+//   Card 4 — What To Watch                               (Msg 4)
+//   Card 5 — Event-Day Reference                         (Msg 5)
+//   Card 6 — Briefing Summary / Expanded Terminology /
+//            Source Note                                 (Msg 6 +
+//                                                        footer)
+// PDF remains single-document (full-length carry-around copy).
+function _wrap(body) {
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><style>${PROTO_CSS}</style></head>
+<body>
+<div class="channel">
+  ${_channelHeader()}
+  ${body}
+</div>
+</body></html>`;
+}
+
+// Card 6 footer — Briefing Summary already at Msg 6; append
+// Expanded Terminology Hyperlinks + Source Note as Discord-style
+// footer rows so they stand alongside the briefing summary.
+function _card6Footer(packet) {
+  const glossaryTerms = (packet.glossaryTerms && packet.glossaryTerms.terms) || ['Dovish','Hawkish','Yield curve','Risk-off','Liquidity sweep','Confirmed candle close'];
+  const url = (packet.glossaryTerms && packet.glossaryTerms.glossaryUrl) || 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
+  const chips = glossaryTerms.map(t => `<span style="color:#5BC0DE;font-weight:700">${esc(t)}]</span>`).join('  ');
+  const source = packet.sourceNote || {};
+  const sourceLine = `calendar=<span style="color:#5BC0DE">${esc(source.source || 'unavailable')}${source.mode ? '/' + esc(source.mode) : ''}</span> · macro=<span style="color:#FAA61A">ATLAS</span>${source.macroProxies ? ' · ' + esc(source.macroProxies) : ''} · probability=${esc(source.probabilityBasis || 'engine-derived')}`;
+  return `
+    <div class="message" data-idx="footer">
+      <div class="message-content">${_ansiFence(_ansi('#FAA61A', '▸  Expanded Terminology', 700))}<br>📘 [<a class="term-link" href="${esc(url)}">${chips}</a>]<br><br>${_ansiFence(_ansi('#5BC0DE', '▸  Source / provenance', 700))}<br>${sourceLine}<br><br>_Bias remains conditional until price confirms through structure._</div>
+    </div>`;
+}
+
+function renderMarketIntelPrototypeCards(packet) {
+  packet = packet || {};
+  const ctx = { now: Date.now() };
+  return [
+    { label: 'card-1-mood-events-primary', html: _wrap(_msgZero(packet, ctx) + _msgOne(packet)) },
+    { label: 'card-2-reaction-paths',      html: _wrap(_msgTwo(packet)) },
+    { label: 'card-3-risk-escalation',     html: _wrap(_msgThree(packet)) },
+    { label: 'card-4-what-to-watch',       html: _wrap(_msgFour(packet)) },
+    { label: 'card-5-event-day-reference', html: _wrap(_msgFive(packet)) },
+    { label: 'card-6-briefing-summary',    html: _wrap(_msgSix(packet) + _card6Footer(packet)) },
+  ];
+}
+
+module.exports = { renderMarketIntelPrototypeCard, renderMarketIntelPrototypeCards };
