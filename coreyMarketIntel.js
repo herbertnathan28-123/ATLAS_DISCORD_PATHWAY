@@ -1042,6 +1042,73 @@ const FOH_TERMINOLOGY_LINE =
 
 const FOH_BIAS_DISCLAIMER = '_' + BIAS_CONDITIONAL_DISCLAIMER + '_';
 
+// ── FOH packet helpers wiring (operator brief 2026-05-16) ────
+// The richer FOH product-depth packet is assembled here and
+// attached to every builder's return as `fohPacket`. The text
+// payload stays unchanged; the renderer consumes fohPacket
+// directly so the live image surface gets prototype-grade depth
+// without affecting the text fallback.
+function _COUNTRY_FOR_CCY(ccy) {
+  const map = { USD: 'US', EUR: 'EU', GBP: 'UK', JPY: 'JP', CAD: 'CA', AUD: 'AU', NZD: 'NZ', CHF: 'CH', CNY: 'CN' };
+  return map[String(ccy || '').toUpperCase()] || null;
+}
+
+function _miFohPacketHelpers() {
+  return {
+    classifyEventDriver,
+    mechanismChainFor,
+    fohBeforeDuringAfter,
+    fohWhatConfirms,
+    fohWhatCancels,
+    humanizeTitle,
+    fmtAwstShort,
+    fmtUtcShort,
+    affectedSymbols,
+    bucketAffected,
+    countryForCurrency: _COUNTRY_FOR_CCY,
+  };
+}
+
+function _miBuildEventFohPacket(rawEvent, opts) {
+  let pkt;
+  try {
+    const packetMod = require('./renderers/foh/marketIntelFohPacket');
+    let liveCtx = null;
+    try { liveCtx = _coreyLiveModule && _coreyLiveModule.getLiveContext && _coreyLiveModule.getLiveContext(); }
+    catch (_e) { liveCtx = null; }
+    const geoCtx = inferGeopoliticalContext(liveCtx);
+    pkt = packetMod.buildEventFohPacket(rawEvent, geoCtx, liveCtx, _miFohPacketHelpers(),
+      (opts && opts.released) ? 'released' : 'pre_event',
+      Object.assign({ now: Date.now() }, opts || {}));
+  } catch (_e) { pkt = null; }
+  return pkt;
+}
+
+function _miBuildDailyFohPacket(snapshot, geoCtx, now, mode) {
+  let pkt;
+  try {
+    const packetMod = require('./renderers/foh/marketIntelFohPacket');
+    let liveCtx = null;
+    try { liveCtx = _coreyLiveModule && _coreyLiveModule.getLiveContext && _coreyLiveModule.getLiveContext(); }
+    catch (_e) { liveCtx = null; }
+    pkt = packetMod.buildDailyFohPacket(snapshot, geoCtx, liveCtx, _miFohPacketHelpers(), mode || 'daily', now);
+  } catch (_e) { pkt = null; }
+  return pkt;
+}
+
+// Mode detector — Saturday or Sunday-pre-FX-open ⇒ weekend
+// mode (Monday open prep briefing). Friday post-close also
+// flips to weekend mode to start the prep cycle.
+function _miInferMiMode(nowMs) {
+  const d = new Date(nowMs || Date.now());
+  const day = d.getUTCDay();
+  const hour = d.getUTCHours();
+  if (day === 6) return 'weekend';                // Saturday
+  if (day === 0 && hour < 22) return 'weekend';   // Sunday pre-FX-open
+  if (day === 5 && hour >= 21) return 'weekend';  // Friday post-close
+  return 'daily';
+}
+
 // ============================================================
 // IMAGE-PAYLOAD HELPERS (FOH_IMAGE_RENDER_ENABLED wire-in)
 // ============================================================
@@ -1311,7 +1378,8 @@ function buildPreEventAlertPayload(rawEvent, minutesOut, opts) {
   lines.push(FOH_BIAS_DISCLAIMER);
 
   const imagePayload = _buildMarketIntelImagePayload(rawEvent, a, Object.assign({}, opts || {}, { released: false, stage, history: opts && opts.history }));
-  return { content: lines.join('\n'), stage, imagePayload };
+  const fohPacket = _miBuildEventFohPacket(rawEvent, Object.assign({}, opts || {}, { released: false, now: Date.now() }));
+  return { content: lines.join('\n'), stage, imagePayload, fohPacket };
 }
 
 // ============================================================
@@ -1390,7 +1458,8 @@ function buildReleasedEventAlertPayload(rawEvent, opts) {
   lines.push(FOH_BIAS_DISCLAIMER);
 
   const imagePayload = _buildMarketIntelImagePayload(rawEvent, a, Object.assign({}, opts || {}, { released: true }));
-  return { content: lines.join('\n'), imagePayload };
+  const fohPacket = _miBuildEventFohPacket(rawEvent, Object.assign({}, opts || {}, { released: true, now: Date.now() }));
+  return { content: lines.join('\n'), imagePayload, fohPacket };
 }
 
 // ============================================================
@@ -1602,9 +1671,11 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   lines.push(FOH_BIAS_DISCLAIMER);
 
   const imagePayload = _buildDailyBulletinImagePayload(snapshot, geoCtx, NOW);
+  const fohPacket = _miBuildDailyFohPacket(snapshot, geoCtx, NOW, _miInferMiMode(NOW));
   return {
     content: lines.join('\n'),
     imagePayload,
+    fohPacket,
     counts: {
       highImpactTodayCount: highToday.length,
       highInterestTodayCount: highInterestToday.length,
@@ -1958,16 +2029,19 @@ async function dispatch(messageType, payloadObj, extra) {
   // post non-2xx) falls through to the existing text send.
   // Production behaviour is unchanged unless the operator flips
   // the env flag.
-  if (process.env.FOH_IMAGE_RENDER_ENABLED === 'true' && payloadObj && payloadObj.imagePayload) {
+  if (process.env.FOH_IMAGE_RENDER_ENABLED === 'true' && payloadObj && (payloadObj.fohPacket || payloadObj.imagePayload)) {
     try {
       const foh = require('./renderers/foh');
       const captionLine = 'ATLAS Market Intel · ' + (extra.event || messageType);
+      // Prefer the richer FOH product packet when available;
+      // fall back to the legacy thinner imagePayload otherwise.
+      const renderPayload = payloadObj.fohPacket || payloadObj.imagePayload;
       const imageRes = await foh.postFohExportToDiscord({
         kind: 'market_intel',
-        payload: payloadObj.imagePayload,
+        payload: renderPayload,
         webhookUrl: _webhookUrl,
         caption: captionLine,
-        dashboardUrl: payloadObj.imagePayload.glossaryUrl || null,
+        dashboardUrl: (renderPayload && (renderPayload.glossaryUrl || (renderPayload.glossaryTerms && renderPayload.glossaryTerms.glossaryUrl))) || null,
       });
       if (imageRes && imageRes.ok) {
         log(`[COREY-MARKET-INTEL] send_result=ok image_render=true status=${imageRes.status} png_kb=${Math.round(((imageRes.attachments && imageRes.attachments[0] && imageRes.attachments[0].bytes) || 0) / 1024)} pdf_skipped=${imageRes.pdfSkipped ? 'true' : 'false'}`);
@@ -2030,7 +2104,7 @@ async function tick(NOW) {
   const utcHour  = new Date(NOW).getUTCHours();
   if (_lastDailyBulletinUtcDay !== todayKey && utcHour >= DAILY_BULLETIN_UTC_HOUR) {
     const bulletin = buildDailyBulletinPayload(snapshot, geoCtx, NOW);
-    await dispatch('daily', { content: bulletin.content }, {
+    await dispatch('daily', { content: bulletin.content, imagePayload: bulletin.imagePayload, fohPacket: bulletin.fohPacket }, {
       event: 'daily_bulletin',
       affected_symbols: bulletin.affectedSymbols,
       high_impact_today: bulletin.counts.highImpactTodayCount,
@@ -2060,7 +2134,7 @@ async function tick(NOW) {
         if (_alertsSent.has(key)) continue;
         const payload = buildPreEventAlertPayload(e, win, { health, geoLevel: geoCtx.level });
         const a = analyseEvent(e);
-        await dispatch('pre_event', { content: payload.content }, {
+        await dispatch('pre_event', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket }, {
           event: e.title || 'pre_event',
           affected_symbols: a.affected,
           expected_bias: a.bias.label.split(':')[0],
@@ -2084,7 +2158,7 @@ async function tick(NOW) {
     if (_releaseAlertsSent.has(key)) continue;
     const payload = buildReleasedEventAlertPayload(e, { health, geoLevel: geoCtx.level });
     const a = analyseEvent(e);
-    await dispatch('release', { content: payload.content }, {
+    await dispatch('release', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket }, {
       event: e.title || 'release',
       affected_symbols: a.affected,
       expected_bias: a.bias.label.split(':')[0],
