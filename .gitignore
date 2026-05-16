@@ -3,6 +3,7 @@ npm-debug.log*
 .env
 .env.local
 .DS_Store
+.cache/
 
 # ATLAS Foundation Repair v1.0.1 — doctrine harness output (regenerated each run)
 audit.json
