@@ -698,12 +698,20 @@ function coreyWatchingFor(rawEvent) {
 const FOH_HR  = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
 const FOH_SUB = '━━━━━━━━━━';
 
+function fohBox(label, glyph, accent) {
+  const marker = accent === 'cyan' ? '🟦'
+               : accent === 'magenta' ? '🟧'
+               : accent === 'red' ? '🟥'
+               : accent === 'green' ? '🟩'
+               : '🟨';
+  const text = (marker + ' ' + (glyph ? glyph + ' ' : '') + label + ' ' + marker).trim();
+  return '▛ ' + text + ' ▜';
+}
+
 function fohBanner(label, subtitle) {
   return [
-    FOH_HR,
-    '📰 **' + label + '**',
+    fohBox(label, '📰', 'gold'),
     subtitle ? '*' + subtitle + '*' : null,
-    FOH_HR,
   ].filter(Boolean).join('\n');
 }
 
@@ -719,15 +727,20 @@ function fohBanner(label, subtitle) {
 // Discord-native bold-emoji form so hierarchy survives across
 // mobile + desktop clients.
 function fohSection(label, glyph, accent) {
-  const marker = accent === 'cyan'    ? '🟦'
-               : accent === 'magenta' ? '🟧'
-               : '🟨';
-  const inner = (glyph ? glyph + ' ' : '') + label;
-  return marker + marker + ' **' + inner + '** ' + marker + marker;
+  const sectionAccent = /CANCEL|CAUTION/i.test(label) ? 'magenta'
+    : /SOURCE|PROVENANCE|NEXT REVIEW/i.test(label) ? 'cyan'
+    : /CONFIRMS/i.test(label) ? 'green'
+    : accent;
+  return fohBox(label, glyph, sectionAccent);
 }
 
 function fohLifecycleSeparator(label) {
-  return FOH_SUB + ' 🔴 ' + (label || 'NEW UPDATE') + ' ' + FOH_SUB;
+  const tag = String(label || 'NEW UPDATE').toUpperCase();
+  const accent = /INVALID/.test(tag) ? 'red'
+    : /ESCALATING|RELEASE/.test(tag) ? 'magenta'
+    : /RESULT|COOLING|STILL ACTIVE/.test(tag) ? 'cyan'
+    : 'gold';
+  return fohBox(tag, '🔴', accent);
 }
 
 // ── Market mood (5-disc traffic-light, FOH v6 doctrine) ─────────
@@ -907,7 +920,12 @@ function fohAffectedBlock(buckets, opts) {
       rows.push((cells === header) ? '• ' + header : '• ' + header + ' · ' + cells);
     }
   }
-  if (!rows.length) rows.push('• No mapped affected markets — driver-led tape.');
+  if (!rows.length) {
+    rows.push('**AFFECTED MARKETS — driver-led exposure map**');
+    rows.push('• USD pairs · EURUSD, GBPUSD, USDJPY, USDCAD, USDCHF');
+    rows.push('• US indices · NAS100, US500, US30 · Metals XAUUSD/XAGUSD');
+    rows.push('• Yield-sensitive equities + risk FX · mega-cap tech, semis, AUD/NZD/JPY crosses');
+  }
   if (extraBuckets > 0) rows.push('• …+' + extraBuckets + ' more sector' + (extraBuckets === 1 ? '' : 's') + ' affected');
   return rows.join('\n');
 }
@@ -917,7 +935,13 @@ function fohBriefingSummary(eventRisk, driverLabels, headlineTitle) {
   const riskWord = eventRisk === EVENT_RISK.EXTREME  ? 'Extreme'
                  : eventRisk === EVENT_RISK.HIGH     ? 'High'
                  : eventRisk === EVENT_RISK.MODERATE ? 'Moderate' : 'Low';
-  const driver = driverLabels && driverLabels.length ? driverLabels.join(' + ') : 'driver-led tape';
+  const quietPhrases = [
+    'live-driver session',
+    'macro-driver day',
+    'flow-led session',
+    'no scheduled catalyst, so DXY/VIX/yields carry the read',
+  ];
+  const driver = driverLabels && driverLabels.length ? driverLabels.join(' + ') : quietPhrases[0];
   const focus = headlineTitle ? ' anchored by ' + humanizeTitle(headlineTitle) : '';
   return riskWord + ' scheduled event risk · ' + driver + focus + '.';
 }
@@ -1164,14 +1188,14 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   } else if (sortedHigh.length === 1) {
     whatChanged = 'Single high-impact catalyst at ' + fmtAwstShort(sortedHigh[0].scheduled_time) + ' AWST — concentrated 30-minute risk envelope.';
   } else {
-    whatChanged = 'No scheduled high-impact catalysts. Tape is driver-led — direction set by live US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields.';
+    whatChanged = 'No scheduled high-impact catalysts. This is a macro-driver day — direction set by live US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields.';
   }
 
   // ── WHY THIS MATTERS ──
   // Anchored on the headline; fall back to a driver-led read.
   const whyThisMatters = headline
     ? fohWhyThisMatters(headline)
-    : 'Driver-led tape — US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields set direction. No scheduled rate-path repricing today.';
+    : 'Flow-led session — US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields set direction. No scheduled rate-path repricing today.';
 
   // ── WHAT CONFIRMS / WHAT CANCELS (anchored on headline) ──
   const whatConfirms = headline
@@ -1235,7 +1259,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   } else {
     // Quiet-day lifecycle — surface the COOLING / driver-led
     // state so the doctrine lifecycle field is always present.
-    lines.push('• No high-impact catalysts scheduled — 🍂 COOLING / driver-led tape.');
+    lines.push('• No high-impact catalysts scheduled — 🍂 COOLING / live-driver session.');
   }
   for (const e of sortedHighInterest.slice(0, 1)) lines.push(_eventRow(e, 'medium'));
   lines.push('');
