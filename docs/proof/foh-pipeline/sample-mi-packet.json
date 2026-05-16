@@ -1,8 +1,8 @@
 {
   "meta": {
     "module": "market_intel",
-    "reportId": "mi-e1053f3b",
-    "generatedAtUTC": "2026-05-16 22:47 UTC",
+    "reportId": "mi-fd3df038",
+    "generatedAtUTC": "2026-05-16 23:20 UTC",
     "audience": "front_of_house",
     "source": "atlas_runtime",
     "noExternalWorkspaceLinks": true
@@ -12,7 +12,7 @@
     "subtitle": "Daily Roadmap",
     "riskState": "High — clustered catalyst exposure",
     "severityDiscs": "🟠🟠🟠🟠⚫ High — clustered catalyst exposure",
-    "generatedAtUTC": "2026-05-16 22:47 UTC"
+    "generatedAtUTC": "2026-05-16 23:20 UTC"
   },
   "briefingSummary": {
     "primaryRead": "Three high-impact catalysts cluster early week — USD inflation + EUR policy tone dominate; gold and US indices most sensitive.",
@@ -104,7 +104,7 @@
           "trapped long buyers forced to liquidate"
         ]
       },
-      "dollarImpact": "Long EURUSD: $500 – $1,500 gain on $100k notional. Short XAUUSD: $500 – $1,500 drawdown on 1 lot."
+      "dollarImpact": "Long EURUSD: $500 – $1,500 gain on $100k notional. Short XAUUSD: $500 – $1,500 drawdown on 100 oz notional exposure."
     },
     "inline": {
       "behaviour": "Light reaction across the board; initial spike either side then settle. Volatility drops within 15 minutes (event: CPI (USD))",
@@ -189,21 +189,30 @@
   "whatToDoNow": [
     {
       "step": 1,
-      "action": "Reduce position size to 50% of normal risk for the next 6 hours.",
-      "reason": "Catalyst-driven sessions widen spreads and stop ranges. Smaller size keeps planned-risk discipline.",
-      "dollarConsequence": "If normal risk is $500 on a $10k account, reduce to ~$250 per trade for the window."
+      "action": "Reduce dollar exposure to 50% of normal risk for the next 6 hours.",
+      "why": "Catalyst-driven sessions widen spreads and stop ranges. Smaller dollar exposure keeps planned-risk discipline through the volatility expansion.",
+      "ifIgnored": "A normal-size position takes ~30–50% more drawdown through the announcement candle than the planned-risk model assumes — turning a designed $500 loss into a $650–$750 actual loss.",
+      "confirmation": "Position-size calculator reflects the reduced dollar exposure before the event window opens. If normal risk per trade is $500 on a $10k account, the new ceiling is ~$250.",
+      "actionChangesWhen": "Market mood drops from HIGH back to LOW within the 6-hour window — at that point dollar exposure can scale back up gradually, ONE position at a time.",
+      "dollarConsequence": "Reducing to ~$250 per trade caps the announcement-window drawdown at the planned-risk line; oversized exposure regularly turns a $500 designed loss into $700–$1,000 of realised damage."
     },
     {
       "step": 2,
       "action": "Cancel marginal setups. Only act on triggers where the next candle closes BEYOND the level (confirmed directional structure test).",
-      "reason": "Sweeps and false breaks dominate the first 15 minutes after a high-impact print.",
-      "dollarConsequence": "Avoids the $300 – $800 drawdown band typical of chasing a first-move fake."
+      "why": "Sweeps and false breaks dominate the first 15 minutes after a high-impact print; trading on a wick alone is paying for false direction.",
+      "ifIgnored": "Acting on the first 60 seconds typically catches the wick high or low; the $300–$800 drawdown band on $100k EURUSD is paid for the privilege.",
+      "confirmation": "No new entries until the 5-minute candle CLOSES beyond the structural level AND the next candle holds the level as new support/resistance.",
+      "actionChangesWhen": "Two consecutive 5-min closes confirm direction AND the lead pair shows momentum agreement on the trigger timeframe.",
+      "dollarConsequence": "Avoids the $300–$800 drawdown band typical of chasing a first-move fake; the same setup post-confirmation pays $300–$800 in agreement direction."
     },
     {
       "step": 3,
       "action": "Widen exit-points by ~30% on existing positions; tight exits get hit before direction confirms.",
-      "reason": "Initial volatility expansion pushes price beyond historical 1-σ before the real direction prints.",
-      "dollarConsequence": "Avoids being stopped on a wick that mean-reverts within 5 minutes — protects $150 – $400 of carry on $100k notional."
+      "why": "Initial volatility expansion pushes price beyond historical 1-σ before the real direction prints — tight exits convert noise into realised loss.",
+      "ifIgnored": "Tight exits get swept by the announcement-candle wick; the position is closed at a loss right before the structural direction confirms — the worst possible exit point.",
+      "confirmation": "All open exits sit at least 1.3× the pre-event ATR distance away from current price by 5 minutes before the announcement.",
+      "actionChangesWhen": "The 15-min candle close prints the real direction; tighter exits can be reapplied 30 minutes after confirmation if the move is mean-reverting.",
+      "dollarConsequence": "Avoids being stopped on a wick that mean-reverts within 5 minutes — protects $150–$400 of carry on $100k notional through the event window."
     }
   ],
   "confirmationCancellation": {
@@ -218,5 +227,218 @@
     ],
     "dataFreshness": "LIVE",
     "confidenceBasis": "engine-derived"
+  },
+  "todaysAnnouncements": [
+    {
+      "session": "New York",
+      "timeUTC": "12:30 AWST · 04:30 UTC",
+      "currency": "USD",
+      "title": "CPI (USD)",
+      "severity": "HIGH",
+      "severityDiscs": "🔴🔴🔴🔴⚫ 4/5 — High",
+      "whyItMatters": "Inflation print directly repricing the rate-path. Surprise direction drives DXY and front-end yields, cascading through every dollar pair, gold, and US indices.",
+      "affectedInstruments": [
+        "DXY",
+        "EURUSD",
+        "GBPUSD",
+        "USDJPY",
+        "XAUUSD",
+        "US500",
+        "NAS100"
+      ]
+    },
+    {
+      "session": "New York",
+      "timeUTC": "14:30 AWST · 06:30 UTC",
+      "currency": "USD",
+      "title": "Non Farm Payrolls",
+      "severity": "HIGH",
+      "severityDiscs": "🔴🔴🔴🔴⚫ 4/5 — High",
+      "whyItMatters": "Labour print sets the Fed reaction function. Surprise direction repricing rate-path expectations through DXY and bonds; gold and indices follow.",
+      "affectedInstruments": [
+        "DXY",
+        "EURUSD",
+        "GBPUSD",
+        "USDJPY",
+        "XAUUSD",
+        "US500",
+        "NAS100"
+      ]
+    },
+    {
+      "session": "New York",
+      "timeUTC": "20:30 AWST · 12:30 UTC",
+      "currency": "EUR",
+      "title": "ECB Rate Decision",
+      "severity": "HIGH",
+      "severityDiscs": "🔴🔴🔴🔴⚫ 4/5 — High",
+      "whyItMatters": "Central-bank statement directly setting policy expectations. Forward guidance dominates the post-statement price action — the 15-min close after the press conference is the real trend.",
+      "affectedInstruments": [
+        "EURUSD",
+        "EURGBP",
+        "EURJPY",
+        "DAX40",
+        "STOXX50"
+      ]
+    }
+  ],
+  "primaryEventFocus": {
+    "eventName": "CPI (USD)",
+    "eventTimeUTC": "12:30 AWST · 04:30 UTC",
+    "severity": "HIGH",
+    "severityDiscs": "🟠🟠🟠🟠⚫ High — clustered catalyst exposure",
+    "volatilityWindow": "60–120 minutes of high reactivity, then mean-reversion through next session",
+    "affectedSymbols": [
+      "DXY",
+      "EURUSD",
+      "XAUUSD",
+      "US500"
+    ],
+    "keyPriceZones": [
+      "EURUSD reaction band ≈ 1.0928",
+      "EURUSD downside liquidity ≈ 1.0880",
+      "EURUSD upside liquidity ≈ 1.0980",
+      "XAUUSD structural support ≈ 2380",
+      "XAUUSD structural resistance ≈ 2440"
+    ],
+    "likelyPaths": [
+      "HIGHER surprise → USD bid, EURUSD breaks 1.0928 lower, XAUUSD pressured, US500 defensive.",
+      "LOWER surprise → USD offered, EURUSD breaks 1.0928 upper, XAUUSD rallies, US500 bid.",
+      "IN-LINE print → reaction band intact, mean-reversion inside the next 15 min.",
+      "INITIAL-DIRECTION REVERSAL → first 60-second move faded; 15-min close prints the real trend."
+    ],
+    "confirmation": "First 5-min close + DXY / lead pair confirmation in agreement.",
+    "cancellation": "First 15-min close fails to follow through; geopolitical override hits the wire."
+  },
+  "next24To72Hours": [
+    {
+      "timeUTC": "12:30 AWST · 04:30 UTC",
+      "currency": "USD",
+      "title": "CPI (USD)",
+      "severity": "HIGH",
+      "severityDiscs": "🟠🟠🟠🟠⚫ High — clustered catalyst exposure",
+      "expectedSensitivity": "Lead catalyst this cycle — directional gate for the next 6–24 hours.",
+      "preparationGuidance": "Position size at 60% of normal in the 6 hours leading in; widen exits ~30% inside the announcement candle."
+    }
+  ],
+  "affectedMarketsExpanded": [
+    {
+      "instrument": "DXY",
+      "howAffected": "Dollar-index basket; DIRECT primary indicator of USD repricing — leads every dollar pair.",
+      "strongerResult": "DXY pushes to fresh 24-hour high on hawkish USD surprise; pairs follow.",
+      "weakerResult": "DXY drops below pre-event range on dovish print; pairs rally in sympathy.",
+      "confirmation": "15-min close beyond the pre-event range.",
+      "invalidation": "15-min close back inside the pre-event range; whipsaw without follow-through.",
+      "keyPriceLevels": "Pre-event range top/bottom is the directional gate. Above range = dollar real, below = dollar fade.",
+      "riskNote": "Leads every dollar pair by 5–10 minutes — read DXY first, then act on the pair."
+    },
+    {
+      "instrument": "EURUSD",
+      "howAffected": "Dollar leg of the EUR-USD pair; reacts to USD rate-path repricing first, EUR fundamentals second.",
+      "strongerResult": "EURUSD drops on stronger USD print — first 30 min sees the cleanest move.",
+      "weakerResult": "EURUSD rallies on softer USD print — EUR-side optimism amplifies the move.",
+      "confirmation": "5-min candle close in the surprise direction PLUS DXY making higher highs / lower lows in agreement.",
+      "invalidation": "Body close back through the pre-event reaction band (≈1.0928) within 15 minutes.",
+      "keyPriceLevels": "Reaction band 1.0928 · downside liquidity ≈1.0880 · upside liquidity ≈1.0980 · 30-day ATR ≈70 pips.",
+      "riskNote": "$300–$800 swing on $100k notional in the first 30 minutes; up to $1,500 on a reversal chase."
+    },
+    {
+      "instrument": "XAUUSD",
+      "howAffected": "Inverse to real-yields and USD; reacts secondary to USD prints, primary to risk-off flow.",
+      "strongerResult": "XAUUSD drops intraday on a hawkish USD surprise; safe-haven flow can recover the move on a 1H close.",
+      "weakerResult": "XAUUSD rallies on a dovish USD print; real-yield-fall amplifies.",
+      "confirmation": "DXY direction in agreement + 1H close beyond the structural level.",
+      "invalidation": "Body close back through the pre-event range; safe-haven flow flipping the move on the 1H.",
+      "keyPriceLevels": "Structural support 2380 · structural resistance 2440 · 30-day ATR ≈$45.",
+      "riskNote": "$500–$1,500 swing on 100 oz exposure in the first 30 minutes."
+    },
+    {
+      "instrument": "US500",
+      "howAffected": "Equity index repricing rate-path expectations; reacts to bond yields first, dollar second.",
+      "strongerResult": "US500 drops on rate-hike fears after a hawkish USD print.",
+      "weakerResult": "US500 rallies on rate-cut optimism after a dovish USD print.",
+      "confirmation": "5-min close + VIX direction (inverse) + yields in agreement.",
+      "invalidation": "Body close back into the pre-event range OR VIX collapsing without index direction following.",
+      "keyPriceLevels": "VWAP-driven; first 15-min VWAP becomes the intraday pivot.",
+      "riskNote": "$400–$900 swing on 100-share exposure in the first 30 minutes."
+    }
+  ],
+  "priceMap": [
+    {
+      "instrument": "EURUSD",
+      "level": "1.0928",
+      "role": "reaction_level",
+      "whyMatters": "Post-event reaction band. ATLAS treats EURUSD direction as structurally real ONLY if price holds outside this band on the 5-min close.",
+      "ifHolds": "Continuation in the breakout direction toward the adjacent liquidity zone (1.0880 downside or 1.0980 upside).",
+      "ifFails": "Event fade — EURUSD returns into the pre-event range; trapped traders forced to cover.",
+      "confirmation": "5-min close beyond the band + next candle stays beyond.",
+      "invalidation": "Body close back inside the band on the next candle.",
+      "dollarConsequence": "Failed continuation can reverse $300–$800 per $100k EURUSD notional in the first 15 minutes after invalidation."
+    },
+    {
+      "instrument": "EURUSD",
+      "level": "1.0880",
+      "role": "liquidity_pool",
+      "whyMatters": "Downside liquidity below the event low; absorbs continuation flow on a confirmed hawkish print.",
+      "ifHolds": "Downside extension exhausts here; mean-reversion attempt toward 1.0928.",
+      "ifFails": "Deeper continuation toward 1.0850; volatility stays elevated through the next macro window.",
+      "confirmation": "1H close below 1.0880 + DXY making higher highs.",
+      "invalidation": "5-min reclaim back above 1.0880 inside 15 minutes.",
+      "dollarConsequence": "Holding through 1.0880 → 1.0850 adds $300–$500 per $100k notional."
+    },
+    {
+      "instrument": "EURUSD",
+      "level": "1.0980",
+      "role": "liquidity_pool",
+      "whyMatters": "Upside liquidity above the event high; absorbs continuation flow on a confirmed dovish print.",
+      "ifHolds": "Upside extension exhausts here; mean-reversion attempt back toward 1.0928.",
+      "ifFails": "Deeper continuation toward 1.1010; risk-on flow stays in equities and gold.",
+      "confirmation": "1H close above 1.0980 + DXY making lower lows.",
+      "invalidation": "5-min retracement back below 1.0980 inside 15 minutes.",
+      "dollarConsequence": "Holding through 1.0980 → 1.1010 adds $300–$500 per $100k notional."
+    },
+    {
+      "instrument": "DXY",
+      "level": "pre-event range",
+      "role": "continuation_gate",
+      "whyMatters": "Dollar-index gate. DXY closing through the pre-event range tells ATLAS the dollar move is real BEFORE any individual pair confirms.",
+      "ifHolds": "Range respected → no directional dollar bias; pairs chop until the next catalyst.",
+      "ifFails": "Range broken → dollar lead in agreement direction; every dollar pair confirms within 5–10 minutes.",
+      "confirmation": "15-min close beyond the range on broad-based dollar flow.",
+      "invalidation": "15-min close back inside the range within 30 minutes.",
+      "dollarConsequence": "Reading DXY first protects $200–$500 per $100k notional vs. reading the pair direction in isolation."
+    },
+    {
+      "instrument": "XAUUSD",
+      "level": "2380",
+      "role": "support_zone",
+      "whyMatters": "Structural support beneath current price. Gold below 2380 on a 1H close flips the macro bias bearish on the metal complex.",
+      "ifHolds": "Mean-reversion back toward 2410; safe-haven flow returns if equity risk-off prints.",
+      "ifFails": "Deeper liquidation toward 2350; correlation with real-yields tightens.",
+      "confirmation": "1H close above 2380 after testing it.",
+      "invalidation": "1H close below 2380.",
+      "dollarConsequence": "Holding 100 oz exposure through a 2380 break: $300–$500 of unrealised loss before invalidation triggers."
+    },
+    {
+      "instrument": "XAUUSD",
+      "level": "2440",
+      "role": "resistance_zone",
+      "whyMatters": "Structural resistance above current price. Gold above 2440 on a 1H close flips macro bias bullish on the metal complex.",
+      "ifHolds": "Mean-reversion back toward 2410; consolidation continues.",
+      "ifFails": "Breakout toward fresh highs; real-yields fall, dollar weakness compounds.",
+      "confirmation": "1H close above 2440 after testing it.",
+      "invalidation": "1H close back below 2440 inside 4 hours.",
+      "dollarConsequence": "Riding 100 oz exposure through 2440: each $10 move = $1,000 of P/L."
+    }
+  ],
+  "operationalNarrative": {
+    "currentPhase": "pre-event window (T-60 → T-0) into CPI (USD)",
+    "whatTheMarketIsDoing": "Liquidity thinning; pre-event positioning visible in front-end yields and DXY; equity desks de-grossing before the announcement candle.",
+    "whyItIsDoingIt": "Market participants reprice the rate-path BEFORE the catalyst lands; once the announcement prints, the move is the difference between consensus and actual.",
+    "whatChangesNext": "At T-0 the announcement prints; the 5-min close at T+5 is the FIRST real read on direction; the 15-min close at T+15 is the REAL trend; the 1H close locks in the session bias.",
+    "whatTradersShouldAvoid": "New entries inside the announcement candle, adding to losers in the pre-event window, chasing the first 60-second move, oversizing into thin liquidity.",
+    "whenConditionsBecomeSaferAgain": "After the 15-min close at T+15 confirms direction AND the 1H close at T+60 locks in the trend. Position-sizing can return to normal ~6 hours after the catalyst if no follow-on event is on the calendar.",
+    "severity": "HIGH",
+    "timestampUTC": "2026-05-16 23:20 UTC"
   }
 }

@@ -28,7 +28,12 @@ const REQUIRED_OUTCOME = ['behaviour','affectedMarkets','traderAction','dollarIm
 const REQUIRED_TRADER_ACTION = ['instrument','priceLevel','behavioralExplanation','confirmsContinuation','invalidatesContinuation','probableNextPath','probableFailurePath'];
 const REQUIRED_IMPACT = ['mechanism','priceReactionPath','liquidityEffect','volatilityEffect','traderConsequence'];
 const REQUIRED_RISKESC = ['healthy','caution','danger','invalidation'];
-const REQUIRED_STEP   = ['step','action','reason','dollarConsequence'];
+// Operator brief 2026-05-17 (master order): action blocks now
+// carry the full ACTION / WHY / IF IGNORED / CONFIRMATION /
+// ACTION CHANGES WHEN / dollar consequence shape. `reason` is
+// legacy-aliased to `why` in callers; both names pass.
+const REQUIRED_STEP   = ['step','action','dollarConsequence'];
+const STEP_WHY_KEYS   = ['why','reason'];
 const REQUIRED_CC     = ['confirmsWhen','cancelsWhen','dangerIf'];
 const REQUIRED_PROV   = ['sources','dataFreshness','confidenceBasis'];
 
@@ -54,7 +59,15 @@ function audit(packet, name) {
   assertHas(packet.marketImpact, REQUIRED_IMPACT, name + '.marketImpact');
   assertHas(packet.riskEscalation, REQUIRED_RISKESC, name + '.riskEscalation');
   if (!Array.isArray(packet.whatToDoNow) || !packet.whatToDoNow.length) fail(name + '.whatToDoNow non-empty array');
-  else { ok(name + '.whatToDoNow non-empty'); packet.whatToDoNow.forEach((s, i) => assertHas(s, REQUIRED_STEP, name + '.whatToDoNow[' + i + ']')); }
+  else {
+    ok(name + '.whatToDoNow non-empty');
+    packet.whatToDoNow.forEach((s, i) => {
+      assertHas(s, REQUIRED_STEP, name + '.whatToDoNow[' + i + ']');
+      const hasWhy = STEP_WHY_KEYS.some(k => s[k] && String(s[k]).trim().length);
+      if (hasWhy) ok(name + '.whatToDoNow[' + i + '] has why/reason');
+      else fail(name + '.whatToDoNow[' + i + '] has why/reason', 'missing both why and reason');
+    });
+  }
   assertHas(packet.confirmationCancellation, REQUIRED_CC, name + '.confirmationCancellation');
   assertHas(packet.provenance, REQUIRED_PROV, name + '.provenance');
   if (packet.meta && packet.meta.noExternalWorkspaceLinks !== true) fail(name + '.meta.noExternalWorkspaceLinks must be true');

@@ -1,8 +1,8 @@
 {
   "meta": {
     "module": "dark_horse",
-    "reportId": "dh-fa03ecd0",
-    "generatedAtUTC": "2026-05-16 22:47 UTC",
+    "reportId": "dh-8df52039",
+    "generatedAtUTC": "2026-05-16 23:20 UTC",
     "audience": "front_of_house",
     "source": "atlas_runtime",
     "noExternalWorkspaceLinks": true
@@ -12,7 +12,7 @@
     "subtitle": "3 standouts on this scan · 33 markets scanned",
     "riskState": "Elevated — broad market moving fast",
     "severityDiscs": "🟠🟠🟠🟠⚫ 4/5 — Elevated",
-    "generatedAtUTC": "2026-05-16 22:47 UTC"
+    "generatedAtUTC": "2026-05-16 23:20 UTC"
   },
   "briefingSummary": {
     "primaryRead": "3 standouts (1 FRESH · 1 STILL ACTIVE · 1 FADING). Lead: EURUSD FRESH.",
@@ -26,7 +26,7 @@
   },
   "eventDayReference": {
     "eventName": "EURUSD · FRESH Bullish",
-    "eventTimeUTC": "2026-05-16 22:47 UTC",
+    "eventTimeUTC": "2026-05-16 23:20 UTC",
     "expectedDuration": "15–60 minutes for the first confirmation candle to print",
     "whatToWatch": "Watch EURUSD: trigger Above 1.0915 confirms; entry 1.0925–1.0935; invalidation Below 1.0890.",
     "chartStudyTimeframe": "1H structural map + 5M / 15M execution"

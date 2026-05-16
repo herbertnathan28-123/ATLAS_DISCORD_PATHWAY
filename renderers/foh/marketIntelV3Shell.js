@@ -58,6 +58,10 @@ function _truncate(s, n) {
 function buildDiscordTextSummary(viewModel, opts) {
   opts = opts || {};
   const maxChars = Number.isFinite(opts.maxDiscordChunkChars) ? opts.maxDiscordChunkChars : RENDER_PARAMETERS.maxDiscordChunkChars;
+  // Priority order — Market Impact + Confirmation/Cancellation +
+  // Source/Provenance must all fit before the Discord 2000-char
+  // cap. Operational/primary/actions detail expands in the PDF
+  // and rendered cards if the Discord summary truncates.
   const lines = [];
   lines.push('**' + viewModel.HEADER_TITLE + ' · ' + viewModel.HEADER_SUBTITLE + '**');
   lines.push('Risk State: ' + viewModel.RISK_STATE_DISC_SCALE);
@@ -65,9 +69,6 @@ function buildDiscordTextSummary(viewModel, opts) {
   lines.push('');
   lines.push('__Briefing Summary__');
   lines.push(viewModel.BRIEFING_SUMMARY);
-  lines.push('');
-  lines.push('__What To Do Now__');
-  lines.push(viewModel.WHAT_TO_DO_NOW);
   lines.push('');
   lines.push('__Market Impact__');
   lines.push(viewModel.MARKET_IMPACT);
@@ -78,6 +79,15 @@ function buildDiscordTextSummary(viewModel, opts) {
   lines.push('');
   lines.push('__Source / Provenance__');
   lines.push(viewModel.SOURCE_PROVENANCE);
+  lines.push('');
+  lines.push('__Operational Read__');
+  lines.push(viewModel.OPERATIONAL_NARRATIVE || '—');
+  lines.push('');
+  lines.push('__What To Do Now__');
+  lines.push(viewModel.WHAT_TO_DO_NOW);
+  lines.push('');
+  lines.push('__Primary Event Focus__');
+  lines.push(viewModel.PRIMARY_EVENT_FOCUS || '—');
   return _truncate(lines.join('\n'), maxChars);
 }
 

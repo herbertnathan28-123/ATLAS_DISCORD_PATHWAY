@@ -158,15 +158,17 @@ const SECTION_LABEL = {
 };
 
 // ── Contract-size map (B11.c — hybrid: seeded + educational) ─
-// Doctrine: a Level-1 trader must see dollar risk before they
-// see lot sizing. Seeded with prototype trio. All other symbols
-// fall back to a labelled "Educational example — 1% of $25,000
-// account" framing so the field is never blank but is never
-// presented as a live trading recommendation either.
+// Operator brief 2026-05-17: surface ALL user-facing sizing in
+// dollar exposure / dollar risk / percentage allocation language —
+// never "lot" terminology. The CONTRACT_INFO labels below are
+// surfaced verbatim in FOH output so they must read in dollar-
+// exposure language. The underlying pointValue / pipDescriptor
+// arithmetic is unchanged; only the user-facing labels were
+// rephrased.
 const CONTRACT_INFO = Object.freeze({
-  EURUSD: { standardSizeLabel: '1 lot EURUSD',              pointValue: 100000,  pipDescriptor: '1 lot model: price distance × 100,000 notional' },
-  XAUUSD: { standardSizeLabel: '1 lot XAUUSD (100 oz)',     pointValue: 100,     pipDescriptor: '1 lot model: dollar distance × 100 oz' },
-  NVDA:   { standardSizeLabel: '100 shares NVDA',           pointValue: 100,     pipDescriptor: '100-share model: dollar distance × 100 shares' },
+  EURUSD: { standardSizeLabel: 'EURUSD standard contract ($100k notional exposure)', pointValue: 100000, pipDescriptor: 'Standard EURUSD contract: price distance × $100k notional exposure' },
+  XAUUSD: { standardSizeLabel: 'XAUUSD standard contract (100 oz notional)',         pointValue: 100,    pipDescriptor: 'Standard XAUUSD contract: dollar distance × 100 oz' },
+  NVDA:   { standardSizeLabel: 'NVDA 100-share notional exposure',                    pointValue: 100,    pipDescriptor: '100-share model: dollar distance × 100 shares' },
 });
 function _contractInfo(symbol, record) {
   const seeded = CONTRACT_INFO[symbol];

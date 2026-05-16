@@ -47,17 +47,26 @@ function _utcStamp(ms) {
   return d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 }
 
+// Operator brief 2026-05-17: colour-coded severity discs.
+//   EXTREME / STORM = full red (5/5)
+//   HIGH            = red (4/5 red)
+//   MEDIUM          = orange / amber (3/5)
+//   LOW             = blue / cyan (2/5)
+//   CALM            = blue / cyan (1/5)
+// Inactive disc always ⚫. Discord-rendered with native glyphs.
 function _discScale(severity) {
   switch (String(severity || '').toUpperCase()) {
-    case 'STORM':
-    case 'HIGH':     return '🔴🔴🔴🔴🔴 5/5 — Storm';
+    case 'EXTREME':
+    case 'STORM':    return '🔴🔴🔴🔴🔴 5/5 — Extreme';
+    case 'HIGH':     return '🔴🔴🔴🔴⚫ 4/5 — High';
     case 'ELEV':
     case 'ELEVATED': return '🟠🟠🟠🟠⚫ 4/5 — Elevated';
-    case 'CAUTION':  return '🟡🟡🟡🟡⚫ 4/5 — Caution';
+    case 'CAUTION':  return '🟠🟠🟠⚫⚫ 3/5 — Caution';
     case 'MED':
-    case 'WATCH':    return '🟡🟡🟡⚫⚫ 3/5 — Watch';
-    case 'LOW':
-    case 'CALM':     return '🟢🟢⚫⚫⚫ 2/5 — Calm';
+    case 'MEDIUM':
+    case 'WATCH':    return '🟠🟠🟠⚫⚫ 3/5 — Medium';
+    case 'LOW':      return '🔵🔵⚫⚫⚫ 2/5 — Low';
+    case 'CALM':     return '🔵⚫⚫⚫⚫ 1/5 — Calm';
     default:         return '⚪⚪⚫⚫⚫ 2/5 — Indeterminate';
   }
 }
@@ -159,7 +168,7 @@ function _outcomeStub(direction, eventName, severity) {
             'trapped long buyers forced to liquidate',
           ],
         }),
-        dollarImpact: 'Long EURUSD: ' + usdRange + ' gain on $100k notional. Short XAUUSD: ' + usdRange + ' drawdown on 1 lot.',
+        dollarImpact: 'Long EURUSD: ' + usdRange + ' gain on $100k notional. Short XAUUSD: ' + usdRange + ' drawdown on 100 oz notional exposure.',
       };
     case 'inline':
       return {
@@ -261,6 +270,290 @@ function _firstEvent(packetIn) {
   return null;
 }
 
+// ─── CHUNK 3 — FULL-DAY MARKET INTEL COVERAGE ─────────────────
+// Operator brief: TODAY'S RELEVANT ANNOUNCEMENTS / PRIMARY EVENT
+// FOCUS / NEXT 24-72 HOURS. Each event carries session group,
+// UTC stamp, currency, severity discs, why-it-matters, instruments.
+
+function _sessionOf(timeStr) {
+  // Map a UTC clock time to a trading session window.
+  const m = /(\d{1,2}):(\d{2})/.exec(timeStr || '');
+  if (!m) return 'unscheduled';
+  const h = Number(m[1]);
+  if (h >= 22 || h < 7) return 'Asia';
+  if (h < 12)           return 'London';
+  if (h < 21)           return 'New York';
+  return 'late-NY';
+}
+
+function _todaysAnnouncementsFrom(clusters) {
+  const out = [];
+  for (const c of (clusters || [])) {
+    for (const e of (c.events || [])) {
+      const sev = String(e.severity || c.severity || 'MED').toUpperCase();
+      out.push({
+        session:        _sessionOf(e.time),
+        timeUTC:        e.time || 'pending',
+        currency:       e.currency || c.currency || 'multi',
+        title:          e.title || 'unnamed event',
+        severity:       sev,
+        severityDiscs:  _discScale(sev),
+        whyItMatters:   e.whyMatters || _whyMattersDefault(e.title, sev),
+        affectedInstruments: e.affectedInstruments || _instrumentsForCcy(e.currency || c.currency),
+      });
+    }
+  }
+  return out;
+}
+
+function _whyMattersDefault(title, severity) {
+  const t = String(title || '').toLowerCase();
+  if (/cpi|inflation|ppi/.test(t)) return 'Inflation print directly repricing the rate-path. Surprise direction drives DXY and front-end yields, cascading through every dollar pair, gold, and US indices.';
+  if (/nfp|payroll/.test(t))       return 'Labour print sets the Fed reaction function. Surprise direction repricing rate-path expectations through DXY and bonds; gold and indices follow.';
+  if (/ecb|boe|fomc|rate decision/.test(t)) return 'Central-bank statement directly setting policy expectations. Forward guidance dominates the post-statement price action — the 15-min close after the press conference is the real trend.';
+  if (/retail sales|consumer/.test(t)) return 'Consumer-demand readout into the next Fed meeting. Drives growth expectations, secondary impact on dollar via real-yield repricing.';
+  if (/gdp|growth/.test(t))            return 'Activity print into the next central-bank meeting; surprise direction reprices the policy path with a 1–2 day lag.';
+  if (/pmi|ism/.test(t))               return 'Activity proxy ahead of the official growth print; first-mover for cyclical rotation reads.';
+  if (/lagarde|powell|fed.*speak/.test(t)) return 'Forward-guidance speech — tone matters more than content; market reprices the policy path in real time.';
+  return (severity === 'HIGH' ? 'High-impact catalyst' : severity === 'ELEV' ? 'Elevated-impact catalyst' : 'Standard catalyst') + ' — reactivity elevated through the announcement window.';
+}
+
+function _instrumentsForCcy(ccy) {
+  const c = String(ccy || '').toUpperCase();
+  switch (c) {
+    case 'USD':  return ['DXY', 'EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US500', 'NAS100'];
+    case 'EUR':  return ['EURUSD', 'EURGBP', 'EURJPY', 'DAX40', 'STOXX50'];
+    case 'GBP':  return ['GBPUSD', 'EURGBP', 'GBPJPY', 'UK100'];
+    case 'JPY':  return ['USDJPY', 'EURJPY', 'GBPJPY', 'NIKKEI'];
+    case 'AUD':  return ['AUDUSD', 'AUDJPY', 'AU200'];
+    case 'CAD':  return ['USDCAD', 'CADJPY', 'WTI'];
+    case 'CHF':  return ['USDCHF', 'EURCHF', 'XAUUSD'];
+    default:     return ['DXY', 'EURUSD', 'XAUUSD', 'US500'];
+  }
+}
+
+// ─── CHUNK 4 — AFFECTED MARKET EXPANSION ──────────────────────
+// Operator brief: if MI says an announcement affects X, it must
+// explain HOW. Per-market: howAffected, strongerResult, weakerResult,
+// confirmation, invalidation, keyPriceLevels, riskNote.
+
+const _MARKET_PROFILE = Object.freeze({
+  EURUSD: { howAffected: 'Dollar leg of the EUR-USD pair; reacts to USD rate-path repricing first, EUR fundamentals second.',
+            stronger:   'EURUSD drops on stronger USD print — first 30 min sees the cleanest move.',
+            weaker:     'EURUSD rallies on softer USD print — EUR-side optimism amplifies the move.',
+            confirmation: '5-min candle close in the surprise direction PLUS DXY making higher highs / lower lows in agreement.',
+            invalidation: 'Body close back through the pre-event reaction band (≈1.0928) within 15 minutes.',
+            levels:     'Reaction band 1.0928 · downside liquidity ≈1.0880 · upside liquidity ≈1.0980 · 30-day ATR ≈70 pips.',
+            risk:       '$300–$800 swing on $100k notional in the first 30 minutes; up to $1,500 on a reversal chase.' },
+  GBPUSD: { howAffected: 'USD-sensitive pair carrying additional UK-CPI / BOE-policy beta; whips wider than EURUSD on USD prints.',
+            stronger:   'GBPUSD drops faster than EURUSD on a hawkish USD surprise — higher beta to dollar moves.',
+            weaker:     'GBPUSD rallies on softer USD print; UK-side risk-on amplifies.',
+            confirmation: '5-min close + DXY confirmation; cable typically leads EURUSD by 10–15 minutes.',
+            invalidation: 'Body close back through the pre-event range within 15 minutes.',
+            levels:     'Watch the 0.85 EUR/GBP cross — if cross moves against direction, the USD move is real.',
+            risk:       '$400–$1,000 swing on £80k notional in the first 30 minutes; wider stops needed than EURUSD.' },
+  USDJPY: { howAffected: 'Yield-driven pair; reacts to US-bond yields more than dollar index directly.',
+            stronger:   'USDJPY rallies as front-end yields jump; safe-haven flow can cap the upside.',
+            weaker:     'USDJPY drops on yield retracement; JPY-strength flows compound the move.',
+            confirmation: '5-min close + US 10Y yield direction in agreement.',
+            invalidation: 'BoJ intervention rhetoric or JPY-safe-haven flow flipping the move.',
+            levels:     '~148.50 intervention watch zone; below 145 = sustained JPY strength.',
+            risk:       '$500–$1,200 swing on $100k notional in the first 30 minutes.' },
+  XAUUSD: { howAffected: 'Inverse to real-yields and USD; reacts secondary to USD prints, primary to risk-off flow.',
+            stronger:   'XAUUSD drops intraday on a hawkish USD surprise; safe-haven flow can recover the move on a 1H close.',
+            weaker:     'XAUUSD rallies on a dovish USD print; real-yield-fall amplifies.',
+            confirmation: 'DXY direction in agreement + 1H close beyond the structural level.',
+            invalidation: 'Body close back through the pre-event range; safe-haven flow flipping the move on the 1H.',
+            levels:     'Structural support 2380 · structural resistance 2440 · 30-day ATR ≈$45.',
+            risk:       '$500–$1,500 swing on 100 oz exposure in the first 30 minutes.' },
+  US500:  { howAffected: 'Equity index repricing rate-path expectations; reacts to bond yields first, dollar second.',
+            stronger:   'US500 drops on rate-hike fears after a hawkish USD print.',
+            weaker:     'US500 rallies on rate-cut optimism after a dovish USD print.',
+            confirmation: '5-min close + VIX direction (inverse) + yields in agreement.',
+            invalidation: 'Body close back into the pre-event range OR VIX collapsing without index direction following.',
+            levels:     'VWAP-driven; first 15-min VWAP becomes the intraday pivot.',
+            risk:       '$400–$900 swing on 100-share exposure in the first 30 minutes.' },
+  NAS100: { howAffected: 'Tech-heavy index, most rate-sensitive of the major US indices; biggest beta to long-end yields.',
+            stronger:   'NAS100 drops sharper than US500 on hawkish USD prints — long-duration sensitivity.',
+            weaker:     'NAS100 rallies harder than US500 on dovish prints.',
+            confirmation: '5-min close + US 10Y yield direction (inverse) in agreement.',
+            invalidation: 'Body close back into the pre-event range; long-end yield retracement.',
+            levels:     'VWAP-driven; first 15-min VWAP is the intraday pivot.',
+            risk:       '$500–$1,200 swing on 10-contract NQ exposure in the first 30 minutes.' },
+  DXY:    { howAffected: 'Dollar-index basket; DIRECT primary indicator of USD repricing — leads every dollar pair.',
+            stronger:   'DXY pushes to fresh 24-hour high on hawkish USD surprise; pairs follow.',
+            weaker:     'DXY drops below pre-event range on dovish print; pairs rally in sympathy.',
+            confirmation: '15-min close beyond the pre-event range.',
+            invalidation: '15-min close back inside the pre-event range; whipsaw without follow-through.',
+            levels:     'Pre-event range top/bottom is the directional gate. Above range = dollar real, below = dollar fade.',
+            risk:       'Leads every dollar pair by 5–10 minutes — read DXY first, then act on the pair.' },
+});
+
+function _affectedMarketsExpandedFrom(keyMarkets) {
+  return (keyMarkets || []).map(sym => {
+    const p = _MARKET_PROFILE[sym] || null;
+    if (!p) {
+      return {
+        instrument: sym,
+        howAffected: 'Beta exposure to the announcement direction via cross-asset flow.',
+        strongerResult: 'Moves in the same direction as the lead pair (' + (keyMarkets[1] || 'EURUSD') + ').',
+        weakerResult: 'Mean-reverts back to pre-event range within 15 minutes.',
+        confirmation: '5-min close + lead-pair confirmation.',
+        invalidation: 'Body close back inside the pre-event range.',
+        keyPriceLevels: 'Pre-event range top/bottom + 30-day ATR.',
+        riskNote: 'Sized to the lead-pair envelope; check current spread before acting.',
+      };
+    }
+    return {
+      instrument: sym,
+      howAffected: p.howAffected,
+      strongerResult: p.stronger,
+      weakerResult: p.weaker,
+      confirmation: p.confirmation,
+      invalidation: p.invalidation,
+      keyPriceLevels: p.levels,
+      riskNote: p.risk,
+    };
+  });
+}
+
+// ─── CHUNK 5 — PRICE MAP + OPERATIONAL LEVELS ─────────────────
+// Operator brief: no naked price levels. Every important level
+// explains why-matters, expected behaviour, what confirms, what
+// invalidates, probable next path, dollar consequence.
+
+function _priceMapFrom(keyMarkets, eventName) {
+  const ev = eventName || 'the lead catalyst';
+  const out = [];
+  // EURUSD reaction band + adjacent liquidity zones (illustrative;
+  // adapter substitutes live levels when wired).
+  out.push({
+    instrument: 'EURUSD',
+    level: '1.0928',
+    role: 'reaction_level',
+    whyMatters: 'Post-event reaction band. ATLAS treats EURUSD direction as structurally real ONLY if price holds outside this band on the 5-min close.',
+    ifHolds: 'Continuation in the breakout direction toward the adjacent liquidity zone (1.0880 downside or 1.0980 upside).',
+    ifFails: 'Event fade — EURUSD returns into the pre-event range; trapped traders forced to cover.',
+    confirmation: '5-min close beyond the band + next candle stays beyond.',
+    invalidation: 'Body close back inside the band on the next candle.',
+    dollarConsequence: 'Failed continuation can reverse $300–$800 per $100k EURUSD notional in the first 15 minutes after invalidation.',
+  });
+  out.push({
+    instrument: 'EURUSD',
+    level: '1.0880',
+    role: 'liquidity_pool',
+    whyMatters: 'Downside liquidity below the event low; absorbs continuation flow on a confirmed hawkish print.',
+    ifHolds: 'Downside extension exhausts here; mean-reversion attempt toward 1.0928.',
+    ifFails: 'Deeper continuation toward 1.0850; volatility stays elevated through the next macro window.',
+    confirmation: '1H close below 1.0880 + DXY making higher highs.',
+    invalidation: '5-min reclaim back above 1.0880 inside 15 minutes.',
+    dollarConsequence: 'Holding through 1.0880 → 1.0850 adds $300–$500 per $100k notional.',
+  });
+  out.push({
+    instrument: 'EURUSD',
+    level: '1.0980',
+    role: 'liquidity_pool',
+    whyMatters: 'Upside liquidity above the event high; absorbs continuation flow on a confirmed dovish print.',
+    ifHolds: 'Upside extension exhausts here; mean-reversion attempt back toward 1.0928.',
+    ifFails: 'Deeper continuation toward 1.1010; risk-on flow stays in equities and gold.',
+    confirmation: '1H close above 1.0980 + DXY making lower lows.',
+    invalidation: '5-min retracement back below 1.0980 inside 15 minutes.',
+    dollarConsequence: 'Holding through 1.0980 → 1.1010 adds $300–$500 per $100k notional.',
+  });
+  out.push({
+    instrument: 'DXY',
+    level: 'pre-event range',
+    role: 'continuation_gate',
+    whyMatters: 'Dollar-index gate. DXY closing through the pre-event range tells ATLAS the dollar move is real BEFORE any individual pair confirms.',
+    ifHolds: 'Range respected → no directional dollar bias; pairs chop until the next catalyst.',
+    ifFails: 'Range broken → dollar lead in agreement direction; every dollar pair confirms within 5–10 minutes.',
+    confirmation: '15-min close beyond the range on broad-based dollar flow.',
+    invalidation: '15-min close back inside the range within 30 minutes.',
+    dollarConsequence: 'Reading DXY first protects $200–$500 per $100k notional vs. reading the pair direction in isolation.',
+  });
+  out.push({
+    instrument: 'XAUUSD',
+    level: '2380',
+    role: 'support_zone',
+    whyMatters: 'Structural support beneath current price. Gold below 2380 on a 1H close flips the macro bias bearish on the metal complex.',
+    ifHolds: 'Mean-reversion back toward 2410; safe-haven flow returns if equity risk-off prints.',
+    ifFails: 'Deeper liquidation toward 2350; correlation with real-yields tightens.',
+    confirmation: '1H close above 2380 after testing it.',
+    invalidation: '1H close below 2380.',
+    dollarConsequence: 'Holding 100 oz exposure through a 2380 break: $300–$500 of unrealised loss before invalidation triggers.',
+  });
+  out.push({
+    instrument: 'XAUUSD',
+    level: '2440',
+    role: 'resistance_zone',
+    whyMatters: 'Structural resistance above current price. Gold above 2440 on a 1H close flips macro bias bullish on the metal complex.',
+    ifHolds: 'Mean-reversion back toward 2410; consolidation continues.',
+    ifFails: 'Breakout toward fresh highs; real-yields fall, dollar weakness compounds.',
+    confirmation: '1H close above 2440 after testing it.',
+    invalidation: '1H close back below 2440 inside 4 hours.',
+    dollarConsequence: 'Riding 100 oz exposure through 2440: each $10 move = $1,000 of P/L.',
+  });
+  return out;
+}
+
+// ─── CHUNK 6 — ACTION BLOCK EXPANSION ─────────────────────────
+// Every action carries: action, why, ifIgnored, confirmation,
+// actionChangesWhen. The view-model formatter renders all 5 fields
+// into the user-facing Discord block.
+
+function _expandActions(severity) {
+  const sev = String(severity || 'MED').toUpperCase();
+  const sizeMultiplier = /HIGH|STORM/.test(sev) ? '50%' : /ELEV/.test(sev) ? '60%' : '80%';
+  const dollarFigure = /HIGH|STORM/.test(sev) ? '~$250' : /ELEV/.test(sev) ? '~$300' : '~$400';
+  return [
+    {
+      step: 1,
+      action: 'Reduce dollar exposure to ' + sizeMultiplier + ' of normal risk for the next 6 hours.',
+      why: 'Catalyst-driven sessions widen spreads and stop ranges. Smaller dollar exposure keeps planned-risk discipline through the volatility expansion.',
+      ifIgnored: 'A normal-size position takes ~30–50% more drawdown through the announcement candle than the planned-risk model assumes — turning a designed $500 loss into a $650–$750 actual loss.',
+      confirmation: 'Position-size calculator reflects the reduced dollar exposure before the event window opens. If normal risk per trade is $500 on a $10k account, the new ceiling is ' + dollarFigure + '.',
+      actionChangesWhen: 'Market mood drops from ' + sev + ' back to LOW within the 6-hour window — at that point dollar exposure can scale back up gradually, ONE position at a time.',
+      dollarConsequence: 'Reducing to ' + dollarFigure + ' per trade caps the announcement-window drawdown at the planned-risk line; oversized exposure regularly turns a $500 designed loss into $700–$1,000 of realised damage.',
+    },
+    {
+      step: 2,
+      action: 'Cancel marginal setups. Only act on triggers where the next candle closes BEYOND the level (confirmed directional structure test).',
+      why: 'Sweeps and false breaks dominate the first 15 minutes after a high-impact print; trading on a wick alone is paying for false direction.',
+      ifIgnored: 'Acting on the first 60 seconds typically catches the wick high or low; the $300–$800 drawdown band on $100k EURUSD is paid for the privilege.',
+      confirmation: 'No new entries until the 5-minute candle CLOSES beyond the structural level AND the next candle holds the level as new support/resistance.',
+      actionChangesWhen: 'Two consecutive 5-min closes confirm direction AND the lead pair shows momentum agreement on the trigger timeframe.',
+      dollarConsequence: 'Avoids the $300–$800 drawdown band typical of chasing a first-move fake; the same setup post-confirmation pays $300–$800 in agreement direction.',
+    },
+    {
+      step: 3,
+      action: 'Widen exit-points by ~30% on existing positions; tight exits get hit before direction confirms.',
+      why: 'Initial volatility expansion pushes price beyond historical 1-σ before the real direction prints — tight exits convert noise into realised loss.',
+      ifIgnored: 'Tight exits get swept by the announcement-candle wick; the position is closed at a loss right before the structural direction confirms — the worst possible exit point.',
+      confirmation: 'All open exits sit at least 1.3× the pre-event ATR distance away from current price by 5 minutes before the announcement.',
+      actionChangesWhen: 'The 15-min candle close prints the real direction; tighter exits can be reapplied 30 minutes after confirmation if the move is mean-reverting.',
+      dollarConsequence: 'Avoids being stopped on a wick that mean-reverts within 5 minutes — protects $150–$400 of carry on $100k notional through the event window.',
+    },
+  ];
+}
+
+// ─── CHUNK 7 — EVENT-DAY OPERATIONAL STORYTELLING ─────────────
+// Phase + behaviour + danger + safety narrative.
+
+function _operationalNarrativeFrom(severity, eventName, now) {
+  const sev = String(severity || 'MED').toUpperCase();
+  const ev = eventName || 'the lead catalyst';
+  return {
+    currentPhase: 'pre-event window (T-60 → T-0) into ' + ev,
+    whatTheMarketIsDoing: 'Liquidity thinning; pre-event positioning visible in front-end yields and DXY; equity desks de-grossing before the announcement candle.',
+    whyItIsDoingIt: 'Market participants reprice the rate-path BEFORE the catalyst lands; once the announcement prints, the move is the difference between consensus and actual.',
+    whatChangesNext: 'At T-0 the announcement prints; the 5-min close at T+5 is the FIRST real read on direction; the 15-min close at T+15 is the REAL trend; the 1H close locks in the session bias.',
+    whatTradersShouldAvoid: 'New entries inside the announcement candle, adding to losers in the pre-event window, chasing the first 60-second move, oversizing into thin liquidity.',
+    whenConditionsBecomeSaferAgain: 'After the 15-min close at T+15 confirms direction AND the 1H close at T+60 locks in the trend. Position-sizing can return to normal ~6 hours after the catalyst if no follow-on event is on the calendar.',
+    severity: sev,
+    timestampUTC: _utcStamp(now),
+  };
+}
+
 function buildMarketIntelPacket(opts) {
   opts = opts || {};
   const engine = opts.engine || {};                // upstream MI packet (legacy shape)
@@ -328,7 +621,7 @@ function buildMarketIntelPacket(opts) {
     traderConsequence:   'Chasing the first 60 seconds creates the $800–$1,500 drawdown band; waiting for the 5-min close and trading the next pullback flips the same setup into a clean $300–$800 gain on $100k EURUSD.',
   };
   const riskEscalation = _riskEscalationStubs(eventName);
-  const whatToDoNow = _whatToDoNowStubs(severity);
+  const whatToDoNow = _expandActions(severity);
   const confirmationCancellation = {
     confirmsWhen: _safe(engine.confirmationPath && engine.confirmationPath.narrative, 'First 5-min close in the surprise direction PLUS confirming structure on DXY / lead pair.'),
     cancelsWhen:  _safe(engine.cancellationPath && engine.cancellationPath.narrative, 'First 15-min close fails to follow through OR geopolitical override hits the wire inside the window.'),
@@ -340,7 +633,72 @@ function buildMarketIntelPacket(opts) {
     confidenceBasis:  (engine.sourceNote && engine.sourceNote.probabilityBasis) || 'engine-derived',
   };
 
-  return { meta, header, briefingSummary, eventDayReference, fourWayOutcomes, marketImpact, riskEscalation, whatToDoNow, confirmationCancellation, provenance };
+  // CHUNK 3 — full-day Market Intel coverage.
+  const todaysAnnouncements = _todaysAnnouncementsFrom(engine.eventClusters);
+  const primaryEvent = ev ? ev.e : null;
+  const primaryEventFocus = {
+    eventName,
+    eventTimeUTC,
+    severity,
+    severityDiscs,
+    volatilityWindow: _humanDuration(severity),
+    affectedSymbols: keyMarkets,
+    keyPriceZones: [
+      'EURUSD reaction band ≈ 1.0928',
+      'EURUSD downside liquidity ≈ 1.0880',
+      'EURUSD upside liquidity ≈ 1.0980',
+      'XAUUSD structural support ≈ 2380',
+      'XAUUSD structural resistance ≈ 2440',
+    ],
+    likelyPaths: [
+      'HIGHER surprise → USD bid, EURUSD breaks 1.0928 lower, XAUUSD pressured, US500 defensive.',
+      'LOWER surprise → USD offered, EURUSD breaks 1.0928 upper, XAUUSD rallies, US500 bid.',
+      'IN-LINE print → reaction band intact, mean-reversion inside the next 15 min.',
+      'INITIAL-DIRECTION REVERSAL → first 60-second move faded; 15-min close prints the real trend.',
+    ],
+    confirmation: 'First 5-min close + DXY / lead pair confirmation in agreement.',
+    cancellation: 'First 15-min close fails to follow through; geopolitical override hits the wire.',
+  };
+  const next24To72Hours = (opts.upcomingEvents && Array.isArray(opts.upcomingEvents) ? opts.upcomingEvents : []).map(e => ({
+    timeUTC:      e.time || 'pending',
+    currency:     e.currency || 'multi',
+    title:        e.title || 'unnamed event',
+    severity:     String(e.severity || 'MED').toUpperCase(),
+    severityDiscs: _discScale(String(e.severity || 'MED').toUpperCase()),
+    expectedSensitivity: e.expectedSensitivity || (String(e.severity || 'MED').toUpperCase() === 'HIGH' ? 'HIGH sensitivity — clustered-catalyst preparation required' : 'MODERATE sensitivity — monitor for cross-asset confirmation'),
+    preparationGuidance: e.preparationGuidance || 'Pre-position size at 60% of normal in the 6 hours leading in; widen exits ~30% inside the announcement candle.',
+  }));
+  // Always carry at least the primary event in the upcoming list if
+  // upstream didn't supply one, so the "NEXT 24–72 HOURS" section
+  // never reads empty.
+  if (!next24To72Hours.length && primaryEvent) {
+    next24To72Hours.push({
+      timeUTC: eventTimeUTC,
+      currency: eventCcy,
+      title: eventName,
+      severity,
+      severityDiscs,
+      expectedSensitivity: 'Lead catalyst this cycle — directional gate for the next 6–24 hours.',
+      preparationGuidance: 'Position size at 60% of normal in the 6 hours leading in; widen exits ~30% inside the announcement candle.',
+    });
+  }
+
+  // CHUNK 4 — affected markets expanded.
+  const affectedMarketsExpanded = _affectedMarketsExpandedFrom(keyMarkets);
+
+  // CHUNK 5 — price map.
+  const priceMap = _priceMapFrom(keyMarkets, eventName);
+
+  // CHUNK 7 — event-day operational storytelling.
+  const operationalNarrative = _operationalNarrativeFrom(severity, eventName, now);
+
+  return {
+    meta, header, briefingSummary, eventDayReference, fourWayOutcomes,
+    marketImpact, riskEscalation, whatToDoNow, confirmationCancellation,
+    provenance,
+    todaysAnnouncements, primaryEventFocus, next24To72Hours,
+    affectedMarketsExpanded, priceMap, operationalNarrative,
+  };
 }
 
 module.exports = { buildMarketIntelPacket };

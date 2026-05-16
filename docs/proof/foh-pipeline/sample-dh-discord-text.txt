@@ -1,6 +1,6 @@
 **ATLAS · Dark Horse · 3 standouts on this scan · 33 markets scanned**
 Risk State: 🟠🟠🟠🟠⚫ 4/5 — Elevated
-Generated: 2026-05-16 22:47 UTC
+Generated: 2026-05-16 23:20 UTC
 
 __Briefing Summary__
 Primary read: 3 standouts (1 FRESH · 1 STILL ACTIVE · 1 FADING). Lead: EURUSD FRESH.
@@ -8,19 +8,22 @@ Operational meaning: Standouts are listed in priority order; each carries a conf
 Key markets: EURUSD · XAUUSD · NVDA
 Current risk: 🟠🟠🟠🟠⚫ 4/5 — Elevated — elevated reactivity, size down per standout lifecycle
 
-__What To Do Now__
-1. Primary standout — EURUSD (FRESH Bullish): enter on confirmed close into Above 1.0915 confirms; entry 1.0925–1.0935
-   why: Structure 2/2, Corey live macro USD weakening, FRESH on this scan.
-   $$: ~$40 · reward 5.7R · half size for FRESH
-2. Secondary — XAUUSD (STILL ACTIVE Bullish): enter on confirmed close into Above 2425 confirms
-   why: Continuation watch · 1H close held above 2415.
-   $$: ~$92 · reward 3.0R · full size × mood reduction
-3. Tertiary — NVDA (FADING Bullish): enter on confirmed close into Above $980 only on confirmed close
-   why: Late-stage move · momentum cooling on 4H.
-   $$: ~$59 · reward 1.3R · quarter-size only — FADING card
-
 __Market Impact__
 Market impact: Standout setups derive from structural Bullish alignment + Corey live macro confirmation + Dark Horse rank score ≥ 7/10.
 Price reaction path: Trigger close → entry zone → watch level → caution zone → invalidation; each level annotated with dollar consequence on the rendered card.
 Liquidity effect: Standouts are filtered against current spreads; FRESH cards require live confirmation that the trigger zone has held under the current quote depth.
-Volatility effect: Elevated regime: standout siz…
+Volatility effect: Elevated regime: standout sizing already adjusted via lifecycle tag
+Trader consequence: Hitting the planned-risk line is the cost of the read being wrong; chasing past invalidation turns a $150 loss into a $400+ loss with no upside symmetry.
+
+__Confirmation / Cancellation__
+Confirms: Confirmed close above Above 1.0915 confirms; entry 1.0925–1.0935 on the trigger timeframe.
+Cancels: Close below Below 1.0890 on the trigger timeframe.
+
+__Source / Provenance__
+Source: ATLAS Dark Horse scanner · Corey live macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y) · freshness: LIVE · confidence: engine-derived
+
+__Operational Read__
+No operational read this cycle.
+
+__What To Do Now__
+1. Primary standout — E…

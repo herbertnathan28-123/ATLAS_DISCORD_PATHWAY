@@ -803,8 +803,8 @@ function getEventIntelligence(symbol, opts) {
       const pipVal = pipValueForCurrency(ev.currency);
       const lowDollars = Math.round(pips[0] * pipVal);
       const highDollars = Math.round(pips[1] * pipVal);
-      lines.push('**EXPECTED MOVE (dollar-first, per standard lot)**');
-      lines.push(`Max impact: roughly $${lowDollars}–$${highDollars} per standard lot (distance context: ≈ ${pips[0]}–${pips[1]} pips).`);
+      lines.push('**EXPECTED MOVE (dollar-first, per standard $100k notional exposure)**');
+      lines.push(`Max impact: roughly $${lowDollars}–$${highDollars} per $100k notional exposure (distance context: ≈ ${pips[0]}–${pips[1]} pips).`);
       lines.push('Bracketed values show approximate distance context for reference only.');
       lines.push('');
     }

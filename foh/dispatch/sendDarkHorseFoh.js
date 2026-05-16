@@ -12,6 +12,7 @@ const { buildDarkHorsePacket } = require('../buildDarkHorsePacket');
 const dhViewModel = require('../adapters/darkHorseViewModel');
 const dhShell = require('../../renderers/foh/darkHorseV6Shell');
 const { postFohDeliverable, containsPrivateBackendUrl } = require('./_discordPost');
+const { validateFohOutput } = require('../validate/validateFohOutput');
 
 async function sendDarkHorseFoh({ ranking, volatility, legacyPayload, webhookUrl, opts }) {
   if (process.env.FOH_IMAGE_RENDER_ENABLED !== 'true') {
@@ -44,6 +45,12 @@ async function sendDarkHorseFoh({ ranking, volatility, legacyPayload, webhookUrl
   }
   if (containsPrivateBackendUrl(rendered.discordText || '')) {
     return { ok: false, reason: 'private_backend_url_in_render' };
+  }
+
+  // 3.5. PRE-SEND VALIDATOR — operator brief 2026-05-17 assurance gate.
+  const v2 = validateFohOutput({ packet, viewModel, discordText: rendered.discordText });
+  if (!v2.ok) {
+    return { ok: false, reason: 'foh_contract_validation_failed', failures: v2.failures, warnings: v2.warnings };
   }
 
   // 4. SHELL → DISCORD POST (text + PNGs + PDF)
