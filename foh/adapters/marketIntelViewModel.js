@@ -62,6 +62,30 @@ const REQUIRED_ANCHORS = Object.freeze([
   'GENERATED_AT_UTC',
 ]);
 
+function _fmtTraderAction(ta) {
+  // Backwards-compat: legacy string traderAction renders as-is.
+  // Fixed-contract structured traderAction renders into the
+  // operator's 6-element block layout (instrument · price level
+  // · what this means · confirms · invalidates · next path ·
+  // failure path).
+  if (!ta) return 'Trader action: —';
+  if (typeof ta === 'string') return 'Trader action: ' + ta;
+  const lines = [];
+  lines.push('Trader action — operationally anchored:');
+  lines.push('  Instrument: ' + (ta.instrument || '—'));
+  lines.push('  Price level: ' + (ta.priceLevel || '—'));
+  lines.push('  What this means: ' + (ta.behavioralExplanation || '—'));
+  lines.push('  What confirms continuation:');
+  for (const c of (ta.confirmsContinuation || ['—'])) lines.push('    - ' + c);
+  lines.push('  What invalidates the directional idea:');
+  for (const i of (ta.invalidatesContinuation || ['—'])) lines.push('    - ' + i);
+  lines.push('  Most probable next path if it confirms:');
+  for (const p of (ta.probableNextPath || ['—'])) lines.push('    - ' + p);
+  lines.push('  Most probable failure path:');
+  for (const f of (ta.probableFailurePath || ['—'])) lines.push('    - ' + f);
+  return lines.join('\n');
+}
+
 function _fmtOutcome(label, outcome) {
   if (!outcome) return label + ': no read.';
   const markets = (outcome.affectedMarkets || []).join(' · ');
@@ -69,7 +93,7 @@ function _fmtOutcome(label, outcome) {
     label,
     'Behaviour: ' + (outcome.behaviour || '—'),
     'Affected markets: ' + (markets || '—'),
-    'Trader action: ' + (outcome.traderAction || '—'),
+    _fmtTraderAction(outcome.traderAction),
     'Dollar impact: ' + (outcome.dollarImpact || '—'),
   ].join('\n');
 }

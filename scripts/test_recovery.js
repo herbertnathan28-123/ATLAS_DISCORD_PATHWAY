@@ -289,10 +289,11 @@ function ok(name, cond, info) {
 {
   const { execFileSync } = require('child_process');
   const guards = [
-    { label: '(F1) FOH no private links', file: 'tests/fohNoPrivateLinks.test.js' },
-    { label: '(F2) FOH required fields',  file: 'tests/fohRequiredFields.test.js' },
-    { label: '(F3) FOH prototype anchors', file: 'tests/fohPrototypeAnchors.test.js' },
-    { label: '(F4) FOH terminology',      file: 'tests/fohTerminology.test.js' },
+    { label: '(F1) FOH no private links',       file: 'tests/fohNoPrivateLinks.test.js' },
+    { label: '(F2) FOH required fields',        file: 'tests/fohRequiredFields.test.js' },
+    { label: '(F3) FOH prototype anchors',      file: 'tests/fohPrototypeAnchors.test.js' },
+    { label: '(F4) FOH terminology',            file: 'tests/fohTerminology.test.js' },
+    { label: '(F5) FOH operational anchors',    file: 'tests/fohOperationalAnchors.test.js' },
   ];
   for (const g of guards) {
     try {

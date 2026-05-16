@@ -1,8 +1,8 @@
 {
   "meta": {
     "module": "dark_horse",
-    "reportId": "dh-40efaf10",
-    "generatedAtUTC": "2026-05-16 21:32 UTC",
+    "reportId": "dh-fa03ecd0",
+    "generatedAtUTC": "2026-05-16 22:47 UTC",
     "audience": "front_of_house",
     "source": "atlas_runtime",
     "noExternalWorkspaceLinks": true
@@ -12,7 +12,7 @@
     "subtitle": "3 standouts on this scan · 33 markets scanned",
     "riskState": "Elevated — broad market moving fast",
     "severityDiscs": "🟠🟠🟠🟠⚫ 4/5 — Elevated",
-    "generatedAtUTC": "2026-05-16 21:32 UTC"
+    "generatedAtUTC": "2026-05-16 22:47 UTC"
   },
   "briefingSummary": {
     "primaryRead": "3 standouts (1 FRESH · 1 STILL ACTIVE · 1 FADING). Lead: EURUSD FRESH.",
@@ -26,7 +26,7 @@
   },
   "eventDayReference": {
     "eventName": "EURUSD · FRESH Bullish",
-    "eventTimeUTC": "2026-05-16 21:32 UTC",
+    "eventTimeUTC": "2026-05-16 22:47 UTC",
     "expectedDuration": "15–60 minutes for the first confirmation candle to print",
     "whatToWatch": "Watch EURUSD: trigger Above 1.0915 confirms; entry 1.0925–1.0935; invalidation Below 1.0890.",
     "chartStudyTimeframe": "1H structural map + 5M / 15M execution"
@@ -37,7 +37,30 @@
       "affectedMarkets": [
         "EURUSD"
       ],
-      "traderAction": "Enter on confirmed close into the entry zone (Above 1.0915 confirms; entry 1.0925–1.0935); half size; invalidate on Below 1.0890.",
+      "traderAction": {
+        "instrument": "EURUSD",
+        "priceLevel": "Above 1.0915 confirms; entry 1.0925–1.0935 (half size for FRESH)",
+        "behavioralExplanation": "Enter EURUSD upside ONLY on a confirmed close through Above 1.0915 confirms; entry 1.0925–1.0935. Structure 2/2, Corey live macro USD weakening, FRESH on this scan.",
+        "confirmsContinuation": [
+          "confirmed close in the upside direction through Above 1.0915 confirms; entry 1.0925–1.0935",
+          "next candle holds the trigger as new support/resistance without retracing back inside",
+          "volume expansion in the upside direction on the confirmation candle"
+        ],
+        "invalidatesContinuation": [
+          "price closes through Below 1.0890 on the trigger timeframe",
+          "candle bodies shrinking after the initial confirmation — momentum exhausting",
+          "cross-asset (DXY / VIX / lead pair) loses confirmation alignment"
+        ],
+        "probableNextPath": [
+          "price extends upside toward the next liquidity zone after Above 1.0915 confirms; entry 1.0925–1.0935",
+          "standout stays valid through the next 15-min scan window if structure holds"
+        ],
+        "probableFailurePath": [
+          "confirmation candle gets faded inside the next 15 minutes",
+          "price returns inside the entry band, invalidating the upside read",
+          "standout drops to downside watch on the next ATLAS scan — re-entry only after a fresh structural test"
+        ]
+      },
       "dollarImpact": "planned risk ~$40 · target 5.7R"
     },
     "lower": {
@@ -45,7 +68,30 @@
       "affectedMarkets": [
         "XAUUSD"
       ],
-      "traderAction": "Enter on confirmed close into the entry zone (Above 2425 confirms); full size × current mood multiplier; invalidate on Below 2408.",
+      "traderAction": {
+        "instrument": "XAUUSD",
+        "priceLevel": "Above 2425 confirms (full size × current mood multiplier)",
+        "behavioralExplanation": "Enter XAUUSD upside ONLY on a confirmed close through Above 2425 confirms. Continuation watch · 1H close held above 2415.",
+        "confirmsContinuation": [
+          "confirmed close in the upside direction through Above 2425 confirms",
+          "next candle holds the trigger as new support/resistance without retracing back inside",
+          "volume expansion in the upside direction on the confirmation candle"
+        ],
+        "invalidatesContinuation": [
+          "price closes through Below 2408 on the trigger timeframe",
+          "candle bodies shrinking after the initial confirmation — momentum exhausting",
+          "cross-asset (DXY / VIX / lead pair) loses confirmation alignment"
+        ],
+        "probableNextPath": [
+          "price extends upside toward the next liquidity zone after Above 2425 confirms",
+          "standout stays valid through the next 15-min scan window if structure holds"
+        ],
+        "probableFailurePath": [
+          "confirmation candle gets faded inside the next 15 minutes",
+          "price returns inside the entry band, invalidating the upside read",
+          "standout drops to downside watch on the next ATLAS scan — re-entry only after a fresh structural test"
+        ]
+      },
       "dollarImpact": "planned risk ~$92 · target 3.0R"
     },
     "inline": {
@@ -53,7 +99,30 @@
       "affectedMarkets": [
         "NVDA"
       ],
-      "traderAction": "Enter on confirmed close into the entry zone (Above $980 only on confirmed close); quarter size only; invalidate on Below $965.",
+      "traderAction": {
+        "instrument": "NVDA",
+        "priceLevel": "Above $980 only on confirmed close (quarter size only — FADING)",
+        "behavioralExplanation": "Enter NVDA upside ONLY on a confirmed close through Above $980 only on confirmed close. Late-stage move · momentum cooling on 4H.",
+        "confirmsContinuation": [
+          "confirmed close in the upside direction through Above $980 only on confirmed close",
+          "next candle holds the trigger as new support/resistance without retracing back inside",
+          "volume expansion in the upside direction on the confirmation candle"
+        ],
+        "invalidatesContinuation": [
+          "price closes through Below $965 on the trigger timeframe",
+          "candle bodies shrinking after the initial confirmation — momentum exhausting",
+          "cross-asset (DXY / VIX / lead pair) loses confirmation alignment"
+        ],
+        "probableNextPath": [
+          "price extends upside toward the next liquidity zone after Above $980 only on confirmed close",
+          "standout stays valid through the next 15-min scan window if structure holds"
+        ],
+        "probableFailurePath": [
+          "confirmation candle gets faded inside the next 15 minutes",
+          "price returns inside the entry band, invalidating the upside read",
+          "standout drops to downside watch on the next ATLAS scan — re-entry only after a fresh structural test"
+        ]
+      },
       "dollarImpact": "planned risk ~$59 · target 1.3R"
     },
     "reversal": {
@@ -63,7 +132,30 @@
         "XAUUSD",
         "NVDA"
       ],
-      "traderAction": "No averaging into an invalidated zone — wait for the next confirmed close.",
+      "traderAction": {
+        "instrument": "EURUSD",
+        "priceLevel": "Below 1.0890 (re-entry only on a fresh structural test)",
+        "behavioralExplanation": "When a standout closes through its invalidation level, the original read is OFF. Re-entry is only valid AFTER price returns to and respects the level on a FRESH 15-min close — not on a wick, not on the same scan.",
+        "confirmsContinuation": [
+          "15-min candle closes back through the invalidation level in the original direction",
+          "next 15-min candle holds the level as new support/resistance",
+          "cross-asset (DXY / VIX) re-aligns with the original direction"
+        ],
+        "invalidatesContinuation": [
+          "price stays on the wrong side of the invalidation level for two consecutive 15-min closes",
+          "standout drops off the next ATLAS scan",
+          "opposite-direction standout appears on the next scan"
+        ],
+        "probableNextPath": [
+          "re-entry sizing always starts at HALF the original planned risk",
+          "standout re-rates back into FRESH on the next clean structural test"
+        ],
+        "probableFailurePath": [
+          "averaging into the invalidated zone before the structural re-test",
+          "doubling planned risk to \"win back\" the original loss",
+          "taking the same trade three times in one session before ATLAS publishes a fresh read"
+        ]
+      },
       "dollarImpact": "Re-entry sizing always starts at half of the original planned risk."
     }
   },
