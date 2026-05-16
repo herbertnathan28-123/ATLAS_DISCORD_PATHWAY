@@ -139,6 +139,10 @@ function auditPresence(content) {
   if (!/Bias remains conditional/.test(content)) {
     errors.push({ kind: 'missing-presence', token: 'BIAS_DISCLAIMER', context: 'conditional-bias disclaimer absent' });
   }
+  // Lane 1 doctrine (operator brief 2026-05-16): glossary chip required.
+  if (!/📘\s*\[\[Glossary/.test(content)) {
+    errors.push({ kind: 'missing-presence', token: 'GLOSSARY_CHIP', context: 'macro glossary hyperlink chip absent' });
+  }
   return errors;
 }
 
@@ -264,14 +268,74 @@ function runFixture(label, content, opts) {
   }
 }
 
+// Default health envelope — mirrors production LIVE state so QA
+// fixtures measure the happy-path cap impact, not the degraded
+// transparency-tail surface (that is exercised separately below).
+const HEALTH_LIVE = { available: true, calendar_mode: 'LIVE', source_used: 'TradingView' };
+
 for (const f of PRE_EVENT_FIXTURES) {
-  const p = mi.buildPreEventAlertPayload(f.event, f.stage);
+  const opts = { health: HEALTH_LIVE };
+  const p = mi.buildPreEventAlertPayload(f.event, f.stage, opts);
   runFixture(f.label, p && p.content, { requireBDA: true });
 }
 for (const f of RELEASED_FIXTURES) {
-  const p = mi.buildReleasedEventAlertPayload(f.event);
+  const opts = { health: HEALTH_LIVE };
+  const p = mi.buildReleasedEventAlertPayload(f.event, opts);
   runFixture(f.label, p && p.content, { requireBDA: false });
 }
+
+// ── LANE 1 (2026-05-16): historical context + degraded transparency
+const HISTORY_CPI = [
+  { dateLabel: 'Apr 2026', actual: '3.5%', magnitude: '+0.2%', surpriseDir: 'above',  reaction: 'US Dollar Index supported, gold pressured' },
+  { dateLabel: 'Mar 2026', actual: '3.0%', magnitude: '0',     surpriseDir: 'in-line',reaction: 'mixed, no directional persistence' },
+  { dateLabel: 'Feb 2026', actual: '3.4%', magnitude: '+0.1%', surpriseDir: 'above',  reaction: 'US Dollar Index supported intraday' },
+];
+const HEALTH_DEGRADED = { available: false, calendar_mode: 'DEGRADED', source_used: 'TradingEconomics' };
+
+(function laneOneFixtures() {
+  // Historical context — pre-event surface with caller-supplied history.
+  const histEvent = { title: 'CPI (USD)', currency: 'USD', impact: 'high', scheduled_time: NOW + 60 * 60 * 1000, forecast: '3.2%', previous: '3.0%' };
+  const histPayload = mi.buildPreEventAlertPayload(histEvent, 60, { health: HEALTH_LIVE, history: HISTORY_CPI });
+  total++;
+  const histResult = audit('pre-event · CPI USD · with HISTORICAL CONTEXT', histPayload && histPayload.content, { requireBDA: true });
+  if (histResult.size > maxLen) maxLen = histResult.size;
+  sizes.push({ label: histResult.label, size: histResult.size });
+  // Additional presence check — HISTORICAL CONTEXT section must surface.
+  if (histResult.ok && !/📅 \*Prior \d:/.test(histPayload.content || '')) {
+    histResult.ok = false;
+    histResult.errors.push({ kind: 'missing-presence', token: 'HISTORICAL_CONTEXT', context: 'inline 📅 *Prior N:* line absent despite history opts supplied' });
+  }
+  if (!histResult.ok) {
+    fails++;
+    header(histResult.label + '  — FAIL (' + histResult.errors.length + ' issue' + (histResult.errors.length === 1 ? '' : 's') + ' · ' + histResult.size + ' chars)');
+    for (const e of histResult.errors) console.error('  - [' + e.kind + '] ' + (e.token || '') + '  ::  …' + (e.context || '') + '…');
+  } else {
+    const headroom = SAFE_CAP - histResult.size;
+    const flag = headroom < NEAR_CAP_WARN ? ' [near-cap]' : '';
+    console.log('[MARKET-INTEL-QA] ' + histResult.label + ' — clean (' + histResult.size + ' chars · headroom ' + headroom + ')' + flag);
+  }
+
+  // Degraded health — pre-event surface must emit the transparency tail.
+  const degradedEvent = { title: 'CPI (USD)', currency: 'USD', impact: 'high', scheduled_time: NOW + 60 * 60 * 1000, forecast: '3.2%', previous: '3.0%' };
+  const degradedPayload = mi.buildPreEventAlertPayload(degradedEvent, 60, { health: HEALTH_DEGRADED });
+  total++;
+  const degradedResult = audit('pre-event · CPI USD · degraded source transparency', degradedPayload && degradedPayload.content, { requireBDA: true });
+  if (degradedResult.size > maxLen) maxLen = degradedResult.size;
+  sizes.push({ label: degradedResult.label, size: degradedResult.size });
+  if (degradedResult.ok && !/Macro proxies:/.test(degradedPayload.content || '')) {
+    degradedResult.ok = false;
+    degradedResult.errors.push({ kind: 'missing-presence', token: 'TRANSPARENCY_TAIL', context: 'degraded health did not emit macro-proxy transparency tail' });
+  }
+  if (!degradedResult.ok) {
+    fails++;
+    header(degradedResult.label + '  — FAIL (' + degradedResult.errors.length + ' issue' + (degradedResult.errors.length === 1 ? '' : 's') + ' · ' + degradedResult.size + ' chars)');
+    for (const e of degradedResult.errors) console.error('  - [' + e.kind + '] ' + (e.token || '') + '  ::  …' + (e.context || '') + '…');
+  } else {
+    const headroom = SAFE_CAP - degradedResult.size;
+    const flag = headroom < NEAR_CAP_WARN ? ' [near-cap]' : '';
+    console.log('[MARKET-INTEL-QA] ' + degradedResult.label + ' — clean (' + degradedResult.size + ' chars · headroom ' + headroom + ')' + flag);
+  }
+})();
 for (const f of DAILY_FIXTURES) {
   const p = mi.buildDailyBulletinPayload(f.snapshot, f.geoCtx, NOW);
   runFixture(f.label, p && p.content, { requireBDA: false });

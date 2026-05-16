@@ -965,6 +965,66 @@ function fohSurpriseLine(rawEvent) {
 // chip pattern as Dark Horse FOH (visible `[[Label]](url)` form)
 // but Market-Intel-flavoured terms so the surface reads in the
 // shared FOH v6 dialect.
+//
+// Lane-1 hardening (operator brief 2026-05-16):
+//   - Single CYAN hyperlink chip wrapping the macro term list,
+//     anchored to the Notion glossary. ONE link wraps the full
+//     term group so the URL footprint stays constant regardless
+//     of term count (1900-char Discord cap discipline).
+//   - Includes the operator-requested macro vocabulary: Dovish /
+//     Hawkish / Yield curve / Risk-off / Liquidity sweep, plus
+//     the structure-vocabulary anchors (Confirmed close /
+//     Structure break) for cross-doctrine continuity.
+const FOH_GLOSSARY_URL = 'https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a';
+function fohGlossaryChip() {
+  return '📘 [[Glossary · Dovish · Hawkish · Yield curve · Risk-off · Liquidity sweep]](' + FOH_GLOSSARY_URL + ')';
+}
+
+// ── Historical reaction context (operator brief 2026-05-16) ─────
+// Opts-driven section. Renders ONLY when caller supplies a
+// `history` array shaped:
+//   [{ dateLabel, actual, magnitude, surpriseDir, reaction }, …]
+// Never fabricates precision: if the history array is empty /
+// missing the section is omitted entirely. When data is present
+// the line surfaces the last N analogues compactly so a senior
+// operator can read priors at a glance.
+//
+// Historical credibility doctrine: the helper labels its basis
+// transparently. Sample sizes are stated; insufficient samples
+// degrade the basis label rather than being silently inflated.
+function fohHistoricalContext(history) {
+  if (!Array.isArray(history) || !history.length) return null;
+  const top = history.slice(0, 3).map(h => {
+    const dir = h.surpriseDir || 'in-line';
+    const mag = (h.magnitude == null || h.magnitude === '')
+      ? ''
+      : (typeof h.magnitude === 'number' && h.magnitude > 0 ? '+' + h.magnitude : h.magnitude);
+    const magPart = mag ? ' ' + mag : '';
+    return (h.dateLabel || '—') + ' ' + (h.actual || '—') + magPart + ' (' + dir + ')';
+  }).join(' · ');
+  const basis = history.length >= 3 ? 'engine-derived' : 'insufficient evidence';
+  return '📅 *Prior ' + Math.min(3, history.length) + ':* ' + top + '. n=' + history.length + ' · basis: ' + basis + '.';
+}
+
+// ── Data transparency tail (operator brief 2026-05-16) ──────────
+// Surfaces macro proxy provenance + freshness ONLY when calendar
+// source is degraded. When LIVE we suppress the tail to keep the
+// surface compact; when DEGRADED or FALLBACK we emit a one-line
+// transparency warning so the operator sees the fallback path.
+//
+// This is the "stale-source transparency" mechanism: silent on
+// healthy days, vocal on degraded ones. Production-safe under
+// the 1900-char cap because the tail is conditional.
+function fohSourceTransparencyTail(health, opts) {
+  const calMode = (health && health.calendar_mode) || 'UNAVAILABLE';
+  if (calMode === 'LIVE') return null;
+  const cbAnchor = (opts && opts.cbAnchor) ? ' · cb-anchor=' + opts.cbAnchor : '';
+  // Compact one-liner. Uses fully expanded names (US Dollar Index /
+  // CBOE Volatility Index) so the bare-abbreviation guard in the
+  // QA harness stays clean.
+  return '⚠️ *Macro proxies:* US Dollar Index via UUP · CBOE Volatility Index via VXX · yield curve via FRED T10Y2Y' + cbAnchor + '.';
+}
+
 const FOH_TERMINOLOGY_LINE =
   '🟦 **Expanded Terminology** · ' +
   '[Structure Break] · [Initial-direction reversal] · [Confirmed candle close] · ' +
@@ -1040,9 +1100,22 @@ function buildPreEventAlertPayload(rawEvent, minutesOut, opts) {
   lines.push('');
   lines.push('⏳ ' + (nextReviewByStage[stage] || nextReviewByStage['T-1H']));
   lines.push('');
+  // ── HISTORICAL CONTEXT (operator brief 2026-05-16) ──
+  // Opts-driven. Renders only when caller supplies opts.history.
+  // Inline (no section box) to keep the 1900-char cap discipline
+  // intact on stress-day pre-event surfaces.
+  const histLine = fohHistoricalContext(opts && opts.history);
+  if (histLine) {
+    lines.push(histLine);
+    lines.push('');
+  }
   lines.push(fohSection('SOURCE NOTE', '📚', 'cyan'));
   lines.push('');
   lines.push(sourceNote);
+  const transparencyTail = fohSourceTransparencyTail(health, opts);
+  if (transparencyTail) lines.push(transparencyTail);
+  lines.push('');
+  lines.push(fohGlossaryChip());
   lines.push('');
   lines.push(FOH_BIAS_DISCLAIMER);
 
@@ -1106,9 +1179,21 @@ function buildReleasedEventAlertPayload(rawEvent, opts) {
   lines.push('');
   lines.push('⏳ Reassess on the first 5M / 15M close; escalate to 1H / 4H if a [Confirmed candle close] forms in surprise direction.');
   lines.push('');
+  // ── HISTORICAL CONTEXT (post-release) ──
+  // Same opts-driven contract as the pre-event surface. Inline to
+  // preserve 1900-char cap discipline.
+  const histLineReleased = fohHistoricalContext(opts && opts.history);
+  if (histLineReleased) {
+    lines.push(histLineReleased);
+    lines.push('');
+  }
   lines.push(fohSection('SOURCE NOTE', '📚', 'cyan'));
   lines.push('');
   lines.push(sourceNote);
+  const transparencyTailReleased = fohSourceTransparencyTail(health, opts);
+  if (transparencyTailReleased) lines.push(transparencyTailReleased);
+  lines.push('');
+  lines.push(fohGlossaryChip());
   lines.push('');
   lines.push(FOH_BIAS_DISCLAIMER);
 
@@ -1316,6 +1401,10 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   lines.push(fohSection('SOURCE NOTE', '📚', 'cyan'));
   lines.push('');
   lines.push(sourceNote);
+  const dailyTransparency = fohSourceTransparencyTail(health);
+  if (dailyTransparency) lines.push(dailyTransparency);
+  lines.push('');
+  lines.push(fohGlossaryChip());
   lines.push('');
   lines.push(FOH_BIAS_DISCLAIMER);
 
