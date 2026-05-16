@@ -1190,8 +1190,7 @@ function _lifecycleSeparator(record, lifecycle, idx, total, nowMs) {
       symbolNote,
       validity,
       '```',
-    ].join('
-');
+    ].join('\n');
   }
   if (lifecycle.tone === 'active') {
     // Use blockquote markdown, not ANSI boxes, so the state remains
@@ -1202,8 +1201,7 @@ function _lifecycleSeparator(record, lifecycle, idx, total, nowMs) {
       symbolNote,
       validity,
       '```',
-    ].join('
-');
+    ].join('\n');
   }
   // FADING stays visually distinct without ANSI colour dependency.
   return [
@@ -1212,8 +1210,7 @@ function _lifecycleSeparator(record, lifecycle, idx, total, nowMs) {
     symbolNote,
     validity,
     '```',
-  ].join('
-');
+  ].join('\n');
 }
 
 // ── Candidate field builders ────────────────────────────────
@@ -1330,13 +1327,10 @@ function _validityFieldValue(record, lifecycle, nowMs) {
   const firstSeen = _firstSeenAt(record, nowMs);
   const cycleCount = Number(record && record.activeCycleCount);
   const cycleTail = Number.isFinite(cycleCount) && cycleCount > 1
-    ? '
-Active scan count in this run: ' + cycleCount + '.'
+    ? '\nActive scan count in this run: ' + cycleCount + '.'
     : '';
-  return accent.marker + ' ' + lifecycle.stage + ' · validity ' + accent.label + '
-' +
-    _validityLine(record, lifecycle, nowMs) + '
-' +
+  return accent.marker + ' ' + lifecycle.stage + ' · validity ' + accent.label + '\n' +
+    _validityLine(record, lifecycle, nowMs) + '\n' +
     'First active/noticed timestamp: **' + _fmtShortUtc(firstSeen) + '**.' +
     cycleTail;
 }
