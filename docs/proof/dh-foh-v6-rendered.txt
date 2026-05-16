@@ -1,0 +1,383 @@
+=== STAGING HARNESS — DARK HORSE FOH v6 ===
+mode:            DRY-RUN (no network)
+staging urlHash: (none)
+messages built:  6
+candidateCount:  3
+chart PNG files: 4
+payload.kind:    movement_digest_foh_v1_0
+
+size report:
+  M1:  content=1777 / 2000   embeds=1773 (≤ 6000 each)
+  M2:  content=197 / 2000   embeds=4543 (≤ 6000 each)
+  M3:  content=190 / 2000   embeds=4640 (≤ 6000 each)
+  M4:  content=170 / 2000   embeds=5236 (≤ 6000 each)
+  M5:  content=848 / 2000   embeds=1101 (≤ 6000 each)
+  M6:  content=831 / 2000   embeds=(none) (≤ 6000 each)
+
+=== WEBHOOK BODY 1 / 6 ===
+-- content (1777 chars) --
+```diff
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- ▼ ▼ ▼   N E W   D A R K   H O R S E   S C A N   ▼ ▼ ▼
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-   🆕   2026-05-13 12:00 UTC   ·   20:00 AWST   ·   33 markets scanned   🆕
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```
+┌───────────────────────────────────────────────┐
+│ 🟨🟨 🐎  DARK HORSE — GLOBAL MOVER RADAR 🟨🟨 │
+└───────────────────────────────────────────────┘
+```
+
+_3 standouts found this cycle._
+_1 fresh (new this scan)  ·  1 still active (1+ day)  ·  1 fading._
+
+📘 **EXPANDED TERMINOLOGY HYPERLINKS**
+_See the terminology panel attached to this message._
+
+```
+┌───────────────────────────────────────────────────┐
+│ 🟨 ▸  Market Mood  ·  🟠🟠🟠🟠⚫ 4/5 — Elevated 🟨 │
+└───────────────────────────────────────────────────┘
+```
+
+_What [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) means right now:_
+   broad market moving fast — larger pullbacks and sharper reversals are more likely.
+
+_Dollars-first guidance for today:_
+   🟢 Position size — if your normal risk is $500 on a $10k account,
+       reduce to ~$300 (60%) for the next 6 hours.
+   🟡 Exit-points — use the full invalidation level from the card.
+       Tight exits get hit before the 5-minute close confirms.
+   🟠 Lower-quality cards — skip them. Only act when price closes
+       beyond the decision level AND the next candle confirms with
+       a close in the required direction.
+   🛑 Do NOT chase already-extended moves. Wait for price to return
+       to the listed entry zone and confirm with a candle close.
+
+```
+┌───────────────────────────────────────────────────┐
+│ 🟨🟨 ⭐  STANDOUTS — TODAY'S STRONGEST MOVERS 🟨🟨 │
+└───────────────────────────────────────────────────┘
+```
+-- embed 1 (color=0x5bc0de) --
+title:       📘 EXPANDED TERMINOLOGY HYPERLINKS
+  [Core levels]
+    [[Decision Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Entry Zone]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Watch Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Caution Zone]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Confirmed Candle Close]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+  [Risk and lifecycle]
+    [[Conviction]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Position Size]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Dollar Risk]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Reward-to-Risk]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Risk Reduction]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Fresh Setup]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Still Active Setup]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Fading Setup]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Late-Stage Move]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+  [Chart reading]
+    [[Pullback]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Retest]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Lower High]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Higher Low]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Support / Resistance]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Re-entry Structure]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Market Mood]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+
+=== WEBHOOK BODY 2 / 6 ===
+-- content (197 chars) --
+```diff
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-   🆕   FRESH   ·   STANDOUT #1 of 3   ·   EURUSD — just appeared on this scan
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+-- embed 1 (color=0x2ecc71) --
+title:       🐎  EURUSD  ·  STRONG BULLISH
+description: EURUSD closed above 1.1064 — the decision level for this card — and held a candle close above it. Buyers are defending that area on pullbacks. The move is new this scan.
+  [Move Type] (inline)
+    Breakout · early stage
+  [Direction] (inline)
+    [[Long ▲]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) — expecting price to keep moving up
+  [Conviction]
+    🟢🟢🟢🟢🟢 5/5 — Very High
+    _Why Very High: price closed beyond the decision level + momentum increased + retest held + the decision area is defended by buyers (all 4 criteria met)._
+  [ATLAS execution state]
+    **WAIT FOR CONFIRMATION**
+    Dark Horse scans movers; it is not standalone execution authority.
+    Why: model 5.7R is acceptable, but timing still needs candle-close confirmation.
+  [ATLAS confirmation gate]
+    Execution gate:
+    • market context supports direction
+    • [[Decision Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **1.1064**
+    • [[Entry Zone]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **1.1061 – 1.1067**
+    • [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **1.1056**
+    • candle-close confirmation in required direction
+    • R:R: ATLAS preferred **1:3**; normal execution never below **2R**
+  [Decision Level] (inline)
+    [[Decision Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **1.1064**
+    _Why it matters: 1.1064 is the price the setup is built around._
+    _Price must stay above this level for the bullish idea to remain valid. Each pullback toward that price has held, which shows buyers are defending the area._
+  [Expected Duration] (inline)
+    [[Expected Duration]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): Swing — days, not minutes
+  [Today's Rank] (inline)
+    [[Cycle Rank]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): 1st of today's 3 standouts
+  [Where to Act]
+    🟢 ENTRY zone  **1.1061 – 1.1067**
+       Meaning: price returned to the band where the last turn occurred.
+       Need: 5-minute candle opens inside the band AND closes above the band low.
+       Gate: [[Confirmed Candle Close]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a). Action: BUY close; model risk **~$40**.
+    
+    🟡 WATCH level  **1.1062**
+       Warning: price is moving against the idea before invalidation.
+       If 1H closes below **1.1062**, model drawdown is often 30–50%
+       (**~$16** of **~$40**). Action: hold; do NOT add.
+  [Where to Act — Caution]
+    🟠 CAUTION zone  1.1062 – 1.1059
+       Price is against the setup. Ignoring this can turn a
+       controlled exit into full invalidation loss.
+       💲 Drawdown 50–80% (**~$26** of **~$40**). Action: scratch and re-read.
+  [Where to Act — Invalidation]
+    🔴 [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  **1.1056**
+       bullish idea OFF. Full model risk: **$40**.
+       Exit ALL. Do NOT re-enter until a new [[Re-entry Structure]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) appears.
+    
+    🔵 Next review  2026-05-13 12:15 UTC
+       ATLAS re-reads every zone at the next scan.
+  [💲 Dollar Risk — half size for FRESH]
+    💲 Model example: **$80 risk on 1 lot EURUSD** (distance 0.0008).
+    💲 Model size for this card (FRESH · half size for FRESH): **~$40**.
+    💲 If Market Mood drops to Quiet (1/5) you can scale up to full size after a valid re-read.
+    💲 Reward target after confirmed follow-through: **~$228** on the model size · **5.7R**.
+  [What this means]
+    The bullish idea remains valid only while price stays above the decision level and above invalidation at **1.1056**. Buying a controlled pullback into the green entry band is the planned read.
+  [WHAT TO DO NOW]
+    ① Wait for a 5-min candle to open inside **1.1061 – 1.1067**.
+    ② BUY that candle's close — **$40 model risk**.
+    ③ Place the exit-point at **1.1056** (**$40 model risk**).
+    ④ If **1.1062** closes below on 1H, exit half (freeing **~$20**) and keep the exit-point unchanged.
+    ⑤ Full exit at **1.1056** if reached — the bullish idea is OFF.
+  [What confirms the idea]
+    A 5m close above **1.1067** after pulling back into the entry band — the [[Confirmed Candle Close]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) test (price closes beyond the decision level AND the next candle holds in the required direction).
+  [What cancels the idea]
+    A 1H close below **1.1056**. At that point price has invalidated the decision area and the bullish idea is cancelled.
+  [Source proof]
+    Same evidence payload feeds text + PNG:
+    Decision **1.1064** · Entry **1.1061 – 1.1067** · Watch **1.1062** · Invalidation **1.1056**.
+    Minimum buffer: **0.0003**. Why: FX: 2-pip minimum structural buffer × elevated volatility multiplier.
+    Chart labels use these same values.
+footer:      ATLAS · Dark Horse · standout 1 of 3 · fresh lifecycle
+
+=== WEBHOOK BODY 3 / 6 ===
+-- content (190 chars) --
+```
+┌───────────────────────────────────────────┐
+│ 🟧🟧 STILL ACTIVE · STANDOUT #2 of 3 🟧🟧 │
+└───────────────────────────────────────────┘
+```
+**XAUUSD — trending across multiple cycles**
+-- embed 1 (color=0xc0392b) --
+title:       🐎  XAUUSD  ·  BEARISH PRESSURE
+description: XAUUSD closed below 2414.1000. Each bounce back toward that area has stalled, which shows sellers are defending the decision level. The move is new this scan.
+  [Move Type] (inline)
+    Continuation · mid stage
+  [Direction] (inline)
+    [[Short ▼]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) — expecting price to keep moving down
+  [Conviction]
+    🔴🔴🔴🔴⚫ 4/5 — High
+    _Why High: price closed beyond the decision level + sellers defended each retest across 2 cycles + momentum is holding (3 of 4 criteria met)._
+  [ATLAS execution state]
+    **EXECUTION CANDIDATE**
+    Dark Horse scans movers; it is not standalone execution authority.
+    Why: STILL ACTIVE + model 3.0R meet ATLAS 1:3 before gates.
+  [ATLAS confirmation gate]
+    Execution gate:
+    • market context supports direction
+    • [[Decision Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **2414.1000**
+    • [[Entry Zone]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **2414.0997 – 2414.1003**
+    • [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **2415.4203**
+    • candle-close confirmation in required direction
+    • R:R: ATLAS preferred **1:3**; normal execution never below **2R**
+  [Decision Level] (inline)
+    [[Decision Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **2414.1000**
+    _Why it matters: 2414.1000 has already been tested across multiple candles._
+    _Price must stay below this level for the bearish idea to remain valid. Each rally back toward that price has stalled, which shows sellers are defending the area._
+  [Expected Duration] (inline)
+    [[Expected Duration]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): Swing — days, not minutes
+  [Today's Rank] (inline)
+    [[Cycle Rank]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): 2nd of today's 3 standouts
+  [Where to Act]
+    🟢 ENTRY zone  **2414.0997 – 2414.1003**
+       Meaning: price returned to the band where the last turn occurred.
+       Need: 5-minute candle opens inside the band AND closes below the band high.
+       Gate: [[Confirmed Candle Close]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a). Action: SELL close; model risk **~$92**.
+    
+    🟡 WATCH level  **2414.4961**
+       Warning: price is moving against the idea before invalidation.
+       If 1H closes above **2414.4961**, model drawdown is often 30–50%
+       (**~$37** of **~$92**). Action: hold; do NOT add.
+  [Where to Act — Caution]
+    🟠 CAUTION zone  2414.4961 – 2415.4200
+       Price is against the setup. Ignoring this can turn a
+       controlled exit into full invalidation loss.
+       💲 Drawdown 50–80% (**~$60** of **~$92**). Action: scratch and re-read.
+  [Where to Act — Invalidation]
+    🔴 [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  **2415.4203**
+       bearish idea OFF. Full model risk: **$92**.
+       Exit ALL. Do NOT re-enter until a new [[Re-entry Structure]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) appears.
+    
+    🔵 Next review  2026-05-13 12:15 UTC
+       ATLAS re-reads every zone at the next scan.
+  [💲 Dollar Risk — full size allowed (STILL ACTIVE)]
+    💲 Model example: **$132 risk on 1 lot XAUUSD (100 oz)** (distance 1.3203).
+    💲 Model size for this card (STILL ACTIVE · full size × Market Mood Elevated reduction): **~$92**.
+    💲 If Market Mood drops back to Quiet, scale up to full size after a valid re-read.
+    💲 Reward target after confirmed follow-through: **~$276** on the model size · **3.0R**.
+  [What this means]
+    The bearish idea remains valid only while price stays below the decision level and below invalidation at **2415.4203**. Selling a controlled rally into the green entry band is the planned read.
+  [WHAT TO DO NOW]
+    ① Wait for a 5-min candle to open inside **2414.0997 – 2414.1003**.
+    ② SELL that candle's close — **$92 model risk**.
+    ③ Place the exit-point at **2415.4203** (**$92 model risk**).
+    ④ If **2414.4961** closes above on 1H, exit half (freeing **~$46**) and keep the exit-point unchanged.
+    ⑤ Full exit at **2415.4203** if reached — the bearish idea is OFF.
+  [What confirms the idea]
+    A 5m close below **2414.0997** after rallying into the entry band — the [[Confirmed Candle Close]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) test (price closes beyond the decision level AND the next candle holds in the required direction).
+  [What cancels the idea]
+    A 1H close above **2415.4203**. At that point price has invalidated the decision area and the bearish idea is cancelled.
+  [Source proof]
+    Same evidence payload feeds text + PNG:
+    Decision **2414.1000** · Entry **2414.0997 – 2414.1003** · Watch **2414.4961** · Invalidation **2415.4203**.
+    Minimum buffer: **0.0003**. Why: FX: 2-pip minimum structural buffer × elevated volatility multiplier.
+    Chart labels use these same values.
+footer:      ATLAS · Dark Horse · standout 2 of 3 · still active lifecycle
+
+=== WEBHOOK BODY 4 / 6 ===
+-- content (170 chars) --
+```
+┌─────────────────────────────────────┐
+│ 🟥🟧 FADING · STANDOUT #3 of 3 🟥🟧 │
+└─────────────────────────────────────┘
+```
+**NVDA — older mover, late-stage caution**
+-- embed 1 (color=0xe67e22) --
+title:       🐎  NVDA  ·  DEVELOPING WATCH
+description: NVDA closed above 920.56 — the decision level for this card — and held a candle close above it. Buyers are defending that area on pullbacks. The move is new this scan.
+  [Move Type] (inline)
+    Continuation · late stage
+  [Direction] (inline)
+    [[Long ▲]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) — expecting price to keep moving up
+  [Conviction]
+    🟠🟠🟠🟠⚫ 4/5 — High
+    _Why High: decision level still valid + buyers still defending — BUT each new high is less efficient than the last, and the move is 25 cycles old (2 of 4 criteria met, 2 weakening)._
+  [ATLAS execution state]
+    **REDUCED SIZE ONLY / NOT PRIMARY**
+    Dark Horse scans movers; it is not standalone execution authority.
+    Why: model 1.3R is below the 2R minimum and ATLAS 1:3 preferred standard.
+    Education / observation unless no higher-quality card exists: stronger conviction, closer entry, better R:R, less invalidation pressure.
+  [ATLAS confirmation gate]
+    Execution gate:
+    • market context supports direction
+    • [[Decision Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **920.56**
+    • [[Entry Zone]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **919.98 – 921.14**
+    • [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **918.22**
+    • candle-close confirmation in required direction
+    • R:R: ATLAS preferred **1:3**; normal execution never below **2R**
+  [Decision Level] (inline)
+    [[Decision Level]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): **920.56**
+    _Why it matters: 920.56 remains the active decision price while this late-stage setup is monitored._
+    _Price must stay above this level for the bullish idea to remain valid. Each pullback toward that price has held, which shows buyers are defending the area._
+  [Expected Duration] (inline)
+    [[Expected Duration]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): Intraday — hours, not days
+  [Today's Rank] (inline)
+    [[Cycle Rank]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a): 3rd of today's 3 standouts
+  [Where to Act]
+    🟢 ENTRY zone  **919.98 – 921.14**
+       Meaning: price returned to the band where the last turn occurred.
+       Need: 5-minute candle opens inside the band AND closes above the band low.
+       Gate: [[Confirmed Candle Close]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a). Action: BUY close; model risk **~$59**.
+    
+    🟡 WATCH level  **919.86**
+       Warning: price is moving against the idea before invalidation.
+       If 1H closes below **919.86**, model drawdown is often 30–50%
+       (**~$24** of **~$59**). Action: hold; do NOT add.
+  [Where to Act — Caution]
+    🟠 CAUTION zone  919.86 – 918.80
+       Price is against the setup. Ignoring this can turn a
+       controlled exit into full invalidation loss.
+       💲 Drawdown 50–80% (**~$38** of **~$59**). Action: scratch and re-read.
+  [Where to Act — Invalidation]
+    🔴 [[Invalidation]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  **918.22**
+       bullish idea OFF. Full model risk: **$59**.
+       Exit ALL. Do NOT re-enter until a new [[Re-entry Structure]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) appears.
+    
+    🔵 Next review  2026-05-13 12:15 UTC
+       ATLAS re-reads every zone at the next scan.
+  [💲 Dollar Risk — quarter-size only because this is a FADING card]
+    💲 Model example: **$234 risk on 100 shares NVDA** (distance 2.34).
+    💲 This card uses quarter-size because the setup is late-stage, so model planned risk is **~$59**.
+    💲 Reward target after confirmed follow-through: **~$77** on the model size · **1.3R**.
+    ⚠️ R:R is below 2R — use only if no higher-quality card is available: stronger conviction, closer entry, better R:R, less invalidation pressure.
+  [What this means]
+    The bullish idea remains valid only while price stays above the decision level and above invalidation at **918.22**. Buying a controlled pullback into the green entry band is the planned read.
+  [WHAT TO DO NOW]
+    ① QUARTER size at most — not a primary entry. **$59 model risk**.
+    ② Only buy if price returns to **919.98 – 921.14** and forms a strong 5-minute close in the required direction.
+    ③ Place the exit-point at **918.22** (**$59 model risk**).
+    ④ If **919.86** closes below on 1H, exit ALL — late-stage cards do not get second chances.
+    ⑤ Skip if another standout has stronger conviction, closer entry, better R:R, and less invalidation pressure.
+  [What confirms the idea]
+    A 5m close above **921.14** after pulling back into the entry band — the [[Confirmed Candle Close]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a) test (price closes beyond the decision level AND the next candle holds in the required direction).
+  [What cancels the idea]
+    A 1H close below **918.22**. At that point price has invalidated the decision area and the bullish idea is cancelled.
+  [Source proof]
+    Same evidence payload feeds text + PNG:
+    Decision **920.56** · Entry **919.98 – 921.14** · Watch **919.86** · Invalidation **918.22**.
+    Minimum buffer: **0.58**. Why: Equity: tick-aware 0.05% structural buffer × elevated volatility multiplier.
+    Chart labels use these same values.
+  [⚠️  Late-stage risk note]
+    Use quarter size because this is a [[Late-Stage Move]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a). Skip if another card has stronger conviction, closer entry, better R:R, less invalidation pressure.
+footer:      ATLAS · Dark Horse · standout 3 of 3 · fading lifecycle · next review 2026-05-13 12:15 UTC
+
+=== WEBHOOK BODY 5 / 6 ===
+-- content (848 chars) --
+**BUILDING**  ·  CHART REFERENCE
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ 🟧🟧 📡  BUILDING — WARMING UP BELOW STANDOUT GRADE 🟧🟧 │
+└──────────────────────────────────────────────────────────┘
+```
+
+[[Pullback]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Support / Resistance]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Reversal]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+
+_Two markets are close to the standout bar but not there yet._
+_Re-reading every 15 minutes — if either firms up by the next scan,_
+_they graduate into a standout card with full execution detail._
+
+```
+┌────────────────────────────────────────────────────────────┐
+│ 🟦🟦 📚  CHART REFERENCE — HOW TO READ THE FOUR ZONES 🟦🟦 │
+└────────────────────────────────────────────────────────────┘
+```
+-- embed 1 (color=0x5bc0de) --
+title:       📚  Clean Bullish Breakout — Reference
+description: Every Dark Horse candidate above is the same pattern in different markets. This is what it looks like on the chart, and what a trader actually does at each zone.
+  [What you are looking at]
+    Price closed above the decision level, returned to test that same area, and held above it. Buyers defended the level, so the long idea remains valid while invalidation holds.
+  [How a trader acts (concrete, dollars-first)]
+    🟢 BUY the pullback into the **green ENTRY band** — ONLY if the next 5-min candle opens inside the band AND closes above the band low.
+    🔴 Place the exit-point just below the **dashed red INVALIDATION line**. If price closes below it on the 1H, exit immediately.
+    💲 Dollar risk = (entry price − exit price) × position size × $/point. Size the trade so this number ≤ 1% of your account (**$100 on $10k**, **$250 on $25k**, **$1,000 on $100k**).
+  [Rendered ATLAS chart card]
+    The attached chart image shows the same four zones used above: green entry band, yellow watch level, red invalidation line, and ATLAS price boxes.
+footer:      ATLAS · Chart reference · rendered four-zone card
+
+=== WEBHOOK BODY 6 / 6 ===
+-- content (831 chars) --
+```
+┌────────────────────────────────┐
+│ 🟨 ▸  Risk reminder 🟨         │
+└────────────────────────────────┘
+```
+_Every zone above is what ATLAS sees right now. Live price moves, the_
+_zones move with it. Cross-check the current price against the zone_
+_before acting. ATLAS reviews again at 2026-05-13 12:15 UTC._
+
+```
+┌────────────────────────────────┐
+│ 🟦 ▸  Briefing summary 🟦      │
+└────────────────────────────────┘
+```
+_3 standouts today (1 FRESH, 1 STILL ACTIVE, 1 FADING). Market Mood 🟠🟠🟠🟠⚫ 4/5 — Elevated._
+_The FRESH EURUSD card is the cleanest reward-to-risk: **~$40 risk** · target **5.7R**._
+_The STILL ACTIVE XAUUSD card is the highest-conviction continuation: **~$92 risk** · target **3.0R**._
+_The FADING NVDA card is the late-stage scalp: **~$59 risk** · target **1.3R**._
+_Next scan 2026-05-13 12:15 UTC._
+
+[DRY-RUN] No network calls were made. Re-run with --post --confirm-staging to deliver to the staging webhook.
