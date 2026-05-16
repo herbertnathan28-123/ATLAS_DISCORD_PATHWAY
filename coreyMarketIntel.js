@@ -2036,7 +2036,10 @@ async function dispatch(messageType, payloadObj, extra) {
       // Prefer the richer FOH product packet when available;
       // fall back to the legacy thinner imagePayload otherwise.
       const renderPayload = payloadObj.fohPacket || payloadObj.imagePayload;
-      const imageRes = await foh.postFohExportToDiscord({
+      // Operator directive 2026-05-17: MI must POST as 6 PNG cards
+      // + 1 PDF in a single Discord message (single 12,000px PNG
+      // was unusable). postFohSplitToDiscord handles both.
+      const imageRes = await foh.postFohSplitToDiscord({
         kind: 'market_intel',
         payload: renderPayload,
         webhookUrl: _webhookUrl,
