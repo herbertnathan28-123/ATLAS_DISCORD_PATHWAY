@@ -103,8 +103,150 @@ function renderStandout(s, idx, total) {
   </div>`;
 }
 
+// ── RICH FOH PACKET PATH (operator brief 2026-05-16 product depth) ──
+// Detected via marketState + scanState presence on the payload.
+function _isRichDhPacket(p) {
+  return p && p.scanState && p.marketState && typeof p.marketState.available === 'boolean';
+}
+function _dhUnavail(label, reason) {
+  return `<div class="foh-body"><p><em style="color:var(--atlas-text-dim);">${esc(label)} — sourced unavailable${reason ? ' (' + esc(reason) + ')' : ''}.</em></p></div>`;
+}
+function _renderDhMarketState(ms) {
+  if (!ms || !ms.available) {
+    return `<div class="foh-section"><h3 class="foh-section-heading cyan">Market state · macro regime</h3>${_dhUnavail('Live macro context', ms && ms.reason)}</div>`;
+  }
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading cyan">Market state · macro regime</h3>
+    <div class="foh-body">
+      <p><strong>US Dollar Index:</strong> bias ${esc(ms.dxy.bias)} · level ${esc(ms.dxy.level)}</p>
+      <p><strong>CBOE Volatility Index:</strong> ${esc(ms.vix.level)}</p>
+      <p><strong>Yield curve:</strong> ${esc(ms.yield.regime)}</p>
+      <p><strong>Regime read:</strong> ${esc(ms.regime)}</p>
+    </div>
+  </div>`;
+}
+function _renderDhRichStandout(s, idx, total) {
+  const lcClass = lifecycleClass(s.lifecycle);
+  const lcLabel = lifecycleSeverityLabel(s.lifecycle);
+  const pill = lcClass === 'fresh' ? 'fresh' : lcClass === 'fading' ? 'fading' : 'active';
+  const lines = [];
+  if (s.firstDetected) lines.push(`<div class="foh-dh-candidate-meta">First detected: <strong>${esc(s.firstDetected)}</strong>${s.durationAlive ? ' · still Dark Horse valid after <strong>' + esc(s.durationAlive) + '</strong>' : ''}</div>`);
+  if (s.whyFlagged)     lines.push(`<div class="foh-dh-candidate-meta">${esc(s.whyFlagged)}</div>`);
+  if (s.structureState) lines.push(`<div class="foh-dh-candidate-meta">📐 Structure: <strong>${esc(s.structureState)}</strong></div>`);
+  if (s.decisionLevel)  lines.push(`<div class="foh-dh-candidate-meta">🎯 Decision level: <strong>${esc(s.decisionLevel)}</strong></div>`);
+  if (s.confirmation)   lines.push(`<div class="foh-dh-candidate-meta">✅ Confirms: ${esc(s.confirmation)}</div>`);
+  if (s.invalidation)   lines.push(`<div class="foh-dh-candidate-meta">❌ Invalidation: <strong>${esc(s.invalidation)}</strong></div>`);
+  if (s.continuationWindow) lines.push(`<div class="foh-dh-candidate-meta">⏱️ Window: ${esc(s.continuationWindow)}</div>`);
+  if (s.lateEntryRisk)  lines.push(`<div class="foh-dh-candidate-meta">⚠️ Late-entry risk: <strong>${esc(s.lateEntryRisk)}</strong></div>`);
+  if (s.atlasState)     lines.push(`<div class="foh-dh-candidate-meta">🛰️ ATLAS state: ${esc(s.atlasState)}</div>`);
+  if (s.dollarRisk)     lines.push(`<div class="foh-dh-candidate-meta">💲 Model risk: <strong>${esc(s.dollarRisk)}</strong>${s.rewardR ? ' · target <strong>' + esc(s.rewardR) + '</strong>' : ''}${s.sizeLabel ? ' · ' + esc(s.sizeLabel) : ''}</div>`);
+  return `
+  <div class="foh-dh-candidate ${lcClass}">
+    <div class="foh-dh-candidate-head">
+      <div>
+        <span class="foh-pill ${pill}">${esc(s.lifecycle || 'ACTIVE')}</span>
+        <span class="foh-dh-candidate-sym">${esc(s.symbol || '???')}</span>
+        <span style="color:var(--atlas-text-dim);font-size:12px;margin-left:8px;">STANDOUT #${idx + 1} of ${total}${s.direction ? ' · ' + esc(s.direction) : ''}${typeof s.score === 'number' ? ' · score ' + s.score + '/10' : ''}${s.sectionLabel ? ' · ' + esc(s.sectionLabel) : ''}</span>
+      </div>
+    </div>
+    <div class="foh-dh-candidate-meta"><em>${esc(lcLabel)}</em></div>
+    ${lines.join('')}
+  </div>`;
+}
+function _renderDhNearMisses(nm) {
+  if (!nm || nm.available === false) {
+    return `<div class="foh-section"><h3 class="foh-section-heading amber">Near-miss watchlist</h3>${_dhUnavail('Near-miss watchlist', nm && nm.reason)}</div>`;
+  }
+  const rows = nm.candidates.map(c => `<li><strong>${esc(c.symbol)}</strong> · ${esc(c.direction)} · score <strong>${esc(c.score)}/10</strong> · ${esc(c.section)}</li>`).join('');
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading amber">Near-miss watchlist · 5-7 score band (${nm.count})</h3>
+    <div class="foh-body"><ul style="margin:0;padding:0 0 0 18px;">${rows}</ul></div>
+  </div>`;
+}
+function _renderDhUniverseCoverage(uc) {
+  if (!uc || uc.available === false) {
+    return `<div class="foh-section"><h3 class="foh-section-heading cyan">Universe coverage</h3>${_dhUnavail('Universe coverage', uc && uc.reason)}</div>`;
+  }
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading cyan">Universe coverage</h3>
+    <div class="foh-body">
+      <p><strong>Symbols scanned:</strong> ${esc(uc.scanned)} · <strong>Watch (≥8):</strong> ${esc(uc.watch)} · <strong>Internal (5-7):</strong> ${esc(uc.internal)} · <strong>Ignored (<5):</strong> ${esc(uc.ignored)}</p>
+    </div>
+  </div>`;
+}
+function _renderDhAggregate(label, accent, obj) {
+  if (!obj || obj.available === false) {
+    return `<div class="foh-section"><h3 class="foh-section-heading ${accent}">${esc(label)}</h3>${_dhUnavail(label, obj && obj.reason)}</div>`;
+  }
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading ${accent}">${esc(label)}</h3>
+    <div class="foh-body"><p>${esc(obj.narrative || obj.confirms || obj.cancels || '')}</p></div>
+  </div>`;
+}
+function _renderDhOperatorGuidance(g) {
+  if (!g || g.available === false) {
+    return `<div class="foh-section"><h3 class="foh-section-heading cyan">Operator guidance</h3>${_dhUnavail('Operator guidance', g && g.reason)}</div>`;
+  }
+  return `
+  <div class="foh-section">
+    <h3 class="foh-section-heading cyan">Operator guidance</h3>
+    <div class="foh-body">
+      <p><strong style="color:var(--atlas-green);">Confirms:</strong> ${esc(g.confirms)}</p>
+      <p><strong style="color:var(--atlas-red);">Cancels:</strong> ${esc(g.cancels)}</p>
+    </div>
+  </div>`;
+}
+function _renderDhRichCard(packet) {
+  const standouts = Array.isArray(packet.standouts) ? packet.standouts : [];
+  const mood = packet.marketMood || {};
+  const moodSev = severityClass(mood.severity);
+  const moodPanel = mood.available
+    ? `<div class="foh-severity-panel ${moodSev}"><span><span class="foh-disc-bar">${esc(mood.discs || '⚫⚫⚫⚫⚫')}</span><span class="foh-disc-bar-label">${esc(mood.label || 'Market mood')}</span></span><span class="foh-severity-tag">MARKET MOOD</span></div>`
+    : _dhUnavail('Market mood', mood.reason);
+  const standoutBlocks = standouts.length
+    ? standouts.map((s, i) => _renderDhRichStandout(s, i, standouts.length)).join('')
+    : _dhUnavail('Standouts', 'no candidates ≥ score threshold on this scan');
+  const ss = packet.scanState || {};
+  const badges = renderFormatBadges(packet);
+  const source = packet.sourceNote || {};
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><style>${_CSS}</style></head>
+<body>
+  <div class="foh-card">
+    <div class="foh-banner">
+      <div class="foh-banner-title">ATLAS · Dark Horse — Live Scan</div>
+      <div class="foh-banner-sub">v6 · ${esc(standouts.length)} standout${standouts.length === 1 ? '' : 's'}${ss.scanTime ? ' · scan ' + esc(ss.scanTime) : ''}${ss.marketsScanned ? ' · ' + esc(ss.marketsScanned) + ' markets scanned' : ''}${badges}</div>
+    </div>
+    ${_renderDhMarketState(packet.marketState)}
+    <div class="foh-section">
+      <h3 class="foh-section-heading amber">Market mood · regime</h3>
+      <div class="foh-body">${moodPanel}</div>
+    </div>
+    <div class="foh-section">
+      <h3 class="foh-section-heading gold">Standouts</h3>
+      <div class="foh-body">${standoutBlocks}</div>
+    </div>
+    ${_renderDhAggregate('Market impact', 'amber', packet.marketImpact)}
+    ${_renderDhOperatorGuidance(packet.operatorGuidance)}
+    ${_renderDhNearMisses(packet.nearMisses)}
+    ${_renderDhUniverseCoverage(packet.universeCoverage)}
+    ${_renderDhAggregate('Risk reminder', 'red', packet.riskReminder)}
+    ${renderTerminologyChip(packet)}
+    <div class="foh-footer">
+      calendar=<span class="cyan">${esc(source.source || 'TradingView')}${source.mode ? '/' + esc(source.mode) : ''}</span> · macro=<span class="gold">ATLAS</span>${source.macroProxies ? ' · ' + esc(source.macroProxies) : ''} · probability=${esc(source.probabilityBasis || 'engine-derived')}
+      <div style="margin-top:4px;">Live confirmation required before execution.</div>
+    </div>
+  </div>
+</body></html>`;
+}
+
 function renderDarkHorseCard(payload) {
   payload = payload || {};
+  if (_isRichDhPacket(payload)) return _renderDhRichCard(payload);
   const standouts = Array.isArray(payload.standouts) ? payload.standouts : [];
   const standoutBlocks = standouts.map((s, i) => renderStandout(s, i, standouts.length)).join('');
 

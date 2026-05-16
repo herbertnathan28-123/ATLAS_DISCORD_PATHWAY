@@ -31,6 +31,24 @@ function _fohLazy() {
   catch (e) { return null; }
 }
 
+let _packet = null;
+function _packetLazy() {
+  if (_packet) return _packet;
+  try { _packet = require('./renderers/foh/darkHorseFohPacket'); return _packet; }
+  catch (e) { return null; }
+}
+
+// Read live macro context (DXY/VIX/yield) without coupling to
+// the production engine. Caller can pass `coreyLiveModule` via
+// opts, otherwise we try to resolve it lazily.
+function _readLiveContext(opts) {
+  try {
+    const liveMod = (opts && opts.coreyLiveModule) || (function() { try { return require('./corey_live_data'); } catch (_e) { return null; } })();
+    if (!liveMod || typeof liveMod.getLiveContext !== 'function') return null;
+    return liveMod.getLiveContext();
+  } catch (_e) { return null; }
+}
+
 // movePhase → lifecycle pill (renderer expects FRESH / STILL
 // ACTIVE / FADING; ranking emits early / mid / late / exhaustion).
 function _phaseToLifecycle(movePhase) {
@@ -116,16 +134,34 @@ async function tryPostDarkHorseAsImage(webhookUrl, ranking, volatility, opts) {
   if (!foh) {
     return { ok: false, reason: 'renderer_unavailable' };
   }
+  // Prefer the rich FOH product-depth packet when the new
+  // builder is available; fall back to the thin legacy payload
+  // shape (PR #112) otherwise.
   let payload;
-  try { payload = buildDarkHorseImagePayload(ranking, volatility, opts || {}); }
-  catch (e) { return { ok: false, reason: 'payload_build_failed', error: e.message }; }
+  const pmod = _packetLazy();
+  if (pmod && typeof pmod.buildDarkHorseFohPacket === 'function') {
+    try {
+      const liveCtx = _readLiveContext(opts);
+      payload = pmod.buildDarkHorseFohPacket(ranking, volatility, liveCtx, opts || {});
+    } catch (e) {
+      payload = null;
+    }
+  }
+  if (!payload) {
+    try { payload = buildDarkHorseImagePayload(ranking, volatility, opts || {}); }
+    catch (e) { return { ok: false, reason: 'payload_build_failed', error: e.message }; }
+  }
+  const standoutCount = Array.isArray(payload && payload.standouts) ? payload.standouts.length : 0;
+  const glossaryUrl = (payload && payload.glossaryUrl)
+    || (payload && payload.glossaryTerms && payload.glossaryTerms.glossaryUrl)
+    || null;
   try {
     const sent = await foh.postFohExportToDiscord({
       kind: 'dark_horse',
       payload,
       webhookUrl,
-      caption: 'ATLAS Dark Horse · ' + payload.standouts.length + ' standout' + (payload.standouts.length === 1 ? '' : 's'),
-      dashboardUrl: payload.glossaryUrl,
+      caption: 'ATLAS Dark Horse · ' + standoutCount + ' standout' + (standoutCount === 1 ? '' : 's'),
+      dashboardUrl: glossaryUrl,
     });
     return sent;
   } catch (e) {

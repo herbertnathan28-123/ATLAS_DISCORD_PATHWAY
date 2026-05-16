@@ -1448,6 +1448,8 @@ async function runDarkHorseScan(universeOrOpts) {
               const dhImage = require('./darkHorseImageDispatch');
               const imgRes = await dhImage.tryPostDarkHorseAsImage(DH_WEBHOOK_URL, ranking, volatility, {
                 universeSize: DH_UNIVERSE.length,
+                watch, internal, ignored,
+                coreyLiveModule: _coreyLive,
               });
               if (imgRes && imgRes.ok) {
                 _markDigestPosted({
