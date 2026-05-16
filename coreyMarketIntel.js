@@ -803,165 +803,282 @@ function _miSubheading(text) {
   return ['```ansi', MI_ANSI_GOLD + '▸  ' + text + MI_ANSI_RESET, '```'].join('\n');
 }
 
-// CONFIRMATION PATH copy — what price action would confirm the
-// event's directional reaction. Pre-event reads the bias path
-// derived from the upstream analyseEvent() bias label so the
-// language stays event-specific.
-function _miConfirmationPath(rawEvent, a, isReleased) {
-  const ccy = (a && a.currency) || 'currency';
-  const surpriseDir = (function () {
-    const A = parseFloat(rawEvent && rawEvent.actual);
-    const F = parseFloat(rawEvent && rawEvent.forecast);
-    if (!Number.isFinite(A) || !Number.isFinite(F)) return null;
-    if (A > F) return 'above';
-    if (A < F) return 'below';
-    return 'inline';
-  })();
-  if (isReleased && surpriseDir === 'above') {
-    return [
-      '• ' + ccy + '-strength confirmation: the lead pair (e.g. USD pairs: ' + ccy + 'JPY) closes in the surprise direction on the 1H AND holds the post-print swing.',
-      '• Cross-asset confirmation: ' + ccy + '-sensitive risk assets (commodities + correlated equities) trade in the expected direction without immediate reversal.',
-      '• Required 5M/15M behaviour: a sweep of the pre-print range high, then a 5M body close back inside that range from the surprise side ({{confirmed directional structure}} test).',
-    ].join('\n');
+// ── NARRATIVE-FIRST EMBED HELPERS ───────────────────────────
+// Lane-A correction: macro-roadmap narrative spine, not a rigid
+// checklist. The old "WHAT CHANGED / WHY THIS MATTERS /
+// CONFIRMATION PATH / CANCELLATION PATH / NEXT REVIEW" backbone
+// is replaced by narrative paragraphs that thread macro theme →
+// event intelligence → market impact (was "Mechanism Chain") →
+// cross-asset consequences → operator guidance → next watch
+// window → briefing summary. Internal helper names may keep
+// "mechanism" terminology; only the user-facing label changes.
+
+// Safe-read live macro snapshot (DXY / VIX / yield) from the
+// coreyLive module if it has been wired via init({ coreyLiveModule }).
+function _miLiveMacroSnapshot() {
+  try {
+    const lc = _coreyLiveModule && _coreyLiveModule.getLiveContext && _coreyLiveModule.getLiveContext();
+    const ctx = lc && lc.context;
+    if (!ctx) return { available: false };
+    return {
+      available: true,
+      dxy:   ctx.dxy   || {},
+      vix:   ctx.vix   || {},
+      yield: ctx.yield_ || ctx.yield || {},
+    };
+  } catch (_e) {
+    return { available: false };
   }
-  if (isReleased && surpriseDir === 'below') {
-    return [
-      '• ' + ccy + '-weakness confirmation: the lead pair closes against ' + ccy + ' on the 1H AND holds the post-print swing.',
-      '• Cross-asset confirmation: defensive flows reach + hold (safe havens + risk-off proxies).',
-      '• Required 5M/15M behaviour: a sweep of the pre-print range low, then a 5M body close back inside that range from the surprise side.',
-    ].join('\n');
-  }
-  return [
-    '• Wait for a sweep of the pre-print range high or low.',
-    '• Then a 5M body close back inside that range from the same side (directional structure test).',
-    '• 1H close in the same direction as the 5M reclaim confirms the read; otherwise treat as no-bias.',
-  ].join('\n');
 }
 
-function _miCancellationPath(rawEvent, a, isReleased) {
-  const ccy = (a && a.currency) || 'currency';
-  if (isReleased) {
-    return [
-      '• First-spike fade: price retraces 100% of the post-print impulse within 30 min — directional bias OFF.',
-      '• Cross-asset disagreement: lead pair and ' + ccy + '-sensitive risk assets disagree on direction — stand aside.',
-      '• 1H close back inside the pre-print range cancels the surprise-direction bias entirely.',
-    ].join('\n');
-  }
-  return [
-    '• Pre-event range breaks early without confirmation candle — the move is liquidity, not direction.',
-    '• Major catalyst overrides this event (e.g. unscheduled headline) — re-read the new catalyst.',
-    '• Event postponed / delayed — bias is voided until the new release window.',
-  ].join('\n');
+// Source provenance — surfaces calendar mode/source + live macro
+// availability. Drives the footer line of every MI card.
+function _miSourceLine() {
+  let mode = 'UNAVAILABLE', source = 'unavailable', liveOk = false;
+  try {
+    const snap = _calendarModule && _calendarModule.getCalendarSnapshot && _calendarModule.getCalendarSnapshot();
+    if (snap && snap.health) {
+      mode = snap.health.calendar_mode || mode;
+      source = snap.health.source_used || source;
+    }
+  } catch (_e) { /* safe-fail */ }
+  try {
+    const lc = _coreyLiveModule && _coreyLiveModule.getLiveContext && _coreyLiveModule.getLiveContext();
+    if (lc && lc.context) liveOk = true;
+  } catch (_e) { /* safe-fail */ }
+  return 'Source: ' + (source || 'unavailable') + ' (calendar_mode=' + (mode || 'UNAVAILABLE') + ')'
+       + ' · Corey live macro: ' + (liveOk ? 'wired' : 'unavailable');
 }
 
-function _miNextReview(isReleased, stage, scheduledMs) {
+// Headline macro theme — dominant story paragraph used as the
+// embed description. Category-aware; reads live macro state
+// when available so the regime line is grounded, not invented.
+function _miHeadlineMacroTheme(rawEvent, a, liveSnap) {
+  const driver = classifyEventDriver(a.title) || { label: 'macro catalyst', short: 'macro' };
+  const ccy = (a.currency || '').toUpperCase() || 'multi-currency';
+  let story;
+  if (driver.short === 'inflation') {
+    story = ccy + ' inflation cycle dominates this window. Rate-path expectations sit at the core of every cross-asset price — yields and the dollar lead, gold and risk indices follow on transmission.';
+  } else if (driver.short === 'labour') {
+    story = ccy + ' labour cycle is the lever. Central-bank reaction-function pricing sits beneath every cross-asset response. Short-end rates and ' + ccy + ' move first; rate-sensitive risk follows.';
+  } else if (driver.short === 'central bank') {
+    story = ccy + ' policy tone is the lever — tone vs current market pricing decides the rate-path lean. Cross-pair flow against G10 carries the dominant signal; ' + ccy + ' repositions on tone, not the headline.';
+  } else if (driver.short === 'growth') {
+    story = 'Growth read on ' + ccy + ' is the lever. Terminal-rate expectations shift on surprise; equity indices and ' + ccy + ' move together where the surprise repositions risk appetite.';
+  } else if (driver.short === 'geopolitical') {
+    story = 'Geopolitical risk is the lever. Safe-haven rotation (US Dollar Index (DXY), CHF, JPY, gold) historically dominates; equities and credit fade, vol indices lift.';
+  } else if (driver.short === 'consumer demand') {
+    story = ccy + ' consumer-demand read is the lever. Growth / rate-path repricing flows through ' + ccy + '; consumer-cyclical equities follow the surprise.';
+  } else if (driver.short === 'activity') {
+    story = ccy + ' activity read vs the 50 expansion line is the lever. Defensive vs cyclical rotation in equities historically responds first.';
+  } else {
+    story = ccy + ' surprise vs forecast is the lever. The first close after the print sets the working bias; risk follows on the first HTF close.';
+  }
+  let liveLine;
+  if (liveSnap && liveSnap.available) {
+    const dxyBias = liveSnap.dxy.bias || 'neutral';
+    const vixLvl  = liveSnap.vix.level || 'unavailable';
+    const yldReg  = liveSnap.yield.regime || 'unavailable';
+    liveLine = 'Live macro reads: US Dollar Index (DXY) ' + dxyBias + ' · CBOE Volatility Index (VIX) ' + vixLvl + ' · yield curve ' + yldReg + '.';
+  } else {
+    liveLine = 'Live macro context unavailable; reading from event mechanics alone (scenario estimate basis).';
+  }
+  return story + '\n' + liveLine;
+}
+
+// Event intelligence narrative — what the event is + why it
+// matters + scenario split. Beginner-readable single block; the
+// scenario split (hot / cool / inline) is embedded inline rather
+// than chopped into separate "WHAT CHANGED" / "WHY THIS MATTERS"
+// fields. Every probability-shaped statement is hedged with
+// "historically tends to" / "favours" / "expected pressure".
+function _miEventIntelligenceNarrative(rawEvent, a, isReleased) {
+  const ccy = a.currency || 'home currency';
+  const driver = classifyEventDriver(a.title) || { short: 'macro', label: 'macro catalyst' };
+  const title = humanizeTitle(a.title);
+  let explain;
+  if (driver.short === 'inflation') {
+    explain = title + ' measures inflation — the rate prices are rising. Hotter-than-forecast readings historically tend to support ' + ccy + ' and yields (rates expected to stay higher for longer) while pressuring gold and risk indices. Cooler readings favour the reverse rotation.';
+  } else if (driver.short === 'labour') {
+    explain = title + ' is a labour-market reading. Stronger readings favour ' + ccy + ' via tighter central-bank policy expectations; weaker readings favour the reverse. The first reaction historically sits in the short-end yield curve.';
+  } else if (driver.short === 'central bank') {
+    explain = title + ' is a central-bank decision / statement. The lever is tone vs current market pricing — a hawkish lean supports ' + ccy + ', a dovish lean pressures it. Surprises against current pricing historically produce outsized moves.';
+  } else if (driver.short === 'growth') {
+    explain = title + ' is a growth indicator. Stronger readings historically tend to lift risk and ' + ccy + ' jointly when growth-pricing dominates; weaker readings invert the relationship.';
+  } else if (driver.short === 'geopolitical') {
+    explain = title + ' is a geopolitical event. The historical reaction is safe-haven rotation: US Dollar Index (DXY), CHF, JPY, and gold tend to bid while equities and credit fade.';
+  } else if (driver.short === 'consumer demand') {
+    explain = title + ' is a consumer-demand reading. Stronger consumer spending tends to support ' + ccy + ' through growth-pricing; weaker readings favour the reverse.';
+  } else if (driver.short === 'activity') {
+    explain = title + ' is an activity index. Readings above 50 favour expansion (supportive for ' + ccy + ' and risk); below 50 favour contraction.';
+  } else {
+    explain = title + ' is a scheduled macro release. The standard transmission is surprise → ' + ccy + ' repositions → correlated risk follows on the first HTF close.';
+  }
+  let scenarios;
   if (isReleased) {
-    const tPlus30 = Date.now() + 30 * 60 * 1000;
-    return _miFmtUtcStamp(tPlus30) + ' / ' + _miFmtAwstStamp(tPlus30) + ' (T+30 — first-close confirmation phase)';
+    const A = parseFloat(a.actual), F = parseFloat(a.forecast);
+    if (Number.isFinite(A) && Number.isFinite(F)) {
+      if (A > F) scenarios = '_Released above forecast (' + a.actual + ' vs ' + a.forecast + ')._ Historical surprise direction: expected pressure favours ' + ccy + ' under the standard transmission. Reaction quality requires post-release structure to confirm (scenario estimate basis).';
+      else if (A < F) scenarios = '_Released below forecast (' + a.actual + ' vs ' + a.forecast + ')._ Historical surprise direction: expected pressure favours fading ' + ccy + ' under the standard transmission. Reaction quality requires post-release structure to confirm (scenario estimate basis).';
+      else scenarios = '_Released in line with forecast (' + a.actual + ')._ Expect choppy two-way liquidity without directional persistence; reaction depends on positioning unwind (insufficient evidence basis).';
+    } else {
+      scenarios = '_Released — values incomplete (actual ' + fmtVal(a.actual) + ' · forecast ' + fmtVal(a.forecast) + ')._ Reassess scenario as numbers populate.';
+    }
+  } else {
+    scenarios = '_Scenario split (pre-event):_\n• **Hotter / stronger than forecast** — expected pressure: supportive for ' + ccy + ' and yields; risk indices and gold favour the bearish side. (scenario estimate basis)\n• **Cooler / weaker than forecast** — expected pressure: fading ' + ccy + ' and yields; risk indices and gold favour the bullish side. (scenario estimate basis)\n• **In line** — muted / choppy reaction; read becomes valid only once price aligns through structure. (insufficient evidence basis)';
+  }
+  return explain + '\n\n' + scenarios;
+}
+
+// Market Impact narrative — transmission chain. The internal
+// helper keeps the `mechanismChainFor` name; only the surfaced
+// label ("MARKET IMPACT") changes per operator brief.
+function _miMarketImpactNarrative(rawEvent, a) {
+  return mechanismChainFor(rawEvent);
+}
+
+// Cross-asset consequence narrative — bucketed FX / indices /
+// commodities / equities, paragraph-per-class. Replaces the
+// raw bullet list of AFFECTED MARKETS.
+function _miCrossAssetConsequencesNarrative(rawEvent, a) {
+  const buckets = bucketAffected(a.affected);
+  const ccy = (a.currency || '').toUpperCase();
+  const lines = [];
+  const fxParts = [];
+  if (buckets['DXY'] && buckets['DXY'].length) fxParts.push('US Dollar Index (DXY)');
+  if (buckets['USD pairs']) fxParts.push('USD pairs (' + buckets['USD pairs'].slice(0,4).map(symbolDisplay).join(', ') + ')');
+  if (buckets['EUR pairs']) fxParts.push('EUR pairs (' + buckets['EUR pairs'].slice(0,3).map(symbolDisplay).join(', ') + ')');
+  if (buckets['GBP pairs']) fxParts.push('GBP pairs (' + buckets['GBP pairs'].slice(0,3).map(symbolDisplay).join(', ') + ')');
+  if (buckets['JPY crosses']) fxParts.push('JPY crosses (' + buckets['JPY crosses'].slice(0,3).map(symbolDisplay).join(', ') + ')');
+  if (buckets['AUD/NZD pairs']) fxParts.push('AUD / NZD pairs');
+  if (fxParts.length) lines.push('**FX:** ' + fxParts.join(' · ') + ' — direction historically tracks the ' + (ccy || 'home') + ' rate-path repricing first.');
+  if (buckets['US indices'] || buckets['EU indices'] || buckets['Asia indices']) {
+    const ix = [];
+    if (buckets['US indices']) ix.push('US (' + buckets['US indices'].slice(0,3).map(symbolDisplay).join(', ') + ')');
+    if (buckets['EU indices']) ix.push('EU (' + buckets['EU indices'].slice(0,2).map(symbolDisplay).join(', ') + ')');
+    if (buckets['Asia indices']) ix.push('Asia (' + buckets['Asia indices'].slice(0,2).map(symbolDisplay).join(', ') + ')');
+    lines.push('**Indices:** ' + ix.join(' · ') + ' — rate-sensitivity favours the inverse of the yield reaction; risk-tone confirmation comes from VWAP hold / loss.');
+  }
+  if (buckets['Metals'] || buckets['Energy']) {
+    const cm = [];
+    if (buckets['Metals']) cm.push('Metals (' + buckets['Metals'].slice(0,2).map(symbolDisplay).join(', ') + ')');
+    if (buckets['Energy']) cm.push('Energy (' + buckets['Energy'].slice(0,2).map(symbolDisplay).join(', ') + ')');
+    lines.push('**Commodities:** ' + cm.join(' · ') + ' — historically inverse to USD / yields; rejection or reclaim of the pre-release high / low is the read.');
+  }
+  if (!lines.length) lines.push('No direct bucket mapping for this catalyst — read cross-asset consequence from the live macro tape rather than from the calendar.');
+  return lines.join('\n');
+}
+
+// Operator guidance — confirmation + cancellation embedded as a
+// single narrative paragraph (the spec calls these "embedded as
+// operator guidance, not as the entire backbone").
+function _miOperatorGuidance(rawEvent, a, isReleased) {
+  const ccy = (a.currency || 'currency');
+  if (isReleased) {
+    const A = parseFloat(a.actual), F = parseFloat(a.forecast);
+    let dir = 'inline';
+    if (Number.isFinite(A) && Number.isFinite(F)) dir = (A === F) ? 'inline' : 'surprise-direction';
+    const confirm = (dir === 'inline')
+      ? 'For an inline read to gain direction, the lead pair must show a clean directional structure-break in a single direction AND the live macro tape must agree.'
+      : 'The ' + ccy + ' read strengthens if the lead pair (e.g. ' + ccy + 'JPY) holds the ' + dir + ' on the 1H close AND cross-asset risk agrees — gold / indices moving opposite ' + ccy + ', or correlated equities trading with it.';
+    const cancel = 'Working bias is voided if the post-release impulse retraces fully within 30 minutes, if the lead pair and ' + ccy + '-sensitive risk disagree on direction, or if the 1H closes back inside the pre-release range.';
+    return confirm + ' ' + cancel;
+  }
+  return 'The directional read only strengthens if ' + ccy + ' and yields move together post-release. If ' + ccy + ' spikes while yields fade (or vice versa), the first reaction is lower quality and historically tends to reverse. Working bias is voided early if the pre-event range breaks without a confirmation candle, if a competing catalyst overrides the release before structure forms, or if the event is postponed.';
+}
+
+// Next watch window — event time + first-reaction window +
+// reassessment window. Replaces the single-timestamp "NEXT REVIEW".
+function _miNextWatchWindow(isReleased, stage, scheduledMs) {
+  if (isReleased) {
+    const tPlus15 = Date.now() + 15 * 60 * 1000;
+    const tPlus60 = Date.now() + 60 * 60 * 1000;
+    return 'First reaction window: 0–15 min post-release (active now → ' + _miFmtUtcStamp(tPlus15) + ').\nReassessment: ' + _miFmtUtcStamp(tPlus60) + ' / ' + _miFmtAwstStamp(tPlus60) + ' (first 1H close — confirmation phase).';
   }
   const t = Number.isFinite(scheduledMs) ? scheduledMs : Date.now();
-  return _miFmtUtcStamp(t) + ' / ' + _miFmtAwstStamp(t) + ' (event scheduled — re-read after print)';
+  const tPlus15 = t + 15 * 60 * 1000;
+  const tPlus60 = t + 60 * 60 * 1000;
+  return 'Event time: ' + _miFmtUtcStamp(t) + ' / ' + _miFmtAwstStamp(t) + '.\nFirst reaction window: 0–15 min post-release (through ' + _miFmtUtcStamp(tPlus15) + ').\nReassessment: ' + _miFmtUtcStamp(tPlus60) + ' (first 1H close after the release).';
 }
 
-// Affected markets block, condensed for embed field. Bucket order
-// preserved; each bucket shows up to 6 symbols. Suppresses
-// redundant "Header: Header" rows (e.g. solo DXY).
-function _miAffectedMarketsValue(buckets) {
-  const rows = [];
-  for (const k of BUCKET_ORDER) {
-    if (buckets[k] && buckets[k].length) {
-      const header = bucketHeaderLabel(k);
-      const cells = buckets[k].slice(0, 6).map(symbolDisplay).join(', ');
-      rows.push((cells === header) ? '• ' + header : '• ' + header + ': ' + cells);
-    }
-  }
-  return rows.length ? rows.join('\n') : '• No direct bucket mapping for this catalyst.';
+// Briefing summary — dense single paragraph, narrative tone.
+function _miBriefingSummaryNarrative(rawEvent, a, opts) {
+  const isReleased = !!(opts && opts.released);
+  const stage = (opts && opts.stage) || (isReleased ? 'RELEASED' : 'PRE-EVENT');
+  const buckets = bucketAffected(a.affected);
+  const primaryBucket = BUCKET_ORDER.find(k => buckets[k] && buckets[k].length);
+  const primarySymbols = primaryBucket ? buckets[primaryBucket].slice(0, 3).map(symbolDisplay).join(' / ') : 'broad cross-asset';
+  const tone = isReleased ? 'released' : (stage + ' window open');
+  return stage + ' alert · ' + humanizeTitle(a.title) + ' · ' + (a.currency || 'multi-ccy') + '. Macro is ' + tone + '; cross-asset consequences cascade through ' + primarySymbols + ' on direction of surprise. ' + a.coreyView + ' ' + BIAS_CONDITIONAL_DISCLAIMER;
 }
 
-// Build the structured Market Intel event card embed.
+// Build the Market Intel event card embed — NARRATIVE-FIRST.
+// Top inline pair (SCHEDULED RELEASE / EVENT RISK) gives quick
+// reference; the rest of the embed is paragraph-driven.
 function _miEventCardEmbed(rawEvent, a, opts) {
   const isReleased = !!(opts && opts.released);
   const stage = (opts && opts.stage) || null;
-  const buckets = bucketAffected(a.affected);
   const cleanTitle = humanizeTitle(a.title);
   const mood = isReleased ? _miMarketMoodForReleased(rawEvent) : _miMarketMoodForPreEvent(stage, rawEvent);
   const impact = String(rawEvent.impact || 'unavailable').toUpperCase();
   const colour = isReleased
     ? (mood.active >= 4 ? (mood.label === 'EXTREME' ? MI_COLOR.EXTREME : MI_COLOR.RELEASED_BEAR) : MI_COLOR.RELEASED_INLINE)
     : (impact === 'HIGH' ? MI_COLOR.HIGH_IMPACT : MI_COLOR.PRE_EVENT);
-
-  // WHAT CHANGED — pre-event: timing approach line; released: surprise line.
-  let whatChanged;
-  if (isReleased) {
-    const A = parseFloat(a.actual), F = parseFloat(a.forecast);
-    if (Number.isFinite(A) && Number.isFinite(F)) {
-      if (A > F)      whatChanged = '**Print landed ABOVE forecast** (' + a.actual + ' vs ' + a.forecast + '). Direction of surprise: bullish-for-' + (a.currency || 'currency') + ' under the standard mechanism.';
-      else if (A < F) whatChanged = '**Print landed BELOW forecast** (' + a.actual + ' vs ' + a.forecast + '). Direction of surprise: bearish-for-' + (a.currency || 'currency') + ' under the standard mechanism.';
-      else            whatChanged = '**Print landed IN LINE with forecast** (' + a.actual + '). No surprise-driven direction; reaction depends on positioning unwind.';
-    } else {
-      whatChanged = '**Print released — values incomplete.** Actual ' + fmtVal(a.actual) + ' · forecast ' + fmtVal(a.forecast) + ' · previous ' + fmtVal(a.previous) + '. Reassess as numbers populate.';
-    }
-  } else {
-    whatChanged = '**Event window opened: ' + (stage || 'T-1H') + '.** ' + cleanTitle + ' is approaching. Liquidity is thinning, spreads will widen, positioning is rotating.';
-  }
+  const liveSnap = _miLiveMacroSnapshot();
+  const sourceLine = _miSourceLine();
 
   const fields = [
-    { name: 'EVENT / CATALYST WATCH',
-      value: '**' + cleanTitle + '**\n• Currency: ' + (a.currency || 'unavailable') + (rawEvent.country ? ' (' + rawEvent.country + ')' : '')
-             + '\n• Impact tier: ' + impact
-             + (isReleased ? '\n• Status: released' : '\n• Stage: ' + (stage || 'pre-event')),
-      inline: false },
     { name: 'SCHEDULED RELEASE',
       value: _miFmtAwstStamp(a.scheduled_time) + ' AWST\n(' + _miFmtUtcStamp(a.scheduled_time) + ')',
       inline: true },
     { name: 'EVENT RISK',
       value: mood.discScale,
       inline: true },
-    { name: 'WHAT CHANGED', value: whatChanged, inline: false },
-    { name: 'WHY THIS MATTERS',
-      value: mechanismChainFor(rawEvent) + '\n\n_Market read:_ ' + a.coreyView,
+    { name: 'EVENT INTELLIGENCE',
+      value: _miEventIntelligenceNarrative(rawEvent, a, isReleased),
       inline: false },
-    { name: 'AFFECTED MARKETS', value: _miAffectedMarketsValue(buckets), inline: false },
-    { name: 'CONFIRMATION PATH', value: _miConfirmationPath(rawEvent, a, isReleased), inline: false },
-    { name: 'CANCELLATION PATH', value: _miCancellationPath(rawEvent, a, isReleased), inline: false },
-    { name: 'NEXT REVIEW',
-      value: _miNextReview(isReleased, stage, a.scheduled_time),
+    { name: 'MARKET IMPACT',
+      value: _miMarketImpactNarrative(rawEvent, a),
+      inline: false },
+    { name: 'CROSS-ASSET CONSEQUENCES',
+      value: _miCrossAssetConsequencesNarrative(rawEvent, a),
+      inline: false },
+    { name: 'OPERATOR GUIDANCE',
+      value: _miOperatorGuidance(rawEvent, a, isReleased),
+      inline: false },
+    { name: 'NEXT WATCH WINDOW',
+      value: _miNextWatchWindow(isReleased, stage, a.scheduled_time),
+      inline: false },
+    { name: 'BRIEFING SUMMARY',
+      value: _miBriefingSummaryNarrative(rawEvent, a, opts),
       inline: false },
   ];
 
   const title = isReleased
     ? '🌐  MARKET INTEL · ' + cleanTitle + ' · RELEASED'
     : '🌐  MARKET INTEL · ' + cleanTitle + ' · ' + (stage || 'PRE-EVENT');
-  const description = isReleased
-    ? 'Released-event intelligence read. Surprise direction sets the working bias; price-action confirmation governs whether the bias activates.'
-    : 'Pre-event intelligence read. ' + (impact === 'HIGH' ? 'High-impact' : 'Standard-impact') + ' catalyst inside the active window. Positioning rotates first; confirmation comes from post-print structure.';
+  const description = _miHeadlineMacroTheme(rawEvent, a, liveSnap);
+  const probabilityBasis = 'Probability basis: scenario estimate unless labelled historically sourced or engine-derived; pending historical validation for assets without analogue data.';
+  const footerText = 'ATLAS Market Intel · ' + (isReleased ? 'release' : 'pre-event') + ' · ' + (a.currency || 'multi') + ' · ' + (stage || 'released')
+    + ' · ' + sourceLine
+    + ' · ' + probabilityBasis
+    + ' · Bias remains conditional until price confirms through structure.';
 
   return {
     color: colour,
     title,
     description,
     fields,
-    footer: { text: 'ATLAS Market Intel · ' + (isReleased ? 'release' : 'pre-event') + ' · ' + (a.currency || 'multi') + ' · ' + (stage || 'released') + ' · Bias remains conditional until price confirms through structure.' },
+    footer: { text: footerText },
   };
 }
 
-// Briefing summary tail content — dense single-paragraph recap.
-function _miBriefingSummary(rawEvent, a, opts) {
-  const isReleased = !!(opts && opts.released);
-  const stage = (opts && opts.stage) || (isReleased ? 'RELEASED' : 'PRE-EVENT');
-  const buckets = bucketAffected(a.affected);
-  const primaryBucket = BUCKET_ORDER.find(k => buckets[k] && buckets[k].length);
-  const primarySymbols = primaryBucket ? buckets[primaryBucket].slice(0, 3).map(symbolDisplay).join(' / ') : 'broad cross-asset';
-  return [
-    _miSubheading('Briefing Summary'),
-    '_' + stage + ' alert · ' + humanizeTitle(a.title) + ' · ' + (a.currency || 'multi-ccy') + '. Lead exposure: ' + primarySymbols + '._',
-    '_Mechanism: ' + a.coreyView + '_',
-    '_' + BIAS_CONDITIONAL_DISCLAIMER + '_',
-  ].join('\n');
-}
-
-// Banner content (multi-fence) — red NEW divider + gold MARKET INTEL
-// banner + Market Mood subheading + EXPANDED TERMINOLOGY row.
+// Banner content — gold MARKET INTEL banner + red NEW divider +
+// mood subheading + EXPANDED TERMINOLOGY row. The terminology
+// row uses the user-facing labels "Market Impact" / "Cross-Asset
+// Consequences" / "Operator Guidance" / "Event Risk" / "Market
+// Mood". Briefing summary now lives in the embed (not the banner)
+// to avoid duplication; the banner is visual hierarchy only.
 function _miBannerContent(rawEvent, a, opts) {
   const isReleased = !!(opts && opts.released);
   const stage = (opts && opts.stage) || null;
@@ -970,9 +1087,9 @@ function _miBannerContent(rawEvent, a, opts) {
     ? humanizeTitle(a.title) + ' — just released'
     : humanizeTitle(a.title) + ' — ' + (stage || 'pre-event') + ' window open';
   const terms = [
-    _miTermLink('Mechanism Chain'),
-    _miTermLink('Confirmation Path'),
-    _miTermLink('Cancellation Path'),
+    _miTermLink('Market Impact'),
+    _miTermLink('Cross-Asset Consequences'),
+    _miTermLink('Operator Guidance'),
     _miTermLink('Event Risk'),
     _miTermLink('Market Mood'),
   ].join('  ·  ');
@@ -987,8 +1104,6 @@ function _miBannerContent(rawEvent, a, opts) {
     terms,
     '',
     _miSubheading('Market Mood  ·  ' + mood.discScale),
-    '',
-    _miBriefingSummary(rawEvent, a, opts),
   ].join('\n');
 }
 

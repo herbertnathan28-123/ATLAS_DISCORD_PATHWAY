@@ -1,0 +1,143 @@
+=== STAGING HARNESS — DARK HORSE WEEKEND PREP ===
+mode:            DRY-RUN (no network)
+staging urlHash: (none)
+payload.kind:    dark-horse-weekend-prep
+content size:    1077 / 2000
+embed sizes:     910, 5152, 1575, 1798 (≤ 6000 each)
+
+=== WEBHOOK BODY ===
+-- content (1077 chars) --
+```diff
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- ▼ ▼ ▼   N E W   D A R K   H O R S E   P R E P   B R I E F I N G   ▼ ▼ ▼
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-   🆕   2026-05-16 12:00 UTC   ·   20:00 AWST   ·   MONDAY OPEN PREP   🆕
+- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+```ansi
+[33;1m╔════════════════════════════════════════════════════════════╗[0m
+[33;1m║ 🐎  DARK HORSE — MONDAY OPEN PREP BRIEFING                 ║[0m
+[33;1m╚════════════════════════════════════════════════════════════╝[0m
+```
+
+_Preparation intelligence only — live confirmation required after market open._
+
+📘 **EXPANDED TERMINOLOGY HYPERLINKS**
+[[Market Impact]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Event-Exposed Watchlist]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Promotion Rule]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Move Range Basis]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)  ·  [[Corey Alignment]](https://www.notion.so/35f51e90f20c81ffa44dd50835013a6a)
+
+-- embed 1 (color=0x5bc0de) --
+title:       🌐  WEEKEND MARKET STATE · COREY MACRO
+description: Weekend phase: **Saturday — markets closed, FX gap active**. This briefing identifies instruments that *could become* Dark Horse candidates once live price confirms after market reopen — not active trade setups.
+  [WEEKEND MARKET STATE]
+    Weekend phase: Saturday — markets closed, FX gap active.
+    Monday Open Mood: 🟠🟠🟠🟠⚫ 4/5 — High — clustered catalyst exposure
+  [COREY MACRO STATE]
+    US Dollar Index (DXY): bias **mild-bid** (level 28.4)
+    CBOE Volatility Index (VIX): level **18.2**
+    Yield curve: regime **flat**
+  [UPCOMING EVENT EXPOSURE]
+    • ECB Rate Decision (EUR) — 2026-05-18 12:00 UTC / 20:00 AWST
+    • CPI (USD) (USD) — 2026-05-19 12:00 UTC / 20:00 AWST
+  [EVENT TRANSMISSION MAP (MARKET IMPACT)]
+    cause: tone vs current market pricing → expectation: rate-path lean shifts → market reaction: EUR repositions on tone, not headline → asset impact: cross-pair flow and rate-sensitive assets follow.
+
+-- embed 2 (color=0xe67e22) --
+title:       ⚠️  EVENT-EXPOSED WATCHLIST · ECB Rate Decision
+description: ECB Rate Decision = central-bank decision / statement for EUR. The lever is tone vs current market pricing — a hawkish lean supports EUR, a dovish lean pressures it.
+
+_Scenario split:_
+**Hotter / stronger than forecast** — expected pressure: supportive for EUR and yields. Pressured: gold, US indices, EUR-funded high-beta equities. Supported: EUR against G10. (basis: scenario estimate)
+**Cooler / weaker than forecast** — expected pressure: fading EUR and yields. Supported: gold, US indices, EUR-funded high-beta equities. Pressured: EUR against G10. (basis: scenario estimate)
+**In line / mixed** — muted, choppy reaction. Watch becomes valid only once price aligns through structure post-release. (basis: insufficient evidence)
+  [EVENT-EXPOSED CANDIDATES]
+    • **EURUSD** — exposed to central-bank read on EUR.
+      Hot/strong release: EUR supported — pair favoured higher. Cool/weak release: EUR fades — pair favoured lower.
+      Expected event range: 35–95 pips (basis: scenario estimate).
+      Corey alignment: US Dollar Index (DXY) mild-bid · CBOE Volatility Index (VIX) 18.2 · yield curve flat.
+      Confirms after reopen: clean directional structure-break in the surprise direction on the 1H close AND cross-asset agreement.
+      Cancels: post-release impulse retraces fully within 30 min, lead pair and EUR-sensitive risk disagree, or 1H closes back inside pre-release range.
+      First live scan window: Asia open (Sun 22:00 UTC) → London open (Mon 07:00 UTC).
+    
+    • **EURGBP** — exposed to central-bank read on EUR.
+      Hot/strong release: EUR supported — pair favoured higher. Cool/weak release: EUR fades — pair favoured lower.
+      Expected event range: 35–95 pips (basis: scenario estimate).
+      Corey alignment: US Dollar Index (DXY) mild-bid · CBOE Volatility Index (VIX) 18.2 · yield curve flat.
+      Confirms after reopen: clean directional structure-break in the surprise direction on the 1H close AND cross-asset agreement.
+      Cancels: post-release impulse retraces fully within 30 min, lead pair and EUR-sensitive risk disagree, or 1H closes back inside pre-release range.
+      First live scan window: Asia open (Sun 22:00 UTC) → London open (Mon 07:00 UTC).
+    
+    • **EURJPY** — exposed to central-bank read on EUR.
+      Hot/strong release: EUR supported — pair favoured higher. Cool/weak release: EUR fades — pair favoured lower.
+      Expected event range: 45–110 pips (basis: scenario estimate).
+      Corey alignment: US Dollar Index (DXY) mild-bid · CBOE Volatility Index (VIX) 18.2 · yield curve flat.
+      Confirms after reopen: clean directional structure-break in the surprise direction on the 1H close AND cross-asset agreement.
+      Cancels: post-release impulse retraces fully within 30 min, lead pair and EUR-sensitive risk disagree, or 1H closes back inside pre-release range.
+      First live scan window: Asia open (Sun 22:00 UTC) → London open (Mon 07:00 UTC).
+    
+    • **EURAUD** — exposed to central-bank read on EUR.
+      Hot/strong release: EUR supported — pair favoured higher. Cool/weak release: EUR fades — pair favoured lower.
+      Expected event range: 35–95 pips (basis: scenario estimate).
+      Corey alignment: US Dollar Index (DXY) mild-bid · CBOE Volatility Index (VIX) 18.2 · yield curve flat.
+      Confirms after reopen: clean directional structure-break in the surprise direction on the 1H close AND cross-asset agreement.
+      Cancels: post-release impulse retraces fully within 30 min, lead pair and EUR-sensitive risk disagree, or 1H closes back inside pre-release range.
+      First live scan window: Asia open (Sun 22:00 UTC) → London open (Mon 07:00 UTC).
+    
+    • **GER40** — exposed to central-bank read on EUR.
+      Hot/strong release: pressured on a rate-path repricing. Cool/weak release: supported on a rate-path repricing.
+      Expected event range: 25–90 pts (basis: scenario estimate).
+      Corey alignment: US Dollar Index (DXY) mild-bid · CBOE Volatility Index (VIX) 18.2 · yield curve flat.
+      Confirms after reopen: clean directional structure-break in the surprise direction on the 1H close AND cross-asset agreement.
+      Cancels: post-release impulse retraces fully within 30 min, lead pair and EUR-sensitive risk disagree, or 1H closes back inside pre-release range.
+      First live scan window: London open (Mon 07:00 UTC) → London cash (Mon 08:00 UTC).
+    
+    • **UK100** — exposed to central-bank read on EUR.
+      Hot/strong release: pressured on a rate-path repricing. Cool/weak release: supported on a rate-path repricing.
+      Expected event range: 25–90 pts (basis: scenario estimate).
+      Corey alignment: US Dollar Index (DXY) mild-bid · CBOE Volatility Index (VIX) 18.2 · yield curve flat.
+      Confirms after reopen: clean directional structure-break in the surprise direction on the 1H close AND cross-asset agreement.
+      Cancels: post-release impulse retraces fully within 30 min, lead pair and EUR-sensitive risk disagree, or 1H closes back inside pre-release range.
+      First live scan window: London open (Mon 07:00 UTC) → London cash (Mon 08:00 UTC).
+  [PROMOTION RULE]
+    Promotion rule: can become a Dark Horse only after live price confirms post-reopen / post-release. Preparation intelligence only — live confirmation required after market open.
+
+-- embed 3 (color=0x9b59b6) --
+title:       📊  FRIDAY SURVIVORS · CONTINUATION / REVERSAL / HIGH-BETA
+description: Instruments from the live Dark Horse internal store that remained structurally relevant into Friday close. Surface only — promotion still requires live confirmation after reopen.
+  [MONDAY CONTINUATION CANDIDATES]
+    • **NVDA** · Bullish lean · internal score 8/10 · expected event range insufficient historical sample — direction read only (basis: insufficient evidence)
+    • **XAUUSD** · Bullish lean · internal score 7/10 · expected event range 18.00–42.00 $/oz (basis: scenario estimate)
+    • **EURUSD** · Bullish lean · internal score 7/10 · expected event range 35–95 pips (basis: scenario estimate)
+    • **NAS100** · Bullish lean · internal score 6/10 · expected event range 25–90 pts (basis: scenario estimate)
+    • **USDJPY** · Bearish lean · internal score 6/10 · expected event range 45–110 pips (basis: scenario estimate)
+  [MONDAY REVERSAL / GAP-FADE CANDIDATES]
+    • **NVDA** · Bullish lean · internal score 8/10 · expected event range insufficient historical sample — direction read only (basis: insufficient evidence)
+    • **XAUUSD** · Bullish lean · internal score 7/10 · expected event range 18.00–42.00 $/oz (basis: scenario estimate)
+    • **EURUSD** · Bullish lean · internal score 7/10 · expected event range 35–95 pips (basis: scenario estimate)
+  [HIGH-BETA REOPEN WATCH]
+    • **NVDA** · Bullish lean · internal score 8/10 · expected event range insufficient historical sample — direction read only (basis: insufficient evidence)
+    • **NAS100** · Bullish lean · internal score 6/10 · expected event range 25–90 pts (basis: scenario estimate)
+
+-- embed 4 (color=0x23a55a) --
+title:       ✅  OPERATOR GUIDANCE · CONFIRMATION & CANCELLATION · SCAN WINDOWS
+description: Embedded operator guidance — confirmation gates, cancellation triggers, and first live scan windows for the prep set.
+  [CONFIRMATION NEEDED AFTER REOPEN]
+    • Live price must show a clean directional structure-break in the surprise direction on the 1H close.
+    • Cross-asset agreement — lead pair, gold, indices, and Corey live macro must agree on direction.
+    • Friday close structure must hold or be cleanly broken; gap-fills inside 30 min void the surprise read.
+  [WHAT CANCELS THE WATCH]
+    • Post-release impulse retraces fully within 30 minutes — directional read is liquidity, not direction.
+    • Lead pair and currency-sensitive risk disagree on direction — stand aside.
+    • Competing catalyst overrides the release before structure forms.
+    • 1H closes back inside the pre-release range — surprise bias voided entirely.
+  [FIRST LIVE SCAN WINDOW]
+    • Asia open (Sun 22:00 UTC) — FX majors + crosses + commodities.
+    • London open (Mon 07:00 UTC) — EUR / GBP pairs + EU indices.
+    • NY premarket (Mon 12:00 UTC) — US indices + equities.
+    • NY cash open (Mon 13:30 UTC) — full equity universe live.
+  [PREPARATION-ONLY RISK NOTE]
+    This briefing is preparation intelligence only. No execution authority, no fixed entry levels, no directional commitment for the new week. All directional language is hedged — "expected pressure", "favours", "historically tends", "Corey leans". Live confirmation is mandatory before any candidate can be promoted to a Dark Horse.
+  [SOURCE / CONFIDENCE NOTE]
+    Source: unavailable (calendar_mode=UNAVAILABLE). Live macro: wired. Probability basis: scenario estimate unless labelled historically sourced / event-class historical / ATR-adjusted / insufficient evidence. Move-range estimates do not claim precision beyond the basis attached to each row.
+
+[DRY-RUN] No network calls were made. Re-run with --post --confirm-staging to deliver to the staging webhook.

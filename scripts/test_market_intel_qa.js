@@ -59,7 +59,25 @@ const FIXED_BANNED = [
   /\bliquidity sweep \+ 5m\/15m candle-close confirmation\b/i,
   /\bCorey read\b/,                        // legacy heading; replaced by "Market read"
   /\bDXY:\s*DXY\b/i,                       // the headline regression Nathan caught
-  /\bVIX:\s*VIX\b/i
+  /\bVIX:\s*VIX\b/i,
+  // Narrative-correction regression guards (Lane A, May 2026):
+  /\bMechanism Chain\b/,                   // user-facing label is "Market Impact"; internal sym may stay
+  /\bBOS\b/,                               // structural break translates to user-friendly form, never raw "BOS"
+  /\bCHoCH\b/,                             // change-of-character translates to user-friendly form
+  /\bprints\b/,                            // banned verb per operator brief; use "readings" / "released"
+  /\bTrigger Level\b/i,                    // banned phrase; use "confirmation" / "structure-break"
+  /\bwill\s+(?:go\s+up|drop|fall|rise)\b/i // certainty language; use "expected pressure" / "favours"
+];
+
+// Structural required-token check: every Market Intel surface must
+// carry the narrative-spine markers + provenance + probability basis.
+const STRUCTURAL_REQUIRED = [
+  /\bMARKET IMPACT\b/,
+  /\bCROSS-ASSET CONSEQUENCES\b/,
+  /\bOPERATOR GUIDANCE\b/,
+  /\bBRIEFING SUMMARY\b/,
+  /\bSource:\s/,
+  /\bProbability basis:\s/
 ];
 
 const ABBREV_RULES = [
@@ -114,6 +132,30 @@ function audit(label, payload) {
     const hits = findBareAbbrev(content, r.abbrev, r.expansion);
     for (const h of hits) {
       errors.push({ kind: 'bare-abbrev', token: r.abbrev, context: h.context });
+    }
+  }
+  for (const re of STRUCTURAL_REQUIRED) {
+    if (!re.test(content)) {
+      errors.push({ kind: 'missing-required', token: re.source, context: '(structural marker absent from rendered output)' });
+    }
+  }
+  // Discord-limit guard — 2000 chars content, 6000 chars per embed total.
+  const contentLen = typeof payload.content === 'string' ? payload.content.length : 0;
+  if (contentLen > 2000) {
+    errors.push({ kind: 'oversize-content', token: 'content', context: contentLen + ' > 2000' });
+  }
+  if (Array.isArray(payload.embeds)) {
+    for (let i = 0; i < payload.embeds.length; i++) {
+      const e = payload.embeds[i];
+      let t = 0;
+      if (e.title) t += String(e.title).length;
+      if (e.description) t += String(e.description).length;
+      if (Array.isArray(e.fields)) for (const f of e.fields) {
+        if (f && f.name) t += String(f.name).length;
+        if (f && f.value) t += String(f.value).length;
+      }
+      if (e.footer && e.footer.text) t += String(e.footer.text).length;
+      if (t > 6000) errors.push({ kind: 'oversize-embed', token: 'embed-' + (i + 1), context: t + ' > 6000' });
     }
   }
   return { label, ok: errors.length === 0, errors, chars: content.length };
