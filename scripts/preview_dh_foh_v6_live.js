@@ -56,6 +56,14 @@ function mk(sym, score, dir, sec, base, phase) {
   e.section = sec;
   e.sectionLabel = rank.SECTION_LABEL[sec];
   if (phase) e.movePhase = phase;
+  if (phase === 'mid') {
+    e.firstSeenAt = Date.parse('2026-05-11T07:40:00Z');
+    e.activeCycleCount = 24;
+  }
+  if (phase === 'late') {
+    e.firstSeenAt = Date.parse('2026-05-10T12:00:00Z');
+    e.activeCycleCount = 40;
+  }
   return e;
 }
 
@@ -125,13 +133,14 @@ const checks = [
   // Lifecycle separators on M2 / M3 / M4
   ['M2 lifecycle separator names "FRESH"',         /FRESH/.test(m2.content)],
   ['M2 lifecycle separator says STANDOUT #1 of 3', /STANDOUT #1 of 3/.test(m2.content)],
-  ['M2 lifecycle separator uses ```diff fence (filled red)', /```diff/.test(m2.content)],
+  ['M2 lifecycle separator uses yellow boxed code block', /^```\n🟨🟨  FRESH/m.test(m2.content)],
   ['M3 lifecycle separator names "STILL ACTIVE"',  /STILL ACTIVE/.test(m3.content)],
   ['M3 lifecycle separator says STANDOUT #2 of 3', /STANDOUT #2 of 3/.test(m3.content)],
-  ['M3 lifecycle separator uses yellow boxed code block', /^```\n🟨🟨  STILL ACTIVE/m.test(m3.content)],
+  ['M3 lifecycle separator uses aged validity colour block', /^```\n(?:🟧🟧|🟪🟪|🟥🟥)  STILL ACTIVE · VALIDITY DAY \d+/m.test(m3.content)],
+  ['M3 lifecycle separator includes first-logged age', /First logged \d{2}\/\d{2}\/\d{2} \d{2}:\d{2} UTC · still Dark Horse-worthy after/.test(m3.content)],
   ['M4 lifecycle separator names "FADING"',        /FADING/.test(m4.content)],
   ['M4 lifecycle separator says STANDOUT #3 of 3', /STANDOUT #3 of 3/.test(m4.content)],
-  ['M4 lifecycle separator uses orange boxed code block', /^```\n🟧🟧  FADING/m.test(m4.content)],
+  ['M4 lifecycle separator uses red boxed code block', /^```\n🟥🟥  FADING · VALIDITY FADING/m.test(m4.content)],
   ['no dashed "── NEW ──" text anywhere',          !/─── NEW ───/.test(allText)],
 
   // Embed structure — v6 canonical fields
@@ -148,6 +157,7 @@ const checks = [
   ['M2 has "Expected Duration" field (renamed from Horizon)', e2.fields.some(f => f.name === 'Expected Duration')],
   ['M2 NO "Horizon" field',                                  !e2.fields.some(f => f.name === 'Horizon')],
   ['M2 has "Today\'s Rank" field',                           e2.fields.some(f => f.name === "Today's Rank")],
+  ['M2 has "Validity" field',                               e2.fields.some(f => f.name === 'Validity')],
   ['M2 has "Where to Act" field',                            e2.fields.some(f => f.name === 'Where to Act')],
   ['M2 has "💲 Dollar Risk" field',                          e2.fields.some(f => /^💲 Dollar Risk/.test(f.name))],
   ['M2 has "What this means" field',                         e2.fields.some(f => f.name === 'What this means')],

@@ -1430,13 +1430,15 @@ async function runDarkHorseScan(universeOrOpts) {
             try { return await _safeOHLC(sym, '1D', 100); } catch (_e) { return null; }
           };
           const rankingUniverse = [...watch, ...internal];
+          const scanNow = Date.now();
           const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
             topN: 10, sectionCap: 2, sectionCapMax: 3,
             watchThreshold: DH_SCORE_WATCH,
+            now: scanNow,
           });
           rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
           const fohPayload = foh.buildDarkHorseFohPayload(ranking, volatility, {
-            now: Date.now(),
+            now: scanNow,
             universeSize: DH_UNIVERSE.length,
             terminologyUrls: null,
           });
@@ -1519,9 +1521,11 @@ async function runDarkHorseScan(universeOrOpts) {
         };
         // Universe for ranking = everything that scored > 0 on this scan.
         const rankingUniverse = [...watch, ...internal];
+        const scanNow = Date.now();
         const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
           topN: 10, sectionCap: 2, sectionCapMax: 3,
           watchThreshold: DH_SCORE_WATCH,
+          now: scanNow,
         });
         rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
         // Pre-Radar / Near-Miss lane (operator directive 2026-05-12).
@@ -1533,6 +1537,7 @@ async function runDarkHorseScan(universeOrOpts) {
         // alter scoring, thresholds, scheduler, transport, or
         // ranking foundation.
         payload = fomo.sanitize(rank.buildRankedMovementDigestPayload(ranking, volatility, {
+          now: scanNow,
           internal,                          // 5–7 score band (Pre-Radar + Near-Miss universe)
           ignored,                           // <5 score (Universe Coverage counts only)
           universeSize: DH_UNIVERSE.length,  // total symbols actually scanned this cycle

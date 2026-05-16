@@ -112,6 +112,14 @@ function mkRanked(symbol, score, direction, sectionKey, basePrice, overridePhase
   enriched.section = sectionKey;
   enriched.sectionLabel = rank.SECTION_LABEL[sectionKey];
   if (overridePhase) enriched.movePhase = overridePhase;
+  if (overridePhase === 'mid') {
+    enriched.firstSeenAt = Date.parse('2026-05-11T07:40:00Z');
+    enriched.activeCycleCount = 24;
+  }
+  if (overridePhase === 'late') {
+    enriched.firstSeenAt = Date.parse('2026-05-10T12:00:00Z');
+    enriched.activeCycleCount = 40;
+  }
   return enriched;
 }
 
@@ -218,6 +226,7 @@ console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / 
   ok('field "Expected Duration" present (renamed from Horizon)', fieldNames.includes('Expected Duration'));
   ok('field "Horizon" REMOVED',           !fieldNames.includes('Horizon'));
   ok('field "Today\'s Rank" present',     fieldNames.includes("Today's Rank"));
+  ok('field "Validity" present',          fieldNames.includes('Validity'));
   ok('field "Where to Act" present',      fieldNames.includes('Where to Act'));
   ok('field starts-with "💲 Dollar Risk" present',
      fieldNames.some(n => /^💲 Dollar Risk/.test(n)));
@@ -413,6 +422,7 @@ console.log('\n[T12] Banner — red NEW divider + gold DARK HORSE banner + EXPAN
   ok('banner has Market Mood 5-disc bar', /Market Mood {2}·\s*(🟢|🟡|🟠|🔴)+⚫* ?\d+\/5/.test(banner));
   ok('banner has Dollars-first guidance subsection', /Dollars-first guidance/.test(banner));
   ok('banner has ⭐ STANDOUTS banner',  /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(banner));
+  ok('banner has lifecycle colour key', /Colour key: 🟨 initial standout today/.test(banner));
   // No legacy v1.2.1 subheading
   ok('NO v1.2.1 "▸  Today\'s read" subheading',  !/▸  Today's read/.test(banner));
 
@@ -439,7 +449,7 @@ console.log('\n[T13] Sanitiser walker preserves message shape');
 }
 
 // ============================================================
-// T14 — Lifecycle badge — FRESH (filled red), STILL ACTIVE/FADING boxed markers
+// T14 — Lifecycle badge — FRESH yellow, carryovers age-coloured
 // ============================================================
 console.log('\n[T14] Lifecycle badges — FRESH/STILL ACTIVE/FADING — no dashed "── NEW ──"');
 {
@@ -449,14 +459,14 @@ console.log('\n[T14] Lifecycle badges — FRESH/STILL ACTIVE/FADING — no dashe
     mkRanked('C', 7, 'Bullish', rank.SECTIONS.EQUITIES,    900,   'late'),
   ];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
-  // FRESH = filled red diff fence
-  ok('FRESH separator uses ```diff fence (filled red)',  /^```diff/m.test(out.messages[1].content));
+  // FRESH = Discord-native yellow boxed code block
+  ok('FRESH separator uses yellow boxed code block',  /^```\n🟨🟨  FRESH/m.test(out.messages[1].content));
   ok('FRESH separator contains "FRESH" label',           /FRESH/.test(out.messages[1].content));
-  // STILL ACTIVE = Discord-native yellow boxed code block
-  ok('STILL ACTIVE separator uses yellow boxed code block', /^```\n🟨🟨  STILL ACTIVE/m.test(out.messages[2].content));
-  ok('STILL ACTIVE separator contains "STILL ACTIVE" label', /STILL ACTIVE/.test(out.messages[2].content));
-  // FADING = Discord-native orange boxed code block
-  ok('FADING separator uses orange boxed code block', /^```\n🟧🟧  FADING/m.test(out.messages[3].content));
+  // STILL ACTIVE = aged validity colour block with first-logged detail
+  ok('STILL ACTIVE separator uses aged validity colour block', /^```\n(?:🟧🟧|🟪🟪|🟥🟥)  STILL ACTIVE · VALIDITY DAY \d+/m.test(out.messages[2].content));
+  ok('STILL ACTIVE separator includes first-logged age', /First logged \d{2}\/\d{2}\/\d{2} \d{2}:\d{2} UTC · still Dark Horse-worthy after/.test(out.messages[2].content));
+  // FADING = Discord-native red boxed code block
+  ok('FADING separator uses red boxed code block', /^```\n🟥🟥  FADING · VALIDITY FADING/m.test(out.messages[3].content));
   ok('FADING separator contains "FADING" label',         /FADING/.test(out.messages[3].content));
   // No dashed text fallback anywhere
   const allText = out.messages.map(m => (m.content || '') + JSON.stringify(m.embeds || '')).join('\n');
