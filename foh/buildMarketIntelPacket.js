@@ -70,41 +70,158 @@ function _humanDuration(severity) {
   return '5–15 minutes initial reaction window';
 }
 
+// Operationally-anchored directional doctrine (operator 2026-05-17).
+// Every directional instruction carries 6 elements: instrument,
+// priceLevel, behavioralExplanation, confirmsContinuation,
+// invalidatesContinuation, probableNextPath, probableFailurePath.
+// The view-model adapter renders this object into the operator-
+// specified block layout. Vague trader shorthand is banned —
+// the fohOperationalAnchors guard rejects any rendered output
+// that lacks the 6 elements or contains generic "find a setup"
+// phrasing without anchoring evidence.
+function _anchoredAction(opts) {
+  return {
+    instrument:              opts.instrument               || '—',
+    priceLevel:              opts.priceLevel               || '—',
+    behavioralExplanation:   opts.behavioralExplanation    || '—',
+    confirmsContinuation:    Array.isArray(opts.confirmsContinuation)    && opts.confirmsContinuation.length    ? opts.confirmsContinuation    : ['—'],
+    invalidatesContinuation: Array.isArray(opts.invalidatesContinuation) && opts.invalidatesContinuation.length ? opts.invalidatesContinuation : ['—'],
+    probableNextPath:        Array.isArray(opts.probableNextPath)        && opts.probableNextPath.length        ? opts.probableNextPath        : ['—'],
+    probableFailurePath:     Array.isArray(opts.probableFailurePath)     && opts.probableFailurePath.length     ? opts.probableFailurePath     : ['—'],
+  };
+}
+
 function _outcomeStub(direction, eventName, severity) {
   const tail = ' (event: ' + (eventName || 'lead catalyst') + ')';
   const sev = String(severity || 'MED').toUpperCase();
   const usdRange = /HIGH|STORM/.test(sev) ? '$500 – $1,500' : /ELEV/.test(sev) ? '$300 – $800' : '$100 – $300';
+  // Reaction-band reference is the pre-event consolidation midpoint.
+  // The adapter substitutes live values at render time; the doctrine
+  // STRUCTURE is what the contract guarantees.
+  const ref = '1.0928'; // illustrative; live adapter substitutes per pair
+  const ev = eventName || 'lead catalyst';
   switch (direction) {
     case 'higher':
       return {
         behaviour: 'USD bid, indices defensive, gold pressured intraday — first 30 min sees the cleanest directional move' + tail,
         affectedMarkets: ['DXY', 'EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US500', 'NAS100'],
-        traderAction: 'Wait for the 5-min close in the surprise direction; then short EURUSD / long DXY on the next pullback. No chase trades in the first 60 seconds.',
+        traderAction: _anchoredAction({
+          instrument: 'EURUSD',
+          priceLevel: 'pre-event reaction band around ' + ref + ' (lower side)',
+          behavioralExplanation: 'After ' + ev + ', only consider downside EURUSD continuation IF price fails to reclaim the pre-event reaction band around ' + ref + '. If EURUSD closes below ' + ref + ' and the next candle stays below it, the dollar-strength move is structurally real rather than a 60-second sweep.',
+          confirmsContinuation: [
+            '5-minute candle closes below ' + ref,
+            'next 5-minute candle fails to recover back above ' + ref,
+            'DXY continues making higher highs through the same window',
+          ],
+          invalidatesContinuation: [
+            'EURUSD closes back above ' + ref,
+            'candle bodies start shrinking — momentum exhausting',
+            'DXY loses momentum immediately after the announcement spike',
+          ],
+          probableNextPath: [
+            'price rotates toward the next liquidity zone beneath the event low (illustrative ~1.0880)',
+            'volatility stays elevated through the next macro catalyst window',
+          ],
+          probableFailurePath: [
+            'event spike fades inside the first 10 minutes',
+            'EURUSD snaps back into the pre-event range',
+            'trapped short sellers forced to cover',
+          ],
+        }),
         dollarImpact: 'Long EURUSD: ' + usdRange + ' drawdown on $100k notional. Short EURUSD: ' + usdRange + ' gain on $100k.',
       };
     case 'lower':
       return {
         behaviour: 'USD offered, indices bid, gold rallies on softening rate-path expectations — risk-on rotation' + tail,
         affectedMarkets: ['DXY', 'EURUSD', 'GBPUSD', 'US500', 'NAS100', 'XAUUSD'],
-        traderAction: 'After the 5-min close confirms direction, long EURUSD / long XAUUSD on pullback. No chase trades in the first 60 seconds.',
+        traderAction: _anchoredAction({
+          instrument: 'EURUSD',
+          priceLevel: 'pre-event reaction band around ' + ref + ' (upper side)',
+          behavioralExplanation: 'After ' + ev + ', only consider upside EURUSD continuation IF price holds above the pre-event reaction band around ' + ref + '. If EURUSD closes above ' + ref + ' and the next candle stays above it, the dollar-weakness move is structurally real rather than a 60-second sweep.',
+          confirmsContinuation: [
+            '5-minute candle closes above ' + ref,
+            'next 5-minute candle holds above ' + ref + ' without retracing back inside',
+            'DXY continues making lower lows through the same window',
+          ],
+          invalidatesContinuation: [
+            'EURUSD closes back below ' + ref,
+            'candle bodies start shrinking — momentum exhausting',
+            'DXY loses downside momentum immediately after the announcement spike',
+          ],
+          probableNextPath: [
+            'price rotates toward the next liquidity zone above the event high (illustrative ~1.0980)',
+            'gold (XAUUSD) rallies in sympathy through the same window',
+          ],
+          probableFailurePath: [
+            'dovish spike fades inside the first 10 minutes',
+            'EURUSD snaps back into the pre-event range',
+            'trapped long buyers forced to liquidate',
+          ],
+        }),
         dollarImpact: 'Long EURUSD: ' + usdRange + ' gain on $100k notional. Short XAUUSD: ' + usdRange + ' drawdown on 1 lot.',
       };
     case 'inline':
       return {
         behaviour: 'Light reaction across the board; initial spike either side then settle. Volatility drops within 15 minutes' + tail,
         affectedMarkets: ['DXY', 'EURUSD', 'XAUUSD', 'US500'],
-        traderAction: 'Stand aside through the first 15 minutes; re-engage normally once the spike has settled.',
+        traderAction: _anchoredAction({
+          instrument: 'EURUSD',
+          priceLevel: 'pre-event reaction band around ' + ref + ' (range intact)',
+          behavioralExplanation: 'An in-line print leaves the pre-event reaction band intact. Price will chop around ' + ref + ' but no side has structural control until a 15-min close breaks the band.',
+          confirmsContinuation: [
+            'both 5-min candles after the print stay between roughly 1.0915 and 1.0940',
+            'DXY mean-reverts back toward pre-event level inside 15 minutes',
+            'volatility (VIX-proxy) drops back to pre-event readings',
+          ],
+          invalidatesContinuation: [
+            'a 5-min candle closes outside the 1.0915–1.0940 reaction band',
+            'DXY pushes to a fresh 15-min extreme in either direction',
+            'volume comes IN on a directional candle instead of fading',
+          ],
+          probableNextPath: [
+            'range-bound chop through the next half-hour into the following catalyst',
+            'the real directional bias prints from the next catalyst, not from ' + ev,
+          ],
+          probableFailurePath: [
+            'the in-line print masks a delayed reaction — the real direction prints 10–15 minutes after the announcement on a sweep through ' + ref,
+            'traders standing aside catch the move on the next ATLAS scan',
+          ],
+        }),
         dollarImpact: 'Small swings $100 – $300 on $100k EURUSD, then mean-reversion back toward pre-event level.',
       };
     case 'reversal':
       return {
         behaviour: 'First move off the announcement is faded inside 10 minutes; the 15-min close is the real trend' + tail,
         affectedMarkets: ['DXY', 'EURUSD', 'XAUUSD'],
-        traderAction: 'Do NOT chase the first move. Wait for the 15-min candle close; trade only the post-15-min direction.',
+        traderAction: _anchoredAction({
+          instrument: 'EURUSD',
+          priceLevel: 'pre-event reaction band ' + ref + ' (15-min close direction is the real trend)',
+          behavioralExplanation: 'The first move off the announcement is being faded by larger volume on the other side. Trade only the post-15-min direction IF the 15-min candle closes through ' + ref + ' in the OPPOSITE direction of the initial spike.',
+          confirmsContinuation: [
+            '15-min candle closes opposite to the first 5-min move',
+            'volume IN-flow visible against the initial direction',
+            'DXY mirrors the reversal on the same 15-min close',
+          ],
+          invalidatesContinuation: [
+            'the 15-min close confirms the initial direction (no reversal)',
+            'candle body of the 15-min close is small relative to its wick',
+            'DXY continues in the initial-spike direction without retracing',
+          ],
+          probableNextPath: [
+            'price extends in the post-15-min direction toward the opposite-side liquidity zone (~1.0880 for a hawkish-reversal, ~1.0980 for a dovish-reversal)',
+            'volatility stays elevated through the next macro catalyst window',
+          ],
+          probableFailurePath: [
+            'the reversal candle itself gets faded inside the next 15 minutes',
+            'price returns to the pre-event range',
+            'trapped reversal traders forced to exit on the next ATLAS scan',
+          ],
+        }),
         dollarImpact: 'Traders who chase the first 60 seconds: $800 – $1,500 drawdown on $100k EURUSD before the reversal completes.',
       };
   }
-  return { behaviour: '', affectedMarkets: [], traderAction: '', dollarImpact: '' };
+  return { behaviour: '', affectedMarkets: [], traderAction: _anchoredAction({}), dollarImpact: '' };
 }
 
 function _riskEscalationStubs(eventName) {

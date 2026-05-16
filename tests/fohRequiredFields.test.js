@@ -24,6 +24,8 @@ const REQUIRED_HEADER = ['title','subtitle','riskState','severityDiscs','generat
 const REQUIRED_BRIEF  = ['primaryRead','operationalMeaning','keyMarkets','currentRisk'];
 const REQUIRED_EVENT  = ['eventName','eventTimeUTC','expectedDuration','whatToWatch','chartStudyTimeframe'];
 const REQUIRED_OUTCOME = ['behaviour','affectedMarkets','traderAction','dollarImpact'];
+// Operationally-anchored trader-action sub-fields (operator 2026-05-17).
+const REQUIRED_TRADER_ACTION = ['instrument','priceLevel','behavioralExplanation','confirmsContinuation','invalidatesContinuation','probableNextPath','probableFailurePath'];
 const REQUIRED_IMPACT = ['mechanism','priceReactionPath','liquidityEffect','volatilityEffect','traderConsequence'];
 const REQUIRED_RISKESC = ['healthy','caution','danger','invalidation'];
 const REQUIRED_STEP   = ['step','action','reason','dollarConsequence'];
@@ -46,6 +48,8 @@ function audit(packet, name) {
   assertHas(packet.eventDayReference, REQUIRED_EVENT, name + '.eventDayReference');
   for (const k of ['higher','lower','inline','reversal']) {
     assertHas(packet.fourWayOutcomes && packet.fourWayOutcomes[k], REQUIRED_OUTCOME, name + '.fourWayOutcomes.' + k);
+    const ta = packet.fourWayOutcomes && packet.fourWayOutcomes[k] && packet.fourWayOutcomes[k].traderAction;
+    assertHas(ta, REQUIRED_TRADER_ACTION, name + '.fourWayOutcomes.' + k + '.traderAction (operationally anchored)');
   }
   assertHas(packet.marketImpact, REQUIRED_IMPACT, name + '.marketImpact');
   assertHas(packet.riskEscalation, REQUIRED_RISKESC, name + '.riskEscalation');

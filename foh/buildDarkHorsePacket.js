@@ -47,17 +47,57 @@ function _discScale(sev) {
   }
 }
 
+// Operationally-anchored directional doctrine (operator 2026-05-17).
+// Same 6-element shape as the MI packet's _anchoredAction.
+function _anchoredAction(opts) {
+  return {
+    instrument:              opts.instrument               || '—',
+    priceLevel:              opts.priceLevel               || '—',
+    behavioralExplanation:   opts.behavioralExplanation    || '—',
+    confirmsContinuation:    Array.isArray(opts.confirmsContinuation)    && opts.confirmsContinuation.length    ? opts.confirmsContinuation    : ['—'],
+    invalidatesContinuation: Array.isArray(opts.invalidatesContinuation) && opts.invalidatesContinuation.length ? opts.invalidatesContinuation : ['—'],
+    probableNextPath:        Array.isArray(opts.probableNextPath)        && opts.probableNextPath.length        ? opts.probableNextPath        : ['—'],
+    probableFailurePath:     Array.isArray(opts.probableFailurePath)     && opts.probableFailurePath.length     ? opts.probableFailurePath     : ['—'],
+  };
+}
+
 function _standoutOutcome(s) {
   const sym = s.symbol || 'symbol';
   const dir = String(s.direction || '').toLowerCase();
   const lc  = String(s.lifecycle || 'STILL ACTIVE').toUpperCase();
-  const sizeNote = /FRESH/.test(lc) ? 'half size' : /FADING/.test(lc) ? 'quarter size only' : 'full size × current mood multiplier';
-  const dollar = s.dollarRisk ? ('planned risk ' + s.dollarRisk + (s.rewardR ? ' · target ' + s.rewardR : '')) : 'planned risk ~$150 per scan window';
+  const sizeNote = /FRESH/.test(lc) ? 'half size for FRESH' : /FADING/.test(lc) ? 'quarter size only — FADING' : 'full size × current mood multiplier';
+  const trigger = s.decisionLevel || 'entry zone on chart card';
+  const invalid = s.invalidation || 'next opposite 1H close';
+  const directionWord = /bear|short|down/.test(dir) ? 'downside' : 'upside';
+  const oppositeWord = directionWord === 'downside' ? 'upside' : 'downside';
   return {
     behaviour: sym + ' carries a ' + lc + ' ' + (dir || 'directional') + ' read. ' + (s.reason || 'Structural alignment with current macro tape.'),
     affectedMarkets: [sym].concat(s.crossAsset || []),
-    traderAction: 'Enter on confirmed close into the entry zone (' + (s.decisionLevel || 'see chart card') + '); ' + sizeNote + '; invalidate on ' + (s.invalidation || 'next opposite 1H close') + '.',
-    dollarImpact: dollar,
+    traderAction: _anchoredAction({
+      instrument: sym,
+      priceLevel: trigger + ' (' + sizeNote + ')',
+      behavioralExplanation: 'Enter ' + sym + ' ' + directionWord + ' ONLY on a confirmed close through ' + trigger + '. ' + (s.reason || 'The structural read holds while price respects the trigger zone; the read is off the moment price closes through ' + invalid + '.'),
+      confirmsContinuation: [
+        'confirmed close in the ' + directionWord + ' direction through ' + trigger,
+        'next candle holds the trigger as new support/resistance without retracing back inside',
+        'volume expansion in the ' + directionWord + ' direction on the confirmation candle',
+      ],
+      invalidatesContinuation: [
+        'price closes through ' + invalid + ' on the trigger timeframe',
+        'candle bodies shrinking after the initial confirmation — momentum exhausting',
+        'cross-asset (DXY / VIX / lead pair) loses confirmation alignment',
+      ],
+      probableNextPath: [
+        'price extends ' + directionWord + ' toward the next liquidity zone after ' + trigger,
+        'standout stays valid through the next 15-min scan window if structure holds',
+      ],
+      probableFailurePath: [
+        'confirmation candle gets faded inside the next 15 minutes',
+        'price returns inside the entry band, invalidating the ' + directionWord + ' read',
+        'standout drops to ' + oppositeWord + ' watch on the next ATLAS scan — re-entry only after a fresh structural test',
+      ],
+    }),
+    dollarImpact: s.dollarRisk ? ('planned risk ' + s.dollarRisk + (s.rewardR ? ' · target ' + s.rewardR : '')) : 'planned risk ~$150 per scan window',
   };
 }
 
@@ -133,11 +173,52 @@ function buildDarkHorsePacket(opts) {
       : 'Watch DXY, VIX, and the macro lead pair set by current Market Intel.',
     chartStudyTimeframe: '1H structural map + 5M / 15M execution',
   };
+  // Operationally-anchored stub used when a slot has no standout
+  // — still emits all 6 doctrine elements so the contract holds
+  // (operator 2026-05-17). The view-model adapter renders it into
+  // the same 6-element block as a live standout slot.
+  const _emptyAnchored = (note) => _anchoredAction({
+    instrument: 'no instrument this slot',
+    priceLevel: 'no anchor — defer to next ATLAS scan (15 min cadence)',
+    behavioralExplanation: note + ' Stand aside until a structural read prints on the next scan.',
+    confirmsContinuation: ['next ATLAS scan publishes a fresh standout in this slot', 'cross-asset macro tape confirms a directional read', 'volatility regime stays inside current band'],
+    invalidatesContinuation: ['no standout prints on the next scan', 'macro tape flips regime inside the window', 'volatility breaks out of the current band'],
+    probableNextPath: ['driver-led tape continues until the next standout prints', 'macro / Market Intel surface carries the directional anchor'],
+    probableFailurePath: ['premature re-entry without a fresh structural test', 'sizing up into thin liquidity ahead of the next scan'],
+  });
   const fourWayOutcomes = {
-    higher:   lead ? _standoutOutcome(lead) : { behaviour: 'No lead standout — defer to macro tape.', affectedMarkets: [], traderAction: 'Stand aside until next scan.', dollarImpact: 'No exposure recommended.' },
-    lower:    standouts[1] ? _standoutOutcome(standouts[1]) : { behaviour: 'Single-standout cycle — no secondary read.', affectedMarkets: [], traderAction: 'Lead standout only.', dollarImpact: 'No secondary exposure.' },
-    inline:   standouts[2] ? _standoutOutcome(standouts[2]) : { behaviour: 'Two-standout cycle — no tertiary read.', affectedMarkets: [], traderAction: 'Top-2 only.', dollarImpact: 'No tertiary exposure.' },
-    reversal: { behaviour: 'Re-entry watch — if a standout invalidates intraday, wait for the structural re-test on next scan before re-engaging.', affectedMarkets: standouts.map(s => s.symbol), traderAction: 'No averaging into an invalidated zone — wait for the next confirmed close.', dollarImpact: 'Re-entry sizing always starts at half of the original planned risk.' },
+    higher:   lead ? _standoutOutcome(lead) : { behaviour: 'No lead standout — defer to macro tape.', affectedMarkets: [], traderAction: _emptyAnchored('No lead standout this scan cycle.'), dollarImpact: 'No exposure recommended.' },
+    lower:    standouts[1] ? _standoutOutcome(standouts[1]) : { behaviour: 'Single-standout cycle — no secondary read.', affectedMarkets: [], traderAction: _emptyAnchored('Lead standout only this scan cycle.'), dollarImpact: 'No secondary exposure.' },
+    inline:   standouts[2] ? _standoutOutcome(standouts[2]) : { behaviour: 'Two-standout cycle — no tertiary read.', affectedMarkets: [], traderAction: _emptyAnchored('Top-2 standouts only this scan cycle.'), dollarImpact: 'No tertiary exposure.' },
+    reversal: {
+      behaviour: 'Re-entry watch — if a standout invalidates intraday, wait for the structural re-test on next scan before re-engaging.',
+      affectedMarkets: standouts.map(s => s.symbol),
+      traderAction: _anchoredAction({
+        instrument: lead ? lead.symbol : 'any standout that invalidates intraday',
+        priceLevel: lead ? (lead.invalidation || 'invalidation level on the chart card') + ' (re-entry only on a fresh structural test)' : 'invalidation level on the chart card',
+        behavioralExplanation: 'When a standout closes through its invalidation level, the original read is OFF. Re-entry is only valid AFTER price returns to and respects the level on a FRESH 15-min close — not on a wick, not on the same scan.',
+        confirmsContinuation: [
+          '15-min candle closes back through the invalidation level in the original direction',
+          'next 15-min candle holds the level as new support/resistance',
+          'cross-asset (DXY / VIX) re-aligns with the original direction',
+        ],
+        invalidatesContinuation: [
+          'price stays on the wrong side of the invalidation level for two consecutive 15-min closes',
+          'standout drops off the next ATLAS scan',
+          'opposite-direction standout appears on the next scan',
+        ],
+        probableNextPath: [
+          're-entry sizing always starts at HALF the original planned risk',
+          'standout re-rates back into FRESH on the next clean structural test',
+        ],
+        probableFailurePath: [
+          'averaging into the invalidated zone before the structural re-test',
+          'doubling planned risk to "win back" the original loss',
+          'taking the same trade three times in one session before ATLAS publishes a fresh read',
+        ],
+      }),
+      dollarImpact: 'Re-entry sizing always starts at half of the original planned risk.',
+    },
   };
   const marketImpact = {
     mechanism: lead
