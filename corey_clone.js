@@ -47,6 +47,14 @@ function partial(symbol, reason, extra) {
     timestamp: nowIso(),
     matcher_version:           versions.MATCHER_VERSION,
     outcome_classifier_version: versions.OUTCOME_CLASSIFIER_VERSION,
+    usableForDecision: false,
+    sampleSize: 0,
+    denominator: 0,
+    timestampWindows: null,
+    sourceBasis: 'Corey Clone historical cache',
+    confidenceBasis: 'Not decision-grade: ' + reason,
+    dominantOutcome: null,
+    degradedReason: reason,
   }, extra || {});
 }
 
@@ -59,6 +67,14 @@ function unavailable(symbol, reason, extra) {
     timestamp: nowIso(),
     matcher_version:           versions.MATCHER_VERSION,
     outcome_classifier_version: versions.OUTCOME_CLASSIFIER_VERSION,
+    usableForDecision: false,
+    sampleSize: 0,
+    denominator: 0,
+    timestampWindows: null,
+    sourceBasis: 'Corey Clone historical cache',
+    confidenceBasis: 'Not decision-grade: ' + reason,
+    dominantOutcome: null,
+    degradedReason: reason,
   }, extra || {});
 }
 

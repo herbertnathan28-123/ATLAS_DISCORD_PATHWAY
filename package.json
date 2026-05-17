@@ -6,6 +6,7 @@
     "start": "node index.js",
     "audit": "node scripts/atlas_audit.js",
     "test:runtime": "node scripts/atlas_runtime_test.js --symbol EURUSD",
+    "test:macro": "node scripts/test_macro_interpreter_operational.js",
     "test:runtime:production": "node scripts/atlas_runtime_test.js --symbol EURUSD --production",
     "doctrine": "npm run audit && npm run test:runtime",
     "doctrine:foundation": "npm run audit && npm run test:runtime",
