@@ -260,15 +260,38 @@ function riskDiscs(score) {
 }
 
 function eventLine(e) {
-  const affected = Array.isArray(e.affectedMarkets || e.affectedInstruments)
-    ? (e.affectedMarkets || e.affectedInstruments).slice(0, 4).map(displayInstrument).join(', ')
-    : 'Brief Pending';
-  return '- ' + (e.title || 'Unnamed event') +
-    (e.currency ? ' (' + e.currency + ')' : '') +
-    (e.timeUTC || e.scheduledTimeUTC ? ' @ ' + (e.timeUTC || e.scheduledTimeUTC) + ' UTC' : '') +
-    (e.expectedImpact || e.severity ? ' [' + (e.expectedImpact || e.severity) + ']' : '') +
-    ' — affected: ' + affected +
-    ' — Full Brief: Brief Pending';
+  const markets = Array.isArray(e && e.affectedMarkets) ? e.affectedMarkets
+    : Array.isArray(e && e.affectedInstruments) ? e.affectedInstruments
+    : [];
+  const affected = markets.length
+    ? markets.slice(0, 4).map(displayInstrument).join(', ')
+    : 'Affected markets pending';
+  const brief = e && e.briefUrl ? ('Full Brief: ' + e.briefUrl) : 'Full Brief: Brief Pending';
+  const parts = [
+    e && e.title ? e.title : 'Unnamed event',
+    e && e.currency ? '(' + e.currency + ')' : null,
+    e && (e.timeUTC || e.scheduledTimeUTC) ? '@ ' + (e.timeUTC || e.scheduledTimeUTC) + ' UTC' : null,
+    e && (e.expectedImpact || e.severity) ? '[' + (e.expectedImpact || e.severity) + ']' : null,
+    'affected: ' + affected,
+    brief,
+  ].filter(Boolean);
+  return '- ' + parts.join(' — ');
+}
+
+function deriveJaneFinalState(janeOut) {
+  if (!janeOut || typeof janeOut !== 'object') return 'MONITORING';
+  const trade = String(janeOut.tradeViability || '').toUpperCase();
+  const action = String(janeOut.actionState || janeOut.monitoringState || '').toUpperCase();
+  if (trade === 'VALID' || action === 'ARM') return 'ARMED';
+  if (trade === 'INVALID' || action === 'STAND_DOWN') return 'STAND_DOWN';
+  if (trade === 'WAITING_FOR_CONFIRMATION' || trade === 'PARTIAL' || trade === 'MARGINAL' || action === 'WAIT') return 'MONITORING';
+  return action || trade || 'MONITORING';
+}
+
+function currentReadLine(state) {
+  if (state === 'ARMED') return 'ARMED — Jane has a stronger validated state; follow the engine confirmation and degradation notes.';
+  if (state === 'STAND_DOWN') return 'STAND_DOWN — Jane rejected a confirmed execution read for this search.';
+  return 'MONITORING — no confirmed execution read yet.';
 }
 
 function buildEngineInput(macroPacket) {
@@ -305,7 +328,7 @@ function formatSearchResponse(ctx) {
   lines.push('🔥 **THE CALL**');
   lines.push('Primary focus: ' + userFacingText(focus.title || ctx.resolution.displayTarget) + (focus.currency ? ' / ' + focus.currency : ''));
   lines.push('Risk state: ' + risk.label + ' — ' + userFacingText(risk.whyThisRating));
-  lines.push('Current read: ' + ctx.janeFinalState + ' — no confirmed execution read yet.');
+  lines.push('Current read: ' + currentReadLine(ctx.janeFinalState));
   lines.push('Best action: wait for confirmation before treating direction as reliable.');
   lines.push('Next confirmation point: ' + userFacingText(focus.volatilityWindow || 'first confirmed close after the live risk window.'));
   lines.push('');
@@ -498,7 +521,7 @@ async function runMacroSearch(query, opts) {
     coreyStatus: publicStatus(sourceStatus.corey),
     cloneSummary,
     spideyStatus,
-    janeFinalState: 'MONITORING',
+    janeFinalState: deriveJaneFinalState(janeOut),
     fohRendered,
     degradationReason: degradation.length ? degradation.join('; ') : 'none',
   };

@@ -45,10 +45,10 @@ function mustContain(content, label) {
     assert(result.proofLogs.some(l => /^\[MACRO-SEARCH\] resolved_type=/.test(l)), query + ' proof log includes resolved type');
     assert(result.proofLogs.some(l => /^\[COREY\] status=/.test(l)), query + ' proof log includes Corey status');
     assert(result.proofLogs.some(l => /^\[COREY-CLONE\] status=.* usableForDecision=(true|false)$/.test(l)), query + ' proof log includes Corey Clone usability');
-    assert(result.proofLogs.some(l => /^\[JANE\] final_state=MONITORING$/.test(l)), query + ' proof log includes Jane MONITORING final state');
+    assert(result.proofLogs.some(l => /^\[JANE\] final_state=(ARMED|MONITORING|STAND_DOWN|VALID|INVALID|PARTIAL|MARGINAL|WAITING_FOR_CONFIRMATION)$/.test(l)), query + ' proof log includes Jane final state');
     assert(result.proofLogs.some(l => /^\[FOH\] rendered=true$/.test(l)), query + ' proof log includes FOH rendered=true');
     assert(result.content.startsWith('🔥 **THE CALL**'), query + ' response starts with THE CALL');
-    mustContain(result.content, 'Current read: MONITORING — no confirmed execution read yet.');
+    assert(/Current read: (ARMED|MONITORING|STAND_DOWN)/.test(result.content), query + ' response carries Jane-derived current read');
     mustContain(result.content, '**RISK STATE**');
     mustContain(result.content, '**Affected instruments**');
     mustContain(result.content, '**Key events driving the read**');
@@ -60,6 +60,10 @@ function mustContain(content, label) {
     mustContain(result.content, 'Jane remains final gate');
     for (const re of STALE_PATTERNS) {
       assert(!re.test(result.content), query + ' did not leak stale/prototype pattern ' + re);
+    }
+    if (result.content.indexOf('No matching live scheduled event') === -1) {
+      assert(/affected: [^\n]+/.test(result.content), query + ' event rows include affected markets');
+      assert(/Full Brief: (Brief Pending|https?:\/\/|\/market-intel\/brief\/)/.test(result.content), query + ' event rows include Full Brief or Brief Pending');
     }
     assert(!/(^|\n)\s*[-•]?\s*(DXY|VIX)\b/.test(result.content), query + ' does not lead user-facing lines with raw DXY/VIX');
     assert(!/\b(?:authorised|entry authorised|trade confirmed|trade permitted)\b/i.test(result.content), query + ' has no execution-authority wording');
