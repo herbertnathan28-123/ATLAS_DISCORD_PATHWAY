@@ -202,6 +202,26 @@ function buildCloneBlock(coreyClone) {
     };
   }
   const c = coreyClone;
+  if (c.status === 'OK' || c.status === 'PARTIAL' || c.status === 'BLOCKED') {
+    const sourceTag = String(c.status).toLowerCase() +
+      (c.usableForDecision ? ': decision_usable' : ': audit_only');
+    const contribution = c.usableForDecision ? {
+      summary: c.cohortSummary,
+      contradictions: c.baseRateStats && c.baseRateStats.reversal != null ? `Reversal base rate ${pct(c.baseRateStats.reversal)}.` : null,
+      missingDrivers: c.degradedReason || null,
+      eventRisk: c.limitations && c.limitations.length ? c.limitations.join('; ') : 'No analogue limitations flagged.',
+      analogue: `sample=${c.sampleSize} denominator=${c.denominator} window=${(c.timestampWindows && c.timestampWindows[0] && c.timestampWindows[0].label) || 'n/a'}`,
+      sourceConfidence: `${Math.round((c.confidenceScore || 0) * 100)}% · ${c.confidenceBasis || 'confidence basis unavailable'}`
+    } : null;
+    return {
+      status: c.status,
+      sourceTag,
+      contribution,
+      note: contribution
+        ? contribution.summary
+        : `Corey Clone ${c.status}. ${c.degradedReason || c.cohortSummary || 'No decision-grade historical analogue available.'}`
+    };
+  }
   const sourceTag = String(c.source || c.sourceTag || c.status || 'unavailable: not implemented');
   if (/not[\s_-]?implemented|unavailable/i.test(sourceTag)) {
     return {

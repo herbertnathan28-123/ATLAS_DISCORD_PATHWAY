@@ -73,6 +73,9 @@ function buildDiscordTextSummary(viewModel, opts) {
   lines.push('__Market Impact__');
   lines.push(viewModel.MARKET_IMPACT);
   lines.push('');
+  lines.push('__Historical Analogue Status__');
+  lines.push(viewModel.HISTORICAL_ANALOGUE_STATUS || 'Status: BLOCKED — no analogue packet.');
+  lines.push('');
   lines.push('__Confirmation / Cancellation__');
   lines.push('Confirms: ' + viewModel.CONFIRMS_WHEN);
   lines.push('Cancels: ' + viewModel.CANCELS_WHEN);
@@ -109,6 +112,7 @@ async function render({ packet, viewModel, opts }) {
   ]);
   const pngs = (pngBatch && pngBatch.pngs ? pngBatch.pngs : []).map((p, i) => Object.assign({ label: cards[i] && cards[i].label }, p));
   const discordText = buildDiscordTextSummary(viewModel || {}, opts);
+  console.log('[FOH] Historical Analogue Status included in Market Intel render=' + (viewModel && viewModel.HISTORICAL_ANALOGUE_STATUS ? 'true' : 'false'));
 
   return {
     discordText,

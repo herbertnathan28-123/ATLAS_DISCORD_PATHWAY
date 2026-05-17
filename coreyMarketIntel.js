@@ -28,6 +28,7 @@
 
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl'); // reuse banned-phrase sanitiser
+console.log('[BOOT] COREY_CLONE_CHAIN: Market Intel dispatcher can attach Corey Clone before FOH output');
 
 // ── ENUMS ────────────────────────────────────────────────────
 const RELEVANCE = { HIGH: 'High', MODERATE: 'Moderate', LOW: 'Low' };
@@ -1148,7 +1149,7 @@ function _miBuildCrossAsset(buckets) {
   if (buckets['GBP pairs']) fxParts.push('GBP pairs (' + buckets['GBP pairs'].slice(0,3).map(symbolDisplay).join(', ') + ')');
   if (buckets['JPY crosses']) fxParts.push('JPY crosses (' + buckets['JPY crosses'].slice(0,3).map(symbolDisplay).join(', ') + ')');
   if (buckets['AUD/NZD pairs']) fxParts.push('AUD / NZD pairs');
-  if (fxParts.length) out.push({ classLabel: 'FX', body: fxParts.join(' · ') + ' — direction historically tracks the rate-path repricing first.' });
+  if (fxParts.length) out.push({ classLabel: 'FX', body: fxParts.join(' · ') + ' — direction should be checked against rate-path repricing and Corey Clone before any historical claim is made.' });
   const ix = [];
   if (buckets['US indices']) ix.push('US (' + buckets['US indices'].slice(0,3).map(symbolDisplay).join(', ') + ')');
   if (buckets['EU indices']) ix.push('EU (' + buckets['EU indices'].slice(0,2).map(symbolDisplay).join(', ') + ')');
@@ -1157,7 +1158,7 @@ function _miBuildCrossAsset(buckets) {
   const cm = [];
   if (buckets['Metals']) cm.push('Metals (' + buckets['Metals'].slice(0,2).map(symbolDisplay).join(', ') + ')');
   if (buckets['Energy']) cm.push('Energy (' + buckets['Energy'].slice(0,2).map(symbolDisplay).join(', ') + ')');
-  if (cm.length) out.push({ classLabel: 'Commodities', body: cm.join(' · ') + ' — historically inverse to USD / yields.' });
+  if (cm.length) out.push({ classLabel: 'Commodities', body: cm.join(' · ') + ' — sensitivity to USD / yields must be confirmed by live structure and Corey Clone evidence.' });
   return out;
 }
 
@@ -1973,6 +1974,68 @@ function sendWebhook(url, payload) {
   });
 }
 
+function _miPreferredAnalogueSymbol(payloadObj, extra) {
+  const candidates = [];
+  if (extra && Array.isArray(extra.affected_symbols)) candidates.push(...extra.affected_symbols);
+  const img = payloadObj && payloadObj.imagePayload;
+  if (img && img.headline && img.headline.currency && CCY_TO_SYMBOLS[img.headline.currency]) candidates.push(...CCY_TO_SYMBOLS[img.headline.currency]);
+  candidates.push('EURUSD', 'XAUUSD', 'US500', 'NAS100');
+  const preferred = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US500', 'NAS100', 'DXY'];
+  for (const p of preferred) if (candidates.map(s => String(s).toUpperCase()).includes(p)) return p;
+  return String(candidates[0] || 'EURUSD').toUpperCase();
+}
+
+async function _miAttachCoreyClone(payloadObj, extra) {
+  if (!payloadObj || typeof payloadObj !== 'object') return null;
+  if ((payloadObj.imagePayload && payloadObj.imagePayload.coreyClone) || (payloadObj.fohPacket && payloadObj.fohPacket.coreyClone)) {
+    return payloadObj.imagePayload && payloadObj.imagePayload.coreyClone || payloadObj.fohPacket.coreyClone;
+  }
+  let clone = null;
+  try {
+    const { findHistoricalAnalogues } = require('./coreyClone/findHistoricalAnalogues');
+    const ctx = getCoreyMarketIntelContext();
+    const symbol = _miPreferredAnalogueSymbol(payloadObj, extra);
+    const macroIntelligencePacket = {
+      symbol,
+      generatedAtUTC: new Date().toISOString(),
+      interpretedBy: 'Corey Market Intel',
+      combinedBias: ctx.expectedBias || 'No anchor event — bias unavailable',
+      confidence: ctx.confidence || 'Low',
+      mechanism: ctx.mechanism || null,
+      eventRisk: ctx.eventRisk || null,
+      nextMajorEvent: ctx.nextMajorEvent || null,
+      nextMajorEventTime: ctx.nextMajorEventTime || null,
+      affectedSymbols: ctx.affectedSymbols || (extra && extra.affected_symbols) || [],
+      sourceBasis: [
+        'calendar data',
+        'Corey live macro context',
+        'TradingView/FMP/EODHD price pathway where available',
+      ],
+      confidenceBasis: 'Corey Market Intel relevance, mechanism, bias, and confidence interpretation',
+    };
+    log(`[COREY-CLONE-CHAIN] macroIntelligencePacket built symbol=${symbol} bias=${macroIntelligencePacket.combinedBias} confidence=${macroIntelligencePacket.confidence}`);
+    log(`[COREY-CLONE-CHAIN] Corey Clone called symbol=${symbol} input=macroIntelligencePacket source=market_intel_dispatch`);
+    clone = await findHistoricalAnalogues(macroIntelligencePacket, { liveMarketIntel: true });
+  } catch (e) {
+    clone = {
+      status: 'BLOCKED',
+      usableForDecision: false,
+      analogues: [],
+      rejectedAnalogues: [],
+      cohortSummary: 'Corey Clone failed before Market Intel FOH.',
+      sampleSize: 0,
+      denominator: 0,
+      confidenceScore: 0,
+      confidenceBasis: 'blocked: ' + (e && e.message ? e.message : String(e)),
+      degradedReason: e && e.message ? e.message : String(e),
+      generatedAtUTC: new Date().toISOString(),
+    };
+  }
+  if (payloadObj.imagePayload && typeof payloadObj.imagePayload === 'object') payloadObj.imagePayload.coreyClone = clone;
+  if (payloadObj.fohPacket && typeof payloadObj.fohPacket === 'object') payloadObj.fohPacket.coreyClone = clone;
+  return clone;
+}
+
 // ============================================================
 // DISPATCH WRAPPERS — log + safe-fail webhook delivery
 // ============================================================
@@ -2016,6 +2079,10 @@ async function dispatch(messageType, payloadObj, extra) {
     log(`[COREY-MARKET-INTEL] send_result=blocked`);
     log(`[COREY-MARKET-INTEL] skipped_reason=validator_${validation.failureReason}`);
     return { sent: false, reason: `validator_${validation.failureReason}`, payload: validated, diagnostics: validation.diagnostics };
+  }
+  if (payloadObj && (payloadObj.fohPacket || payloadObj.imagePayload)) {
+    const clone = await _miAttachCoreyClone(payloadObj, extra);
+    if (clone) log(`[COREY-MARKET-INTEL] corey_clone_status=${clone.status || 'BLOCKED'} usable=${clone.usableForDecision === true ? 'true' : 'false'}`);
   }
   // ── FOH_IMAGE_RENDER_ENABLED — opt-in image path ──
   // When the env flag is set AND the builder attached an

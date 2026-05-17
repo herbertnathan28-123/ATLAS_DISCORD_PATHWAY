@@ -13,10 +13,11 @@
 
 const { spideyRun } = require('./spidey');
 const { coreyRun } = require('./corey');
-const { coreyCloneRun } = require('./corey_clone');
+const { findHistoricalAnalogues } = require('./coreyClone/findHistoricalAnalogues');
 const { macroRun } = require('./macro');
 const { runJane } = require('./jane');
 const { validatePacket, statusFromValidation } = require('./contracts');
+console.log('[BOOT] COREY_CLONE_CHAIN: orchestrator loaded Corey Clone analogue adapter');
 
 let renderer = null;
 try { renderer = require('./renderer'); } catch (e) { /* renderer load failure handled below */ }
@@ -35,11 +36,28 @@ async function runAnalysis(symbol, options = {}) {
   const opts = Object.assign({ testMode: process.env.ATLAS_TEST_MODE === '1' }, options);
   const timestamp = new Date().toISOString();
 
-  // Parallel — evidence engines + renderer artefacts
-  const [spideyOut, coreyOut, cloneOut, macroOut, rendererOut] = await Promise.all([
+  // Corey must interpret macro first; Corey Clone consumes that interpreted
+  // packet before Jane is allowed to synthesise the decision.
+  const coreyOut = await safeCall(() => coreyRun(symbol, opts), 'corey');
+  const macroIntelligencePacket = {
+    symbol,
+    generatedAtUTC: timestamp,
+    interpretedBy: 'Corey',
+    combinedBias: coreyOut && (coreyOut.combinedBias || coreyOut.bias || coreyOut.macroBias) || 'Neutral',
+    confidence: coreyOut && coreyOut.confidence,
+    evidence: coreyOut && coreyOut.evidence,
+    riskModifiers: coreyOut && coreyOut.riskModifiers,
+    sourceBasis: ['CoreyOutput', 'live macro context', 'calendar data'],
+    confidenceBasis: 'Corey interpreted macro packet',
+  };
+  console.log(`[COREY-CLONE-CHAIN] macroIntelligencePacket built symbol=${symbol} bias=${macroIntelligencePacket.combinedBias} confidence=${macroIntelligencePacket.confidence}`);
+  console.log(`[COREY-CLONE-CHAIN] Corey Clone called symbol=${symbol} input=macroIntelligencePacket`);
+  const cloneOut = await safeCall(() => findHistoricalAnalogues(macroIntelligencePacket, opts), 'coreyClone');
+  console.log(`[COREY-CLONE-CHAIN] Corey Clone status=${cloneOut?.status || 'BLOCKED'} usableForDecision=${cloneOut?.usableForDecision === true ? 'true' : 'false'} sampleSize=${cloneOut?.sampleSize ?? 0} denominator=${cloneOut?.denominator ?? 0}`);
+  if (coreyOut && typeof coreyOut === 'object') coreyOut.clone = cloneOut;
+
+  const [spideyOut, macroOut, rendererOut] = await Promise.all([
     safeCall(() => spideyRun(symbol, opts), 'spidey'),
-    safeCall(() => coreyRun(symbol, opts), 'corey'),
-    safeCall(() => coreyCloneRun(symbol, opts), 'coreyClone'),
     safeCall(() => macroRun(symbol, opts), 'macro'),
     safeCall(() => (renderer && typeof renderer.runRenderer === 'function')
       ? renderer.runRenderer(symbol, opts)
@@ -50,7 +68,7 @@ async function runAnalysis(symbol, options = {}) {
   const sourceStatus = {
     spidey: statusFromValidation(spideyOut ? validatePacket(spideyOut, 'SpideyOutput') : null),
     corey: statusFromValidation(coreyOut ? validatePacket(coreyOut, 'CoreyOutput') : null),
-    coreyClone: statusFromValidation(cloneOut ? validatePacket(cloneOut, 'CoreyCloneOutput') : null),
+    coreyClone: cloneOut && cloneOut.usableForDecision === true ? 'ACTIVE' : (cloneOut && cloneOut.status === 'PARTIAL' ? 'PARTIAL' : 'UNAVAILABLE'),
     macro: statusFromValidation(macroOut ? validatePacket(macroOut, 'MacroOutput') : null),
   };
 
@@ -73,6 +91,7 @@ async function runAnalysis(symbol, options = {}) {
 
   // Jane decides
   const decision = await runJane(janeInput, opts);
+  console.log(`[JANE] received_inputs corey=${!!coreyOut} coreyClone=${cloneOut?.status || 'BLOCKED'} coreyCloneUsable=${cloneOut?.usableForDecision === true ? 'true' : 'false'} spidey=${!!spideyOut}`);
   return decision;
 }
 

@@ -264,6 +264,51 @@ function _safe(text, fallback) {
   return fallback || 'inline intelligence — see briefing surface';
 }
 
+function _hasAnalogueDecisionBasis(c) {
+  if (!c || c.usableForDecision !== true) return false;
+  if (!Number.isFinite(c.sampleSize) || c.sampleSize <= 0) return false;
+  if (!Number.isFinite(c.denominator) || c.denominator < c.sampleSize) return false;
+  if (typeof c.confidenceBasis !== 'string' || !c.confidenceBasis.trim()) return false;
+  if (typeof c.sourceBasis !== 'string' || !c.sourceBasis.trim()) return false;
+  return Array.isArray(c.timestampWindows) && c.timestampWindows.some(w => w && w.startUTC && w.endUTC);
+}
+
+function _historicalAnalogueStatusFrom(engine) {
+  const c = engine && (engine.coreyClone || engine.historicalAnalogueStatus || engine.historicalAnalogue);
+  if (!c) {
+    return {
+      title: 'Historical Analogue Status',
+      status: 'BLOCKED',
+      usableForDecision: false,
+      summary: 'Corey Clone did not provide an analogue packet for this Market Intel run.',
+      auditSupport: null,
+      downgrade: 'No historical analogue was used by Jane or FOH.',
+    };
+  }
+  const usable = _hasAnalogueDecisionBasis(c);
+  const status = c.status || (usable ? 'OK' : 'BLOCKED');
+  const firstWindow = Array.isArray(c.timestampWindows) ? c.timestampWindows[0] : null;
+  const auditSupport = usable ? {
+    sampleSize: c.sampleSize,
+    denominator: c.denominator,
+    timestampWindow: firstWindow && firstWindow.label ? firstWindow.label : (firstWindow ? firstWindow.startUTC + ' → ' + firstWindow.endUTC : 'not available'),
+    sourceBasis: c.sourceBasis,
+    confidenceBasis: c.confidenceBasis,
+    confidenceScore: Number.isFinite(c.confidenceScore) ? c.confidenceScore : 0,
+    cohortSummary: c.cohortSummary || 'Audit-grade analogue cohort accepted.',
+  } : null;
+  return {
+    title: 'Historical Analogue Status',
+    status,
+    usableForDecision: usable,
+    summary: usable
+      ? 'Corey Clone is decision-usable and may support or challenge the current macro read.'
+      : 'Corey Clone is not decision-usable for this Market Intel run.',
+    auditSupport,
+    downgrade: usable ? null : (c.degradedReason || c.cohortSummary || 'No valid analogue exists. Historical claims are downgraded to unavailable.'),
+  };
+}
+
 function _firstEvent(packetIn) {
   const clusters = (packetIn && packetIn.eventClusters) || [];
   for (const c of clusters) for (const e of (c.events || [])) if (e) return { e, c };
@@ -628,7 +673,7 @@ function buildMarketIntelPacket(opts) {
     dangerIf:     'Position is opposite the 5-min close direction by T+5 — exit immediately at next 1-min close. No averaging into a fresh catalyst-led move.',
   };
   const provenance = {
-    sources:          [(engine.sourceNote && engine.sourceNote.source) || 'TradingView calendar', 'ATLAS macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y)'],
+    sources:          [(engine.sourceNote && engine.sourceNote.source) || 'TradingView calendar', 'ATLAS macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y)', 'Corey Clone historical analogue check'],
     dataFreshness:    (engine.sourceNote && engine.sourceNote.mode) || (liveCtx ? 'LIVE' : 'UNAVAILABLE'),
     confidenceBasis:  (engine.sourceNote && engine.sourceNote.probabilityBasis) || 'engine-derived',
   };
@@ -691,6 +736,8 @@ function buildMarketIntelPacket(opts) {
 
   // CHUNK 7 — event-day operational storytelling.
   const operationalNarrative = _operationalNarrativeFrom(severity, eventName, now);
+  const historicalAnalogueStatus = _historicalAnalogueStatusFrom(engine);
+  console.log(`[FOH] Historical Analogue Status rendered status=${historicalAnalogueStatus.status} usableForDecision=${historicalAnalogueStatus.usableForDecision ? 'true' : 'false'}`);
 
   return {
     meta, header, briefingSummary, eventDayReference, fourWayOutcomes,
@@ -698,6 +745,7 @@ function buildMarketIntelPacket(opts) {
     provenance,
     todaysAnnouncements, primaryEventFocus, next24To72Hours,
     affectedMarketsExpanded, priceMap, operationalNarrative,
+    historicalAnalogueStatus,
   };
 }
 

@@ -75,19 +75,32 @@ function validateCoreyClone(cloneOutput) {
     else dropped.push({ a, missing });
   }
   let status;
-  if (valid.length === 0) status = 'BLOCKED';
+  if (c.status === 'BLOCKED') status = 'BLOCKED';
+  else if (c.status === 'PARTIAL') status = 'PARTIAL';
+  else if (c.status === 'OK' && c.usableForDecision !== true) status = 'PARTIAL';
+  else if (valid.length === 0) status = 'BLOCKED';
   else if (dropped.length > 0) status = 'PARTIAL';
   else status = 'OK';
+  const packetBasisMissing = c.status && (
+    !Number.isFinite(c.sampleSize) ||
+    !Number.isFinite(c.denominator) ||
+    !c.confidenceBasis ||
+    (c.usableForDecision === true && !c.sourceBasis)
+  );
+  if (packetBasisMissing && status === 'OK') status = 'PARTIAL';
   return {
     engine: 'coreyClone',
     status,
-    confidenceScore: valid.length ? Math.min(1, valid.length / 3) : 0,
-    confidenceBasis: status === 'BLOCKED' ? 'no audit-grade analogues met matching variables' : 'audit-grade-' + valid.length + '-of-' + analogues.length,
+    usableForDecision: status === 'OK' && c.usableForDecision === true,
+    confidenceScore: Number.isFinite(c.confidenceScore) ? c.confidenceScore : (valid.length ? Math.min(1, valid.length / 3) : 0),
+    confidenceBasis: c.confidenceBasis || (status === 'BLOCKED' ? 'no audit-grade analogues met matching variables' : 'audit-grade-' + valid.length + '-of-' + analogues.length),
     missingInputs: status === 'BLOCKED' ? ['no_audit_grade_analogues'] : [],
     droppedAnalogues: dropped.length,
     validAnalogues: valid.length,
+    sampleSize: Number.isFinite(c.sampleSize) ? c.sampleSize : valid.length,
+    denominator: Number.isFinite(c.denominator) ? c.denominator : null,
     staleInputs: c.staleInputs || [],
-    degradedReason: status === 'OK' ? null : 'dropped_' + dropped.length + '_of_' + analogues.length,
+    degradedReason: status === 'OK' ? null : (c.degradedReason || 'dropped_' + dropped.length + '_of_' + analogues.length),
     sourceUsed: c.sourceUsed || null,
     generatedAtUTC: c.generatedAtUTC || null,
   };
