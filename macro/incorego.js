@@ -196,9 +196,9 @@ function buildCloneBlock(coreyClone) {
   if (!coreyClone) {
     return {
       status: 'UNAVAILABLE',
-      sourceTag: 'blocked: no packet',
+      sourceTag: 'unavailable: not implemented',
       contribution: null,
-      note: 'Corey Clone did not return a packet. No historical contribution is implied.'
+      note: 'Corey Clone unavailable — not implemented in current build. No second-pass validation has run. No contribution implied — do not infer agreement or disagreement from absence.'
     };
   }
   const c = coreyClone;
