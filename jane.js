@@ -53,7 +53,10 @@ async function runJane(input, opts = {}) {
   const ss = Object.assign({}, input.sourceStatus || {});
   const macroPacket = input.coreyMacro || (input.macro && input.macro.macroIntelligencePacket) || null;
   const cloneDecisionGrade = input.coreyClone && (input.coreyClone.decisionGrade || input.coreyClone.validation || input.coreyClone);
-  const coreyCloneUsableForDecision = cloneDecisionGrade && cloneDecisionGrade.usableForDecision === true;
+  const cloneHasExplicitUsability = !!(cloneDecisionGrade && Object.prototype.hasOwnProperty.call(cloneDecisionGrade, 'usableForDecision'));
+  const coreyCloneUsableForDecision = cloneHasExplicitUsability
+    ? cloneDecisionGrade.usableForDecision === true
+    : ss.coreyClone === 'ACTIVE';
   try {
     console.log('[JANE] macro_packet_received=' + (macroPacket ? 'true' : 'false'));
     console.log('[JANE] corey_clone_received=' + (input.coreyClone ? 'true' : 'false'));
