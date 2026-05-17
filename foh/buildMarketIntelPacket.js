@@ -71,6 +71,15 @@ function _discScale(severity) {
   }
 }
 
+function _severityFromMacroRisk(label) {
+  const v = String(label || '').toUpperCase();
+  if (v === 'EXTREME') return 'STORM';
+  if (v === 'ELEVATED') return 'ELEV';
+  if (v === 'ACTIVE') return 'MED';
+  if (v === 'QUIET') return 'LOW';
+  return null;
+}
+
 function _humanDuration(severity) {
   const sev = String(severity || '').toUpperCase();
   if (/HIGH|STORM/.test(sev)) return '60–120 minutes of high reactivity, then mean-reversion through next session';
@@ -564,8 +573,9 @@ function buildMarketIntelPacket(opts) {
 
   // Risk state + severity discs.
   const rawMood = engine.mood || engine.marketMood || {};
-  const severity = String(rawMood.severity || engine.severity || 'MED').toUpperCase();
-  const moodLabel = rawMood.label || ({ HIGH: 'High — clustered catalyst exposure', ELEV: 'Elevated — high-impact catalyst window', MED: 'Active — moderate catalyst sensitivity', LOW: 'Calm — driver-led session', STORM: 'Storm — peak event-day reactivity' }[severity] || 'Active');
+  const macroRisk = macroPacket && macroPacket.riskState ? macroPacket.riskState : null;
+  const severity = String(rawMood.severity || engine.severity || _severityFromMacroRisk(macroRisk && macroRisk.label) || 'MED').toUpperCase();
+  const moodLabel = rawMood.label || (macroRisk ? (macroRisk.label + ' — ' + (macroRisk.whyThisRating || 'macro interpreter risk state')) : ({ HIGH: 'High — clustered catalyst exposure', ELEV: 'Elevated — high-impact catalyst window', MED: 'Active — moderate catalyst sensitivity', LOW: 'Calm — driver-led session', STORM: 'Storm — peak event-day reactivity' }[severity] || 'Active'));
   const severityDiscs = rawMood.discs ? (rawMood.discs + ' ' + (rawMood.label || moodLabel)) : _discScale(severity);
 
   // Featured event.

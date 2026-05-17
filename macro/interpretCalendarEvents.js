@@ -633,7 +633,7 @@ function interpretCalendarEvents(input) {
       return copy;
     }),
     affectedMarketsExpanded: buildAffectedMarketsExpanded(affectedSymbols, affectedBy),
-    macroTransmissionMap: buildTransmissionMap(topEvent, clusters, coreyState),
+    macroTransmissionMap: buildTransmissionMap(primaryEventFocus, clusters, coreyState),
     riskState,
     sessionRisk: {
       session: primaryEventFocus.session || sessionForMs(now),
