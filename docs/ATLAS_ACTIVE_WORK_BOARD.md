@@ -275,6 +275,7 @@ No further design drift until this is operational.
 Short log of finished work so historical context isn't lost when items move from `[ ]` to `[x]` above. Most recent first.
 
 - **17 May 2026** — Macro search output tightened for Sydney open blocker (PR #132) — THE CALL leads; MONITORING wording; live event resolver; US Dollar Strength (DXY) / Market Volatility (VIX) user-facing terminology; Brief Pending fallback.
+- **17 May 2026** — Dashboard Source Status / Audit reconciled with chart, price, and OHLC data layers (PR #134) — market-data LIVE no longer collapses macro/Jane pending states; Mechanism Chain label replaced with Market Impact.
 - **17 May 2026** — Wire AI agents to check Active Work Board at session start (PR #128) — CLAUDE.md + AGENTS.md READ FIRST blocks.
 - **17 May 2026** — Add README + ATLAS Active Work Board (PR #127) — work board introduced at repo root.
 - **17 May 2026** — Spidey Phase D activation + Corey Clone wired into MI scheduler (PR #125) — structure engine live (HTF daily candles; LTF pending); Jane structureConfidence gate active; Corey Clone runs per MI tick.
