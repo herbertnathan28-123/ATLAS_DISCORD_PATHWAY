@@ -63,6 +63,7 @@ const REQUIRED_ANCHORS = Object.freeze([
   // Operator brief 2026-05-17 (master order):
   'TODAYS_ANNOUNCEMENTS', 'PRIMARY_EVENT_FOCUS', 'NEXT_24_TO_72_HOURS',
   'AFFECTED_MARKETS_EXPANDED', 'PRICE_MAP', 'OPERATIONAL_NARRATIVE',
+  'HISTORICAL_ANALOGUE', 'STRUCTURE_SNAPSHOT',
 ]);
 
 function _fmtTraderAction(ta) {
@@ -231,6 +232,85 @@ function _fmtOperationalNarrative(n) {
   ].join('\n');
 }
 
+// Spidey Phase D structure snapshot (operator 2026-05-17 activation
+// order). Surfaces HTF / LTF bias, BOS / CHoCH, liquidity sweeps,
+// invalidation, execution trigger, structure confidence. Honest
+// degradation (PARTIAL / NOT_INVOKED) when candles missing.
+function _fmtStructureSnapshot(s) {
+  if (!s || !s.available) {
+    return [
+      'Structure (Spidey Phase D) — status: ' + (s && s.status || 'NOT_INVOKED'),
+      'Reason: ' + ((s && s.reason) || 'engine not invoked this tick'),
+      'Inline read: structure read unavailable this cycle. Treat macro + historical reads as the operating constraint until structure confirms.',
+    ].join('\n');
+  }
+  const lines = [];
+  lines.push('Structure (Spidey Phase D) — status: ' + (s.status || 'PARTIAL') + ' · confidence: ' + (s.structureConfidence != null ? s.structureConfidence : '—') + ' (' + (s.confidenceLabel || '—') + ')');
+  lines.push('Symbol: ' + (s.symbol || '—'));
+  lines.push('HTF bias: ' + (s.htfBias || 'NEUTRAL') + ' · LTF bias: ' + (s.ltfBias || 'NEUTRAL') + ' · structural bias: ' + (s.structureBias || 'NEUTRAL'));
+  if (s.activeBOS) lines.push('Latest BOS: ' + (s.activeBOS.type || (s.structureBias + '_BOS')) + ' at ' + (s.activeBOS.protectedLevel != null ? s.activeBOS.protectedLevel : '—') + ' · momentum ' + (s.activeBOS.momentum || '—'));
+  else lines.push('Latest BOS: none confirmed this read');
+  if (s.activeCHoCH) lines.push('Latest CHoCH: ' + (s.activeCHoCH.type || '—') + (s.activeCHoCH.brokenLevel != null ? ' · broken level ' + s.activeCHoCH.brokenLevel : ''));
+  else lines.push('Latest CHoCH: no trend transition this read');
+  if (s.liquidity) {
+    lines.push('Liquidity: equalHighs=' + (s.liquidity.equalHighs || []).length + ' · equalLows=' + (s.liquidity.equalLows || []).length + ' · sweeps=' + (s.liquidity.sweeps || []).length);
+    if ((s.liquidity.sweeps || []).length) {
+      const sw = s.liquidity.sweeps[s.liquidity.sweeps.length - 1];
+      lines.push('  Latest sweep: ' + sw.direction + ' at ' + sw.cluster + ' — ' + sw.interpretation);
+    }
+  }
+  if (Array.isArray(s.supplyDemandZones) && s.supplyDemandZones.length) {
+    const z = s.supplyDemandZones[s.supplyDemandZones.length - 1];
+    lines.push('Origin zone: ' + z.type + ' ' + (z.bottom != null ? z.bottom + '–' + z.top : '—') + ' · freshness ' + (z.freshness || '—') + ' · efficiency ' + (z.efficiency != null ? z.efficiency : '—'));
+  }
+  if (s.executionTrigger) {
+    lines.push('Execution trigger: ' + s.executionTrigger.direction + ' on ' + s.executionTrigger.confirmRule);
+  }
+  if (s.invalidation) {
+    lines.push('Invalidation: ' + s.invalidation.side + ' ' + s.invalidation.level + ' — ' + s.invalidation.reason);
+  }
+  if (s.session) lines.push('Session: ' + (s.session.session || '—') + ' · liquidity ' + (s.session.liquidity || '—'));
+  if (Array.isArray(s.keyLevels) && s.keyLevels.length) lines.push('Nearby key levels: ' + s.keyLevels.map(k => k.level + ' (' + k.role + ')').join(' · '));
+  if (s.degradedReason) lines.push('Degraded reason: ' + s.degradedReason);
+  return lines.join('\n');
+}
+
+// Corey Clone — historical analogue (operator post-deploy 2026-05-17).
+// Surfaces audit-grade analogues if available; honest degradation
+// (PARTIAL / BLOCKED / NOT_INVOKED) if not.
+function _fmtHistoricalReaction(hist, cloneStatus) {
+  const status = cloneStatus && cloneStatus.status ? cloneStatus.status : 'NOT_INVOKED';
+  if (!hist || !hist.available) {
+    return [
+      'Historical analogue — Corey Clone status: ' + status,
+      'Confidence basis: ' + (cloneStatus && cloneStatus.confidenceBasis || 'engine not invoked this tick'),
+      (status === 'BLOCKED' || status === 'NOT_INVOKED')
+        ? 'Inline read: ATLAS is operating without historical analogue support this cycle. Treat the macro + structure read as the operating constraint.'
+        : 'Inline read: historical analogue coverage degraded this cycle; weight the macro + structure read more heavily.',
+    ].join('\n');
+  }
+  const lines = [];
+  lines.push('Historical analogue — Corey Clone status: ' + status);
+  lines.push('Symbol: ' + (hist.symbol || '—'));
+  lines.push('Confidence basis: ' + (cloneStatus && cloneStatus.confidenceBasis || 'engine-derived'));
+  if (cloneStatus && cloneStatus.validAnalogues != null) lines.push('Audit-grade analogues: ' + cloneStatus.validAnalogues + (cloneStatus.droppedAnalogues ? ' · dropped ' + cloneStatus.droppedAnalogues : ''));
+  if (Array.isArray(hist.analogues) && hist.analogues.length) {
+    lines.push('Top analogues:');
+    for (const a of hist.analogues.slice(0, 3)) {
+      const label = (a.date || a.windowStartUTC || 'analogue') + (a.outcome || a.outcomeLabel ? ' → ' + (a.outcome || a.outcomeLabel) : '');
+      const sim = a.similarity != null ? ' (similarity ' + Number(a.similarity).toFixed(2) + ')' : '';
+      lines.push('  - ' + label + sim);
+    }
+  }
+  if (hist.baseRates) {
+    const rates = [];
+    for (const k of Object.keys(hist.baseRates)) rates.push(k + '=' + hist.baseRates[k]);
+    if (rates.length) lines.push('Base rates: ' + rates.join(' · '));
+  }
+  if (Array.isArray(hist.warningFlags) && hist.warningFlags.length) lines.push('Warning flags: ' + hist.warningFlags.join(' · '));
+  return lines.join('\n');
+}
+
 function _fmtProvenance(p) {
   if (!p) return 'Source: ATLAS runtime · freshness: LIVE · confidence: engine-derived';
   const srcs = Array.isArray(p.sources) ? p.sources.join(' · ') : (p.sources || '—');
@@ -306,6 +386,10 @@ function toViewModel(packet) {
     PRICE_MAP:                     _fmtPriceMap(packet.priceMap),
     // CHUNK 7 — event-day operational storytelling.
     OPERATIONAL_NARRATIVE:         _fmtOperationalNarrative(packet.operationalNarrative),
+    // Corey Clone — historical analogue (post-deploy 2026-05-17).
+    HISTORICAL_ANALOGUE:           _fmtHistoricalReaction(packet.historicalReaction, packet.cloneStatus),
+    // Spidey Phase D structure snapshot (2026-05-17 activation order).
+    STRUCTURE_SNAPSHOT:            _fmtStructureSnapshot(packet.structureSnapshot),
   };
   return _scrubAll(anchors);
 }

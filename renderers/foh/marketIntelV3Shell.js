@@ -80,6 +80,12 @@ function buildDiscordTextSummary(viewModel, opts) {
   lines.push('__Source / Provenance__');
   lines.push(viewModel.SOURCE_PROVENANCE);
   lines.push('');
+  lines.push('__Structure (Spidey Phase D)__');
+  lines.push(viewModel.STRUCTURE_SNAPSHOT || '—');
+  lines.push('');
+  lines.push('__Historical Analogue (Corey Clone)__');
+  lines.push(viewModel.HISTORICAL_ANALOGUE || '—');
+  lines.push('');
   lines.push('__Operational Read__');
   lines.push(viewModel.OPERATIONAL_NARRATIVE || '—');
   lines.push('');

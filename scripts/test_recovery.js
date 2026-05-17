@@ -301,6 +301,8 @@ function ok(name, cond, info) {
     { label: '(F10) Engine Jane validation',     file: 'tests/engineJaneValidation.test.js' },
     { label: '(F11) Engine consensus',           file: 'tests/engineConsensus.test.js' },
     { label: '(F12) FOH live dispatch text',     file: 'tests/fohLiveDispatchText.test.js' },
+    { label: '(F13) FOH Corey Clone wiring',     file: 'tests/fohCoreyCloneWiring.test.js' },
+    { label: '(F14) Spidey Phase D activation',  file: 'tests/spideyPhaseDActivation.test.js' },
   ];
   for (const g of guards) {
     try {

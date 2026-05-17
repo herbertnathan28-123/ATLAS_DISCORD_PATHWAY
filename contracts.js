@@ -91,7 +91,7 @@ const PACKET_CONTRACTS = {
   JaneDecisionPacket: {
     required: {
       symbol: 'string',
-      tradeViability: ['VALID', 'MARGINAL', 'INVALID'],
+      tradeViability: ['VALID', 'MARGINAL', 'PARTIAL', 'WAITING_FOR_CONFIRMATION', 'CONFLICTED', 'INVALID'],
       finalBias: 'any',
       sourceStatus: 'object',
     },

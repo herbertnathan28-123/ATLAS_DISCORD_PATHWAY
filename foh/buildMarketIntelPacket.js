@@ -692,12 +692,79 @@ function buildMarketIntelPacket(opts) {
   // CHUNK 7 — event-day operational storytelling.
   const operationalNarrative = _operationalNarrativeFrom(severity, eventName, now);
 
+  // Spidey Phase D — structure authority. Surfaces BOS / CHoCH /
+  // liquidity / displacement / FVG / supply-demand / key levels /
+  // session / invalidation / executionTrigger / structureConfidence
+  // in the FOH packet's structureSnapshot field. Degradation
+  // (PARTIAL / no_candles_supplied / etc) surfaced honestly.
+  const spideyIn = opts.spidey || null;
+  const spideyPacket = spideyIn && spideyIn.packet ? spideyIn.packet : (spideyIn && spideyIn.authority === 'structure' ? spideyIn : null);
+  const structureSnapshot = spideyPacket
+    ? {
+        available: true,
+        symbol: spideyPacket.symbol || (spideyIn && spideyIn.leadSymbol) || (keyMarkets[1] || 'EURUSD'),
+        status: spideyPacket.status || 'PARTIAL',
+        structureBias: spideyPacket.structureBias || 'NEUTRAL',
+        structureConfidence: spideyPacket.structureConfidence != null ? spideyPacket.structureConfidence : 0,
+        confidenceLabel: (spideyPacket.confidence && spideyPacket.confidence.label) || 'INSUFFICIENT',
+        htfBias: (spideyPacket.htf && spideyPacket.htf.bias) || 'NEUTRAL',
+        ltfBias: (spideyPacket.ltf && spideyPacket.ltf.bias) || 'NEUTRAL',
+        activeBOS: spideyPacket.activeBOS || null,
+        activeCHoCH: spideyPacket.activeCHoCH || null,
+        liquidity: spideyPacket.liquidity || { sweeps: [], equalHighs: [], equalLows: [] },
+        displacement: Array.isArray(spideyPacket.displacement) ? spideyPacket.displacement.slice(-3) : [],
+        fvgs: Array.isArray(spideyPacket.fvgs) ? spideyPacket.fvgs.slice(-3) : [],
+        supplyDemandZones: spideyPacket.supplyDemandZones || [],
+        keyLevels: Array.isArray(spideyPacket.keyLevels) ? spideyPacket.keyLevels.slice(0, 4) : [],
+        session: spideyPacket.session || null,
+        invalidation: spideyPacket.invalidation || null,
+        executionTrigger: spideyPacket.executionTrigger || null,
+        degradedReason: spideyPacket.degradedReason || null,
+      }
+    : { available: false, status: 'NOT_INVOKED', reason: spideyIn === null ? 'engine_not_invoked_this_tick' : 'no_spidey_packet_returned', structureConfidence: 0, structureBias: 'NEUTRAL' };
+
+  // Corey Clone — historical analogue base-rate authority (operator
+  // brief 2026-05-17 post-deploy). Surfaces audit-grade analogues +
+  // honest degradation in the FOH packet. cloneStatus carries the
+  // engine-validator read so the view-model adapter can render
+  // OK / PARTIAL / BLOCKED honestly in the Discord text.
+  const cloneIn = opts.coreyClone || null;
+  const clonePacket = cloneIn && cloneIn.packet ? cloneIn.packet : (cloneIn && (cloneIn.analogues || cloneIn.status) ? cloneIn : null);
+  const cloneValidation = cloneIn && cloneIn.validation ? cloneIn.validation : null;
+  const historicalReaction = clonePacket
+    ? {
+        available: true,
+        symbol: clonePacket.symbol || (cloneIn && cloneIn.leadSymbol) || (keyMarkets[1] || 'EURUSD'),
+        analogues: Array.isArray(clonePacket.analogues) ? clonePacket.analogues.slice(0, 5) : [],
+        baseRates: clonePacket.baseRates || null,
+        confidence: clonePacket.confidence != null ? clonePacket.confidence : null,
+        warningFlags: clonePacket.warningFlags || [],
+        timeframeRelevance: clonePacket.timeframeRelevance || null,
+        cacheStatus: clonePacket.cacheStatus || null,
+        denominatorPreFilter: clonePacket.denominator_pre_filter || null,
+        matcherVersion: clonePacket.matcher_version || null,
+        outcomeClassifierVersion: clonePacket.outcome_classifier_version || null,
+      }
+    : { available: false, reason: cloneIn === null ? 'engine_not_invoked_this_tick' : 'no_clone_packet_returned' };
+  const cloneStatus = cloneValidation
+    ? {
+        status: cloneValidation.status || 'UNKNOWN',
+        confidenceScore: cloneValidation.confidenceScore != null ? cloneValidation.confidenceScore : null,
+        confidenceBasis: cloneValidation.confidenceBasis || null,
+        validAnalogues: cloneValidation.validAnalogues != null ? cloneValidation.validAnalogues : null,
+        droppedAnalogues: cloneValidation.droppedAnalogues != null ? cloneValidation.droppedAnalogues : null,
+        degradedReason: cloneValidation.degradedReason || null,
+      }
+    : { status: 'NOT_INVOKED', confidenceBasis: 'Corey Clone not invoked this tick', validAnalogues: null };
+
   return {
     meta, header, briefingSummary, eventDayReference, fourWayOutcomes,
     marketImpact, riskEscalation, whatToDoNow, confirmationCancellation,
     provenance,
     todaysAnnouncements, primaryEventFocus, next24To72Hours,
     affectedMarketsExpanded, priceMap, operationalNarrative,
+    historicalReaction, cloneStatus,
+    structureSnapshot,
   };
 }
 

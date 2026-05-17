@@ -16,6 +16,10 @@ const REQUIRED_PACKET_FIELDS = Object.freeze([
   // Master order — full-day coverage + intelligence expansion.
   'todaysAnnouncements', 'primaryEventFocus', 'next24To72Hours',
   'affectedMarketsExpanded', 'priceMap', 'operationalNarrative',
+  // Corey Clone integration (post-deploy 2026-05-17).
+  'historicalReaction', 'cloneStatus',
+  // Spidey Phase D activation (2026-05-17).
+  'structureSnapshot',
 ]);
 
 const REQUIRED_VIEW_MODEL_ANCHORS = Object.freeze([
@@ -28,6 +32,7 @@ const REQUIRED_VIEW_MODEL_ANCHORS = Object.freeze([
   'SOURCE_PROVENANCE', 'GENERATED_AT_UTC',
   'TODAYS_ANNOUNCEMENTS', 'PRIMARY_EVENT_FOCUS', 'NEXT_24_TO_72_HOURS',
   'AFFECTED_MARKETS_EXPANDED', 'PRICE_MAP', 'OPERATIONAL_NARRATIVE',
+  'HISTORICAL_ANALOGUE', 'STRUCTURE_SNAPSHOT',
 ]);
 
 const BANNED_TERMS_USERFACING = Object.freeze([
