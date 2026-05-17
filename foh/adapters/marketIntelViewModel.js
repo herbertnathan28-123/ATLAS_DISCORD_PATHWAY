@@ -54,6 +54,7 @@ const HARD_PARAMETERS = Object.freeze({
 });
 
 const REQUIRED_ANCHORS = Object.freeze([
+  'THE_CALL', 'RANKED_EVENT_CALENDAR',
   'HEADER_TITLE', 'HEADER_SUBTITLE', 'RISK_STATE_DISC_SCALE', 'BRIEFING_SUMMARY',
   'EVENT_DAY_REFERENCE', 'FOUR_WAY_HIGHER', 'FOUR_WAY_LOWER', 'FOUR_WAY_INLINE',
   'FOUR_WAY_REVERSAL', 'MARKET_IMPACT', 'RISK_ESCALATION_HEALTHY',
@@ -111,6 +112,51 @@ function _fmtBriefingSummary(bs) {
     'Key markets: ' + (markets || '—'),
     'Current risk: ' + (bs.currentRisk || '—'),
   ].join('\n');
+}
+
+function _short(s, n) {
+  s = String(s || '').replace(/\s+/g, ' ').trim();
+  if (s.length <= n) return s;
+  return s.slice(0, Math.max(0, n - 1)).trimEnd() + '…';
+}
+
+function _displayInstrument(sym) {
+  const s = String(sym || '').toUpperCase();
+  if (s === 'DXY') return 'US Dollar Strength (DXY)';
+  if (s === 'VIX') return 'Market Volatility (VIX)';
+  return sym || '—';
+}
+
+function _fmtTheCall(c) {
+  c = c || {};
+  return [
+    'Primary focus: ' + (c.primaryFocus || 'Broader market calendar'),
+    'Risk state: ' + (c.riskState || 'UNKNOWN — risk basis unavailable'),
+    'Current read: ' + (c.currentRead || 'MONITORING — no confirmed execution read yet.'),
+    'Next confirmation point: ' + (c.nextConfirmationPoint || 'Next ranked release window and first confirmed close.'),
+  ].join('\n');
+}
+
+function _fmtRankedEventCalendar(rows) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return 'No selected-symbol release. Broader market calendar: Brief Pending until the next TradingView live packet resolves ranked events.';
+  }
+  return rows.slice(0, 6).map(r => {
+    const markets = Array.isArray(r.affectedMarkets) && r.affectedMarkets.length
+      ? r.affectedMarkets.slice(0, 4).map(_displayInstrument).join(', ')
+      : 'Affected markets pending';
+    const brief = r.fullBrief && !/notion\.(so|com|site)/i.test(String(r.fullBrief))
+      ? r.fullBrief
+      : 'Brief Pending';
+    return [
+      _short(r.timeUTC || 'pending', 10),
+      _short(r.currency || 'multi', 5),
+      _short(r.impact || r.severity || 'MED', 8),
+      _short(r.title || 'Unnamed event', 32),
+      _short(markets, 58),
+      _short(brief, 24),
+    ].join(' | ');
+  }).join('\n');
 }
 
 function _fmtEventDay(e) {
@@ -322,7 +368,8 @@ function _fmtHistoricalReaction(hist, cloneStatus) {
 
 function _fmtProvenance(p) {
   if (!p) return 'Source: ATLAS runtime · freshness: LIVE · confidence: engine-derived';
-  const srcs = Array.isArray(p.sources) ? p.sources.join(' · ') : (p.sources || '—');
+  const srcsRaw = Array.isArray(p.sources) ? p.sources.join(' · ') : (p.sources || '—');
+  const srcs = /tradingview/i.test(srcsRaw) ? srcsRaw.replace(/tradingview/ig, 'TradingView') : srcsRaw;
   return 'Source: ' + srcs + ' · freshness: ' + (p.dataFreshness || '—') + ' · confidence: ' + (p.confidenceBasis || '—');
 }
 
@@ -360,6 +407,8 @@ function toViewModel(packet) {
   const prov = packet.provenance || {};
 
   const anchors = {
+    THE_CALL:                     _fmtTheCall(packet.theCall),
+    RANKED_EVENT_CALENDAR:        _fmtRankedEventCalendar(packet.rankedEventCalendar),
     HEADER_TITLE:                  header.title || 'ATLAS · Market Intel',
     HEADER_SUBTITLE:               header.subtitle || '—',
     RISK_STATE_DISC_SCALE:         header.severityDiscs || (header.riskState || 'risk state pending'),

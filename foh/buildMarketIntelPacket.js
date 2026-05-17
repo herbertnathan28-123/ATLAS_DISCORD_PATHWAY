@@ -273,6 +273,162 @@ function _safe(text, fallback) {
   return fallback || 'inline intelligence — see briefing surface';
 }
 
+function _displayInstrument(sym) {
+  const s = String(sym || '').toUpperCase();
+  if (s === 'DXY') return 'US Dollar Strength (DXY)';
+  if (s === 'VIX') return 'Market Volatility (VIX)';
+  return sym || '—';
+}
+
+function _safeBriefStatus(e) {
+  const raw = e && (e.fullBriefUrl || e.briefUrl || e.fullBrief || e.brief);
+  if (typeof raw !== 'string' || !raw.trim()) return 'Brief Pending';
+  const v = raw.trim();
+  if (/notion\.(so|com|site)/i.test(v)) return 'Brief Pending';
+  if (/^\/market-intel\/brief\/[A-Za-z0-9._~/-]+$/.test(v)) return v;
+  if (/^https?:\/\/[A-Za-z0-9.-]+\/market-intel\/brief\/[A-Za-z0-9._~/?=&%-]+$/i.test(v)) return v;
+  return 'Brief Pending';
+}
+
+function _eventSortMs(e) {
+  if (!e) return Number.MAX_SAFE_INTEGER;
+  if (Number.isFinite(e.timeMs)) return e.timeMs;
+  const raw = e.scheduledTimeUTC || e.scheduled_time || e.timeUTC || e.time;
+  const ms = raw ? Date.parse(raw) : NaN;
+  return Number.isFinite(ms) ? ms : Number.MAX_SAFE_INTEGER;
+}
+
+function _cleanImpact(e, fallback) {
+  const raw = e && (e.impact || e.expectedImpact || e.severity || e.impactSeverity) || fallback || 'MED';
+  const v = String(raw).toUpperCase();
+  if (/HIGH|EXTREME|STORM/.test(v)) return 'HIGH';
+  if (/ELEV/.test(v)) return 'ELEV';
+  if (/MED|ACTIVE|DRIVER/.test(v)) return 'MED';
+  if (/LOW|QUIET|CALM/.test(v)) return 'LOW';
+  return v.slice(0, 18) || 'MED';
+}
+
+function _normaliseCalendarEvent(e, fallback) {
+  e = e || {};
+  fallback = fallback || {};
+  const title = e.title || e.eventName || fallback.title || fallback.eventName || 'Unnamed event';
+  const affected = Array.isArray(e.affectedMarkets) ? e.affectedMarkets
+    : Array.isArray(e.affectedInstruments) ? e.affectedInstruments
+    : Array.isArray(e.affectedSymbols) ? e.affectedSymbols
+    : Array.isArray(fallback.affectedMarkets) ? fallback.affectedMarkets
+    : Array.isArray(fallback.affectedSymbols) ? fallback.affectedSymbols
+    : _instrumentsForCcy(e.currency || fallback.currency);
+  return {
+    timeUTC: e.timeUTC || e.time || e.scheduledTimeUTC || fallback.timeUTC || fallback.scheduledTimeUTC || 'pending',
+    currency: e.currency || fallback.currency || 'multi',
+    impact: _cleanImpact(e, fallback.impact || fallback.expectedImpact || fallback.severity),
+    title,
+    affectedMarkets: Array.from(new Set((affected || []).filter(Boolean))).slice(0, 8),
+    fullBrief: _safeBriefStatus(e),
+    eventImpact: e.expectedSensitivity || e.whyItMatters || e.whyMatters || fallback.whyPrimary || fallback.expectedSensitivity || 'Market sensitivity pending; use macro transmission paths for confirmation.',
+    importanceScore: Number.isFinite(e.importanceScore) ? e.importanceScore : Number.isFinite(e.score) ? e.score : Number.isFinite(fallback.importanceScore) ? fallback.importanceScore : 0,
+    sortMs: _eventSortMs(e),
+  };
+}
+
+function _rankedCalendarRows(engine, macroPacket, primaryFocus) {
+  const rows = [];
+  const seen = new Set();
+  function add(e, fallback) {
+    const row = _normaliseCalendarEvent(e, fallback || primaryFocus || {});
+    const key = [row.timeUTC, row.currency, row.title].join('|').toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push(row);
+  }
+  if (macroPacket && Array.isArray(macroPacket.next72Hours)) {
+    macroPacket.next72Hours.forEach(e => add(e, primaryFocus));
+  }
+  if (macroPacket && Array.isArray(macroPacket.todayAnnouncements)) {
+    macroPacket.todayAnnouncements.forEach(e => add(e, primaryFocus));
+  }
+  if (Array.isArray(engine.next24To72Hours)) engine.next24To72Hours.forEach(e => add(e, primaryFocus));
+  if (Array.isArray(engine.todaysAnnouncements)) engine.todaysAnnouncements.forEach(e => add(e, primaryFocus));
+  for (const c of (engine.eventClusters || [])) {
+    for (const e of (c.events || [])) add(e, {
+      currency: c.currency,
+      severity: c.clusterImpact || c.severity,
+      affectedMarkets: c.affectedMarkets,
+      expectedSensitivity: c.whyClusterMatters,
+    });
+  }
+  if (!rows.length && primaryFocus && primaryFocus.title && primaryFocus.title !== 'No major scheduled catalyst') {
+    add({
+      title: primaryFocus.title,
+      currency: primaryFocus.currency,
+      timeUTC: primaryFocus.timeUTC,
+      scheduledTimeUTC: primaryFocus.scheduledTimeUTC,
+      expectedImpact: primaryFocus.expectedImpact,
+      affectedMarkets: primaryFocus.affectedMarkets,
+      expectedSensitivity: primaryFocus.whyPrimary,
+    }, primaryFocus);
+  }
+  rows.sort((a, b) => {
+    const scoreDiff = (b.importanceScore || 0) - (a.importanceScore || 0);
+    if (scoreDiff) return scoreDiff;
+    return (a.sortMs || Number.MAX_SAFE_INTEGER) - (b.sortMs || Number.MAX_SAFE_INTEGER);
+  });
+  return rows.slice(0, 12).map(r => ({
+    timeUTC: r.timeUTC,
+    currency: r.currency,
+    impact: r.impact,
+    title: r.title,
+    affectedMarkets: r.affectedMarkets,
+    fullBrief: r.fullBrief,
+    eventImpact: r.eventImpact,
+    importanceScore: r.importanceScore,
+  }));
+}
+
+function _janeCurrentRead(engine) {
+  const j = engine && engine.janeSynthesis;
+  const state = String(j && (j.actionState || j.finalState || j.monitoringState) || '').toUpperCase();
+  if (state === 'ARMED' || state === 'ACTIVE') return 'ARMED — engine confirmation is stronger; still obey event-window confirmation.';
+  if (state === 'STAND_DOWN') return 'STAND_DOWN — execution read rejected; monitor the calendar only.';
+  if (state === 'ACTIVE_MONITORING') return 'ACTIVE MONITORING — macro focus is live, but execution still needs structure confirmation.';
+  return 'MONITORING — no confirmed execution read yet; calendar risk leads until structure confirms.';
+}
+
+function _buildTheCall(engine, primaryFocus, riskState, fallbackEventName) {
+  primaryFocus = primaryFocus || {};
+  riskState = riskState || {};
+  return {
+    primaryFocus: primaryFocus.title || fallbackEventName || 'Broader market calendar',
+    riskState: (riskState.label || 'UNKNOWN') + (riskState.scoreOutOf5 != null ? ' ' + riskState.scoreOutOf5 + '/5' : '') + ' — ' + (riskState.whyThisRating || 'risk basis unavailable'),
+    currentRead: _janeCurrentRead(engine),
+    nextConfirmationPoint: primaryFocus.volatilityWindow || primaryFocus.confidenceBasis || 'Next ranked release window and first confirmed 5M / 15M close.',
+  };
+}
+
+function _marketImpactFromTransmissionMap(paths, fallbackMechanism, eventName, keyMarkets) {
+  const first = Array.isArray(paths) && paths.length ? paths[0] : null;
+  const second = Array.isArray(paths) && paths.length > 1 ? paths[1] : null;
+  if (!first) {
+    return {
+      mechanism: _safe(fallbackMechanism, 'cause: ' + (eventName || 'lead catalyst') + ' -> expectation: rate-path repricing -> market reaction: ' + (keyMarkets || []).join(', ')),
+      priceReactionPath: 'Initial impulse (0-60s) -> first 5-min close confirms direction -> 15-min close gives the real trend -> 1H close locks in the bias for the rest of the session.',
+      liquidityEffect: 'Spreads widen through named release windows; normalise after the first confirmed close if live drivers agree.',
+      volatilityEffect: 'Volatility follows the ranked event window and fades only when live drivers stop confirming.',
+      traderConsequence: 'Calendar direction is not executable until the lead market and structure confirm after the release window.',
+    };
+  }
+  const affected = Array.isArray(first.affectedSymbols) && first.affectedSymbols.length
+    ? first.affectedSymbols.map(_displayInstrument).join(', ')
+    : (keyMarkets || []).map(_displayInstrument).join(', ');
+  return {
+    mechanism: 'Market impact: ' + first.driver + ' -> ' + (first.mechanism || fallbackMechanism || 'macro repricing') + ' Affected markets: ' + (affected || 'pending') + '.',
+    priceReactionPath: (first.firstOrderEffect || 'Lead currency reprices first.') + ' ' + (first.secondOrderEffect || 'Cross-asset confirmation follows after the first 15-minute close.'),
+    liquidityEffect: 'Release-window liquidity thins around ' + (eventName || first.driver || 'the lead catalyst') + '; spreads normalise only after the first confirmed close.',
+    volatilityEffect: second ? (second.driver + ': ' + second.firstOrderEffect + ' ' + second.secondOrderEffect) : 'Live drivers decide whether the scheduled catalyst is amplified or faded.',
+    traderConsequence: 'Strengthens if: ' + (first.whatStrengthensThis || 'lead markets confirm') + '. Weakens if: ' + (first.whatWeakensThis || 'live drivers fade the first move') + '.',
+  };
+}
+
 function _firstEvent(packetIn) {
   const clusters = (packetIn && packetIn.eventClusters) || [];
   for (const c of clusters) for (const e of (c.events || [])) if (e) return { e, c };
@@ -570,10 +726,10 @@ function buildMarketIntelPacket(opts) {
   const now = opts.now || Date.now();
   const macroPacket = engine.macroIntelligencePacket || null;
   const macroPrimary = (macroPacket && macroPacket.primaryEventFocus) || engine.primaryEventFocus || null;
+  const macroRisk = macroPacket && macroPacket.riskState ? macroPacket.riskState : null;
 
   // Risk state + severity discs.
   const rawMood = engine.mood || engine.marketMood || {};
-  const macroRisk = macroPacket && macroPacket.riskState ? macroPacket.riskState : null;
   const severity = String(rawMood.severity || engine.severity || _severityFromMacroRisk(macroRisk && macroRisk.label) || 'MED').toUpperCase();
   const moodLabel = rawMood.label || (macroRisk ? (macroRisk.label + ' — ' + (macroRisk.whyThisRating || 'macro interpreter risk state')) : ({ HIGH: 'High — clustered catalyst exposure', ELEV: 'Elevated — high-impact catalyst window', MED: 'Active — moderate catalyst sensitivity', LOW: 'Calm — driver-led session', STORM: 'Storm — peak event-day reactivity' }[severity] || 'Active'));
   const severityDiscs = rawMood.discs ? (rawMood.discs + ' ' + (rawMood.label || moodLabel)) : _discScale(severity);
@@ -628,13 +784,12 @@ function buildMarketIntelPacket(opts) {
     inline:   _outcomeStub('inline',   eventName, severity),
     reversal: _outcomeStub('reversal', eventName, severity),
   };
-  const marketImpact = {
-    mechanism:           _safe(engine.marketImpact, 'cause: ' + eventName + ' → expectation: front-end rate-path repricing → market reaction: USD lead, cross-asset cascade through ' + keyMarkets.join(', ')),
-    priceReactionPath:   'Initial impulse (0–60s) → first 5-min close confirms direction → 15-min close gives the real trend → 1H close locks in the bias for the rest of the session.',
-    liquidityEffect:     'Spreads widen 2–4× across the announcement candle; market-depth thins through T+5; normalises by T+15.',
-    volatilityEffect:    /HIGH|STORM/.test(severity) ? 'ATR doubles on the announcement candle; expect overshoot beyond historical 1-σ' : /ELEV/.test(severity) ? 'ATR ~1.5× on the announcement; 1-σ overshoot likely' : 'ATR moderate expansion; range-bound after the first 15-min close',
-    traderConsequence:   'Chasing the first 60 seconds creates the $800–$1,500 drawdown band; waiting for the 5-min close and trading the next pullback flips the same setup into a clean $300–$800 gain on $100k EURUSD.',
-  };
+  const marketImpact = _marketImpactFromTransmissionMap(
+    engine.macroTransmissionMap || (macroPacket && macroPacket.macroTransmissionMap),
+    engine.marketImpact,
+    eventName,
+    keyMarkets
+  );
   const riskEscalation = _riskEscalationStubs(eventName);
   const whatToDoNow = _expandActions(severity);
   const confirmationCancellation = {
@@ -705,6 +860,8 @@ function buildMarketIntelPacket(opts) {
     title:        e.title || 'unnamed event',
     severity:     String(e.severity || 'MED').toUpperCase(),
     severityDiscs: _discScale(String(e.severity || 'MED').toUpperCase()),
+    affectedMarkets: Array.isArray(e.affectedMarkets) ? e.affectedMarkets : Array.isArray(e.affectedInstruments) ? e.affectedInstruments : _instrumentsForCcy(e.currency),
+    fullBrief: _safeBriefStatus(e),
     expectedSensitivity: e.expectedSensitivity || (String(e.severity || 'MED').toUpperCase() === 'HIGH' ? 'HIGH sensitivity — clustered-catalyst preparation required' : 'MODERATE sensitivity — monitor for cross-asset confirmation'),
     preparationGuidance: e.preparationGuidance || 'Pre-position size at 60% of normal in the 6 hours leading in; widen exits ~30% inside the announcement candle.',
   }));
@@ -718,10 +875,14 @@ function buildMarketIntelPacket(opts) {
       title: eventName,
       severity,
       severityDiscs,
+      affectedMarkets: keyMarkets,
+      fullBrief: 'Brief Pending',
       expectedSensitivity: 'Lead catalyst this cycle — directional gate for the next 6–24 hours.',
       preparationGuidance: 'Position size at 60% of normal in the 6 hours leading in; widen exits ~30% inside the announcement candle.',
     });
   }
+  const rankedEventCalendar = _rankedCalendarRows(engine, macroPacket, primaryEventFocus);
+  const theCall = _buildTheCall(engine, primaryEventFocus, macroRisk, eventName);
 
   // CHUNK 4 — affected markets expanded.
   const affectedMarketsExpanded = Array.isArray(engine.affectedMarketsExpanded) && engine.affectedMarketsExpanded.length
@@ -822,6 +983,7 @@ function buildMarketIntelPacket(opts) {
     meta, header, briefingSummary, eventDayReference, fourWayOutcomes,
     marketImpact, riskEscalation, whatToDoNow, confirmationCancellation,
     provenance,
+    theCall, rankedEventCalendar,
     todaysAnnouncements, primaryEventFocus, next24To72Hours,
     affectedMarketsExpanded, priceMap, operationalNarrative,
     historicalReaction, cloneStatus,

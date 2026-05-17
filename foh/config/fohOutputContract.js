@@ -13,6 +13,7 @@ const REQUIRED_PACKET_FIELDS = Object.freeze([
   'meta', 'header', 'briefingSummary', 'eventDayReference',
   'fourWayOutcomes', 'marketImpact', 'riskEscalation', 'whatToDoNow',
   'confirmationCancellation', 'provenance',
+  'theCall', 'rankedEventCalendar',
   // Master order — full-day coverage + intelligence expansion.
   'todaysAnnouncements', 'primaryEventFocus', 'next24To72Hours',
   'affectedMarketsExpanded', 'priceMap', 'operationalNarrative',
@@ -24,6 +25,7 @@ const REQUIRED_PACKET_FIELDS = Object.freeze([
 
 const REQUIRED_VIEW_MODEL_ANCHORS = Object.freeze([
   'HEADER_TITLE', 'HEADER_SUBTITLE', 'RISK_STATE_DISC_SCALE',
+  'THE_CALL', 'RANKED_EVENT_CALENDAR',
   'BRIEFING_SUMMARY', 'EVENT_DAY_REFERENCE',
   'FOUR_WAY_HIGHER', 'FOUR_WAY_LOWER', 'FOUR_WAY_INLINE', 'FOUR_WAY_REVERSAL',
   'MARKET_IMPACT',
