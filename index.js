@@ -39,6 +39,7 @@ coreyCalendar.init();
 
 // Macro v3 + FMP enrichment — env-gated; ATLAS_MACRO_V3=off disables v3 (legacy formatter runs).
 const fmpAdapter = require('./macro/fmpAdapter');
+const macroSearch = require('./macro/searchMacro');
 fmpAdapter.logBootStatus();
 const MACRO_V3_ENABLED = process.env.ATLAS_MACRO_V3 !== 'off';
 console.log(`[BOOT] MACRO_V3: ${MACRO_V3_ENABLED ? 'ENABLED' : 'DISABLED (legacy formatter)'}`);
@@ -2190,6 +2191,18 @@ client.on('messageCreate', async (msg) => {
     console.log(`[SYMBOL-TRACE] rawCommand=!${userInput}`);
 
     if (OPS_COMMANDS.has(userInput.toLowerCase())) return;
+
+    if (macroSearch.isMacroSearchQuery(userInput)) {
+      console.log(`[ROUTE] macro_search query=${userInput}`);
+      await msg.channel.send({ content: `📡 Running macro search — **${userInput}**` });
+      const searchResult = await macroSearch.runMacroSearch(userInput);
+      const chunks = chunkMessage(searchResult.content, DISCORD_MAX);
+      for (let i = 0; i < chunks.length; i++) {
+        await msg.channel.send({ content: chunks[i] });
+      }
+      console.log(`[DISCORD] macro_search sent query=${userInput} chunks=${chunks.length} ok=${searchResult.ok}`);
+      return;
+    }
 
     const tokens = userInput.split(/\s+/).filter(Boolean);
     const symRaw = tokens[0] || '';
