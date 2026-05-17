@@ -66,6 +66,89 @@ Do not post multi-page Market Intel briefings directly into Discord by default.
 
 ---
 
+## User-Facing Terminology Display Doctrine
+
+Apply across:
+
+- Macro output
+- Macro search
+- Dark Horse
+- Market Intel
+- Full Brief pages
+- Daily Brief
+- Weekend Brief
+- Dashboard cards
+- Discord FOH
+- Glossary hyperlinks
+
+Rule:
+
+Do not lead user-facing text with raw market codes such as DXY or VIX.
+
+Use the plain-English name first, with the code in brackets.
+
+Correct:
+
+- US Dollar Strength (DXY)
+- Market Volatility (VIX)
+
+Not:
+
+- DXY (US Dollar Strength)
+- VIX (Market Volatility)
+- DXY
+- VIX
+
+Required examples:
+
+Wrong:
+DXY is rising.
+
+Correct:
+US Dollar Strength (DXY) is rising.
+
+Wrong:
+VIX is elevated.
+
+Correct:
+Market Volatility (VIX) is elevated.
+
+Wrong:
+DXY confirms the EURUSD path.
+
+Correct:
+US Dollar Strength (DXY) confirms the EURUSD path.
+
+Wrong:
+VIX above 18 increases risk.
+
+Correct:
+Market Volatility (VIX) above 18 increases risk.
+
+Reason:
+
+ATLAS output must remain beginner-readable. The trader should understand what the data means before seeing the market shorthand.
+
+Implementation:
+
+Update all FOH terminology maps, glossary labels, dashboard labels, Discord labels, Market Intel labels, Dark Horse references, and macro search responses so the display name is plain-English first and ticker/code is bracketed second.
+
+Acceptance:
+
+A repo-wide search should not show user-facing lines that lead with:
+
+- DXY
+- VIX
+
+unless they are inside technical code, internal variable names, source mappings, or glossary aliases.
+
+User-facing wording must display:
+
+- US Dollar Strength (DXY)
+- Market Volatility (VIX)
+
+---
+
 ## Lane 1 — Cursor: Live Market Intel + Macro Search
 
 Priority: Critical
@@ -124,8 +207,8 @@ Required glossary terms include:
 - Post-Presser
 - Displacement
 - Confirmation
-- DXY
-- VIX
+- US Dollar Strength (DXY)
+- Market Volatility (VIX)
 - Yield Spread
 - EUR OIS
 - Bund Yields
