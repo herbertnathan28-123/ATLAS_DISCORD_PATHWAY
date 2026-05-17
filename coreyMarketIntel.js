@@ -166,7 +166,7 @@ function _macroDiscs(riskState) {
 
 function _transmissionSummary(packet) {
   const paths = packet && Array.isArray(packet.macroTransmissionMap) ? packet.macroTransmissionMap : [];
-  if (!paths.length) return 'No transmission path available; read live DXY/VIX/yields before weighting the calendar.';
+  if (!paths.length) return 'No transmission path available; read live US Dollar Strength (DXY), Market Volatility (VIX), and yields before weighting the calendar.';
   return paths.slice(0, 2).map(p =>
     p.driver + ' -> ' + p.firstOrderEffect + ' -> ' + p.secondOrderEffect +
     ' Confirms if: ' + p.whatStrengthensThis + ' Weakens if: ' + p.whatWeakensThis
@@ -216,7 +216,7 @@ function _applyMacroPacketToImagePayload(base, macroPacket) {
     '. Primary focus: ' + (primary.title || 'none') +
     '. Risk state: ' + (risk.label || 'UNKNOWN') +
     ' because ' + (risk.whyThisRating || 'risk basis unavailable') + '.';
-  base.confirmationPath = { narrative: (primary.confidenceBasis || 'Macro confirmation pending') + ' Confirmation condition: ' + ((macroPacket.affectedMarketsExpanded && macroPacket.affectedMarketsExpanded[0] && macroPacket.affectedMarketsExpanded[0].confirmationCondition) || 'DXY/yields/VIX must confirm after the first 15-minute close.') };
+  base.confirmationPath = { narrative: (primary.confidenceBasis || 'Macro confirmation pending') + ' Confirmation condition: ' + ((macroPacket.affectedMarketsExpanded && macroPacket.affectedMarketsExpanded[0] && macroPacket.affectedMarketsExpanded[0].confirmationCondition) || 'US Dollar Strength (DXY), yields, and Market Volatility (VIX) must confirm after the first 15-minute close.') };
   base.cancellationPath = { narrative: (primary.reversalRisk || 'Reversal risk unavailable') + ' Invalidation: ' + ((macroPacket.affectedMarketsExpanded && macroPacket.affectedMarketsExpanded[0] && macroPacket.affectedMarketsExpanded[0].invalidationCondition) || 'first move fades back inside the pre-event range.') };
   base.mood = Object.assign({}, base.mood || {}, {
     severity: _macroPayloadSeverity(risk.label),
@@ -256,9 +256,12 @@ function _miMacroSourceLine(macroPacket, health) {
   return source + ' ' + mode + degraded;
 }
 
-function _miRankedEventRows(macroPacket) {
+function _miRankedEventRows(macroPacket, opts) {
+  opts = opts || {};
   const rows = [];
   const seen = new Set();
+  const now = opts.now || Date.now();
+  const next24End = now + 24 * 60 * 60 * 1000;
   function add(e, fallback) {
     e = e || {};
     fallback = fallback || {};
@@ -278,7 +281,15 @@ function _miRankedEventRows(macroPacket) {
       affectedMarkets: markets,
       fullBrief: _miSafeBriefStatus(e),
       score: Number.isFinite(e.importanceScore) ? e.importanceScore : Number.isFinite(e.score) ? e.score : 0,
+      sortMs: Number.isFinite(e.timeMs) ? e.timeMs : (e.scheduledTimeUTC ? Date.parse(e.scheduledTimeUTC) : Number.MAX_SAFE_INTEGER),
+      isNext24h: Number.isFinite(e.timeMs)
+        ? (e.timeMs > now && e.timeMs <= next24End)
+        : (e.scheduledTimeUTC ? (Date.parse(e.scheduledTimeUTC) > now && Date.parse(e.scheduledTimeUTC) <= next24End) : false),
     });
+  }
+  const next24Aliases = ['next24Hours', 'next24h', 'next_24h', 'next24Events', 'rankedEvents'];
+  for (const key of next24Aliases) {
+    if (macroPacket && Array.isArray(macroPacket[key])) macroPacket[key].forEach(e => add(e, macroPacket.primaryEventFocus));
   }
   if (macroPacket && Array.isArray(macroPacket.next72Hours)) macroPacket.next72Hours.forEach(e => add(e, macroPacket.primaryEventFocus));
   if (macroPacket && Array.isArray(macroPacket.todayAnnouncements)) macroPacket.todayAnnouncements.forEach(e => add(e, macroPacket.primaryEventFocus));
@@ -289,11 +300,15 @@ function _miRankedEventRows(macroPacket) {
   if (!rows.length && p && p.title && p.title !== 'No major scheduled catalyst') {
     add({ title: p.title, currency: p.currency, timeUTC: p.timeUTC, expectedImpact: p.expectedImpact, affectedMarkets: p.affectedMarkets }, p);
   }
-  return rows.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+  return rows.sort((a, b) => {
+    const scoreDiff = (b.score || 0) - (a.score || 0);
+    if (scoreDiff) return scoreDiff;
+    return (a.sortMs || Number.MAX_SAFE_INTEGER) - (b.sortMs || Number.MAX_SAFE_INTEGER);
+  }).slice(0, Number.isFinite(opts.limit) ? opts.limit : 5);
 }
 
-function _miRankedCalendarBlock(macroPacket) {
-  const rows = _miRankedEventRows(macroPacket);
+function _miRankedCalendarBlock(macroPacket, opts) {
+  const rows = _miRankedEventRows(macroPacket, opts);
   if (!rows.length) return 'No selected-symbol release | multi | LOW | Broader market calendar pending | Affected markets pending | Brief Pending';
   return rows.map(r => {
     const markets = r.affectedMarkets && r.affectedMarkets.length
@@ -308,6 +323,145 @@ function _miRankedCalendarBlock(macroPacket) {
       _miShort(r.fullBrief || 'Brief Pending', 24),
     ].join(' | ');
   }).join('\n');
+}
+
+function _miAffectedSymbolsFrom(macroPacket, fallbackSymbols) {
+  const out = new Set();
+  if (Array.isArray(fallbackSymbols)) fallbackSymbols.forEach(s => { if (s) out.add(s); });
+  const p = macroPacket && macroPacket.primaryEventFocus;
+  if (p && Array.isArray(p.affectedMarkets)) p.affectedMarkets.forEach(s => { if (s) out.add(s); });
+  if (macroPacket && Array.isArray(macroPacket.affectedMarketsExpanded)) {
+    macroPacket.affectedMarketsExpanded.forEach(m => { if (m && (m.symbol || m.instrument)) out.add(m.symbol || m.instrument); });
+  }
+  _miRankedEventRows(macroPacket, { limit: 12 }).forEach(r => {
+    (r.affectedMarkets || []).forEach(s => { if (s) out.add(s); });
+  });
+  return Array.from(out).slice(0, 16);
+}
+
+function _miRiskWindows(macroPacket) {
+  const sessionRisk = macroPacket && macroPacket.sessionRisk;
+  const windows = sessionRisk && Array.isArray(sessionRisk.namedWindows) ? sessionRisk.namedWindows.filter(Boolean) : [];
+  if (windows.length) return windows.slice(0, 4).map(w => '• ' + w);
+  const clusters = macroPacket && Array.isArray(macroPacket.eventClusters) ? macroPacket.eventClusters : [];
+  const out = clusters.slice(0, 4).map(c => {
+    const start = c.startUTC || c.startTimeUTC || c.windowStartUTC || (c.events && c.events[0] && (c.events[0].timeUTC || c.events[0].time));
+    const end = c.endUTC || c.endTimeUTC || c.windowEndUTC || '';
+    const label = [c.session, start && end ? (start + '-' + end + ' UTC') : start, c.currency, c.clusterImpact || c.severity].filter(Boolean).join(' · ');
+    return '• ' + (label || 'Clustered calendar risk window');
+  });
+  if (out.length) return out;
+  const rows = _miRankedEventRows(macroPacket, { limit: 3 });
+  return rows.length
+    ? rows.map(r => '• ' + (r.timeUTC || 'pending') + ' UTC · ' + (r.currency || 'multi') + ' · ' + humanizeTitle(r.title))
+    : ['• No named release window; monitor live US Dollar Strength (DXY), Market Volatility (VIX), and yields.'];
+}
+
+function _miMarketImpactCards(macroPacket) {
+  const paths = macroPacket && Array.isArray(macroPacket.macroTransmissionMap) ? macroPacket.macroTransmissionMap : [];
+  if (!paths.length) {
+    const p = macroPacket && macroPacket.primaryEventFocus || {};
+    return ['• Market Impact card 1 — ' + (p.title || 'Broader market calendar') + ': transmission pending; confirm against live US Dollar Strength (DXY), Market Volatility (VIX), yields, and first 5M / 15M close.'];
+  }
+  return paths.slice(0, 3).map((p, idx) => {
+    const affected = Array.isArray(p.affectedSymbols) && p.affectedSymbols.length
+      ? p.affectedSymbols.slice(0, 5).map(symbolDisplay).join(', ')
+      : 'affected markets pending';
+    return '• Market Impact card ' + (idx + 1) + ' — ' + (p.driver || 'Macro driver') + ': ' +
+      (p.mechanism || 'macro repricing') + ' Affected markets: ' + affected + '. ' +
+      'Confirms if ' + (p.whatStrengthensThis || 'lead markets confirm') + '; degrades if ' + (p.whatWeakensThis || 'live drivers fade the first move') + '.';
+  });
+}
+
+function _miAffectedMarketCards(macroPacket, fallbackSymbols) {
+  const expanded = macroPacket && Array.isArray(macroPacket.affectedMarketsExpanded) ? macroPacket.affectedMarketsExpanded : [];
+  if (expanded.length) {
+    return expanded.slice(0, 6).map(m => {
+      const symbol = symbolDisplay(m.symbol || m.instrument || 'Market');
+      const how = m.transmissionMechanism || m.howAffected || 'affected through the primary macro driver';
+      const confirm = m.confirmationCondition || m.confirmation || 'lead-market confirmation required';
+      return '• ' + symbol + ' — ' + how + '; confirmation: ' + confirm + '.';
+    });
+  }
+  return _miAffectedSymbolsFrom(macroPacket, fallbackSymbols).slice(0, 6)
+    .map(s => '• ' + symbolDisplay(s) + ' — mapped from ranked calendar exposure; confirmation required after the release window.');
+}
+
+function _miBriefRows(macroPacket) {
+  const rows = _miRankedEventRows(macroPacket, { limit: 8 });
+  if (!rows.length) return ['• Broader market calendar — Brief Pending'];
+  return rows.map(r => '• ' + (r.timeUTC || 'pending') + ' UTC · ' + (r.currency || 'multi') + ' · ' + humanizeTitle(r.title) + ' — ' + (r.fullBrief || 'Brief Pending'));
+}
+
+function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
+  opts = opts || {};
+  const NOW = now || Date.now();
+  const macroPacket = opts.macroIntelligencePacket || {};
+  const health = (snapshot && snapshot.health) || { available: false };
+  const events = (snapshot && snapshot.events) || [];
+  const next24End = NOW + 24 * 60 * 60 * 1000;
+  const next24Count = events.filter(e => e.scheduled_time > NOW && e.scheduled_time <= next24End).length;
+  const p = macroPacket.primaryEventFocus || {};
+  const r = macroPacket.riskState || {};
+  const affectedSymbols = _miAffectedSymbolsFrom(macroPacket, opts.affectedSymbols || []);
+  const rankedRows = _miRankedEventRows(macroPacket, { now: NOW, limit: 8 });
+  const sourceLine = _miMacroSourceLine(macroPacket, health);
+  const sourceNote = 'Source note: ' + sourceLine + ' · calendar_raw_count=' + (macroPacket.calendarEventsRawCount != null ? macroPacket.calendarEventsRawCount : events.length) +
+    ' · next_24h_count=' + next24Count +
+    ' · next72_count=' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) +
+    ' · clusters=' + (Array.isArray(macroPacket.eventClusters) ? macroPacket.eventClusters.length : 0);
+
+  const msg1 = [
+    '🔥 **THE CALL**',
+    'Primary focus: ' + (p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
+    'Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + (r.whyThisRating || 'risk basis unavailable'),
+    'Current read: MONITORING — calendar risk leads until Jane / structure confirms a tradable path.',
+    'Next confirmation point: ' + (p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
+    '',
+    "**TODAY'S RANKED EVENT CALENDAR**",
+    'TIME | CCY | IMPACT | EVENT | AFFECTED MARKETS | FULL BRIEF',
+    _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 6 }),
+    '',
+    '**KEY RISK WINDOWS**',
+    _miRiskWindows(macroPacket).join('\n'),
+    '',
+    sourceNote,
+  ].join('\n');
+
+  const msg2 = [
+    '**MARKET IMPACT**',
+    _miMarketImpactCards(macroPacket).join('\n'),
+    '',
+    '**AFFECTED MARKETS**',
+    _miAffectedMarketCards(macroPacket, affectedSymbols).join('\n'),
+    '',
+    '**CONFIRMATION / DEGRADATION**',
+    'Confirmation: ' + (p.confidenceBasis || 'first 5M / 15M close agrees with the lead market and live macro drivers.'),
+    'Degradation: ' + (macroPacket.degradedReason || 'none from calendar packet') + '. Downgrade if US Dollar Strength (DXY), Market Volatility (VIX), yields, Corey Clone, or Spidey contradict the primary path.',
+    '',
+    sourceNote,
+  ].join('\n');
+
+  const msg3 = [
+    '**FORWARD PLANNING**',
+    'Next 24h: ' + next24Count + ' scheduled event(s). Next 72h: ' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) + ' ranked relevant event(s).',
+    'Primary event: ' + (p.title || 'none') + '. Prepare around named windows; outside them, read live US Dollar Strength (DXY), Market Volatility (VIX), yields, and liquidity.',
+    'Ranked coverage: ' + (rankedRows.length ? rankedRows.map(e => humanizeTitle(e.title)).slice(0, 4).join(' | ') : 'Brief Pending until the next live packet resolves ranked events.'),
+    '',
+    '**FULL BRIEF LINKS / BRIEF PENDING**',
+    _miBriefRows(macroPacket).join('\n'),
+    '',
+    sourceNote,
+  ].join('\n');
+
+  return [msg1, msg2, msg3].map((content, idx) => ({
+    content,
+    index: idx + 1,
+    total: 3,
+    rankedEventCount: rankedRows.length,
+    affectedSymbols,
+    sourceLine,
+  }));
 }
 
 function _spideyStatusLabel(spideyRes) {
@@ -367,7 +521,7 @@ function _buildJaneSynthesis(macroPacket, cloneRes, spideyRes) {
     ].filter(Boolean).join(' | '),
     degradedReason: degraded.length ? degraded.join('; ') : null,
     whatWouldUpgrade: 'Corey Clone usableForDecision=true, Spidey ACTIVE with LTF confirmation, and macro drivers confirming the primary path.',
-    whatWouldDowngrade: 'Stale sources, Corey Clone PARTIAL/BLOCKED, Spidey PARTIAL/BLOCKED, or DXY/VIX/yields contradicting the primary path.',
+    whatWouldDowngrade: 'Stale sources, Corey Clone PARTIAL/BLOCKED, Spidey PARTIAL/BLOCKED, or US Dollar Strength (DXY), Market Volatility (VIX), and yields contradicting the primary path.',
   };
 }
 
@@ -409,7 +563,7 @@ function mechanismTemplate(title) {
   if (/\b(pmi|ism)\b/.test(t))
     return 'Activity surprise repositions growth/rate expectations; sub-50 prints typically pressure the home currency and support defensives.';
   if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
-    return 'Geopolitical shock triggers safe-haven rotation: US Dollar Index (DXY) / CHF / JPY / XAU typically bid; equities and credit typically offered.';
+    return 'Geopolitical shock triggers safe-haven rotation: US Dollar Strength (DXY) / CHF / JPY / XAU typically bid; equities and credit typically offered.';
   return 'Surprise vs forecast repositions short-term rate expectations and risk appetite; direction flows through the home currency and correlated risk assets.';
 }
 
@@ -423,7 +577,7 @@ function buildCoreyView(rawEvent) {
   if (/\b(fed|fomc|ecb|boe|boj|rba|boc|policy decision|press conference|rate decision)\b/.test(t))
     return `This is a central-bank communication event. A hawkish lean supports ${ccy}; a dovish lean pressures ${ccy}. Tone versus current market pricing matters more than the headline decision itself.`;
   if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
-    return `This is a geopolitical shock. Safe-haven rotation is the dominant mechanism: US Dollar Index (DXY) / CHF / JPY / XAU typically bid, equities and credit typically offered.`;
+    return `This is a geopolitical shock. Safe-haven rotation is the dominant mechanism: US Dollar Strength (DXY) / CHF / JPY / XAU typically bid, equities and credit typically offered.`;
   if (/\b(pmi|ism)\b/.test(t))
     return `This is a ${ccy} activity release. Sub-50 typically signals contraction and pressures ${ccy}; above-50 supports ${ccy} and risk indices.`;
   if (/\bretail sales\b/.test(t))
@@ -622,16 +776,16 @@ const BUCKET_ORDER = ['DXY','USD pairs','EUR pairs','GBP pairs','JPY crosses','A
 // User-facing market-intel text must NEVER surface a bare abbreviation
 // (DXY / VIX / US10Y / US2Y) without its expanded name. The rule is:
 // expanded name first, abbreviation in brackets, e.g.
-//     US Dollar Index (DXY)
-//     CBOE Volatility Index (VIX)
+//     US Dollar Strength (DXY)
+//     Market Volatility (VIX)
 //     US 10-Year Treasury Yield (US10Y)
 //     US 2-Year Treasury Yield (US2Y)
 // macroLabel(abbrev) returns the expanded form for any registered key;
 // it returns the input untouched for tickers that are already full
 // instrument names (EURUSD, USDJPY, NAS100, XAUUSD, etc.).
 const MACRO_LABELS = Object.freeze({
-  DXY:   'US Dollar Index (DXY)',
-  VIX:   'CBOE Volatility Index (VIX)',
+  DXY:   'US Dollar Strength (DXY)',
+  VIX:   'Market Volatility (VIX)',
   US10Y: 'US 10-Year Treasury Yield (US10Y)',
   US2Y:  'US 2-Year Treasury Yield (US2Y)',
 });
@@ -721,7 +875,7 @@ function riskScoreEmoji(score) {
 // ── DAY THEME ────────────────────────────────────────────────
 function buildDayTheme(highEvents, driverLabels, primaryAffected) {
   if (!highEvents.length) {
-    return 'No scheduled high-impact catalyst today. The tape is driver-led — direction will be set by the live CBOE Volatility Index (VIX), US Dollar Index (DXY), and yields read rather than the calendar.';
+    return 'No scheduled high-impact catalyst today. The tape is driver-led — direction will be set by the live Market Volatility (VIX), US Dollar Strength (DXY), and yields read rather than the calendar.';
   }
   // Find the dominant currency by frequency
   const ccyCounts = {};
@@ -748,7 +902,7 @@ function mechanismChainFor(rawEvent) {
     ].join(' → ');
   }
   if (c.short === 'inflation') {
-    return `cause: ${ccy} inflation surprise vs forecast → expectation: rate-path repricing in the front end → market reaction: ${ccy} and yields move first → asset impact: US Dollar Index (DXY) direction sets gold and US-index reaction`;
+    return `cause: ${ccy} inflation surprise vs forecast → expectation: rate-path repricing in the front end → market reaction: ${ccy} and yields move first → asset impact: US Dollar Strength (DXY) direction sets gold and US-index reaction`;
   }
   if (c.short === 'labour') {
     return `cause: ${ccy} labour surprise vs forecast → expectation: central-bank reaction-function pricing → market reaction: short-end rates and ${ccy} reposition → asset impact: rate-sensitive assets (gold, indices) follow on first HTF close`;
@@ -766,7 +920,7 @@ function mechanismChainFor(rawEvent) {
     return `cause: activity reading vs 50 expansion line → expectation: growth/rate path repricing → market reaction: ${ccy} responds on directional surprise → asset impact: defensive vs cyclical rotation in equities`;
   }
   if (c.short === 'geopolitical') {
-    return `cause: geopolitical shock event → expectation: safe-haven rotation → market reaction: US Dollar Index (DXY)/CHF/JPY/XAU bid → asset impact: equities and credit offered, vol indices lift`;
+    return `cause: geopolitical shock event → expectation: safe-haven rotation → market reaction: US Dollar Strength (DXY)/CHF/JPY/XAU bid → asset impact: equities and credit offered, vol indices lift`;
   }
   return `cause: surprise vs forecast → expectation: short-term rate-path repricing → market reaction: ${ccy} moves first → asset impact: correlated risk follows on first HTF close`;
 }
@@ -774,7 +928,7 @@ function mechanismChainFor(rawEvent) {
 // ── PER-CURRENCY/ASSET NARRATIVES ────────────────────────────
 const NARRATIVE_TEMPLATES = {
   USD: (drivers) => ({
-    label: 'USD / DXY',
+    label: 'USD / US Dollar Strength (DXY)',
     body: drivers.includes('inflation')
       ? 'Hot CPI lifts USD via rate-path repricing; soft CPI eases it. Watching first close above/below the pre-print VWAP.'
       : drivers.includes('labour')
@@ -793,7 +947,7 @@ const NARRATIVE_TEMPLATES = {
   }),
   JPY: () => ({
     label: 'JPY',
-    body: 'Yen reacts to safe-haven flow and BOJ policy gap vs G10. Watching USDJPY vs DXY for confirmation of risk tone.',
+    body: 'Yen reacts to safe-haven flow and BOJ policy gap vs G10. Watching USDJPY vs US Dollar Strength (DXY) for confirmation of risk tone.',
   }),
   AUD: () => ({
     label: 'AUD / NZD',
@@ -885,7 +1039,7 @@ function buildAtlasResponseWindows(highEvents) {
   if (!highEvents.length) {
     return [
       'No scheduled no-trade windows today.',
-      'Reassessment: read live CBOE Volatility Index (VIX) / US Dollar Index (DXY) / yields; size only with confirmed structure.',
+      'Reassessment: read live Market Volatility (VIX) / US Dollar Strength (DXY) / yields; size only with confirmed structure.',
       'Wait for liquidity sweep + 5m/15m close before treating any directional move as continuation.',
       'Pre-position only with confirmed structure already live; no blind directional bets.',
     ];
@@ -933,7 +1087,7 @@ function coreyWatchingFor(rawEvent) {
   if (/\b(gdp|retail sales|pmi|ism)\b/.test(t))
     return 'whether the surprise reprices the rate path and how risk indices respond on the first close';
   if (/\b(tariff|sanction|geopolit|war|invasion|attack)\b/.test(t))
-    return 'safe-haven rotation depth — US Dollar Index (DXY) / CHF / JPY / XAU bid alongside equity offer';
+    return 'safe-haven rotation depth — US Dollar Strength (DXY) / CHF / JPY / XAU bid alongside equity offer';
   return 'the first higher-timeframe close after the print and whether structure forms either side';
 }
 
@@ -1097,7 +1251,7 @@ function fohWhyThisMatters(rawEvent) {
   if (c.short === 'growth')         return `Growth surprise vs forecast ${forecast} resets terminal-rate expectations and risk appetite; ${ccy} + equity indices respond together.`;
   if (c.short === 'consumer demand')return `Consumer-spending surprise vs forecast ${forecast} reprices growth + rate expectations; ${ccy} + cyclicals follow.`;
   if (c.short === 'activity')       return `Above-50 vs sub-50 is the directional lever for ${ccy}; defensives + cyclicals rotate on the first 1H close.`;
-  if (c.short === 'geopolitical')   return `Geopolitical shock triggers safe-haven rotation — US Dollar Index (DXY) / CHF / JPY / XAU bid, equities + credit offered.`;
+  if (c.short === 'geopolitical')   return `Geopolitical shock triggers safe-haven rotation — US Dollar Strength (DXY) / CHF / JPY / XAU bid, equities + credit offered.`;
   return `Surprise vs forecast ${forecast} reprices short-term rate expectations and ${ccy} pairs.`;
 }
 
@@ -1114,7 +1268,7 @@ function fohBeforeDuringAfter(rawEvent) {
   const during = c && c.short === 'central bank'
     ? `Hawkish lean supports ${ccy}; dovish lean pressures it. The first 60–90s wick is rarely the move — wait for the next HTF close.`
     : c && c.short === 'geopolitical'
-    ? `Safe-haven flow lifts US Dollar Index (DXY) / CHF / JPY / XAU; equities + credit offered. The first move often overshoots.`
+    ? `Safe-haven flow lifts US Dollar Strength (DXY) / CHF / JPY / XAU; equities + credit offered. The first move often overshoots.`
     : `First reaction may be a liquidity sweep. Above forecast supports ${ccy} / yields; below forecast pressures both.`;
   const after = c && c.short === 'central bank'
     ? `Press-conference colour confirms or cancels the tone read. A [Confirmed candle close] on 15M / 1H in tone direction validates continuation.`
@@ -1132,13 +1286,13 @@ function fohBeforeDuringAfter(rawEvent) {
 function fohWhatConfirms(rawEvent) {
   const c = classifyEventDriver(rawEvent && rawEvent.title);
   if (!c) return 'A [Confirmed candle close] on 5M / 15M in surprise direction validates continuation.';
-  if (c.short === 'inflation')      return 'US Dollar Index (DXY) / yields lead; a [Confirmed candle close] on 5M / 15M in surprise direction validates.';
+  if (c.short === 'inflation')      return 'US Dollar Strength (DXY) / yields lead; a [Confirmed candle close] on 5M / 15M in surprise direction validates.';
   if (c.short === 'labour')         return 'Front-end yields reprice first; a [Confirmed candle close] on 5M / 15M in surprise direction confirms.';
   if (c.short === 'central bank')   return 'Tone-vs-pricing match shows up in cross-pair flow; a [Confirmed candle close] on 15M / 1H in tone direction validates.';
   if (c.short === 'growth')         return 'Risk indices respond on the first higher-timeframe close after the release.';
   if (c.short === 'activity')       return 'Above-50 vs sub-50 confirms the directional lever; the first 1H close decides.';
   if (c.short === 'consumer demand')return 'Consumer-cyclical leadership confirms; first 1H close in surprise direction validates.';
-  if (c.short === 'geopolitical')   return 'Durable safe-haven rotation across US Dollar Index (DXY) / CHF / JPY / XAU — visible on the 1H / 4H, not the headline wick.';
+  if (c.short === 'geopolitical')   return 'Durable safe-haven rotation across US Dollar Strength (DXY) / CHF / JPY / XAU — visible on the 1H / 4H, not the headline wick.';
   return 'A [Confirmed candle close] on 5M / 15M in surprise direction validates continuation.';
 }
 function fohWhatCancels(rawEvent) {
@@ -1215,7 +1369,7 @@ function fohBriefingSummary(eventRisk, driverLabels, headlineTitle) {
     'live-driver session',
     'macro-driver day',
     'flow-led session',
-    'no scheduled catalyst, so DXY/VIX/yields carry the read',
+    'no scheduled catalyst, so US Dollar Strength (DXY), Market Volatility (VIX), and yields carry the read',
   ];
   const driver = driverLabels && driverLabels.length ? driverLabels.join(' + ') : quietPhrases[0];
   const focus = headlineTitle ? ' anchored by ' + humanizeTitle(headlineTitle) : '';
@@ -1408,7 +1562,7 @@ function _miBuildHistoricalRows(history) {
 function _miBuildCrossAsset(buckets) {
   const out = [];
   const fxParts = [];
-  if (buckets['DXY'] && buckets['DXY'].length) fxParts.push('US Dollar Index (DXY)');
+  if (buckets['DXY'] && buckets['DXY'].length) fxParts.push('US Dollar Strength (DXY)');
   if (buckets['USD pairs']) fxParts.push('USD pairs (' + buckets['USD pairs'].slice(0,4).map(symbolDisplay).join(', ') + ')');
   if (buckets['EUR pairs']) fxParts.push('EUR pairs (' + buckets['EUR pairs'].slice(0,3).map(symbolDisplay).join(', ') + ')');
   if (buckets['GBP pairs']) fxParts.push('GBP pairs (' + buckets['GBP pairs'].slice(0,3).map(symbolDisplay).join(', ') + ')');
@@ -1537,7 +1691,7 @@ function _buildDailyBulletinImagePayload(snapshot, geoCtx, now, macroIntelligenc
     mood: { discs, label: moodWord + ' — ' + moodTail, severity: severityMap[moodWord] || 'MED' },
     whyThisMatters: highToday.length
       ? (highToday.length + ' high-impact catalyst' + (highToday.length === 1 ? '' : 's') + ' today. Rate-path repricing + cross-asset flow dominate the session.')
-      : 'Flow-led session — DXY, VIX, and yields set direction. No scheduled high-impact rate-path repricing today.',
+      : 'Flow-led session — US Dollar Strength (DXY), Market Volatility (VIX), and yields set direction. No scheduled high-impact rate-path repricing today.',
     marketImpact: highToday[0]
       ? mechanismChainFor(highToday[0])
       : 'No dominant catalyst — driver-led tape; read cross-asset from the live macro state rather than from the calendar.',
@@ -1829,19 +1983,19 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now, opts) {
   } else if (sortedHigh.length === 1) {
     whatChanged = 'Single high-impact catalyst at ' + fmtAwstShort(sortedHigh[0].scheduled_time) + ' AWST — concentrated 30-minute risk envelope.';
   } else {
-    whatChanged = 'No scheduled high-impact catalysts. This is a macro-driver day — direction set by live US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields.';
+    whatChanged = 'No scheduled high-impact catalysts. This is a macro-driver day — direction set by live US Dollar Strength (DXY), Market Volatility (VIX), and yields.';
   }
 
   // ── WHY THIS MATTERS ──
   // Anchored on the headline; fall back to a driver-led read.
   const whyThisMatters = headline
     ? fohWhyThisMatters(headline)
-    : 'Flow-led session — US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields set direction. No scheduled rate-path repricing today.';
+    : 'Flow-led session — US Dollar Strength (DXY), Market Volatility (VIX), and yields set direction. No scheduled rate-path repricing today.';
 
   // ── WHAT CONFIRMS / WHAT CANCELS (anchored on headline) ──
   const whatConfirms = headline
     ? fohWhatConfirms(headline)
-    : 'A regime change in live drivers — US Dollar Index (DXY) bias flip, CBOE Volatility Index (VIX) move > 2 points, 10y-2y curve cross — confirms direction.';
+    : 'A regime change in live drivers — US Dollar Strength (DXY) bias flip, Market Volatility (VIX) move > 2 points, 10y-2y curve cross — confirms direction.';
   const whatCancels = headline
     ? fohWhatCancels(headline)
     : 'Drivers reverse inside the same session without a higher-timeframe close — the regime-change read is cancelled.';
@@ -1996,8 +2150,13 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now, opts) {
 
   const imagePayload = _buildDailyBulletinImagePayload(snapshot, geoCtx, NOW, macroIntelligencePacket);
   const fohPacket = _miBuildDailyFohPacket(snapshot, geoCtx, NOW, _miInferMiMode(NOW));
+  const dailyRoadmapMessages = buildDailyRoadmapMessages(snapshot, geoCtx, NOW, {
+    macroIntelligencePacket,
+    affectedSymbols: [...affected].slice(0, 16),
+  });
   return {
     content: lines.join('\n'),
+    dailyRoadmapMessages,
     imagePayload,
     fohPacket,
     macroIntelligencePacket,
@@ -2005,6 +2164,8 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now, opts) {
       highImpactTodayCount: highToday.length,
       highInterestTodayCount: highInterestToday.length,
       next24hCount: next24.length,
+      next72hCount: macroIntelligencePacket && Array.isArray(macroIntelligencePacket.next72Hours) ? macroIntelligencePacket.next72Hours.length : 0,
+      rankedEventCount: dailyRoadmapMessages[0] ? dailyRoadmapMessages[0].rankedEventCount : 0,
     },
     nextMajorEvent: next,
     eventRisk,
@@ -2033,7 +2194,7 @@ function inferGeopoliticalContext(coreyLiveCtx) {
   const reasons = [];
   if (/^(High|Elevated|Extreme)$/i.test(vixLevel)) {
     level = GEO_RISK.MODERATE;
-    reasons.push(`VIX ${vixLevel}`);
+    reasons.push(`Market Volatility (VIX) ${vixLevel}`);
   }
   if (/^(High|Extreme)$/i.test(vixLevel) && /Inverted|Stress/i.test(yieldRegime)) {
     level = GEO_RISK.HIGH;
@@ -2041,7 +2202,7 @@ function inferGeopoliticalContext(coreyLiveCtx) {
   }
   if (/Bullish/i.test(dxyBias) && /^(High|Elevated|Extreme)$/i.test(vixLevel)) {
     if (level !== GEO_RISK.HIGH) level = GEO_RISK.MODERATE;
-    reasons.push('safe-haven DXY bid alongside elevated VIX');
+    reasons.push('safe-haven US Dollar Strength (DXY) bid alongside elevated Market Volatility (VIX)');
   }
   return {
     level,
@@ -2058,8 +2219,8 @@ function buildGeopoliticalStatusPayload(geoCtx) {
     `**Breaking headline feed:** ${(geoCtx && geoCtx.breakingNewsStatus) || 'unavailable'}\n` +
     `Geopolitical risk inferred from market drivers only — no live headline monitoring is connected to ATLAS.\n\n` +
     `**Inferred drivers:**\n` +
-    `• VIX level: ${drivers.vixLevel || 'unavailable'}\n` +
-    `• DXY bias: ${drivers.dxyBias || 'unavailable'}\n` +
+    `• Market Volatility (VIX) level: ${drivers.vixLevel || 'unavailable'}\n` +
+    `• US Dollar Strength (DXY) bias: ${drivers.dxyBias || 'unavailable'}\n` +
     `• Yield regime: ${drivers.yieldRegime || 'unavailable'}\n\n` +
     `**Inferred risk level:** ${(geoCtx && geoCtx.level) || GEO_RISK.LOW}\n` +
     `**Reasoning:** ${(geoCtx && geoCtx.summary) || 'unavailable'}\n\n` +
@@ -2334,6 +2495,10 @@ async function dispatch(messageType, payloadObj, extra) {
   if (extra.high_impact_today != null) log(`[COREY-MARKET-INTEL] high_impact_today=${extra.high_impact_today}`);
   if (extra.next_major_event)          log(`[COREY-MARKET-INTEL] next_major_event=${extra.next_major_event}`);
   if (extra.next_24h_count != null)    log(`[COREY-MARKET-INTEL] next_24h_count=${extra.next_24h_count}`);
+  if (extra.next72_count != null)      log(`[COREY-MARKET-INTEL] next72_count=${extra.next72_count}`);
+  if (extra.ranked_event_count != null) log(`[COREY-MARKET-INTEL] ranked_event_count=${extra.ranked_event_count}`);
+  if (extra.daily_roadmap_renderer)    log(`[COREY-MARKET-INTEL] daily_roadmap_renderer=${extra.daily_roadmap_renderer}`);
+  if (extra.daily_brief_message)       log(`[COREY-MARKET-INTEL] daily_brief_message=${extra.daily_brief_message}`);
   log(`[COREY-MARKET-INTEL] affected_symbols=${affectedLabel}`);
   if (extra.expected_bias)             log(`[COREY-MARKET-INTEL] expected_bias=${extra.expected_bias}`);
   if (extra.confidence)                log(`[COREY-MARKET-INTEL] confidence=${extra.confidence}`);
@@ -2604,15 +2769,25 @@ async function tick(NOW) {
     const cloneRes = await _fetchCoreyClone(featuredForClone, macroIntelligencePacket);
     const spideyRes = await _fetchSpidey(featuredForClone);
     const janeSynthesis = _buildJaneSynthesis(macroIntelligencePacket, cloneRes, spideyRes);
-    await dispatch('daily', { content: bulletin.content, imagePayload: bulletin.imagePayload, fohPacket: bulletin.fohPacket, coreyClone: cloneRes, spidey: spideyRes, macroIntelligencePacket, janeSynthesis }, {
-      event: 'daily_bulletin',
-      affected_symbols: bulletin.affectedSymbols,
-      high_impact_today: bulletin.counts.highImpactTodayCount,
-      next_major_event: macroIntelligencePacket && macroIntelligencePacket.primaryEventFocus ? macroIntelligencePacket.primaryEventFocus.title : (bulletin.nextMajorEvent ? bulletin.nextMajorEvent.title : 'none'),
-      next_24h_count: bulletin.counts.next24hCount,
-      expected_bias: 'mixed_conditional',
-      confidence: CONFIDENCE.MODERATE,
-    });
+    const roadmapMessages = Array.isArray(bulletin.dailyRoadmapMessages) && bulletin.dailyRoadmapMessages.length === 3
+      ? bulletin.dailyRoadmapMessages
+      : buildDailyRoadmapMessages(snapshot, geoCtx, NOW, { macroIntelligencePacket, affectedSymbols: bulletin.affectedSymbols });
+    log(`[COREY-MARKET-INTEL] daily_roadmap_renderer=used model=3_message prototype=false messages=${roadmapMessages.length} high_impact_today=${bulletin.counts.highImpactTodayCount} next_24h_count=${bulletin.counts.next24hCount} next72_count=${bulletin.counts.next72hCount} ranked_event_count=${bulletin.counts.rankedEventCount} source=${roadmapMessages[0] && roadmapMessages[0].sourceLine || 'unknown'}`);
+    for (const msg of roadmapMessages) {
+      await dispatch('daily_brief', { content: msg.content, coreyClone: cloneRes, spidey: spideyRes, macroIntelligencePacket, janeSynthesis }, {
+        event: 'daily_bulletin',
+        affected_symbols: msg.affectedSymbols && msg.affectedSymbols.length ? msg.affectedSymbols : bulletin.affectedSymbols,
+        high_impact_today: bulletin.counts.highImpactTodayCount,
+        next_major_event: macroIntelligencePacket && macroIntelligencePacket.primaryEventFocus ? macroIntelligencePacket.primaryEventFocus.title : (bulletin.nextMajorEvent ? bulletin.nextMajorEvent.title : 'none'),
+        next_24h_count: bulletin.counts.next24hCount,
+        next72_count: bulletin.counts.next72hCount,
+        ranked_event_count: msg.rankedEventCount,
+        daily_roadmap_renderer: 'used',
+        daily_brief_message: msg.index + '/' + msg.total,
+        expected_bias: 'mixed_conditional',
+        confidence: CONFIDENCE.MODERATE,
+      });
+    }
     _lastDailyBulletinUtcDay = todayKey;
   }
 
@@ -2758,6 +2933,7 @@ module.exports = {
   // payload builders
   formatIntelPayload,
   buildDailyBulletinPayload,
+  buildDailyRoadmapMessages,
   buildPreEventAlertPayload,
   buildReleasedEventAlertPayload,
   buildGeopoliticalStatusPayload,

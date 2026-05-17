@@ -82,8 +82,8 @@ const FIXED_BANNED = [
 ];
 
 const ABBREV_RULES = [
-  { abbrev: 'DXY',   expansion: 'US Dollar Index ' },
-  { abbrev: 'VIX',   expansion: 'CBOE Volatility Index ' },
+  { abbrev: 'DXY',   expansion: 'US Dollar Strength ' },
+  { abbrev: 'VIX',   expansion: 'Market Volatility ' },
   { abbrev: 'US10Y', expansion: 'US 10-Year Treasury Yield ' },
   { abbrev: 'US2Y',  expansion: 'US 2-Year Treasury Yield ' },
 ];
