@@ -2,6 +2,21 @@
 
 Last updated: 17 May 2026 AWST
 
+---
+
+## Status legend
+
+Every required item carries one inline marker:
+
+- `[ ]` — pending
+- `[~]` — in-progress
+- `[x]` — done (include the PR # / date in the line, e.g. `(PR #126, 17 May)`)
+- `[!]` — blocked (include the blocker in one line)
+
+**Update rule** — whoever closes work updates this board *in the same PR* that closes it. The board can't drift from reality if status moves with the code.
+
+---
+
 ## Current Production Position
 
 Macro engine production chain is accepted through Cursor PR #126.
@@ -12,15 +27,15 @@ TradingView → Market Intel scheduler → Corey → Corey Clone → Spidey → 
 
 Render live proof confirmed:
 
-- TradingView calendar live
-- normalized events received
-- macro packet built
-- Corey Clone receiving macro packet
-- Corey Clone gating with usableForDecision
-- Spidey running
-- Jane receiving macro / clone / structure
-- FOH rendering
-- Discord / FOH send successful
+- [x] TradingView calendar live
+- [x] normalized events received
+- [x] macro packet built
+- [x] Corey Clone receiving macro packet  (PR #125, 17 May)
+- [x] Corey Clone gating with usableForDecision
+- [x] Spidey running  (PR #125, 17 May — Phase D activation; LTF candles still pending)
+- [x] Jane receiving macro / clone / structure
+- [x] FOH rendering  (PR #119/#120/#122)
+- [x] Discord / FOH send successful  (PR #123 — expanded Discord text body wired)
 
 Codex production macro lane is closed.
 Codex local macro implementation is accepted as local proof only and superseded by Cursor PR #126.
@@ -59,21 +74,21 @@ Cursor owns the live production path.
 
 Required before Sydney open:
 
-- calendar-first Discord Market Intel output
-- working Full Brief hyperlinks per event
-- macro searches operational and accurate
-- no stale prototype CPI / ECB content
-- no dead links
-- Corey / Corey Clone / Spidey / Jane path remains intact
-- Render deploy proof after changes
-- one live Discord test
+- [x] calendar-first Discord Market Intel output  (Cursor PR #126, 17 May)
+- [ ] working Full Brief hyperlinks per event
+- [ ] macro searches operational and accurate
+- [ ] no stale prototype CPI / ECB content
+- [!] no dead links  (depends on Lane 2 glossary readiness)
+- [x] Corey / Corey Clone / Spidey / Jane path remains intact  (PR #125, 17 May)
+- [ ] Render deploy proof after changes
+- [ ] one live Discord test
 
 Acceptance:
 
-- Market Intel calendar appears in Discord
-- every listed event has a working Full Brief link or clear Brief Pending state
-- macro searches return accurate operational results
-- FOH renders validated engine / Jane output only
+- [ ] Market Intel calendar appears in Discord
+- [ ] every listed event has a working Full Brief link or clear Brief Pending state
+- [ ] macro searches return accurate operational results
+- [x] FOH renders validated engine / Jane output only  (PR #122 pre-send validator)
 
 ---
 
@@ -85,12 +100,12 @@ Codex should handle this only in the correct glossary / dashboard repo.
 
 Required:
 
-- A–Z glossary / index usable
-- Market Intel terms link to glossary entries
-- Full Brief terms link to glossary entries
-- glossary reachable from Discord calendar, Full Brief pages, dashboard/report pages
-- no dead glossary hyperlinks
-- missing entries show Glossary Pending or safely omit link
+- [ ] A–Z glossary / index usable
+- [ ] Market Intel terms link to glossary entries
+- [ ] Full Brief terms link to glossary entries
+- [ ] glossary reachable from Discord calendar, Full Brief pages, dashboard/report pages
+- [ ] no dead glossary hyperlinks
+- [ ] missing entries show Glossary Pending or safely omit link
 
 Required glossary terms include:
 
@@ -134,14 +149,14 @@ Claude owns content/design refinement only.
 
 Claude should produce or refine:
 
-- event explanation
-- Market Impact
-- reaction paths
-- affected markets
-- risk windows
-- terminology explanations
-- capital/risk examples
-- forward planning
+- [ ] event explanation
+- [ ] Market Impact
+- [ ] reaction paths
+- [ ] affected markets
+- [ ] risk windows
+- [ ] terminology explanations
+- [ ] capital/risk examples
+- [ ] forward planning
 
 Claude does not own live wiring unless explicitly working inside the production repo.
 
@@ -151,13 +166,13 @@ Claude does not own live wiring unless explicitly working inside the production 
 
 Before Sydney open:
 
-- macro search operational
-- Market Intel calendar operational
-- Full Brief hyperlinks working or Brief Pending
-- glossary/index links usable
-- Corey / Corey Clone / Spidey / Jane path intact
-- Render live proof captured
-- Discord output tested live
+- [ ] macro search operational
+- [ ] Market Intel calendar operational
+- [ ] Full Brief hyperlinks working or Brief Pending
+- [ ] glossary/index links usable
+- [x] Corey / Corey Clone / Spidey / Jane path intact  (PR #125, 17 May)
+- [ ] Render live proof captured
+- [ ] Discord output tested live
 
 No further design drift until this is operational.
 
@@ -169,3 +184,19 @@ No further design drift until this is operational.
 - Do not let Codex continue macro production work from the wrong repo.
 - Do not post long-form Market Intel briefings directly into Discord by default.
 - Do not replace the approved calendar-first design without Nathan's approval.
+
+---
+
+## Recently Completed
+
+Short log of finished work so historical context isn't lost when items move from `[ ]` to `[x]` above. Most recent first.
+
+- **17 May 2026** — Wire AI agents to check Active Work Board at session start (PR #128) — CLAUDE.md + AGENTS.md READ FIRST blocks.
+- **17 May 2026** — Add README + ATLAS Active Work Board (PR #127) — work board introduced at repo root.
+- **17 May 2026** — Spidey Phase D activation + Corey Clone wired into MI scheduler (PR #125) — structure engine live (HTF daily candles; LTF pending); Jane structureConfidence gate active; Corey Clone runs per MI tick.
+- **17 May 2026** — Wire live MI + DH dispatch through fixed-contract FOH pipeline (PR #123) — closed 1714-char thin-wrapper regression; expanded Discord text body live.
+- **17 May 2026** — FOH master order: full-day coverage + contract assurance + engine validators (PR #122) — 6 new packet fields, pre-send validator, engine consensus checker.
+- **17 May 2026** — FOH operationally-anchored directional doctrine (PR #121) — 6-element instructions across the pipeline.
+- **17 May 2026** — FOH fixed-contract pipeline + scrub all Notion URLs (PR #120) — Notion exposure removed user-side; fixed-contract chain landed.
+- **16 May 2026** — FOH end-to-end prototype parity Phase 1+2+3 (PR #119) — prototype shell loader + adapters + multi-card split.
+- **Macro chain accepted** — Cursor PR #126 (production macro chain end-to-end through Corey / Corey Clone / Spidey / Jane / FOH / Discord).
