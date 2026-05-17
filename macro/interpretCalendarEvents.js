@@ -682,5 +682,6 @@ module.exports = {
     clusterEvents,
     riskStateFrom,
     buildAffectedMarketsExpanded,
+    buildTransmissionMap,
   },
 };
