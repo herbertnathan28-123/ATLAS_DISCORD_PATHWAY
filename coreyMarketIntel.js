@@ -231,6 +231,85 @@ function _applyMacroPacketToImagePayload(base, macroPacket) {
   return base;
 }
 
+function _miSafeBriefStatus(e) {
+  const raw = e && (e.fullBriefUrl || e.briefUrl || e.fullBrief || e.brief);
+  if (typeof raw !== 'string' || !raw.trim()) return 'Brief Pending';
+  const v = raw.trim();
+  if (/notion\.(so|com|site)/i.test(v)) return 'Brief Pending';
+  if (/^\/market-intel\/brief\/[A-Za-z0-9._~/-]+$/.test(v)) return v;
+  if (/^https?:\/\/[A-Za-z0-9.-]+\/market-intel\/brief\/[A-Za-z0-9._~/?=&%-]+$/i.test(v)) return v;
+  return 'Brief Pending';
+}
+
+function _miShort(text, max) {
+  const s = String(text || '').replace(/\s+/g, ' ').trim();
+  if (s.length <= max) return s;
+  return s.slice(0, Math.max(0, max - 1)).trimEnd() + '…';
+}
+
+function _miMacroSourceLine(macroPacket, health) {
+  const cal = macroPacket && macroPacket.dataFreshness && macroPacket.dataFreshness.calendar || {};
+  const sourceRaw = cal.source || (health && health.source_used) || 'calendar_unknown';
+  const source = /tradingview/i.test(sourceRaw) ? 'TradingView' : sourceRaw;
+  const mode = cal.mode || (health && health.calendar_mode) || 'UNAVAILABLE';
+  const degraded = macroPacket && macroPacket.degradedReason ? ' · degradation=' + macroPacket.degradedReason : '';
+  return source + ' ' + mode + degraded;
+}
+
+function _miRankedEventRows(macroPacket) {
+  const rows = [];
+  const seen = new Set();
+  function add(e, fallback) {
+    e = e || {};
+    fallback = fallback || {};
+    const title = e.title || fallback.title || 'Unnamed event';
+    const key = [e.timeUTC || e.scheduledTimeUTC || 'pending', e.currency || fallback.currency || 'multi', title].join('|').toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    const markets = Array.isArray(e.affectedMarkets) ? e.affectedMarkets
+      : Array.isArray(e.affectedInstruments) ? e.affectedInstruments
+      : Array.isArray(fallback.affectedMarkets) ? fallback.affectedMarkets
+      : [];
+    rows.push({
+      timeUTC: e.timeUTC || e.scheduledTimeUTC || fallback.timeUTC || 'pending',
+      currency: e.currency || fallback.currency || 'multi',
+      impact: String(e.impact || e.expectedImpact || e.severity || fallback.expectedImpact || fallback.severity || 'MED').toUpperCase(),
+      title,
+      affectedMarkets: markets,
+      fullBrief: _miSafeBriefStatus(e),
+      score: Number.isFinite(e.importanceScore) ? e.importanceScore : Number.isFinite(e.score) ? e.score : 0,
+    });
+  }
+  if (macroPacket && Array.isArray(macroPacket.next72Hours)) macroPacket.next72Hours.forEach(e => add(e, macroPacket.primaryEventFocus));
+  if (macroPacket && Array.isArray(macroPacket.todayAnnouncements)) macroPacket.todayAnnouncements.forEach(e => add(e, macroPacket.primaryEventFocus));
+  for (const c of (macroPacket && macroPacket.eventClusters || [])) {
+    for (const e of (c.events || [])) add(e, { currency: c.currency, severity: c.clusterImpact, affectedMarkets: c.affectedMarkets });
+  }
+  const p = macroPacket && macroPacket.primaryEventFocus;
+  if (!rows.length && p && p.title && p.title !== 'No major scheduled catalyst') {
+    add({ title: p.title, currency: p.currency, timeUTC: p.timeUTC, expectedImpact: p.expectedImpact, affectedMarkets: p.affectedMarkets }, p);
+  }
+  return rows.sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+}
+
+function _miRankedCalendarBlock(macroPacket) {
+  const rows = _miRankedEventRows(macroPacket);
+  if (!rows.length) return 'No selected-symbol release | multi | LOW | Broader market calendar pending | Affected markets pending | Brief Pending';
+  return rows.map(r => {
+    const markets = r.affectedMarkets && r.affectedMarkets.length
+      ? r.affectedMarkets.slice(0, 4).map(symbolDisplay).join(', ')
+      : 'Affected markets pending';
+    return [
+      _miShort(r.timeUTC || 'pending', 10),
+      _miShort(r.currency || 'multi', 5),
+      _miShort(r.impact || 'MED', 8),
+      _miShort(humanizeTitle(r.title), 30),
+      _miShort(markets, 54),
+      _miShort(r.fullBrief || 'Brief Pending', 24),
+    ].join(' | ');
+  }).join('\n');
+}
+
 function _spideyStatusLabel(spideyRes) {
   const p = spideyRes && (spideyRes.packet || spideyRes);
   const status = p && p.status ? String(p.status).toUpperCase() : 'BLOCKED';
@@ -1786,6 +1865,22 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now, opts) {
 
   const briefingDate = fmtAwstDate(NOW);
   const lines = [];
+
+  if (macroIntelligencePacket) {
+    const p = macroIntelligencePacket.primaryEventFocus || {};
+    const r = macroIntelligencePacket.riskState || {};
+    lines.push('🔥 **THE CALL**');
+    lines.push('Primary focus: ' + (p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''));
+    lines.push('Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + (r.whyThisRating || 'risk basis unavailable'));
+    lines.push('Current read: MONITORING — no confirmed execution read yet; calendar risk leads until structure confirms.');
+    lines.push('Next confirmation point: ' + (p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'));
+    lines.push('Source/degradation: ' + _miMacroSourceLine(macroIntelligencePacket, health));
+    lines.push('');
+    lines.push("**TODAY'S RANKED EVENT CALENDAR**");
+    lines.push('TIME | CCY | IMPACT | EVENT | AFFECTED MARKETS | FULL BRIEF');
+    lines.push(_miRankedCalendarBlock(macroIntelligencePacket));
+    lines.push('');
+  }
 
   // ── BANNER + MARKET MOOD ──
   // The mood disc-scale row encodes risk level + geopolitical

@@ -72,6 +72,31 @@ for (const re of REQUIRED_SECTIONS_IN_DISCORD_TEXT) {
   else fail('MI empty text missing section ' + re.toString());
 }
 
+console.log('\nT4b — MI Discord text populates ranked next-72h calendar when today is empty:');
+const next72MacroPacket = {
+  sourceUsed: ['TradingView calendar', 'corey_live'],
+  dataFreshness: { calendar: { mode: 'LIVE', source: 'TradingView', available: true } },
+  todayAnnouncements: [],
+  next72Hours: [
+    { title: 'GDP Growth Rate QoQ Prel', currency: 'EUR', timeUTC: '08:00', scheduledTimeUTC: '2026-05-18T08:00:00.000Z', severity: 'HIGH', importanceScore: 82, affectedMarkets: ['EURUSD', 'DXY', 'GER40'], expectedSensitivity: 'Growth print sets the next risk window.' },
+    { title: 'FOMC Member Speech', currency: 'USD', timeUTC: '14:00', scheduledTimeUTC: '2026-05-18T14:00:00.000Z', severity: 'ELEV', importanceScore: 68, affectedMarkets: ['DXY', 'EURUSD', 'US500'], expectedSensitivity: 'Fed guidance can shift the rate path.' },
+  ],
+  eventClusters: [],
+  primaryEventFocus: { title: 'GDP Growth Rate QoQ Prel', currency: 'EUR', timeUTC: '08:00', expectedImpact: 'HIGH', affectedMarkets: ['EURUSD', 'DXY', 'GER40'], volatilityWindow: '08:00 UTC release window', whyPrimary: 'Highest ranked next-72h event.' },
+  riskState: { label: 'ACTIVE', scoreOutOf5: 3.1, whyThisRating: 'next72 ranked events available while today is empty' },
+  affectedMarketsExpanded: [{ symbol: 'EURUSD', transmissionMechanism: 'Growth path reprices EUR leg.', strongerThanExpectedPath: 'EUR supported.', weakerThanExpectedPath: 'EUR pressured.', confirmationCondition: 'EURUSD close confirms.', invalidationCondition: 'Close rejects.', keyPriceLevels: 'Pre-event range.', riskNote: 'Confirm with dollar leg.' }],
+  macroTransmissionMap: [{ driver: 'GDP Growth Rate QoQ Prel', mechanism: 'Growth surprise reprices rate-path expectations.', firstOrderEffect: 'EUR rate expectations move first.', secondOrderEffect: 'Dollar pairs and EU indices follow after confirmation.', affectedSymbols: ['EURUSD', 'DXY', 'GER40'], whatStrengthensThis: 'EURUSD and yields confirm.', whatWeakensThis: 'US Dollar Strength fades the move.' }],
+  confidenceBasis: 'ranked 86 calendar rows into 43 next-72h relevant rows; calendar source=TradingView/LIVE',
+};
+const miNext72 = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { severity: 'MED' }, eventClusters: [], macroIntelligencePacket: next72MacroPacket } });
+const miNext72Text = buildDiscordTextSummary(miViewModel.toViewModel(miNext72), { maxDiscordChunkChars: 100000 });
+if (/^🔥 \*\*THE CALL\*\*/.test(miNext72Text)) ok('MI next72 text leads with THE CALL'); else fail('MI next72 text does not lead with THE CALL');
+if (/TODAY'S RANKED EVENT CALENDAR/.test(miNext72Text) && /TIME \| CCY \| IMPACT \| EVENT \| AFFECTED MARKETS \| FULL BRIEF/.test(miNext72Text)) ok('MI next72 text includes ranked calendar table header'); else fail('MI next72 text missing ranked calendar header');
+if (/GDP Growth Rate QoQ Prel/.test(miNext72Text) && /FOMC Member Speech/.test(miNext72Text)) ok('MI next72 text includes next72 events'); else fail('MI next72 text missing next72 event rows');
+if (/Brief Pending/.test(miNext72Text)) ok('MI next72 text shows Brief Pending fallback'); else fail('MI next72 text missing Brief Pending');
+if (/Source: TradingView calendar .* freshness: LIVE/.test(miNext72Text)) ok('MI next72 text shows TradingView LIVE source'); else fail('MI next72 text missing TradingView LIVE source');
+if (/Market impact: GDP Growth Rate QoQ Prel/.test(miNext72Text)) ok('MI next72 text populates Market Impact from macro transmission path'); else fail('MI next72 text missing macro transmission Market Impact');
+
 console.log('\nT5 — DH Discord text carries the same expanded structure:');
 const dh = buildDarkHorsePacket({ ranking: { top10: [{ symbol: 'EURUSD', movePhase: 'early', score: 9, direction: 'Bullish' }], allCount: 33 }, volatility: { level: 'ELEV' } });
 const dhVM = dhViewModel.toViewModel(dh);

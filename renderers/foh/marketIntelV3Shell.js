@@ -58,28 +58,56 @@ function _truncate(s, n) {
 function buildDiscordTextSummary(viewModel, opts) {
   opts = opts || {};
   const maxChars = Number.isFinite(opts.maxDiscordChunkChars) ? opts.maxDiscordChunkChars : RENDER_PARAMETERS.maxDiscordChunkChars;
-  // Priority order — Market Impact + Confirmation/Cancellation +
-  // Source/Provenance must all fit before the Discord 2000-char
-  // cap. Operational/primary/actions detail expands in the PDF
-  // and rendered cards if the Discord summary truncates.
+  // Priority order — the live Discord surface is calendar-first.
+  // THE CALL + ranked event table lead, then Market Impact and
+  // source provenance fit before the Discord cap. Deeper operator
+  // detail expands in the PDF/rendered cards if this summary truncates.
   const lines = [];
+  const isMarketIntelCalendarSurface = !!(viewModel.THE_CALL || viewModel.RANKED_EVENT_CALENDAR);
+  if (isMarketIntelCalendarSurface) {
+    lines.push('🔥 **THE CALL**');
+    lines.push(viewModel.THE_CALL || 'Primary focus: Broader market calendar\nRisk state: UNKNOWN\nCurrent read: MONITORING\nNext confirmation point: next ranked release window');
+    lines.push('');
+    lines.push("**TODAY'S RANKED EVENT CALENDAR**");
+    lines.push('TIME | CCY | IMPACT | EVENT | AFFECTED MARKETS | FULL BRIEF');
+    lines.push(viewModel.RANKED_EVENT_CALENDAR || 'No ranked events available · Brief Pending');
+    lines.push('');
+  }
   lines.push('**' + viewModel.HEADER_TITLE + ' · ' + viewModel.HEADER_SUBTITLE + '**');
   lines.push('Risk State: ' + viewModel.RISK_STATE_DISC_SCALE);
   lines.push('Generated: ' + viewModel.GENERATED_AT_UTC);
   lines.push('');
-  lines.push('__Briefing Summary__');
-  lines.push(viewModel.BRIEFING_SUMMARY);
-  lines.push('');
-  lines.push('__Market Impact__');
-  lines.push(viewModel.MARKET_IMPACT);
-  lines.push('');
-  lines.push('__Confirmation / Cancellation__');
-  lines.push('Confirms: ' + viewModel.CONFIRMS_WHEN);
-  lines.push('Cancels: ' + viewModel.CANCELS_WHEN);
-  lines.push('');
-  lines.push('__Source / Provenance__');
-  lines.push(viewModel.SOURCE_PROVENANCE);
-  lines.push('');
+  if (isMarketIntelCalendarSurface) {
+    lines.push('__Market Impact__');
+    lines.push(viewModel.MARKET_IMPACT);
+    lines.push('');
+    lines.push('__Confirmation / Cancellation__');
+    lines.push('Confirms: ' + viewModel.CONFIRMS_WHEN);
+    lines.push('Cancels: ' + viewModel.CANCELS_WHEN);
+    lines.push('');
+    lines.push('__Source / Provenance__');
+    lines.push(viewModel.SOURCE_PROVENANCE);
+    lines.push('');
+    lines.push('__Briefing Summary__');
+    lines.push(viewModel.BRIEFING_SUMMARY);
+    lines.push('');
+  } else {
+    lines.push('__Briefing Summary__');
+    lines.push(viewModel.BRIEFING_SUMMARY);
+    lines.push('');
+    lines.push('__Market Impact__');
+    lines.push(viewModel.MARKET_IMPACT);
+    lines.push('');
+  }
+  if (!isMarketIntelCalendarSurface) {
+    lines.push('__Confirmation / Cancellation__');
+    lines.push('Confirms: ' + viewModel.CONFIRMS_WHEN);
+    lines.push('Cancels: ' + viewModel.CANCELS_WHEN);
+    lines.push('');
+    lines.push('__Source / Provenance__');
+    lines.push(viewModel.SOURCE_PROVENANCE);
+    lines.push('');
+  }
   lines.push('__Structure (Spidey Phase D)__');
   lines.push(viewModel.STRUCTURE_SNAPSHOT || '—');
   lines.push('');
