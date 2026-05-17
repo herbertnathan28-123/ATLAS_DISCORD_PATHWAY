@@ -45,12 +45,14 @@ function mustContain(content, label) {
     assert(result.proofLogs.some(l => /^\[MACRO-SEARCH\] resolved_type=/.test(l)), query + ' proof log includes resolved type');
     assert(result.proofLogs.some(l => /^\[COREY\] status=/.test(l)), query + ' proof log includes Corey status');
     assert(result.proofLogs.some(l => /^\[COREY-CLONE\] status=.* usableForDecision=(true|false)$/.test(l)), query + ' proof log includes Corey Clone usability');
-    assert(result.proofLogs.some(l => /^\[JANE\] final_state=/.test(l)), query + ' proof log includes Jane final state');
+    assert(result.proofLogs.some(l => /^\[JANE\] final_state=MONITORING$/.test(l)), query + ' proof log includes Jane MONITORING final state');
     assert(result.proofLogs.some(l => /^\[FOH\] rendered=true$/.test(l)), query + ' proof log includes FOH rendered=true');
-    mustContain(result.content, '**Current macro read**');
+    assert(result.content.startsWith('🔥 **THE CALL**'), query + ' response starts with THE CALL');
+    mustContain(result.content, 'Current read: MONITORING — no confirmed execution read yet.');
+    mustContain(result.content, '**RISK STATE**');
     mustContain(result.content, '**Affected instruments**');
     mustContain(result.content, '**Key events driving the read**');
-    mustContain(result.content, '**Risk state**');
+    mustContain(result.content, '**MARKET IMPACT**');
     mustContain(result.content, '**What strengthens the read**');
     mustContain(result.content, '**What weakens the read**');
     mustContain(result.content, '**Blocked / degraded**');
@@ -59,6 +61,8 @@ function mustContain(content, label) {
     for (const re of STALE_PATTERNS) {
       assert(!re.test(result.content), query + ' did not leak stale/prototype pattern ' + re);
     }
+    assert(!/(^|\n)\s*[-•]?\s*(DXY|VIX)\b/.test(result.content), query + ' does not lead user-facing lines with raw DXY/VIX');
+    assert(!/\b(?:authorised|entry authorised|trade confirmed|trade permitted)\b/i.test(result.content), query + ' has no execution-authority wording');
     console.log('[MACRO-SEARCH-QA] ok resolved=' + result.resolution.resolved_type + ':' + result.resolution.resolved_target + ' final=' + (result.jane && (result.jane.actionState || result.jane.tradeViability)) + ' degraded=' + result.degradationReason);
   }
 

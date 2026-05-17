@@ -159,8 +159,8 @@ Required before Sydney open:
 
 - [x] calendar-first Discord Market Intel output  (Cursor PR #126, 17 May)
 - [ ] working Full Brief hyperlinks per event
-- [ ] macro searches operational and accurate
-- [ ] no stale prototype CPI / ECB content
+- [x] macro searches operational and accurate  (Cursor PR #132, 17 May — required query set passes live TradingView calendar)
+- [x] no stale prototype CPI / ECB content in macro search output  (Cursor PR #132, 17 May)
 - [!] no dead links  (depends on Lane 2 glossary readiness)
 - [x] Corey / Corey Clone / Spidey / Jane path remains intact  (PR #125, 17 May)
 - [ ] Render deploy proof after changes
@@ -170,7 +170,7 @@ Acceptance:
 
 - [ ] Market Intel calendar appears in Discord
 - [ ] every listed event has a working Full Brief link or clear Brief Pending state
-- [ ] macro searches return accurate operational results
+- [x] macro searches return accurate operational results  (Cursor PR #132, 17 May)
 - [x] FOH renders validated engine / Jane output only  (PR #122 pre-send validator)
 
 ---
@@ -249,9 +249,9 @@ Claude does not own live wiring unless explicitly working inside the production 
 
 Before Sydney open:
 
-- [ ] macro search operational
+- [x] macro search operational  (Cursor PR #132, 17 May)
 - [ ] Market Intel calendar operational
-- [ ] Full Brief hyperlinks working or Brief Pending
+- [~] Full Brief hyperlinks working or Brief Pending  (PR #132 macro search shows Brief Pending; Market Intel event routes still pending)
 - [ ] glossary/index links usable
 - [x] Corey / Corey Clone / Spidey / Jane path intact  (PR #125, 17 May)
 - [ ] Render live proof captured
@@ -274,6 +274,7 @@ No further design drift until this is operational.
 
 Short log of finished work so historical context isn't lost when items move from `[ ]` to `[x]` above. Most recent first.
 
+- **17 May 2026** — Macro search output tightened for Sydney open blocker (PR #132) — THE CALL leads; MONITORING wording; live event resolver; US Dollar Strength (DXY) / Market Volatility (VIX) user-facing terminology; Brief Pending fallback.
 - **17 May 2026** — Wire AI agents to check Active Work Board at session start (PR #128) — CLAUDE.md + AGENTS.md READ FIRST blocks.
 - **17 May 2026** — Add README + ATLAS Active Work Board (PR #127) — work board introduced at repo root.
 - **17 May 2026** — Spidey Phase D activation + Corey Clone wired into MI scheduler (PR #125) — structure engine live (HTF daily candles; LTF pending); Jane structureConfidence gate active; Corey Clone runs per MI tick.
