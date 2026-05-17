@@ -4,6 +4,24 @@
 
 ---
 
+## ⚠️ READ FIRST — Active Work Board
+
+Before doing any ATLAS FX work, read:
+
+[`docs/ATLAS_ACTIVE_WORK_BOARD.md`](docs/ATLAS_ACTIVE_WORK_BOARD.md)
+
+This file is the current operational source of truth for:
+- active lanes
+- agent ownership
+- production status
+- non-negotiable targets
+- acceptance criteria
+- deferred / do-not-touch areas
+
+Do not start new ATLAS FX work from memory or chat history alone. Check the work board first.
+
+---
+
 ## Identity
 - Repo: `herbertnathan28-123/ATLAS_DISCORD_PATHWAY` (branch: `main`)
 - Runtime: Node.js, Render Standard plan, Singapore region
