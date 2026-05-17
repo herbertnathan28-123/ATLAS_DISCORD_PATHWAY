@@ -2038,6 +2038,7 @@ async function dispatch(messageType, payloadObj, extra) {
         engine: engineInput,
         legacyPacket,
         coreyClone: payloadObj.coreyClone || null,
+        spidey: payloadObj.spidey || null,
         webhookUrl: _webhookUrl,
         opts: {},
       });
@@ -2130,6 +2131,49 @@ function _leadSymbolForCcy(ccy) {
   }
 }
 
+// Per-tick Spidey fetch. Reads daily candles from the historical
+// cache for the featured event's lead symbol and runs the Phase D
+// structure engine. Returns { packet, leadSymbol } or null on
+// failure. NEVER throws.
+let _spideyRunFn = null;
+let _historyReaderFn = null;
+function _spideyLazy() {
+  if (_spideyRunFn !== null) return _spideyRunFn;
+  try { _spideyRunFn = require('./spidey').spideyRun || null; }
+  catch (_e) { _spideyRunFn = false; }
+  return _spideyRunFn;
+}
+function _historyReaderLazy() {
+  if (_historyReaderFn !== null) return _historyReaderFn;
+  try { _historyReaderFn = require('./corey_history_reader').readCandles || null; }
+  catch (_e) { _historyReaderFn = false; }
+  return _historyReaderFn;
+}
+
+async function _fetchSpidey(featuredEvent) {
+  const spideyFn = _spideyLazy();
+  if (!spideyFn) { log('[SPIDEY] tick=skipped reason=engine_unavailable'); return null; }
+  const leadSymbol = _leadSymbolForCcy(featuredEvent && featuredEvent.currency);
+  const readerFn = _historyReaderLazy();
+  let candles = null;
+  if (readerFn) {
+    try {
+      const read = readerFn(leadSymbol);
+      if (read && read.ok && Array.isArray(read.rows)) {
+        candles = { htf: { '1D': read.rows.map(r => ({ time: r.open_time_ms, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume })) }, ltf: {} };
+      }
+    } catch (_e) { /* swallow */ }
+  }
+  try {
+    const packet = await spideyFn(leadSymbol, { candles });
+    log(`[SPIDEY] tick=ok symbol=${leadSymbol} status=${packet.status} structureConfidence=${packet.structureConfidence} bias=${packet.structureBias}${packet.degradedReason ? ` degraded=${packet.degradedReason}` : ''}`);
+    return { packet, leadSymbol };
+  } catch (e) {
+    log(`[SPIDEY] tick=fail symbol=${leadSymbol} error=${e.message}`);
+    return null;
+  }
+}
+
 // Per-tick Corey Clone fetch. Returns { packet, validation, leadSymbol }
 // or null when the engine is unavailable. NEVER throws — safe-fail so
 // MI dispatch is not blocked by Corey Clone failure.
@@ -2181,7 +2225,8 @@ async function tick(NOW) {
     const bulletin = buildDailyBulletinPayload(snapshot, geoCtx, NOW);
     const featuredForClone = (bulletin.nextMajorEvent || (events.find(e => deriveRelevance(e) === RELEVANCE.HIGH) || null));
     const cloneRes = await _fetchCoreyClone(featuredForClone);
-    await dispatch('daily', { content: bulletin.content, imagePayload: bulletin.imagePayload, fohPacket: bulletin.fohPacket, coreyClone: cloneRes }, {
+    const spideyRes = await _fetchSpidey(featuredForClone);
+    await dispatch('daily', { content: bulletin.content, imagePayload: bulletin.imagePayload, fohPacket: bulletin.fohPacket, coreyClone: cloneRes, spidey: spideyRes }, {
       event: 'daily_bulletin',
       affected_symbols: bulletin.affectedSymbols,
       high_impact_today: bulletin.counts.highImpactTodayCount,
@@ -2212,7 +2257,8 @@ async function tick(NOW) {
         const payload = buildPreEventAlertPayload(e, win, { health, geoLevel: geoCtx.level });
         const a = analyseEvent(e);
         const cloneRes = await _fetchCoreyClone(e);
-        await dispatch('pre_event', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket, coreyClone: cloneRes }, {
+        const spideyRes = await _fetchSpidey(e);
+        await dispatch('pre_event', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket, coreyClone: cloneRes, spidey: spideyRes }, {
           event: e.title || 'pre_event',
           affected_symbols: a.affected,
           expected_bias: a.bias.label.split(':')[0],
@@ -2237,7 +2283,8 @@ async function tick(NOW) {
     const payload = buildReleasedEventAlertPayload(e, { health, geoLevel: geoCtx.level });
     const a = analyseEvent(e);
     const cloneRes = await _fetchCoreyClone(e);
-    await dispatch('release', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket, coreyClone: cloneRes }, {
+    const spideyRes = await _fetchSpidey(e);
+    await dispatch('release', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket, coreyClone: cloneRes, spidey: spideyRes }, {
       event: e.title || 'release',
       affected_symbols: a.affected,
       expected_bias: a.bias.label.split(':')[0],

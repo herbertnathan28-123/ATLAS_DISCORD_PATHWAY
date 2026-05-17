@@ -45,7 +45,7 @@ const miShell = require('../../renderers/foh/marketIntelV3Shell');
 const { postFohDeliverable, containsPrivateBackendUrl } = require('./_discordPost');
 const { validateFohOutput } = require('../validate/validateFohOutput');
 
-async function sendMarketIntelFoh({ engine, legacyPacket, coreyClone, webhookUrl, opts }) {
+async function sendMarketIntelFoh({ engine, legacyPacket, coreyClone, spidey, webhookUrl, opts }) {
   if (process.env.FOH_IMAGE_RENDER_ENABLED !== 'true') {
     return { ok: false, reason: 'env_flag_disabled' };
   }
@@ -53,14 +53,15 @@ async function sendMarketIntelFoh({ engine, legacyPacket, coreyClone, webhookUrl
     return { ok: false, reason: 'no_webhook_url' };
   }
 
-  // 1. ENGINE → FOH PACKET (Corey Clone packet threaded through so
-  //    the packet's historicalReaction field carries audit-grade
-  //    analogues, and degradation status is surfaced honestly).
+  // 1. ENGINE → FOH PACKET (Corey Clone + Spidey threaded through
+  //    so historicalReaction + structureSnapshot carry live engine
+  //    output, and degradation surfaces honestly).
   let packet;
   try {
     packet = buildMarketIntelPacket({
       engine: engine || legacyPacket || {},
       coreyClone: coreyClone || null,
+      spidey: spidey || null,
       now: opts && opts.now,
     });
   }

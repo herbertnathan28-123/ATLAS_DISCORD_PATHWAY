@@ -74,6 +74,31 @@ async function runJane(input, opts = {}) {
   const cloneActive = ss.coreyClone === 'ACTIVE';
   const macroActive = ss.macro === 'ACTIVE';
 
+  // ── Spidey Phase D structure-confidence gate ──
+  // Operator brief 2026-05-17 (Spidey Phase D Activation Order):
+  // Jane SHALL NOT produce tradeViability=VALID unless Spidey is
+  // ACTIVE AND structureConfidence >= 0.50 AND invalidation logic
+  // is present AND timestamped evidence exists. Honest degradation
+  // (MARGINAL / PARTIAL / CONFLICTED / WAITING_FOR_CONFIRMATION)
+  // when the structure read isn't strong enough.
+  const structureConfidence = (input.spidey && Number.isFinite(input.spidey.structureConfidence)) ? input.spidey.structureConfidence
+                            : (input.spidey && Number.isFinite(input.spidey.score)) ? input.spidey.score : 0;
+  const hasInvalidation = !!(input.spidey && input.spidey.invalidation && input.spidey.invalidation.level != null);
+  const hasTimestampedEvidence = !!(input.spidey && Array.isArray(input.spidey.evidence) && input.spidey.evidence.length);
+  let spideyGateBlocked = false;
+  let spideyGateReason = null;
+  if (!testMode) {
+    if (!spideyActive) { spideyGateBlocked = true; spideyGateReason = 'spidey_not_active'; }
+    else if (structureConfidence < 0.50) { spideyGateBlocked = true; spideyGateReason = 'structure_confidence_below_threshold'; }
+    else if (!hasInvalidation) { spideyGateBlocked = true; spideyGateReason = 'no_invalidation_logic'; }
+    else if (!hasTimestampedEvidence) { spideyGateBlocked = true; spideyGateReason = 'no_timestamped_evidence'; }
+  }
+  try {
+    if (input.spidey && input.spidey.status !== undefined && process.env.SPIDEY_QUIET !== '1') {
+      console.log('[JANE] SPIDEY_PACKET_ACCEPTED status=' + input.spidey.status + ' structureConfidence=' + structureConfidence + ' hasInvalidation=' + hasInvalidation + ' bias=' + (input.spidey.structureBias || 'NEUTRAL'));
+    }
+  } catch (_e) { /* swallow */ }
+
   // Score / confidence aggregation (Phase B: per-lane mean of populated lanes)
   const scoreInputs = [], confInputs = [];
   if (spideyActive && input.spidey && typeof input.spidey.score === 'number') { scoreInputs.push(input.spidey.score); confInputs.push(input.spidey.confidence != null ? input.spidey.confidence : 0); }
@@ -84,11 +109,14 @@ async function runJane(input, opts = {}) {
   const setupQuality = scoreInputs.length ? scoreInputs.reduce((a, b) => a + b, 0) / scoreInputs.length : 0;
   const marketConfidence = confInputs.length ? confInputs.reduce((a, b) => a + b, 0) / confInputs.length : 0;
 
-  // Viability gating (Phase B)
+  // Viability gating (Phase B + Spidey Phase D gate)
   let tradeViability;
-  if (!spideyActive) {
-    tradeViability = 'INVALID';   // Spidey is structure authority — without it, no trade
-  } else if (marketConfidence >= 0.65 && setupQuality >= 0.55 && spideyActive && coreyActive) {
+  if (spideyGateBlocked) {
+    tradeViability = (spideyGateReason === 'spidey_not_active') ? 'INVALID'
+                   : (spideyGateReason === 'structure_confidence_below_threshold' && structureConfidence >= 0.30) ? 'WAITING_FOR_CONFIRMATION'
+                   : (spideyGateReason === 'no_invalidation_logic' || spideyGateReason === 'no_timestamped_evidence') ? 'PARTIAL'
+                   : 'INVALID';
+  } else if (marketConfidence >= 0.65 && setupQuality >= 0.55 && coreyActive) {
     tradeViability = 'VALID';
   } else if (marketConfidence >= 0.4) {
     tradeViability = 'MARGINAL';
@@ -100,6 +128,11 @@ async function runJane(input, opts = {}) {
   if (!cloneActive && tradeViability === 'VALID') {
     tradeViability = 'MARGINAL';
   }
+  try {
+    if (process.env.SPIDEY_QUIET !== '1') {
+      console.log('[JANE] TRADE_VALIDITY_GATE=' + tradeViability + (spideyGateReason ? ' spideyGateReason=' + spideyGateReason : '') + ' marketConfidence=' + marketConfidence.toFixed(2) + ' setupQuality=' + setupQuality.toFixed(2));
+    }
+  } catch (_e) { /* swallow */ }
 
   // Final bias from Spidey (structure authority owns directional truth)
   let finalBias = 'neutral';
