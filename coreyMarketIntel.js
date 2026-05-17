@@ -1441,6 +1441,9 @@ function _buildDailyBulletinImagePayload(snapshot, geoCtx, now, macroIntelligenc
   // Affected symbols + cross-asset narrative.
   const affected = new Set();
   for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
+  if (macroIntelligencePacket && Array.isArray(macroIntelligencePacket.affectedMarketsExpanded)) {
+    macroIntelligencePacket.affectedMarketsExpanded.forEach(m => { if (m && m.symbol) affected.add(m.symbol); });
+  }
   const buckets = bucketAffected([...affected]);
 
   const payload = {
@@ -1726,6 +1729,9 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now, opts) {
   // Affected symbols across today's high-impact set
   const affected = new Set();
   for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
+  if (macroIntelligencePacket && Array.isArray(macroIntelligencePacket.affectedMarketsExpanded)) {
+    macroIntelligencePacket.affectedMarketsExpanded.forEach(m => { if (m && m.symbol) affected.add(m.symbol); });
+  }
   const buckets = bucketAffected([...affected]);
 
   // Chronological catalysts (high-impact then high-interest)
