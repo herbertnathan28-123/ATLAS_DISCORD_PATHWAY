@@ -604,24 +604,30 @@ function buildMarketIntelPacket(opts) {
   const engine = opts.engine || {};                // upstream MI packet (legacy shape)
   const liveCtx = opts.liveCtx || null;
   const now = opts.now || Date.now();
+  const macroPacket = engine.macroIntelligencePacket || engine.coreyMacro || null;
 
   // Risk state + severity discs.
   const rawMood = engine.mood || engine.marketMood || {};
-  const severity = String(rawMood.severity || engine.severity || 'MED').toUpperCase();
-  const moodLabel = rawMood.label || ({ HIGH: 'High — clustered catalyst exposure', ELEV: 'Elevated — high-impact catalyst window', MED: 'Active — moderate catalyst sensitivity', LOW: 'Calm — driver-led session', STORM: 'Storm — peak event-day reactivity' }[severity] || 'Active');
+  const macroRisk = macroPacket && macroPacket.riskState ? macroPacket.riskState : null;
+  const severity = String(rawMood.severity || engine.severity || (macroRisk && macroRisk.label === 'EXTREME' ? 'EXTREME' : macroRisk && macroRisk.label === 'ELEVATED' ? 'ELEV' : macroRisk && macroRisk.label === 'ACTIVE' ? 'MED' : macroRisk && macroRisk.label === 'QUIET' ? 'LOW' : 'MED')).toUpperCase();
+  const moodLabel = rawMood.label || (macroRisk ? (macroRisk.label + ' — ' + macroRisk.whyThisRating) : ({ HIGH: 'High — clustered catalyst exposure', ELEV: 'Elevated — high-impact catalyst window', MED: 'Active — moderate catalyst sensitivity', LOW: 'Calm — driver-led session', STORM: 'Storm — peak event-day reactivity' }[severity] || 'Active'));
   const severityDiscs = rawMood.discs ? (rawMood.discs + ' ' + (rawMood.label || moodLabel)) : _discScale(severity);
 
   // Featured event.
   const ev = _firstEvent(engine);
-  const eventName = (ev && ev.e && ev.e.title) || (engine.headline && engine.headline.title) || 'no scheduled high-impact catalyst';
-  const eventTimeUTC = (ev && ev.e && ev.e.time) || (engine.headline && engine.headline.time) || _utcStamp(now);
-  const eventCcy = (ev && (ev.e.currency || ev.c.currency)) || (engine.headline && engine.headline.currency) || 'multi';
+  const macroPrimary = macroPacket && macroPacket.primaryEventFocus ? macroPacket.primaryEventFocus : null;
+  const eventName = (macroPrimary && macroPrimary.title) || (ev && ev.e && ev.e.title) || (engine.headline && engine.headline.title) || 'no scheduled high-impact catalyst';
+  const eventTimeUTC = (macroPrimary && macroPrimary.timeUTC) || (ev && ev.e && ev.e.time) || (engine.headline && engine.headline.time) || _utcStamp(now);
+  const eventCcy = (macroPrimary && macroPrimary.currency) || (ev && (ev.e.currency || ev.c.currency)) || (engine.headline && engine.headline.currency) || 'multi';
 
   // Affected markets — combine engine-derived + outcome-stub fallback.
   const fromEngine = Array.isArray(engine.affectedMarkets && engine.affectedMarkets.symbols)
     ? engine.affectedMarkets.symbols
     : Array.isArray(engine.affectedMarkets) ? engine.affectedMarkets : [];
-  const keyMarkets = fromEngine.length ? fromEngine : ['DXY', 'EURUSD', 'XAUUSD', 'US500'];
+  const fromMacro = macroPacket && Array.isArray(macroPacket.affectedMarketsExpanded)
+    ? macroPacket.affectedMarketsExpanded.map(m => m.symbol || m.instrument).filter(Boolean)
+    : [];
+  const keyMarkets = fromMacro.length ? fromMacro : fromEngine.length ? fromEngine : ['DXY', 'EURUSD', 'XAUUSD', 'US500'];
 
   // Build the contract packet.
   const meta = {
@@ -640,16 +646,16 @@ function buildMarketIntelPacket(opts) {
     generatedAtUTC: _utcStamp(now),
   };
   const briefingSummary = {
-    primaryRead:         _safe(engine.briefingSummary, eventName + ' at ' + eventTimeUTC + '. Risk state: ' + moodLabel + '.'),
-    operationalMeaning:  _safe(engine.whyThisMatters, 'Position size at ' + (/HIGH|STORM/.test(severity) ? '50%' : /ELEV/.test(severity) ? '60%' : '80%') + ' of normal risk for the catalyst window; widen exits ~30%; cancel marginal setups.'),
+    primaryRead:         _safe(engine.briefingSummary, macroPacket ? (macroPacket.dominantMacroTheme + ' Primary: ' + eventName + '. Risk state: ' + (macroRisk && macroRisk.label || moodLabel) + '.') : eventName + ' at ' + eventTimeUTC + '. Risk state: ' + moodLabel + '.'),
+    operationalMeaning:  _safe(engine.whyThisMatters, macroPacket ? ((macroRisk && macroRisk.whyThisRating) + ' No execution validity without Jane and structure confirmation.') : 'Position size at ' + (/HIGH|STORM/.test(severity) ? '50%' : /ELEV/.test(severity) ? '60%' : '80%') + ' of normal risk for the catalyst window; widen exits ~30%; cancel marginal setups.'),
     keyMarkets,
     currentRisk:         _safe(engine.currentRisk, severityDiscs + ' — reactivity elevated through the catalyst window; mean-reversion expected thereafter.'),
   };
   const eventDayReference = {
     eventName,
     eventTimeUTC,
-    expectedDuration:    _humanDuration(severity),
-    whatToWatch:         _safe(engine.whatToWatch, 'First 5-min close in the surprise direction; then 15-min close as the real trend signal. Cross-confirm against DXY and the lead pair (' + (keyMarkets[1] || 'EURUSD') + ').'),
+    expectedDuration:    (macroPrimary && macroPrimary.volatilityWindow) || _humanDuration(severity),
+    whatToWatch:         _safe(engine.whatToWatch, macroPrimary ? (macroPrimary.whyPrimary + ' Confirm via: ' + macroPrimary.confidenceBasis) : 'First 5-min close in the surprise direction; then 15-min close as the real trend signal. Cross-confirm against DXY and the lead pair (' + (keyMarkets[1] || 'EURUSD') + ').'),
     chartStudyTimeframe: '1H structure + 5M / 15M execution',
   };
   const fourWayOutcomes = {
@@ -659,7 +665,7 @@ function buildMarketIntelPacket(opts) {
     reversal: _outcomeStub('reversal', eventName, severity),
   };
   const marketImpact = {
-    mechanism:           _safe(engine.marketImpact, 'cause: ' + eventName + ' → expectation: front-end rate-path repricing → market reaction: USD lead, cross-asset cascade through ' + keyMarkets.join(', ')),
+    mechanism:           _safe(engine.marketImpact, macroPacket && macroPacket.macroTransmissionMap && macroPacket.macroTransmissionMap[0] ? (macroPacket.macroTransmissionMap[0].driver + ' -> ' + macroPacket.macroTransmissionMap[0].mechanism + ' -> ' + macroPacket.macroTransmissionMap[0].firstOrderEffect + ' -> ' + macroPacket.macroTransmissionMap[0].secondOrderEffect) : 'cause: ' + eventName + ' → expectation: front-end rate-path repricing → market reaction: USD lead, cross-asset cascade through ' + keyMarkets.join(', ')),
     priceReactionPath:   'Initial impulse (0–60s) → first 5-min close confirms direction → 15-min close gives the real trend → 1H close locks in the bias for the rest of the session.',
     liquidityEffect:     'Spreads widen 2–4× across the announcement candle; market-depth thins through T+5; normalises by T+15.',
     volatilityEffect:    /HIGH|STORM/.test(severity) ? 'ATR doubles on the announcement candle; expect overshoot beyond historical 1-σ' : /ELEV/.test(severity) ? 'ATR ~1.5× on the announcement; 1-σ overshoot likely' : 'ATR moderate expansion; range-bound after the first 15-min close',
@@ -674,14 +680,36 @@ function buildMarketIntelPacket(opts) {
   };
   const provenance = {
     sources:          [(engine.sourceNote && engine.sourceNote.source) || 'TradingView calendar', 'ATLAS macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y)', 'Corey Clone historical analogue check'],
-    dataFreshness:    (engine.sourceNote && engine.sourceNote.mode) || (liveCtx ? 'LIVE' : 'UNAVAILABLE'),
-    confidenceBasis:  (engine.sourceNote && engine.sourceNote.probabilityBasis) || 'engine-derived',
+    dataFreshness:    (macroPacket && macroPacket.dataFreshness) || (engine.sourceNote && engine.sourceNote.mode) || (liveCtx ? 'LIVE' : 'UNAVAILABLE'),
+    confidenceBasis:  (macroPacket && macroPacket.confidenceBasis) || (engine.sourceNote && engine.sourceNote.probabilityBasis) || 'engine-derived',
   };
 
   // CHUNK 3 — full-day Market Intel coverage.
-  const todaysAnnouncements = _todaysAnnouncementsFrom(engine.eventClusters);
+  const todaysAnnouncements = macroPacket && Array.isArray(macroPacket.todayAnnouncements)
+    ? macroPacket.todayAnnouncements.map(e => ({
+        session: e.session,
+        timeUTC: e.timeUTC,
+        currency: e.currency,
+        title: e.title,
+        severity: e.impactScore >= 80 ? 'HIGH' : e.impactScore >= 55 ? 'ELEV' : 'MED',
+        severityDiscs: _discScale(e.impactScore >= 80 ? 'HIGH' : e.impactScore >= 55 ? 'ELEV' : 'MED'),
+        whyItMatters: e.reasonRanked,
+        affectedInstruments: e.affectedMarkets,
+      }))
+    : _todaysAnnouncementsFrom(engine.eventClusters);
   const primaryEvent = ev ? ev.e : null;
-  const primaryEventFocus = {
+  const primaryEventFocus = macroPrimary ? {
+    eventName: macroPrimary.title,
+    eventTimeUTC: macroPrimary.timeUTC || eventTimeUTC,
+    severity: macroPrimary.expectedImpact || severity,
+    severityDiscs,
+    volatilityWindow: macroPrimary.volatilityWindow,
+    affectedSymbols: macroPrimary.affectedMarkets || keyMarkets,
+    keyPriceZones: ['Live Spidey/price-map levels when available', 'pre-event high/low', 'VWAP', 'prior session range'],
+    likelyPaths: [macroPrimary.strongerThanExpectedPath, macroPrimary.weakerThanExpectedPath, macroPrimary.inLinePath, macroPrimary.reversalRisk].filter(Boolean),
+    confirmation: macroPrimary.confidenceBasis || 'DXY/yields/lead pair agreement plus candle close.',
+    cancellation: macroPrimary.reversalRisk || 'Cross-market driver divergence.',
+  } : {
     eventName,
     eventTimeUTC,
     severity,
@@ -704,14 +732,14 @@ function buildMarketIntelPacket(opts) {
     confirmation: 'First 5-min close + DXY / lead pair confirmation in agreement.',
     cancellation: 'First 15-min close fails to follow through; geopolitical override hits the wire.',
   };
-  const next24To72Hours = (opts.upcomingEvents && Array.isArray(opts.upcomingEvents) ? opts.upcomingEvents : []).map(e => ({
-    timeUTC:      e.time || 'pending',
+  const next24To72Hours = (macroPacket && Array.isArray(macroPacket.next72Hours) && macroPacket.next72Hours.length ? macroPacket.next72Hours : (opts.upcomingEvents && Array.isArray(opts.upcomingEvents) ? opts.upcomingEvents : [])).map(e => ({
+    timeUTC:      e.timeUTC || e.time || 'pending',
     currency:     e.currency || 'multi',
     title:        e.title || 'unnamed event',
-    severity:     String(e.severity || 'MED').toUpperCase(),
-    severityDiscs: _discScale(String(e.severity || 'MED').toUpperCase()),
-    expectedSensitivity: e.expectedSensitivity || (String(e.severity || 'MED').toUpperCase() === 'HIGH' ? 'HIGH sensitivity — clustered-catalyst preparation required' : 'MODERATE sensitivity — monitor for cross-asset confirmation'),
-    preparationGuidance: e.preparationGuidance || 'Pre-position size at 60% of normal in the 6 hours leading in; widen exits ~30% inside the announcement candle.',
+    severity:     String(e.severity || (e.impactScore >= 80 ? 'HIGH' : e.impactScore >= 55 ? 'ELEV' : 'MED')).toUpperCase(),
+    severityDiscs: _discScale(String(e.severity || (e.impactScore >= 80 ? 'HIGH' : e.impactScore >= 55 ? 'ELEV' : 'MED')).toUpperCase()),
+    expectedSensitivity: e.expectedSensitivity || e.reasonRanked || (String(e.severity || 'MED').toUpperCase() === 'HIGH' ? 'HIGH sensitivity — clustered-catalyst preparation required' : 'MODERATE sensitivity — monitor for cross-asset confirmation'),
+    preparationGuidance: e.preparationGuidance || 'Monitor DXY/yields/lead pair into the event window; no execution validity without structure confirmation.',
   }));
   // Always carry at least the primary event in the upcoming list if
   // upstream didn't supply one, so the "NEXT 24–72 HOURS" section
@@ -729,7 +757,16 @@ function buildMarketIntelPacket(opts) {
   }
 
   // CHUNK 4 — affected markets expanded.
-  const affectedMarketsExpanded = _affectedMarketsExpandedFrom(keyMarkets);
+  const affectedMarketsExpanded = macroPacket && Array.isArray(macroPacket.affectedMarketsExpanded) && macroPacket.affectedMarketsExpanded.length
+    ? macroPacket.affectedMarketsExpanded.map(m => Object.assign({
+        instrument: m.instrument || m.symbol,
+        howAffected: m.howAffected || m.transmissionMechanism,
+        strongerResult: m.strongerResult || m.strongerThanExpectedPath,
+        weakerResult: m.weakerResult || m.weakerThanExpectedPath,
+        confirmation: m.confirmation || m.confirmationCondition,
+        invalidation: m.invalidation || m.invalidationCondition,
+      }, m))
+    : _affectedMarketsExpandedFrom(keyMarkets);
 
   // CHUNK 5 — price map.
   const priceMap = _priceMapFrom(keyMarkets, eventName);
@@ -737,6 +774,7 @@ function buildMarketIntelPacket(opts) {
   // CHUNK 7 — event-day operational storytelling.
   const operationalNarrative = _operationalNarrativeFrom(severity, eventName, now);
   const historicalAnalogueStatus = _historicalAnalogueStatusFrom(engine);
+  console.log('[FOH] macro_packet_rendered=' + (macroPacket ? 'true' : 'false'));
   console.log(`[FOH] Historical Analogue Status rendered status=${historicalAnalogueStatus.status} usableForDecision=${historicalAnalogueStatus.usableForDecision ? 'true' : 'false'}`);
 
   return {

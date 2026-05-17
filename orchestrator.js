@@ -54,6 +54,7 @@ async function runAnalysis(symbol, options = {}) {
   console.log(`[COREY-CLONE-CHAIN] Corey Clone called symbol=${symbol} input=macroIntelligencePacket`);
   const cloneOut = await safeCall(() => findHistoricalAnalogues(macroIntelligencePacket, opts), 'coreyClone');
   console.log(`[COREY-CLONE-CHAIN] Corey Clone status=${cloneOut?.status || 'BLOCKED'} usableForDecision=${cloneOut?.usableForDecision === true ? 'true' : 'false'} sampleSize=${cloneOut?.sampleSize ?? 0} denominator=${cloneOut?.denominator ?? 0}`);
+  console.log(`[COREY-CLONE] status=${cloneOut?.status || 'BLOCKED'} usableForDecision=${cloneOut?.usableForDecision === true ? 'true' : 'false'}`);
   if (coreyOut && typeof coreyOut === 'object') coreyOut.clone = cloneOut;
 
   const [spideyOut, macroOut, rendererOut] = await Promise.all([
@@ -78,10 +79,17 @@ async function runAnalysis(symbol, options = {}) {
     timestamp,
     spidey: spideyOut,
     corey: coreyOut,
+    coreyMacro: macroIntelligencePacket,
     coreyClone: cloneOut || { status: 'UNAVAILABLE', reason: 'engine returned null', symbol, timestamp },
     macro: macroOut,
     rendererArtefacts: rendererOut,
     sourceStatus,
+    engineStatusSummary: {
+      corey: sourceStatus.corey,
+      coreyClone: sourceStatus.coreyClone,
+      spidey: sourceStatus.spidey,
+      macro: sourceStatus.macro,
+    },
   };
 
   const inputValidation = validatePacket(janeInput, 'JaneInputPacket');
@@ -91,6 +99,10 @@ async function runAnalysis(symbol, options = {}) {
 
   // Jane decides
   const decision = await runJane(janeInput, opts);
+  console.log(`[JANE] macro_packet_received=${!!macroIntelligencePacket}`);
+  console.log(`[JANE] corey_clone_received=${!!cloneOut}`);
+  console.log(`[JANE] spidey_status=${spideyOut ? 'ACTIVE' : 'BLOCKED'}`);
+  console.log(`[JANE] final_state=${decision && (decision.actionState || decision.tradeViability || decision.finalBias) || 'unknown'}`);
   console.log(`[JANE] received_inputs corey=${!!coreyOut} coreyClone=${cloneOut?.status || 'BLOCKED'} coreyCloneUsable=${cloneOut?.usableForDecision === true ? 'true' : 'false'} spidey=${!!spideyOut}`);
   return decision;
 }

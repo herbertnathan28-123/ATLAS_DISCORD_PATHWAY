@@ -128,6 +128,8 @@ async function runJane(input, opts = {}) {
   }
 
   const actionState = tradeViability === 'VALID' ? 'arm' : tradeViability === 'MARGINAL' ? 'wait' : 'stand_down';
+  const cloneUsable = coreyCloneDecisionUsable(input.coreyClone);
+  const macroPacket = input.coreyMacro || input.macroIntelligencePacket || null;
 
   const packet = {
     symbol: input.symbol,
@@ -139,6 +141,22 @@ async function runJane(input, opts = {}) {
     marketConfidence,
     setupQuality,
     reasonSummary: `Phase B foundation decision. Spidey=${ss.spidey}, Corey=${ss.corey}, Clone=${ss.coreyClone}, Macro=${ss.macro}. ${tradeViability}.`,
+    macroAlignment: input.corey && input.spidey && input.corey.score != null && input.spidey.score != null
+      ? (Math.abs(input.corey.score - input.spidey.score) <= 0.25 ? 'aligned' : 'mixed')
+      : (macroPacket ? 'macro packet received; structure comparison limited' : 'macro packet unavailable'),
+    historicalAnalogueAlignment: cloneUsable
+      ? 'decision-grade historical analogue available: sample=' + input.coreyClone.sampleSize + ' denominator=' + input.coreyClone.denominator
+      : 'historical analogue evidence unavailable or not decision-grade; Jane weight 0',
+    historicalAnalogueWeight: cloneUsable ? Math.max(0, Math.min(1, Number(input.coreyClone.confidenceScore) || 0)) : 0,
+    structureAlignment: spideyActive ? 'structure packet active' : 'structure confirmation incomplete; no execution validity',
+    eventRisk: macroPacket && macroPacket.riskState ? macroPacket.riskState.label : (input.corey && input.corey.riskModifiers && input.corey.riskModifiers.length ? 'event risk modifiers present' : 'not isolated'),
+    conflictNotes: coreyCloneTrustReason || detectConflict(input),
+    reasonForDecision: `Jane synthesized Corey macro=${ss.corey}, Corey Clone=${ss.coreyClone}, Spidey=${ss.spidey}. Clone used=${cloneUsable ? 'yes' : 'no'}.`,
+    upgradeCondition: 'Upgrade only if Spidey confirms structure and macro/clone evidence remains aligned.',
+    downgradeCondition: 'Downgrade if structure stays partial, macro drivers diverge, or Corey Clone remains non-decision-grade.',
+    confidenceScore: marketConfidence,
+    confidenceBasis: macroPacket && macroPacket.confidenceBasis ? macroPacket.confidenceBasis : 'lane confidence average; Corey Clone excluded unless usableForDecision=true',
+    degradedReason: (!spideyActive ? 'Spidey structure unavailable or partial.' : (!cloneUsable ? 'Corey Clone not decision-grade.' : null)),
     structureSummary: input.spidey && input.spidey.evidence ? input.spidey.evidence : null,
     macroSummary: input.macro && input.macro.evidence ? input.macro.evidence : null,
     coreyCloneSummary: input.coreyClone && (input.coreyClone.analogues || input.coreyClone.status) ? (input.coreyClone.analogues || input.coreyClone.status) : null,

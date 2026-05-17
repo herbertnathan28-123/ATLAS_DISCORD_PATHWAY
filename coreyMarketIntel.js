@@ -28,6 +28,7 @@
 
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl'); // reuse banned-phrase sanitiser
+const { interpretCalendarEvents } = require('./macro/interpretCalendarEvents');
 console.log('[BOOT] COREY_CLONE_CHAIN: Market Intel dispatcher can attach Corey Clone before FOH output');
 
 // ── ENUMS ────────────────────────────────────────────────────
@@ -1108,6 +1109,34 @@ function _miInferMiMode(nowMs) {
   return 'daily';
 }
 
+function _getLiveCtxSafe() {
+  try { return _coreyLiveModule && _coreyLiveModule.getLiveContext && _coreyLiveModule.getLiveContext(); }
+  catch (_e) { return null; }
+}
+
+function _buildMacroIntelligencePacket(snapshot, now) {
+  const health = (snapshot && snapshot.health) || { available: false, calendar_mode: 'UNAVAILABLE', source_used: 'unavailable' };
+  const events = (snapshot && snapshot.events) || [];
+  const liveCtx = _getLiveCtxSafe();
+  const packet = interpretCalendarEvents({
+    events,
+    liveState: liveCtx,
+    sourceHealth: health,
+    now: now || Date.now(),
+  });
+  const primaryTitle = packet.primaryEventFocus && packet.primaryEventFocus.title ? packet.primaryEventFocus.title : 'none';
+  const affected = (packet.affectedMarketsExpanded || []).map(m => m.symbol || m.instrument).filter(Boolean);
+  log(`[MACRO] calendar_raw_count=${packet.calendarEventsRawCount}`);
+  log(`[MACRO] today_relevant_count=${packet.todayAnnouncements.length}`);
+  log(`[MACRO] next72_count=${packet.next72Hours.length}`);
+  log(`[MACRO] clusters=${packet.eventClusters.length}`);
+  log(`[MACRO] primary_event=${primaryTitle || 'none'}`);
+  log(`[MACRO] risk_state=${packet.riskState.label}`);
+  log(`[MACRO] affected_markets=${affected.length ? affected.join('|') : 'none'}`);
+  log(`[MACRO] transmission_paths=${packet.macroTransmissionMap.length}`);
+  return packet;
+}
+
 // ============================================================
 // IMAGE-PAYLOAD HELPERS (FOH_IMAGE_RENDER_ENABLED wire-in)
 // ============================================================
@@ -1221,7 +1250,7 @@ function _buildMarketIntelImagePayload(rawEvent, a, opts) {
 
 // Build the daily-bulletin image payload from a calendar
 // snapshot + geo context. Currency-grouped event clusters.
-function _buildDailyBulletinImagePayload(snapshot, geoCtx, now) {
+function _buildDailyBulletinImagePayload(snapshot, geoCtx, now, macroPacket) {
   const NOW = now || Date.now();
   const events = (snapshot && snapshot.events) || [];
   const health = (snapshot && snapshot.health) || { calendar_mode: 'UNAVAILABLE', source_used: 'unavailable' };
@@ -1229,32 +1258,41 @@ function _buildDailyBulletinImagePayload(snapshot, geoCtx, now) {
   const dayEnd   = new Date(NOW); dayEnd.setUTCHours(23,59,59,999);
   const today = events.filter(e => e.scheduled_time >= dayStart.getTime() && e.scheduled_time <= dayEnd.getTime());
   const highToday = today.filter(e => deriveRelevance(e) === RELEVANCE.HIGH);
+  const macro = macroPacket || interpretCalendarEvents({ events, sourceHealth: health, liveState: _getLiveCtxSafe(), now: NOW });
   const eventRisk = classifyEventRisk(highToday.length, (geoCtx && geoCtx.level) || GEO_RISK.LOW);
   const geoLevel  = (geoCtx && geoCtx.level) || GEO_RISK.LOW;
-  const moodText  = fohMarketMoodScale(eventRisk, geoLevel);
+  const macroRiskLabel = macro && macro.riskState && macro.riskState.label;
+  const effectiveRisk = macroRiskLabel === 'EXTREME' ? EVENT_RISK.EXTREME
+    : macroRiskLabel === 'ELEVATED' ? EVENT_RISK.HIGH
+    : macroRiskLabel === 'ACTIVE' ? EVENT_RISK.MODERATE
+    : eventRisk;
+  const moodText  = fohMarketMoodScale(effectiveRisk, geoLevel);
   const moodMatch = /^(\S+)\s*·\s*\*\*([A-Z]+)\*\*\s*—\s*(.+)$/.exec(moodText) || [];
   const discs = moodMatch[1] || '⚫⚫⚫⚫⚫';
   const moodWord = moodMatch[2] || 'WATCH';
   const moodTail = moodMatch[3] || '';
   const severityMap = { STORM: 'HIGH', ELEVATED: 'ELEV', CAUTION: 'ELEV', WATCH: 'MED', CALM: 'LOW' };
-  // Group today's high-impact events by currency for the
+  // Group today's macro-ranked events by currency for the
   // event-cluster cards on the weekend / daily surface.
-  const byCcy = new Map();
-  for (const ev of highToday) {
-    const ccy = ev.currency || 'OTHER';
-    if (!byCcy.has(ccy)) byCcy.set(ccy, []);
-    byCcy.get(ccy).push({
-      title: humanizeTitle(ev.title),
-      time:  fmtAwstShort(ev.scheduled_time) + ' AWST',
-      impactSeverity: _miImpactSeverity(ev.impact),
-    });
-  }
-  const eventClusters = [...byCcy.entries()].map(([ccy, evs]) => ({ currency: ccy, events: evs }));
+  const eventClusters = (macro.eventClusters && macro.eventClusters.length)
+    ? macro.eventClusters.map(c => ({
+        currency: c.currency,
+        events: c.events.map(ev => ({
+          title: humanizeTitle(ev.title),
+          time: fmtUtcShort(ev.scheduled_time) + ' UTC',
+          impactSeverity: c.clusterImpact === 'EXTREME' || c.clusterImpact === 'ELEVATED' ? 'HIGH' : 'MEDIUM',
+          severity: c.clusterImpact,
+          whyItMatters: c.whyClusterMatters,
+          affectedInstruments: c.affectedMarkets,
+        })),
+      }))
+    : [];
 
   // Affected symbols + cross-asset narrative.
-  const affected = new Set();
-  for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
+  const affected = new Set((macro.affectedMarketsExpanded || []).map(m => m.symbol || m.instrument).filter(Boolean));
+  if (!affected.size) for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
   const buckets = bucketAffected([...affected]);
+  const primary = macro.primaryEventFocus || {};
 
   return {
     kind: 'daily',
@@ -1265,25 +1303,27 @@ function _buildDailyBulletinImagePayload(snapshot, geoCtx, now) {
       stage:     'DAILY',
       lifecycle: 'NEW WATCH',
     },
-    mood: { discs, label: moodWord + ' — ' + moodTail, severity: severityMap[moodWord] || 'MED' },
-    whyThisMatters: highToday.length
-      ? (highToday.length + ' high-impact catalyst' + (highToday.length === 1 ? '' : 's') + ' today. Rate-path repricing + cross-asset flow dominate the session.')
-      : 'Flow-led session — DXY, VIX, and yields set direction. No scheduled high-impact rate-path repricing today.',
-    marketImpact: highToday[0]
-      ? mechanismChainFor(highToday[0])
+    mood: { discs, label: (macro.riskState && macro.riskState.label ? macro.riskState.label : moodWord) + ' — ' + ((macro.riskState && macro.riskState.whyThisRating) || moodTail), severity: severityMap[moodWord] || 'MED' },
+    whyThisMatters: macro.dominantMacroTheme + ' ' + ((macro.riskState && macro.riskState.whyThisRating) || ''),
+    marketImpact: (macro.macroTransmissionMap && macro.macroTransmissionMap[0])
+      ? [macro.macroTransmissionMap[0].driver, macro.macroTransmissionMap[0].mechanism, macro.macroTransmissionMap[0].firstOrderEffect, macro.macroTransmissionMap[0].secondOrderEffect].join(' -> ')
       : 'No dominant catalyst — driver-led tape; read cross-asset from the live macro state rather than from the calendar.',
     crossAsset: _miBuildCrossAsset(buckets),
     eventClusters,
+    affectedMarkets: { symbols: [...affected] },
+    affectedMarketsExpanded: macro.affectedMarketsExpanded,
+    primaryEventFocus: primary,
+    next24To72Hours: macro.next72Hours,
+    macroTransmissionMap: macro.macroTransmissionMap,
+    macroIntelligencePacket: macro,
     nextWatch: 'Stand down ±15/30M each release; reassess on first close.',
     terminology: ['Dovish', 'Hawkish', 'Yield curve', 'Risk-off', 'Liquidity sweep'],
     sourceNote: {
       source: health.source_used || 'unavailable',
       mode:   health.calendar_mode || 'UNAVAILABLE',
-      probabilityBasis: highToday.length ? fohProbabilityBasis(highToday[0]) : 'insufficient evidence',
+      probabilityBasis: macro.confidenceBasis || (highToday.length ? fohProbabilityBasis(highToday[0]) : 'insufficient evidence'),
     },
-    briefingSummary: highToday.length
-      ? (eventRisk + ' scheduled event risk · ' + highToday.length + ' high-impact catalyst' + (highToday.length === 1 ? '' : 's') + '.')
-      : 'Calm session · no scheduled high-impact catalyst.',
+    briefingSummary: (primary.title || 'Macro read') + ' · ' + macro.dominantMacroTheme + ' Risk state ' + (macro.riskState && macro.riskState.label || 'UNKNOWN') + '.',
   };
 }
 
@@ -1495,6 +1535,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   const NOW = now || Date.now();
   const events = (snapshot && snapshot.events) || [];
   const health = (snapshot && snapshot.health) || { available: false };
+  const macroPacket = _buildMacroIntelligencePacket(snapshot, NOW);
   const dayStart = new Date(NOW); dayStart.setUTCHours(0,0,0,0);
   const dayEnd   = new Date(NOW); dayEnd.setUTCHours(23,59,59,999);
   const next24End = NOW + 24 * 60 * 60 * 1000;
@@ -1502,24 +1543,30 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   const today  = events.filter(e => e.scheduled_time >= dayStart.getTime() && e.scheduled_time <= dayEnd.getTime());
   const next24 = events.filter(e => e.scheduled_time > NOW && e.scheduled_time <= next24End);
 
-  const highToday         = today.filter(e => deriveRelevance(e) === RELEVANCE.HIGH);
+  const highToday         = (macroPacket.todayAnnouncements || []).map(e => e.rawEvent || e);
   const highInterestToday = today.filter(e => isHighInterest(e) && deriveRelevance(e) !== RELEVANCE.HIGH);
 
-  const eventRisk    = classifyEventRisk(highToday.length, (geoCtx && geoCtx.level) || GEO_RISK.LOW);
+  const eventRisk    = macroPacket.riskState && macroPacket.riskState.label === 'EXTREME' ? EVENT_RISK.EXTREME
+    : macroPacket.riskState && macroPacket.riskState.label === 'ELEVATED' ? EVENT_RISK.HIGH
+    : macroPacket.riskState && macroPacket.riskState.label === 'ACTIVE' ? EVENT_RISK.MODERATE
+    : classifyEventRisk(highToday.length, (geoCtx && geoCtx.level) || GEO_RISK.LOW);
   const geoLevel     = (geoCtx && geoCtx.level) || GEO_RISK.LOW;
   const driverLabels = inferDriverLabels(highToday);
-  const next         = nextMajor(today, next24.filter(e => !today.includes(e)), NOW);
-  const riskScore    = riskScoreFromState(eventRisk, geoLevel);
+  const next         = (macroPacket.primaryEventFocus && macroPacket.primaryEventFocus.rawEvent)
+    ? macroPacket.primaryEventFocus.rawEvent
+    : nextMajor(today, next24.filter(e => !today.includes(e)), NOW);
+  const riskScore    = macroPacket.riskState && macroPacket.riskState.scoreOutOf5 ? macroPacket.riskState.scoreOutOf5 : riskScoreFromState(eventRisk, geoLevel);
 
   // Affected symbols across today's high-impact set
   const affected = new Set();
-  for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
+  for (const m of (macroPacket.affectedMarketsExpanded || [])) affected.add(m.symbol || m.instrument);
+  if (!affected.size) for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
   const buckets = bucketAffected([...affected]);
 
   // Chronological catalysts (high-impact then high-interest)
   const sortedHigh         = highToday.slice().sort((a, b) => (a.scheduled_time || 0) - (b.scheduled_time || 0));
   const sortedHighInterest = highInterestToday.slice().sort((a, b) => (a.scheduled_time || 0) - (b.scheduled_time || 0));
-  const headline           = sortedHigh[0] || null;
+  const headline           = (macroPacket.primaryEventFocus && macroPacket.primaryEventFocus.rawEvent) || sortedHigh[0] || null;
 
   // ── WHAT CHANGED ──
   // Lead-line summary of the day's change in event risk:
@@ -1528,18 +1575,17 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   if (sortedHigh.length >= 2) {
     const startT = fmtAwstShort(sortedHigh[0].scheduled_time);
     const endT   = fmtAwstShort(sortedHigh[sortedHigh.length - 1].scheduled_time);
-    whatChanged = sortedHigh.length + ' high-impact catalysts cluster between ' + startT + '–' + endT + ' AWST. Cumulative spike risk; vol carries between releases.';
+    whatChanged = (macroPacket.eventClusters && macroPacket.eventClusters[0] && macroPacket.eventClusters[0].whyClusterMatters)
+      || (sortedHigh.length + ' macro-ranked catalysts cluster between ' + startT + '–' + endT + ' AWST. Cumulative spike risk; vol carries between releases.');
   } else if (sortedHigh.length === 1) {
-    whatChanged = 'Single high-impact catalyst at ' + fmtAwstShort(sortedHigh[0].scheduled_time) + ' AWST — concentrated 30-minute risk envelope.';
+    whatChanged = 'Single macro-ranked catalyst at ' + fmtAwstShort(sortedHigh[0].scheduled_time) + ' AWST — ' + macroPacket.primaryEventFocus.whyPrimary;
   } else {
-    whatChanged = 'No scheduled high-impact catalysts. This is a macro-driver day — direction set by live US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields.';
+    whatChanged = macroPacket.primaryEventFocus.whyPrimary;
   }
 
   // ── WHY THIS MATTERS ──
   // Anchored on the headline; fall back to a driver-led read.
-  const whyThisMatters = headline
-    ? fohWhyThisMatters(headline)
-    : 'Flow-led session — US Dollar Index (DXY), CBOE Volatility Index (VIX), and yields set direction. No scheduled rate-path repricing today.';
+  const whyThisMatters = macroPacket.dominantMacroTheme + ' ' + macroPacket.riskState.whyThisRating;
 
   // ── WHAT CONFIRMS / WHAT CANCELS (anchored on headline) ──
   const whatConfirms = headline
@@ -1560,11 +1606,11 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
     : 'No high-impact event scheduled in the next 48 hours — review on regime change in live drivers.';
 
   // ── SOURCE NOTE ──
-  const probBasis = headline ? fohProbabilityBasis(headline) : 'insufficient evidence';
+  const probBasis = macroPacket.confidenceBasis || (headline ? fohProbabilityBasis(headline) : 'insufficient evidence');
   const sourceNote = fohSourceNote(health, probBasis);
 
   // ── BRIEFING SUMMARY ──
-  const briefingSummary = fohBriefingSummary(eventRisk, driverLabels, headline ? headline.title : null);
+  const briefingSummary = macroPacket.primaryEventFocus.title + ' · ' + macroPacket.dominantMacroTheme + ' Confidence: ' + Math.round(macroPacket.confidenceScore * 100) + '%.';
 
   const briefingDate = fmtAwstDate(NOW);
   const lines = [];
@@ -1667,8 +1713,17 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   lines.push('');
   lines.push(FOH_BIAS_DISCLAIMER);
 
-  const imagePayload = _buildDailyBulletinImagePayload(snapshot, geoCtx, NOW);
+  const imagePayload = _buildDailyBulletinImagePayload(snapshot, geoCtx, NOW, macroPacket);
   const fohPacket = _miBuildDailyFohPacket(snapshot, geoCtx, NOW, _miInferMiMode(NOW));
+  if (imagePayload && fohPacket) {
+    fohPacket.macroIntelligencePacket = macroPacket;
+    fohPacket.coreyMacro = macroPacket;
+    fohPacket.primaryEventFocus = imagePayload.primaryEventFocus;
+    fohPacket.affectedMarketsExpanded = imagePayload.affectedMarketsExpanded;
+    fohPacket.macroTransmissionMap = imagePayload.macroTransmissionMap;
+    fohPacket.next24To72Hours = imagePayload.next24To72Hours;
+    fohPacket.affectedMarkets = imagePayload.affectedMarkets;
+  }
   return {
     content: lines.join('\n'),
     imagePayload,
@@ -1678,11 +1733,12 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
       highInterestTodayCount: highInterestToday.length,
       next24hCount: next24.length,
     },
-    nextMajorEvent: next,
+    nextMajorEvent: next || { title: macroPacket.primaryEventFocus.title, scheduled_time: null, currency: macroPacket.primaryEventFocus.currency },
     eventRisk,
     riskScore,
     driver: driverLabels.join(' + '),
     affectedSymbols: [...affected].slice(0, 16),
+    macroIntelligencePacket: macroPacket,
     calendarMode: health.calendar_mode || 'UNAVAILABLE',
     calendarSource: health.source_used || 'unavailable',
   };
@@ -1995,7 +2051,9 @@ async function _miAttachCoreyClone(payloadObj, extra) {
     const { findHistoricalAnalogues } = require('./coreyClone/findHistoricalAnalogues');
     const ctx = getCoreyMarketIntelContext();
     const symbol = _miPreferredAnalogueSymbol(payloadObj, extra);
-    const macroIntelligencePacket = {
+    const macroIntelligencePacket = (payloadObj.imagePayload && payloadObj.imagePayload.macroIntelligencePacket)
+      || (payloadObj.fohPacket && (payloadObj.fohPacket.macroIntelligencePacket || payloadObj.fohPacket.coreyMacro))
+      || {
       symbol,
       generatedAtUTC: new Date().toISOString(),
       interpretedBy: 'Corey Market Intel',
@@ -2013,9 +2071,11 @@ async function _miAttachCoreyClone(payloadObj, extra) {
       ],
       confidenceBasis: 'Corey Market Intel relevance, mechanism, bias, and confidence interpretation',
     };
+    if (!macroIntelligencePacket.symbol) macroIntelligencePacket.symbol = symbol;
     log(`[COREY-CLONE-CHAIN] macroIntelligencePacket built symbol=${symbol} bias=${macroIntelligencePacket.combinedBias} confidence=${macroIntelligencePacket.confidence}`);
     log(`[COREY-CLONE-CHAIN] Corey Clone called symbol=${symbol} input=macroIntelligencePacket source=market_intel_dispatch`);
     clone = await findHistoricalAnalogues(macroIntelligencePacket, { liveMarketIntel: true });
+    log(`[COREY-CLONE] status=${clone && clone.status || 'BLOCKED'} usableForDecision=${clone && clone.usableForDecision === true ? 'true' : 'false'}`);
   } catch (e) {
     clone = {
       status: 'BLOCKED',

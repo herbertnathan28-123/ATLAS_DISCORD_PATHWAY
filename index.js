@@ -3016,6 +3016,10 @@ function runJaneWithCoreyClone(symbol, spideyHTF, spideyLTF, corey, coreyClone, 
       historicalAnalogue: 'Corey Clone not decision-usable on this run; Jane did not weight historical analogues.',
     });
   }
+  console.log(`[JANE] macro_packet_received=${macroIntelligencePacket ? 'true' : 'false'}`);
+  console.log(`[JANE] corey_clone_received=${coreyClone ? 'true' : 'false'}`);
+  console.log(`[JANE] spidey_status=${!!(spideyHTF && spideyLTF) ? 'ACTIVE' : 'BLOCKED'}`);
+  console.log(`[JANE] final_state=${jane.doNotTrade ? 'MONITORING' : jane.finalBias || 'MONITORING'}`);
   console.log(`[JANE] received_inputs corey=${!!corey} coreyClone=${coreyClone?.status || 'BLOCKED'} coreyCloneUsable=${usable ? 'true' : 'false'} spidey=${!!(spideyHTF && spideyLTF)} historicalWeight=${jane.historicalAnalogueWeight}`);
   return jane;
 }
@@ -3097,6 +3101,7 @@ async function deliverResult(msg, result) {
     console.log(`[COREY-CLONE-CHAIN] Corey Clone called symbol=${symbol} input=macroIntelligencePacket`);
     coreyClone = await findHistoricalAnalogues(macroIntelligencePacket, { liveMacroChain: true });
     console.log(`[COREY-CLONE-CHAIN] Corey Clone status=${coreyClone?.status || 'BLOCKED'} usableForDecision=${coreyClone?.usableForDecision === true ? 'true' : 'false'} sampleSize=${coreyClone?.sampleSize ?? 0} denominator=${coreyClone?.denominator ?? 0}`);
+    console.log(`[COREY-CLONE] status=${coreyClone?.status || 'BLOCKED'} usableForDecision=${coreyClone?.usableForDecision === true ? 'true' : 'false'}`);
     corey.clone = coreyClone;
     [spideyHTF, spideyLTF, dailyCandles] = await Promise.all([
       runSpideyHTF(symbol, HTF_INTERVALS),
