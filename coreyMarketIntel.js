@@ -1172,7 +1172,7 @@ function fohSurpriseLine(rawEvent) {
 //     the structure-vocabulary anchors (Confirmed close /
 //     Structure break) for cross-doctrine continuity.
 function fohGlossaryChip() {
-  return '📘 *Glossary · Dovish · Hawkish · Yield curve · Risk-off · Liquidity sweep*';
+  return '📘 [[Glossary]] · Dovish · Hawkish · Yield curve · Risk-off · Liquidity sweep';
 }
 
 // ── Historical reaction context (operator brief 2026-05-16) ─────
