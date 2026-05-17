@@ -28,6 +28,7 @@ const atlasDoctrineBoot = require('./atlas_doctrine_boot');
 
 const coreyLive = require('./corey_live_data');
 const coreyCalendar = require('./corey_calendar');
+const { findHistoricalAnalogues } = require('./coreyClone/findHistoricalAnalogues');
 coreyLive.init();
 /* [COREY-CALENDAR] A1.1 — explicit calendar registration. coreyLive.init() is
    async and not awaited above; if its pre-calendar steps reject, the chained
@@ -1033,11 +1034,11 @@ function buildMarketOverview(sym, corey) {
 
   const curveAction = (live.yield?.spread || 0) < 0
     ? (isEquity
-        ? 'A negative spread historically precedes slowdowns. For growth equities and semiconductors specifically, valuation pressure rises and risk-asset leadership weakens; trust defensive rotation more than growth continuation.'
-        : 'A negative spread historically precedes slowdowns. Trust recession-sensitive assets (gold, JPY, bonds) more than growth-sensitive ones on conflicting signals.')
+        ? 'A negative spread signals slowdown pressure. For growth equities and semiconductors specifically, valuation pressure rises and risk-asset leadership weakens; trust defensive rotation more than growth continuation.'
+        : 'A negative spread signals slowdown pressure. Trust recession-sensitive assets (gold, JPY, bonds) more than growth-sensitive ones on conflicting signals.')
     : (isEquity
-        ? 'A positive spread historically supports growth equities and risk assets, including semiconductors. Growth-asset continuations get the benefit of the doubt on mixed signals.'
-        : 'A positive spread historically supports growth-sensitive assets. Growth-sensitive crosses and equity indices get the benefit of the doubt on mixed signals.');
+        ? 'A positive spread supports growth equities and risk assets, including semiconductors, when live structure agrees. Growth-asset continuations get the benefit of the doubt on mixed signals.'
+        : 'A positive spread supports growth-sensitive assets when live structure agrees. Growth-sensitive crosses and equity indices get the benefit of the doubt on mixed signals.');
 
   const regimeAction = g.riskEnv === RISK_ENV.RISK_ON
     ? 'Risk-on regimes reward trend trades in growth assets. Full size on macro-aligned setups; fade only with clear structure.'
@@ -1156,7 +1157,7 @@ function buildEventsCatalysts(sym, corey) {
     ``,
     `• **10Y-2Y spread crosses zero**`,
     `  What happens: recession-risk channel flips sides.`,
-    `  Why it matters for ${sym}: ${isEquity ? `for growth equities and semiconductors specifically, an inversion historically precedes valuation compression and weaker risk-asset leadership.` : `this line separates curve-normal from curve-inverted, which historically shifts leadership between growth assets and safe havens.`}`,
+    `  Why it matters for ${sym}: ${isEquity ? `for growth equities and semiconductors specifically, an inversion signals valuation compression risk and weaker risk-asset leadership.` : `this line separates curve-normal from curve-inverted, shifting the live leadership read between growth assets and safe havens.`}`,
     `  Trader action: down-weight growth continuations and up-weight defensive rotation on an inversion cross; reverse on a re-steepening. ⬆️⬇️`,
     ``,
     `• **Credit stress crosses +0.25**`,
@@ -1193,22 +1194,22 @@ function buildHistoricalContext(sym, corey) {
   }[regime] || 'chop until the regime resolves';
 
   const volMeaning = vixLevel === 'High'
-    ? 'when volatility is elevated, index drawdowns tend to continue and the dollar tends to strengthen into the decline'
+    ? 'when volatility is elevated, index drawdown risk and dollar-strength pressure rise'
     : vixLevel === 'Low'
-      ? 'when volatility is compressed, continuation squeezes dominate and low-range mean-reversion attempts fail more often than they work'
+      ? 'when volatility is compressed, continuation squeezes can dominate and low-range mean-reversion needs stricter confirmation'
       : 'when volatility is normal, standard intraday mean-reversion windows apply with ordinary ranges';
 
   const dxyMeaning = g.dxyBias === BIAS.BULLISH
-    ? 'dollar-bullish windows have historically preceded broad commodity pressure, weakness in emerging-market FX and compression in gold'
+    ? 'dollar-bullish windows pressure commodities, emerging-market FX and gold unless Corey Clone supplies a contrary cohort'
     : g.dxyBias === BIAS.BEARISH
-      ? 'dollar-bearish windows have historically preceded commodity rallies, strength in emerging-market FX and expansion in gold'
-      : 'dollar-neutral windows have historically produced range compression across majors, with single-day reversals dominant';
+      ? 'dollar-bearish windows support commodities, emerging-market FX and gold unless Corey Clone supplies a contrary cohort'
+      : 'dollar-neutral windows imply range compression across majors until Corey Clone and live structure prove otherwise';
 
   const paragraphs = [
-    `**REGIME ANALOG — ${regime}**\nWhat is happening: the current regime is classified as ${regime}.\nWhy it matters: historical ${regime} windows have resolved via ${regimeResolution}. The resolution is conditional on the dominant macro channel staying dominant. If that channel rotates mid-window, the analog fails and the regime will be reclassified.\nHow to use this: the analog is a directional guide, not a signal — it only becomes actionable once price structure agrees on the primary timeframe.\nInvalidation of analog: the analog stops applying the moment the dominant channel loses control or any Events & Catalysts threshold crosses. ${g.riskEnv === RISK_ENV.RISK_ON ? '⬆️' : '⬇️'}`,
-    `**VOLATILITY ANALOG — ${vixLevel}**\nWhat is happening: volatility is at ${vixLevel} level.\nWhy it matters: ${volMeaning}. Volatility regimes persist at roughly 70% over five-session windows, which makes this analog the most reliable of the four.\nHow to use this: size positions to the current volatility regime, not the last one. Widen invalidation under high volatility and tighten it under low volatility, without forcing reward-to-risk to look prettier than the structure supports.\nInvalidation of analog: a VIX proxy cross of 20 flips the analog. Re-read this block after any cross. ${vixLevel === 'High' ? '⬇️' : '⬆️'}`,
+    `**REGIME ANALOG — ${regime}**\nWhat is happening: the current regime is classified as ${regime}.\nWhy it matters: regime pressure points toward ${regimeResolution}, but generic historical claims are withheld unless Corey Clone supplies sample size, denominator, timestamp window, source basis, and confidence basis. The resolution is conditional on the dominant macro channel staying dominant. If that channel rotates mid-window, the analog fails and the regime will be reclassified.\nHow to use this: the analog is a directional guide, not a signal — it only becomes actionable once price structure agrees on the primary timeframe.\nInvalidation of analog: the analog stops applying the moment the dominant channel loses control or any Events & Catalysts threshold crosses. ${g.riskEnv === RISK_ENV.RISK_ON ? '⬆️' : '⬇️'}`,
+    `**VOLATILITY ANALOG — ${vixLevel}**\nWhat is happening: volatility is at ${vixLevel} level.\nWhy it matters: ${volMeaning}. No persistence percentage is claimed unless Corey Clone supplies audit-grade evidence.\nHow to use this: size positions to the current volatility regime, not the last one. Widen invalidation under high volatility and tighten it under low volatility, without forcing reward-to-risk to look prettier than the structure supports.\nInvalidation of analog: a VIX proxy cross of 20 flips the analog. Re-read this block after any cross. ${vixLevel === 'High' ? '⬇️' : '⬆️'}`,
     `**DOLLAR ANALOG — ${g.dxyBias}**\nWhat is happening: the dollar bias is ${g.dxyBias} at score ${fmtNum(g.dxyScore, 2)}.\nWhy it matters: ${dxyMeaning}. Dollar analogs are the most binary of the four — the sign matters more than the size inside this regime.\nHow to use this: align non-USD setups with the dollar side. Discount setups that require the dollar to cooperate against its current bias.\nInvalidation of analog: a DXY proxy cross of 100 invalidates the analog and forces a full re-read. ${g.dxyBias === BIAS.BEARISH ? '⬆️' : '⬇️'}`,
-    `**SYMBOL-SPECIFIC ANALOG — ${sym}**\nWhat is happening: ${sym} is inside the current macro window.\nWhy it matters: in prior regimes like this one, ${sym} has delivered directional follow-through when the dominant macro channel stayed uncontested for five or more sessions, and has mean-reverted otherwise.\nHow to use this: check the regime gate daily. If the dominant driver is contested for even a single session, treat follow-through setups with reduced exposure and prefer mean-reversion setups until the gate re-stabilises.\nInvalidation of analog: the moment the dominant driver changes, the analog fails and ${sym} reverts to general-regime behaviour. ${corey.combinedBias === BIAS.BULLISH ? '⬆️' : corey.combinedBias === BIAS.BEARISH ? '⬇️' : '⬆️⬇️'}`
+    `**SYMBOL-SPECIFIC ANALOG — ${sym}**\nWhat is happening: ${sym} is inside the current macro window.\nWhy it matters: symbol-specific historical follow-through is withheld unless Corey Clone supplies an audit-grade cohort for this exact read.\nHow to use this: check the regime gate daily. If the dominant driver is contested for even a single session, treat follow-through setups with reduced exposure and prefer mean-reversion setups until the gate re-stabilises.\nInvalidation of analog: the moment the dominant driver changes, the analog fails and ${sym} reverts to general-regime behaviour. ${corey.combinedBias === BIAS.BULLISH ? '⬆️' : corey.combinedBias === BIAS.BEARISH ? '⬇️' : '⬆️⬇️'}`
   ];
   return [`📚 **HISTORICAL CONTEXT — ${sym}**`, ``, ...paragraphs].join('\n\n');
 }
@@ -1494,6 +1495,7 @@ async function formatMacroV3(sym, corey, spideyHTF, spideyLTF, jane, _candlesByT
     charts:   { htfGridName: sym + '_HTF.png', ltfGridName: sym + '_LTF.png' },
     fmp,
     history,
+    coreyClone: jane?.coreyClone || corey?.clone || null,
     darkHorse: getDHCandidate(sym),
     _stats: {}   // populated by buildMacroV3
   };
@@ -1733,19 +1735,16 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     const spideyLTFok = !!(spideyLTF && (spideyLTF.bias || spideyLTF.score != null || spideyLTF.currentPrice != null));
     const spideyStatus = (spideyHTFok && spideyLTFok) ? 'ok' : (spideyHTFok || spideyLTFok) ? 'partial' : 'unavailable';
 
-    let historicalStatus = 'unavailable';
-    let historicalSampleCount = null;
-    try {
-      const cacheReader = require('./cacheReader');
-      const symU = String(symbol).toUpperCase();
-      if (cacheReader && typeof cacheReader.SYMBOL_GROUP_MAP === 'object' && cacheReader.SYMBOL_GROUP_MAP[symU]) {
-        // Cache is 15Y daily — honest label, not 30Y.
-        historicalStatus = 'partial: historical reference cache';
-      } else {
-        historicalStatus = 'no-match';
-      }
-    } catch (_) { historicalStatus = 'unavailable'; }
-    const coreyCloneStatus = 'not active in this release';
+    const clonePacket = jane?.coreyClone || corey?.clone || null;
+    const cloneStatusRaw = clonePacket && clonePacket.status ? String(clonePacket.status).toUpperCase() : 'BLOCKED';
+    const coreyCloneStatus = cloneStatusRaw === 'OK'
+      ? 'ok'
+      : cloneStatusRaw === 'PARTIAL'
+        ? 'partial'
+        : 'blocked';
+    const historicalStatus = clonePacket
+      ? `${coreyCloneStatus}: sample=${Number.isFinite(clonePacket.sampleSize) ? clonePacket.sampleSize : 0} denominator=${Number.isFinite(clonePacket.denominator) ? clonePacket.denominator : 0}`
+      : 'blocked: no Corey Clone packet';
 
     // Jane-status semantics — REAL engine state, never 'final' if the
     // underlying source chain is too thin to issue a real decision.
@@ -1772,8 +1771,8 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     const sourceMissingEarly = {
       missingCorey:      !(coreyStatus === 'ok' || coreyStatus === 'partial'),
       missingSpidey:     spideyStatus === 'unavailable',
-      missingHistorical: historicalStatus === 'unavailable' || historicalStatus === 'no-match',
-      missingCoreyClone: true
+      missingHistorical: !clonePacket || clonePacket.usableForDecision !== true,
+      missingCoreyClone: !(clonePacket && clonePacket.usableForDecision === true)
     };
     // Build the structured Forward / Trigger / Candidates payloads ONCE so
     // the resolver and the dashboard packet share the same object identity.
@@ -2052,6 +2051,7 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       triggers:    __triggerBlockResolved,
 
       historical:      jane?.historical      || [],
+      historicalAnalogueStatus: clonePacket,
       mechanism:       jane?.mechanism       || corey?.mechanismSummary || '',
       mechanismDetail: jane?.mechanismDetail || null,
       scenario:        jane?.scenario        || { continuation:0, range:0, reversal:0 },
@@ -2955,6 +2955,69 @@ async function runCorey(symbol){log('INFO',`[COREY] ${symbol}`);const[macro,ts]=
 function buildLevels(spideyHTF,spideyLTF,bias){const htfD=Object.entries(spideyHTF.timeframes)[0]?.[1]||null,ltfD=Object.entries(spideyLTF.timeframes)[0]?.[1]||null;const cp=htfD?.currentPrice||ltfD?.currentPrice||0,pip=cp>10?0.01:cp>1?0.0001:0.01;let ez=null,inv=null,targets=[];if(bias!=='Neutral'){if(bias==='Bullish'){const dz=(ltfD?.activeDemand)||(htfD?.activeDemand);if(dz){ez={high:dz.high,low:dz.low};inv=dz.low-pip*10;}else if(htfD?.swingLows?.length){const sl=htfD.swingLows[htfD.swingLows.length-1];ez={high:sl.level+pip*5,low:sl.level-pip*5};inv=sl.level-pip*15;}const hp=(htfD?.liquidityPools||[]).filter(p=>p.level>cp),lp=(ltfD?.liquidityPools||[]).filter(p=>p.level>cp),hi=(htfD?.imbalances||[]).filter(im=>im.type==='Bearish'&&im.low>cp);targets=[...hp.map(p=>({level:p.level})),...lp.map(p=>({level:p.level})),...hi.map(im=>({level:im.high}))].sort((a,b)=>a.level-b.level).slice(0,3).map((t,i)=>({...t,label:`T${i+1}`}));}else{const sz=(ltfD?.activeSupply)||(htfD?.activeSupply);if(sz){ez={high:sz.high,low:sz.low};inv=sz.high+pip*10;}else if(htfD?.swingHighs?.length){const sh=htfD.swingHighs[htfD.swingHighs.length-1];ez={high:sh.level+pip*5,low:sh.level-pip*5};inv=sh.level+pip*15;}const hp=(htfD?.liquidityPools||[]).filter(p=>p.level<cp),lp=(ltfD?.liquidityPools||[]).filter(p=>p.level<cp),hi=(htfD?.imbalances||[]).filter(im=>im.type==='Bullish'&&im.high<cp);targets=[...hp.map(p=>({level:p.level})),...lp.map(p=>({level:p.level})),...hi.map(im=>({level:im.low}))].sort((a,b)=>b.level-a.level).slice(0,3).map((t,i)=>({...t,label:`T${i+1}`}));}}let rr=null;if(ez&&inv&&targets.length>0){const mid=(ez.high+ez.low)/2,sd=Math.abs(mid-inv),td=Math.abs(targets[0].level-mid);rr=sd>0?Math.round((td/sd)*10)/10:null;}return{entryZone:ez,invalidationLevel:inv,targets,rrRatio:rr,currentPrice:cp};}
 function runJane(symbol,spideyHTF,spideyLTF,corey){log('INFO',`[JANE] Synthesising ${symbol}`);const htfB=spideyHTF.dominantBias,htfC=spideyHTF.dominantConviction,ltfB=spideyLTF.dominantBias,ltfC=spideyLTF.dominantConviction,cB=corey.combinedBias,cC=corey.confidence,tsB=corey.trendSpider.signalBias,tsG=corey.trendSpider.grade,tsF=corey.trendSpider.fresh,tsA=corey.trendSpider.available;const bS={Bullish:1,Neutral:0,Bearish:-1},spS=(bS[htfB]*htfC*0.60)+(bS[ltfB]*ltfC*0.40),cS=bS[cB]*cC;let tsAdj=0,tsEff='Unavailable';if(tsA&&tsF&&(tsG==='FreshHigh'||tsG==='FreshMedium')){const ts2=bS[tsB]*corey.trendSpider.confidence,agree=tsB===htfB&&tsB===cB,conf2=tsB!=='Neutral'&&(tsB!==htfB||tsB!==cB);if(agree){tsAdj=ts2>0?0.08:-0.08;tsEff='Boosted';}else if(conf2){tsAdj=ts2>0?-0.06:0.06;tsEff='Reduced';}else{tsAdj=0;tsEff='Neutral';}}else{tsEff=tsA?'Ignored':'Unavailable';}const comp=(spS*0.40)+(cS*0.30)+tsAdj;let fb,conv,cl,dnt=false,dntR=null,cs;const spN=htfB==='Neutral',cN=cB==='Neutral',tsN=tsB==='Neutral'||!tsA||!tsF,ltfConf=ltfB!=='Neutral'&&ltfB!==htfB,sAc=!spN&&!cN&&htfB===cB,sCo=!spN&&!cN&&htfB!==cB,tsCS=!tsN&&tsB!==htfB;if(htfB==='Bullish'&&cB==='Bullish'&&(!tsA||!tsF||tsB==='Bullish')){fb='Bullish';conv=Math.min(comp+0.1,1);cs='Aligned';}else if(htfB==='Bearish'&&cB==='Bearish'&&(!tsA||!tsF||tsB==='Bearish')){fb='Bearish';conv=Math.min(Math.abs(comp)+0.1,1);cs='Aligned';}else if(sAc&&tsN){fb=htfB;conv=Math.abs(comp);cs='Aligned';}else if(sAc&&tsCS&&tsG==='FreshLow'){fb=htfB;conv=Math.abs(comp)*0.85;cs='PartialConflict';}else if(sAc&&tsCS&&tsG==='FreshHigh'){if(htfC>0.65&&cC>0.55){fb=htfB;conv=Math.abs(comp)*0.70;cs='PartialConflict';}else{fb='Neutral';conv=0.2;cs='HardConflict';dnt=true;dntR=`${htfB} structure+macro, strong TS ${tsB} conflict.`;}}else if(sCo&&!tsN&&tsB===htfB){fb=htfB;conv=Math.abs(comp)*0.60;cs='PartialConflict';if(htfC<0.55){dnt=true;dntR=`Structure (${htfB}) vs macro (${cB}) conflict.`;}}else if(sCo&&!tsN&&tsB===cB){fb='Neutral';conv=0.2;cs='HardConflict';dnt=true;dntR=`Structure (${htfB}) and macro+TS (${cB}) in direct conflict.`;}else if(spN&&!cN&&!tsN&&cB===tsB){fb=cB;conv=Math.abs(comp)*0.55;cs='PartialConflict';if(conv<0.35){dnt=true;dntR='Structure neutral. Macro+TS aligned but insufficient confirmation.';}}else if(!spN&&cN&&!tsN&&tsB===htfB){fb=htfB;conv=Math.abs(comp)*0.65;cs='PartialConflict';}else{fb='Neutral';conv=0;cs='HardConflict';dnt=true;dntR='Evidence fragmented. No clean bias.';}if(ltfConf&&!dnt){conv*=0.80;cs=cs==='Aligned'?'PartialConflict':cs;}if(conv<0.25&&!dnt){dnt=true;dntR=`Conviction ${(conv*100).toFixed(0)}% — below minimum threshold.`;}conv=Math.round(Math.min(conv,1)*100)/100;cl=conv>=0.65?'High':conv>=0.40?'Medium':conv>=0.20?'Low':'Abstain';if(dnt)cl=conv<0.10?'Abstain':cl;const levels=buildLevels(spideyHTF,spideyLTF,fb);log('INFO',`[JANE] ${symbol} → ${fb} | ${cl} | conflict:${cs} | TS:${tsEff} | DNT:${dnt}`);return{finalBias:fb,conviction:conv,convictionLabel:cl,compositeScore:Math.round(comp*100)/100,doNotTrade:dnt,doNotTradeReason:dntR,trendSpiderEffect:tsEff,conflictState:cs,ltfAligned:!ltfConf,ltfConflict:ltfConf,entryZone:levels.entryZone,invalidationLevel:levels.invalidationLevel,targets:levels.targets,rrRatio:levels.rrRatio};}
 
+function buildMacroIntelligencePacket(symbol, corey) {
+  const g = corey && corey.internalMacro && corey.internalMacro.global ? corey.internalMacro.global : {};
+  const live = g.live || {};
+  const packet = {
+    symbol,
+    generatedAtUTC: new Date().toISOString(),
+    interpretedBy: 'Corey',
+    combinedBias: corey && corey.combinedBias || 'Neutral',
+    macroBias: corey && corey.macroBias || 'Neutral',
+    confidence: Number.isFinite(corey && corey.confidence) ? corey.confidence : 0,
+    combinedScore: Number.isFinite(corey && corey.combinedScore) ? corey.combinedScore : 0,
+    regime: corey && corey.internalMacro && corey.internalMacro.regime ? corey.internalMacro.regime.regime : null,
+    riskEnv: g.riskEnv || null,
+    dxyState: g.dxyBias || (live.dxy && (live.dxy.bias || live.dxy.level)) || null,
+    vixState: live.vix || null,
+    yieldState: live.yield || null,
+    trendSpider: corey && corey.trendSpider ? {
+      available: !!corey.trendSpider.available,
+      fresh: !!corey.trendSpider.fresh,
+      signalBias: corey.trendSpider.signalBias || 'Neutral',
+      grade: corey.trendSpider.grade || 'Unusable',
+    } : null,
+    sourceBasis: [
+      'TradingView/price candles via TwelveData/FMP/EODHD adapters where available',
+      'Corey macro interpretation',
+      'calendar snapshot',
+      'DXY=UUP proxy · VIX=VXX proxy · yield curve=FRED T10Y2Y',
+    ],
+    confidenceBasis: 'Corey combined macro score and live-data availability',
+  };
+  return packet;
+}
+
+function describeCloneAlignment(coreyClone, macroBias) {
+  if (!coreyClone || coreyClone.status === 'BLOCKED') return 'blocked — no historical analogue may be used in the decision.';
+  if (coreyClone.status === 'PARTIAL') return 'partial — surfaced for audit only; Jane weight is 0 until usableForDecision=true.';
+  if (!coreyClone.usableForDecision) return 'unavailable — no decision-grade historical support.';
+  const dist = coreyClone.baseRateStats || {};
+  const dominant = Object.keys(dist).sort((a, b) => (dist[b] || 0) - (dist[a] || 0))[0] || 'unknown';
+  if (dominant === 'follow_through') return 'supporting current macro read — follow-through is dominant in the accepted cohort.';
+  if (dominant === 'reversal') return 'warning against current macro read — reversal is dominant in the accepted cohort.';
+  if (dominant === 'range') return 'caps current macro read — range outcome is dominant in the accepted cohort.';
+  return 'usable, but dominant outcome not classified.';
+}
+
+function runJaneWithCoreyClone(symbol, spideyHTF, spideyLTF, corey, coreyClone, macroIntelligencePacket) {
+  const jane = runJane(symbol, spideyHTF, spideyLTF, corey);
+  const usable = !!(coreyClone && coreyClone.usableForDecision === true);
+  jane.coreyCurrentMacroRead = macroIntelligencePacket || buildMacroIntelligencePacket(symbol, corey);
+  jane.coreyClone = coreyClone || null;
+  jane.historicalAnalogueStatus = coreyClone || null;
+  jane.historicalAnalogueUsableForDecision = usable;
+  jane.historicalAnalogueWeight = usable ? Math.max(0, Math.min(1, Number(coreyClone.confidenceScore) || 0)) : 0;
+  jane.historicalAnalogueAlignment = describeCloneAlignment(coreyClone, corey && corey.combinedBias);
+  jane.historical = coreyClone && Array.isArray(coreyClone.analogues) ? coreyClone.analogues : [];
+  if (!usable) {
+    jane.gridNotes = Object.assign({}, jane.gridNotes, {
+      historicalAnalogue: 'Corey Clone not decision-usable on this run; Jane did not weight historical analogues.',
+    });
+  }
+  return jane;
+}
+
 // ============================================================
 // RENDERING LAYER v3 — chart-img.com renderer lives in renderer.js
 // ============================================================
@@ -3024,15 +3087,18 @@ async function deliverResult(msg, result) {
   // run records its outcome here. The downstream [DATA-SOURCE] line is
   // emitted from this object's per-resolution view.
   const coverage = setCurrentCoverage(createCoverage(symbol));
-  let corey, spideyHTF, spideyLTF, jane, dailyCandles;
+  let corey, coreyClone, macroIntelligencePacket, spideyHTF, spideyLTF, jane, dailyCandles;
   try {
-    [corey, spideyHTF, spideyLTF, dailyCandles] = await Promise.all([
-      runCorey(symbol),
+    corey = await runCorey(symbol);
+    macroIntelligencePacket = buildMacroIntelligencePacket(symbol, corey);
+    coreyClone = await findHistoricalAnalogues(macroIntelligencePacket, { liveMacroChain: true });
+    corey.clone = coreyClone;
+    [spideyHTF, spideyLTF, dailyCandles] = await Promise.all([
       runSpideyHTF(symbol, HTF_INTERVALS),
       runSpideyLTF(symbol, LTF_INTERVALS),
       safeOHLC(symbol, '1D', 25, coverage)
     ]);
-    jane = runJane(symbol, spideyHTF, spideyLTF, corey);
+    jane = runJaneWithCoreyClone(symbol, spideyHTF, spideyLTF, corey, coreyClone, macroIntelligencePacket);
   } catch (e) {
     log('ERROR', `[DELIVER] ${symbol} data gather failed: ${e.message}`);
     await msg.channel.send({ content: `⚠️ Macro data unavailable for ${symbol}: ${e.message}` });

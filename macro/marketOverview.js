@@ -31,7 +31,7 @@ function build(input) {
   const yReg   = ctx?.yield?.regime || 'Normal';
   const ySpr   = ctx?.yield?.spread;
   const ySpread = ySpr != null ? ySpr.toFixed(2) + ' pp' : 'pending';
-  lines.push(`**Yield curve:** 10Y-2Y spread ${ySpread}, regime ${yReg}. An inverted or flattening curve telegraphs growth doubt, supports duration / safe havens, and historically precedes risk-off rotations. A steepening curve telegraphs reflation and supports risk assets and high-beta currencies. ${arrow(yScore)}`);
+  lines.push(`**Yield curve:** 10Y-2Y spread ${ySpread}, regime ${yReg}. An inverted or flattening curve telegraphs growth doubt and supports duration / safe havens; a steepening curve telegraphs reflation and supports risk assets and high-beta currencies. Historical rotation claims are left to Corey Clone when an audit-grade cohort is available. ${arrow(yScore)}`);
   lines.push('');
 
   // Commodity / inflation paragraph (FMP-fed when available)

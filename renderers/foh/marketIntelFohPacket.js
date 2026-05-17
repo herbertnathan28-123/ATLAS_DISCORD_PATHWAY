@@ -118,10 +118,10 @@ function _buildEventEntry(rawEvent, helpers) {
   };
 
   const whyExpandedMap = {
-    'inflation':       'Hotter-than-forecast readings historically tend to support ' + ccy + ' and yields (rates expected to stay higher for longer), pressuring gold and risk indices. Cooler readings favour the reverse rotation.',
-    'labour':          'Stronger labour data favours ' + ccy + ' via tighter central-bank policy expectations; weaker data favours the reverse. First reaction historically sits in the short-end yield curve.',
-    'central bank':    'Tone vs current market pricing is the lever. Hawkish lean supports ' + ccy + '; dovish lean pressures it. Surprises against current pricing historically produce outsized moves.',
-    'growth':          'Stronger readings historically tend to lift risk and ' + ccy + ' jointly when growth-pricing dominates; weaker readings invert the relationship.',
+    'inflation':       'Hotter-than-forecast readings support ' + ccy + ' and yields when rate-path repricing dominates, pressuring gold and risk indices. Cooler readings favour the reverse rotation; historical claims require Corey Clone support.',
+    'labour':          'Stronger labour data favours ' + ccy + ' via tighter central-bank policy expectations; weaker data favours the reverse. Treat the short-end yield curve as the first live confirmation.',
+    'central bank':    'Tone vs current market pricing is the lever. Hawkish lean supports ' + ccy + '; dovish lean pressures it. Outsized-move claims require Corey Clone support.',
+    'growth':          'Stronger readings can lift risk and ' + ccy + ' jointly when growth-pricing dominates; weaker readings invert the relationship. Historical base rates require Corey Clone support.',
     'consumer demand': 'Stronger consumer spending tends to support ' + ccy + ' through growth-pricing; weaker readings favour the reverse.',
     'activity':        'Readings above 50 favour expansion (supportive for ' + ccy + ' and risk); below 50 favour contraction.',
     'geopolitical':    'Safe-haven rotation: US Dollar Index, CHF, JPY, gold tend to bid while equities and credit fade.',

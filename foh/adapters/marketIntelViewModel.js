@@ -63,6 +63,7 @@ const REQUIRED_ANCHORS = Object.freeze([
   // Operator brief 2026-05-17 (master order):
   'TODAYS_ANNOUNCEMENTS', 'PRIMARY_EVENT_FOCUS', 'NEXT_24_TO_72_HOURS',
   'AFFECTED_MARKETS_EXPANDED', 'PRICE_MAP', 'OPERATIONAL_NARRATIVE',
+  'HISTORICAL_ANALOGUE_STATUS',
 ]);
 
 function _fmtTraderAction(ta) {
@@ -231,6 +232,25 @@ function _fmtOperationalNarrative(n) {
   ].join('\n');
 }
 
+function _fmtHistoricalAnalogueStatus(h) {
+  if (!h) return 'Status: BLOCKED\nDecision use: no\nDowngrade: Corey Clone did not provide an analogue packet.';
+  const lines = [];
+  lines.push('Status: ' + (h.status || 'BLOCKED'));
+  lines.push('Decision use: ' + (h.usableForDecision ? 'yes' : 'no'));
+  lines.push('Summary: ' + (h.summary || '—'));
+  if (h.auditSupport) {
+    lines.push('Audit support:');
+    lines.push('  sample / denominator: ' + h.auditSupport.sampleSize + ' / ' + h.auditSupport.denominator);
+    lines.push('  timestamp window: ' + (h.auditSupport.timestampWindow || '—'));
+    lines.push('  source basis: ' + (h.auditSupport.sourceBasis || '—'));
+    lines.push('  confidence basis: ' + (h.auditSupport.confidenceBasis || '—'));
+    lines.push('  cohort: ' + (h.auditSupport.cohortSummary || '—'));
+  } else {
+    lines.push('Downgrade: ' + (h.downgrade || 'No valid analogue exists; no generic historical claims used.'));
+  }
+  return lines.join('\n');
+}
+
 function _fmtProvenance(p) {
   if (!p) return 'Source: ATLAS runtime · freshness: LIVE · confidence: engine-derived';
   const srcs = Array.isArray(p.sources) ? p.sources.join(' · ') : (p.sources || '—');
@@ -306,6 +326,7 @@ function toViewModel(packet) {
     PRICE_MAP:                     _fmtPriceMap(packet.priceMap),
     // CHUNK 7 — event-day operational storytelling.
     OPERATIONAL_NARRATIVE:         _fmtOperationalNarrative(packet.operationalNarrative),
+    HISTORICAL_ANALOGUE_STATUS:    _fmtHistoricalAnalogueStatus(packet.historicalAnalogueStatus),
   };
   return _scrubAll(anchors);
 }

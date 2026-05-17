@@ -73,6 +73,9 @@ function buildDiscordTextSummary(viewModel, opts) {
   lines.push('__Market Impact__');
   lines.push(viewModel.MARKET_IMPACT);
   lines.push('');
+  lines.push('__Historical Analogue Status__');
+  lines.push(viewModel.HISTORICAL_ANALOGUE_STATUS || 'Status: BLOCKED — no analogue packet.');
+  lines.push('');
   lines.push('__Confirmation / Cancellation__');
   lines.push('Confirms: ' + viewModel.CONFIRMS_WHEN);
   lines.push('Cancels: ' + viewModel.CANCELS_WHEN);

@@ -45,6 +45,15 @@ function detectConflict(input) {
   return parts.length ? parts.join('; ') : 'no significant conflict';
 }
 
+function coreyCloneDecisionUsable(coreyClone) {
+  if (!coreyClone || coreyClone.usableForDecision !== true) return false;
+  if (!Number.isFinite(coreyClone.sampleSize) || coreyClone.sampleSize <= 0) return false;
+  if (!Number.isFinite(coreyClone.denominator) || coreyClone.denominator < coreyClone.sampleSize) return false;
+  if (typeof coreyClone.confidenceBasis !== 'string' || !coreyClone.confidenceBasis.trim()) return false;
+  if (typeof coreyClone.sourceBasis !== 'string' || !coreyClone.sourceBasis.trim()) return false;
+  return Array.isArray(coreyClone.timestampWindows) && coreyClone.timestampWindows.some(w => w && w.startUTC && w.endUTC);
+}
+
 async function runJane(input, opts = {}) {
   const timestamp = new Date().toISOString();
   const testMode = opts.testMode || process.env.ATLAS_TEST_MODE === '1';
@@ -61,7 +70,12 @@ async function runJane(input, opts = {}) {
   // shape and are not subjected to the Phase D analogue contract — that
   // would defeat foundation-doctrine compatibility.
   let coreyCloneTrustReason = null;
-  if (!testMode && ss.coreyClone === 'ACTIVE' && input.coreyClone && Array.isArray(input.coreyClone.analogues)) {
+  if (!testMode && ss.coreyClone === 'ACTIVE' && input.coreyClone && input.coreyClone.usableForDecision === true) {
+    if (!coreyCloneDecisionUsable(input.coreyClone)) {
+      coreyCloneTrustReason = 'corey clone marked usable but missing sample size, denominator, timestamp window, source basis, or confidence basis';
+      ss.coreyClone = 'PARTIAL';
+    }
+  } else if (!testMode && ss.coreyClone === 'ACTIVE' && input.coreyClone && Array.isArray(input.coreyClone.analogues)) {
     const av = cloneValidator.validateAnalogueSet(input.coreyClone.analogues);
     if (!av.ok) {
       coreyCloneTrustReason = `corey clone analogues failed validation: ${av.perAnalogueErrors.length} bad`;
@@ -78,7 +92,13 @@ async function runJane(input, opts = {}) {
   const scoreInputs = [], confInputs = [];
   if (spideyActive && input.spidey && typeof input.spidey.score === 'number') { scoreInputs.push(input.spidey.score); confInputs.push(input.spidey.confidence != null ? input.spidey.confidence : 0); }
   if (coreyActive && input.corey && typeof input.corey.score === 'number') { scoreInputs.push(input.corey.score); confInputs.push(input.corey.confidence != null ? input.corey.confidence : 0); }
-  if (cloneActive && input.coreyClone && typeof input.coreyClone.score === 'number') { scoreInputs.push(input.coreyClone.score); confInputs.push(input.coreyClone.confidence != null ? input.coreyClone.confidence : 0); }
+  if (cloneActive && input.coreyClone) {
+    const cloneScore = Number.isFinite(input.coreyClone.score) ? input.coreyClone.score : input.coreyClone.confidenceScore;
+    if (Number.isFinite(cloneScore)) {
+      scoreInputs.push(cloneScore);
+      confInputs.push(input.coreyClone.confidence != null ? input.coreyClone.confidence : (input.coreyClone.confidenceScore || 0));
+    }
+  }
   if (macroActive && input.macro && typeof input.macro.score === 'number') { scoreInputs.push(input.macro.score); confInputs.push(input.macro.confidence != null ? input.macro.confidence : 0); }
 
   const setupQuality = scoreInputs.length ? scoreInputs.reduce((a, b) => a + b, 0) / scoreInputs.length : 0;

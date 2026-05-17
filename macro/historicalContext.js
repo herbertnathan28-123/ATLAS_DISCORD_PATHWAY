@@ -7,9 +7,13 @@ const { arrow } = require('./language');
 
 function build(input) {
   const { history, symbol, structure, tagsUsed } = input;
+  const clone = input.coreyClone || null;
   if (tagsUsed) tagsUsed.push('regime', 'liquidity_sweep', 'imbalance');
 
   const lines = ['## Historical Context'];
+  lines.push('');
+  lines.push('### Historical Analogue Status');
+  lines.push(renderCloneStatus(clone));
   lines.push('');
 
   if (!history || !Array.isArray(history.recent20) || !history.recent20.length) {
@@ -35,11 +39,11 @@ function build(input) {
   lines.push('');
 
   if (efficiency >= 0.45) {
-    lines.push(`${tag(COLOUR.GREEN, 'Trend cleanliness — high.')} Twenty-bar move travelled ${directionWord} with limited path overhead, which historically supports continuation when structure agrees. ${dirArrow}`);
+    lines.push(`${tag(COLOUR.GREEN, 'Trend cleanliness — high.')} Twenty-bar move travelled ${directionWord} with limited path overhead. ${historicalClaim(clone, 'Corey Clone may be used as the base-rate check only under the audit details above.', 'No historical continuation claim is made because Corey Clone is not decision-usable on this run.')} ${dirArrow}`);
   } else if (efficiency >= 0.30) {
     lines.push(`${tag(COLOUR.AMBER, 'Trend cleanliness — moderate.')} The window has direction but enough chop that pullbacks are likely; size accordingly. ${dirArrow}`);
   } else {
-    lines.push(`${tag(COLOUR.RED, 'Trend cleanliness — poor.')} Path-to-displacement ratio is low; this is range behaviour, not trend. Pulling continuation trades here historically underperforms. ${dirArrow}`);
+    lines.push(`${tag(COLOUR.RED, 'Trend cleanliness — poor.')} Path-to-displacement ratio is low; this is range behaviour, not trend. ${historicalClaim(clone, 'Base-rate read must be checked against the Corey Clone cohort before treating continuation as supported or rejected.', 'No historical underperformance claim is made because Corey Clone is not decision-usable on this run.')} ${dirArrow}`);
   }
   lines.push('');
 
@@ -59,7 +63,7 @@ function build(input) {
       (structure.bias.toLowerCase().startsWith('bear') && netMove < 0)
     );
     if (aligned) {
-      lines.push(`${tag(COLOUR.GREEN, 'Trade linkage — supportive.')} The recent window agrees with the proposed ${structure.bias} setup; history supports the read. ${dirArrow}`);
+      lines.push(`${tag(COLOUR.GREEN, 'Trade linkage — supportive.')} The recent window agrees with the proposed ${structure.bias} setup. ${historicalClaim(clone, 'Audit-grade Corey Clone support is available above; use that cohort, not a generic memory claim.', 'No generic historical support is claimed without a decision-usable Corey Clone cohort.')} ${dirArrow}`);
     } else {
       lines.push(`${tag(COLOUR.RED, 'Trade linkage — adverse.')} The recent window disagrees with the proposed ${structure.bias || 'undefined'} setup; the trade asks the market to break its current rhythm. ${arrow(-netMove)}`);
     }
@@ -67,6 +71,40 @@ function build(input) {
     lines.push(`${tag(COLOUR.WHITE, 'Trade linkage — n/a.')} Structure or proposed bias not yet defined; recent window stands on its own.`);
   }
 
+  return lines.join('\n');
+}
+
+function cloneHasAuditBasis(clone) {
+  if (!clone || clone.usableForDecision !== true) return false;
+  if (!Number.isFinite(clone.sampleSize) || clone.sampleSize <= 0) return false;
+  if (!Number.isFinite(clone.denominator) || clone.denominator < clone.sampleSize) return false;
+  if (!clone.confidenceBasis || !clone.sourceBasis) return false;
+  return Array.isArray(clone.timestampWindows) && clone.timestampWindows.some(w => w && w.startUTC && w.endUTC);
+}
+
+function historicalClaim(clone, validText, invalidText) {
+  return cloneHasAuditBasis(clone) ? validText : invalidText;
+}
+
+function renderCloneStatus(clone) {
+  if (!clone) {
+    return [
+      '**Status:** BLOCKED',
+      '**Decision use:** no',
+      '**Reason:** Corey Clone did not provide a packet, so Jane cannot use historical analogues.',
+    ].join('\n');
+  }
+  const usable = cloneHasAuditBasis(clone);
+  const status = clone.status || (usable ? 'OK' : 'BLOCKED');
+  const lines = [];
+  lines.push(`**Status:** ${status}`);
+  lines.push(`**Decision use:** ${usable ? 'yes' : 'no'}${clone.usableForDecision && !usable ? ' (basis incomplete)' : ''}`);
+  lines.push(`**Sample / denominator:** ${Number.isFinite(clone.sampleSize) ? clone.sampleSize : 0} / ${Number.isFinite(clone.denominator) ? clone.denominator : 0}`);
+  lines.push(`**Timestamp window:** ${clone.timestampWindows && clone.timestampWindows[0] ? clone.timestampWindows[0].label : 'not available'}`);
+  lines.push(`**Source basis:** ${clone.sourceBasis || 'not available'}`);
+  lines.push(`**Confidence basis:** ${clone.confidenceBasis || 'not available'}`);
+  if (usable) lines.push(`**Cohort summary:** ${clone.cohortSummary || 'audit-grade analogue cohort accepted.'}`);
+  else lines.push(`**Downgrade:** ${clone.degradedReason || clone.cohortSummary || 'No valid analogue exists for this macro read.'}`);
   return lines.join('\n');
 }
 
