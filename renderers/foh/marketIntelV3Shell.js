@@ -112,6 +112,7 @@ async function render({ packet, viewModel, opts }) {
   ]);
   const pngs = (pngBatch && pngBatch.pngs ? pngBatch.pngs : []).map((p, i) => Object.assign({ label: cards[i] && cards[i].label }, p));
   const discordText = buildDiscordTextSummary(viewModel || {}, opts);
+  console.log('[FOH] Historical Analogue Status included in Market Intel render=' + (viewModel && viewModel.HISTORICAL_ANALOGUE_STATUS ? 'true' : 'false'));
 
   return {
     discordText,

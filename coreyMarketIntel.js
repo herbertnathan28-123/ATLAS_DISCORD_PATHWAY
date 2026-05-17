@@ -28,6 +28,7 @@
 
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl'); // reuse banned-phrase sanitiser
+console.log('[BOOT] COREY_CLONE_CHAIN: Market Intel dispatcher can attach Corey Clone before FOH output');
 
 // ── ENUMS ────────────────────────────────────────────────────
 const RELEVANCE = { HIGH: 'High', MODERATE: 'Moderate', LOW: 'Low' };
@@ -2012,6 +2013,8 @@ async function _miAttachCoreyClone(payloadObj, extra) {
       ],
       confidenceBasis: 'Corey Market Intel relevance, mechanism, bias, and confidence interpretation',
     };
+    log(`[COREY-CLONE-CHAIN] macroIntelligencePacket built symbol=${symbol} bias=${macroIntelligencePacket.combinedBias} confidence=${macroIntelligencePacket.confidence}`);
+    log(`[COREY-CLONE-CHAIN] Corey Clone called symbol=${symbol} input=macroIntelligencePacket source=market_intel_dispatch`);
     clone = await findHistoricalAnalogues(macroIntelligencePacket, { liveMarketIntel: true });
   } catch (e) {
     clone = {

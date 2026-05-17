@@ -737,6 +737,7 @@ function buildMarketIntelPacket(opts) {
   // CHUNK 7 — event-day operational storytelling.
   const operationalNarrative = _operationalNarrativeFrom(severity, eventName, now);
   const historicalAnalogueStatus = _historicalAnalogueStatusFrom(engine);
+  console.log(`[FOH] Historical Analogue Status rendered status=${historicalAnalogueStatus.status} usableForDecision=${historicalAnalogueStatus.usableForDecision ? 'true' : 'false'}`);
 
   return {
     meta, header, briefingSummary, eventDayReference, fourWayOutcomes,

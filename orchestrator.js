@@ -17,6 +17,7 @@ const { findHistoricalAnalogues } = require('./coreyClone/findHistoricalAnalogue
 const { macroRun } = require('./macro');
 const { runJane } = require('./jane');
 const { validatePacket, statusFromValidation } = require('./contracts');
+console.log('[BOOT] COREY_CLONE_CHAIN: orchestrator loaded Corey Clone analogue adapter');
 
 let renderer = null;
 try { renderer = require('./renderer'); } catch (e) { /* renderer load failure handled below */ }
@@ -49,7 +50,10 @@ async function runAnalysis(symbol, options = {}) {
     sourceBasis: ['CoreyOutput', 'live macro context', 'calendar data'],
     confidenceBasis: 'Corey interpreted macro packet',
   };
+  console.log(`[COREY-CLONE-CHAIN] macroIntelligencePacket built symbol=${symbol} bias=${macroIntelligencePacket.combinedBias} confidence=${macroIntelligencePacket.confidence}`);
+  console.log(`[COREY-CLONE-CHAIN] Corey Clone called symbol=${symbol} input=macroIntelligencePacket`);
   const cloneOut = await safeCall(() => findHistoricalAnalogues(macroIntelligencePacket, opts), 'coreyClone');
+  console.log(`[COREY-CLONE-CHAIN] Corey Clone status=${cloneOut?.status || 'BLOCKED'} usableForDecision=${cloneOut?.usableForDecision === true ? 'true' : 'false'} sampleSize=${cloneOut?.sampleSize ?? 0} denominator=${cloneOut?.denominator ?? 0}`);
   if (coreyOut && typeof coreyOut === 'object') coreyOut.clone = cloneOut;
 
   const [spideyOut, macroOut, rendererOut] = await Promise.all([
@@ -87,6 +91,7 @@ async function runAnalysis(symbol, options = {}) {
 
   // Jane decides
   const decision = await runJane(janeInput, opts);
+  console.log(`[JANE] received_inputs corey=${!!coreyOut} coreyClone=${cloneOut?.status || 'BLOCKED'} coreyCloneUsable=${cloneOut?.usableForDecision === true ? 'true' : 'false'} spidey=${!!spideyOut}`);
   return decision;
 }
 
