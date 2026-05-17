@@ -982,7 +982,7 @@ function buildEventIntel(sym, corey) {
     `**WHY IT MATTERS (AI COMMENTARY)**`,
     `${driverLabel} is the single biggest contributor to today's macro read (composite score ${fmtNum(corey.combinedScore, 2)}). Other channels — growth data, equity breadth, real yields — are smaller and can be overridden by this driver. Expect ${sym} to track prints from ${driverLabel} more tightly than usual until the regime rotates. TrendSpider confirmation: ${corey.alignment ? 'agrees with the macro composite' : (corey.contradiction ? 'disagrees with the macro composite — treat the read as contested' : 'not available')}.`,
     ``,
-    `**MECHANISM CHAIN (HOW THIS REACHES PRICE)**`,
+    `**MARKET IMPACT (HOW THIS REACHES PRICE)**`,
     `${meta.chain}`,
     ``,
     `**WHAT THIS MEANS FOR PRICE**`,
@@ -1703,7 +1703,7 @@ function buildTriggerBlock(jane, sourceMissing) {
 //
 // Called from deliverResult() AFTER the macro pipeline runs. Fire-and-forget;
 // errors are logged but never block the Discord delivery path.
-function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
+function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane, renderMeta = {}) {
   try {
     // Co-located [DATA-SOURCE] summary emission. The route-entry call at the
     // top of the messageCreate handler also emits this line, but it fires
@@ -1720,6 +1720,26 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
 
     // Source statuses — real engine state, no fakery.
     const liveCtx = (typeof coreyLive !== 'undefined' && coreyLive.getLiveContext) ? coreyLive.getLiveContext() : null;
+    const chartValidation = Array.isArray(renderMeta && renderMeta.validation) ? renderMeta.validation : [];
+    const chartOkCount = chartValidation.filter(v => v && v.ok).length;
+    const chartTotal = chartValidation.length;
+    const chartDataStatus = chartTotal > 0 && chartOkCount === chartTotal ? 'live'
+      : chartOkCount > 0 ? 'partial'
+      : chartTotal > 0 ? 'unavailable'
+      : 'pending';
+    const chartDataDetail = chartTotal > 0
+      ? `chart-img ${chartOkCount}/${chartTotal} panels valid`
+      : 'chart validation not reported';
+    const dashboardCoverage = (renderMeta && renderMeta.coverage && renderMeta.coverage.summarise)
+      ? renderMeta.coverage
+      : (typeof getCurrentCoverage === 'function' ? getCurrentCoverage() : null);
+    const coverageSummary = dashboardCoverage && dashboardCoverage.summarise ? dashboardCoverage.summarise() : null;
+    const ohlcAuditLine = dashboardCoverage && dashboardCoverage.summarise
+      ? formatOhlcCoverage(dashboardCoverage)
+      : 'ohlc=not_reported';
+    const ohlcStatus = coverageSummary
+      ? (coverageSummary.state === 'OK' ? 'live' : coverageSummary.state === 'PARTIAL' ? 'partial' : 'unavailable')
+      : (chartOkCount > 0 ? 'live: chart layer' : 'not reported');
     const coreyRaw = liveCtx?.status || 'unknown';
     // 'uninitialised' is a transient pre-init state; map to 'pending' not 'unavailable'.
     const coreyStatus =
@@ -1948,7 +1968,10 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
     // the neutral keys; the legacy keys are NOT included so a frontend
     // regression can't silently leak engine names.
     const sources = {
-      marketData:          'pending',          // dashboard fills this from /twelvedata results
+      marketData:          marketDataAudit,
+      chartData:           `${chartDataStatus}: ${chartDataDetail}`,
+      quote:               quoteStatus,
+      ohlc:                `${ohlcStatus}: ${ohlcAuditLine}`,
       macroContext:        coreyStatus,
       secondaryMacroModel: coreyCloneStatus,
       marketStructure:     spideyStatus,
@@ -1976,15 +1999,33 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
                         : /^(NAS100|US500|US30|DJI|GER40|UK100|SPX|NDX|HK50|JPN225)$/.test(symbol) ? 'index'
                         : /XAU|XAG|OIL|BRENT|WTI|NATGAS/.test(symbol) ? 'commodity'
                         : 'equity');
-    // last-price extraction — try every plausible field on corey/spidey/jane.
-    const last = jane?.lastPrice
-              ?? jane?.currentPrice
-              ?? spideyHTF?.currentPrice
-              ?? spideyHTF?.lastPrice
-              ?? spideyLTF?.currentPrice
-              ?? corey?.lastPrice
-              ?? corey?.internalMacro?.lastPrice
-              ?? null;
+    // last-price extraction — try every plausible field on corey/spidey/jane
+    // and keep the layer name so Source Status / Audit cannot contradict a
+    // visible dashboard price.
+    const priceCandidates = [
+      { source: 'Final assessment packet', value: jane?.lastPrice ?? jane?.currentPrice },
+      { source: 'Market structure HTF OHLC', value: spideyHTF?.currentPrice ?? spideyHTF?.lastPrice },
+      { source: 'Market structure LTF OHLC', value: spideyLTF?.currentPrice },
+      { source: 'Macro context quote', value: corey?.lastPrice ?? corey?.internalMacro?.lastPrice },
+    ];
+    const priceHit = priceCandidates.find(p => p.value != null && Number.isFinite(Number(p.value)));
+    const last = priceHit ? Number(priceHit.value) : null;
+    const quoteStatus = last != null
+      ? ('live: ' + priceHit.source)
+      : (chartOkCount > 0
+          ? 'live: chart-img chart layer (visible price from rendered chart)'
+          : 'pending: no visible price in dashboard packet');
+    const marketDataLive = chartOkCount > 0 || last != null || (coverageSummary && coverageSummary.okCount > 0);
+    const marketDataStatus = marketDataLive
+      ? 'LIVE'
+      : (chartTotal > 0 || coverageSummary) ? 'PARTIAL'
+      : 'PENDING';
+    const marketDataAudit = [
+      `Market Data: ${marketDataStatus}`,
+      `charts=${chartDataDetail}`,
+      `quote=${quoteStatus}`,
+      `analysisOHLC=${ohlcAuditLine}`,
+    ].join(' · ');
 
     // Apply central advisory-wording remap to the action state and trade
     // status so the packet can never carry banned wording downstream.
@@ -2007,6 +2048,22 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
       lastPrice: last,
       lastChangePct: 0,
       sources,
+      sourceAudit: {
+        marketData: {
+          state: marketDataStatus,
+          charts: chartDataDetail,
+          quote: quoteStatus,
+          ohlc: ohlcAuditLine,
+        },
+        macroContext: coreyStatus,
+        marketStructure: spideyStatus,
+        finalAssessment: janeStatus,
+        historicalReference: historicalStatus,
+        terminology: {
+          dxy: 'US Dollar Strength (DXY)',
+          vix: 'Market Volatility (VIX)',
+        },
+      },
 
       // Decision layer — sourced from Jane / structure objects when available.
       actionState:     advActionState,
@@ -3159,7 +3216,7 @@ async function deliverResult(msg, result) {
   // / Live Plan surface for ?symbol=<sym>. Source statuses reflect REAL
   // engine results (no fake values). Fire-and-forget — never blocks Discord
   // delivery.
-  postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane);
+  postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane, { validation, coverage });
 
   // Truthful [DATA-SOURCE] summary — emitted with per-resolution coverage,
   // INCOREGO-derived corey tag, Spidey state, and final Jane tag.
