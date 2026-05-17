@@ -53,6 +53,11 @@ async function runAnalysis(symbol, options = {}) {
     coreyClone: statusFromValidation(cloneOut ? validatePacket(cloneOut, 'CoreyCloneOutput') : null),
     macro: statusFromValidation(macroOut ? validatePacket(macroOut, 'MacroOutput') : null),
   };
+  try {
+    const cloneUsable = cloneOut && cloneOut.usableForDecision === true;
+    const analogueCount = cloneOut && Array.isArray(cloneOut.analogues) ? cloneOut.analogues.length : 'n/a';
+    console.log('[COREY-CLONE] status=' + (sourceStatus.coreyClone === 'ACTIVE' ? 'OK' : sourceStatus.coreyClone === 'UNAVAILABLE' ? 'BLOCKED' : 'PARTIAL') + ' usableForDecision=' + (cloneUsable ? 'true' : 'false') + ' analogues=' + analogueCount);
+  } catch (_e) { /* swallow */ }
 
   // Build Jane input packet — slots always occupied
   const janeInput = {
@@ -62,6 +67,9 @@ async function runAnalysis(symbol, options = {}) {
     corey: coreyOut,
     coreyClone: cloneOut || { status: 'UNAVAILABLE', reason: 'engine returned null', symbol, timestamp },
     macro: macroOut,
+    coreyMacro: macroOut && macroOut.macroIntelligencePacket ? macroOut.macroIntelligencePacket : null,
+    spideyStructure: spideyOut,
+    engineStatusSummary: Object.assign({}, sourceStatus),
     rendererArtefacts: rendererOut,
     sourceStatus,
   };

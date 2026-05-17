@@ -559,6 +559,8 @@ function buildMarketIntelPacket(opts) {
   const engine = opts.engine || {};                // upstream MI packet (legacy shape)
   const liveCtx = opts.liveCtx || null;
   const now = opts.now || Date.now();
+  const macroPacket = engine.macroIntelligencePacket || null;
+  const macroPrimary = (macroPacket && macroPacket.primaryEventFocus) || engine.primaryEventFocus || null;
 
   // Risk state + severity discs.
   const rawMood = engine.mood || engine.marketMood || {};
@@ -568,15 +570,18 @@ function buildMarketIntelPacket(opts) {
 
   // Featured event.
   const ev = _firstEvent(engine);
-  const eventName = (ev && ev.e && ev.e.title) || (engine.headline && engine.headline.title) || 'no scheduled high-impact catalyst';
-  const eventTimeUTC = (ev && ev.e && ev.e.time) || (engine.headline && engine.headline.time) || _utcStamp(now);
-  const eventCcy = (ev && (ev.e.currency || ev.c.currency)) || (engine.headline && engine.headline.currency) || 'multi';
+  const eventName = (macroPrimary && macroPrimary.title) || (ev && ev.e && ev.e.title) || (engine.headline && engine.headline.title) || 'no scheduled high-impact catalyst';
+  const eventTimeUTC = (macroPrimary && (macroPrimary.timeUTC || macroPrimary.scheduledTimeUTC)) || (ev && ev.e && ev.e.time) || (engine.headline && engine.headline.time) || _utcStamp(now);
+  const eventCcy = (macroPrimary && macroPrimary.currency) || (ev && (ev.e.currency || ev.c.currency)) || (engine.headline && engine.headline.currency) || 'multi';
 
   // Affected markets — combine engine-derived + outcome-stub fallback.
   const fromEngine = Array.isArray(engine.affectedMarkets && engine.affectedMarkets.symbols)
     ? engine.affectedMarkets.symbols
     : Array.isArray(engine.affectedMarkets) ? engine.affectedMarkets : [];
-  const keyMarkets = fromEngine.length ? fromEngine : ['DXY', 'EURUSD', 'XAUUSD', 'US500'];
+  const fromMacroExpanded = Array.isArray(engine.affectedMarketsExpanded)
+    ? engine.affectedMarketsExpanded.map(m => m.symbol || m.instrument).filter(Boolean)
+    : [];
+  const keyMarkets = fromEngine.length ? fromEngine : fromMacroExpanded.length ? fromMacroExpanded : ['DXY', 'EURUSD', 'XAUUSD', 'US500'];
 
   // Build the contract packet.
   const meta = {
@@ -628,39 +633,64 @@ function buildMarketIntelPacket(opts) {
     dangerIf:     'Position is opposite the 5-min close direction by T+5 — exit immediately at next 1-min close. No averaging into a fresh catalyst-led move.',
   };
   const provenance = {
-    sources:          [(engine.sourceNote && engine.sourceNote.source) || 'TradingView calendar', 'ATLAS macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y)'],
-    dataFreshness:    (engine.sourceNote && engine.sourceNote.mode) || (liveCtx ? 'LIVE' : 'UNAVAILABLE'),
-    confidenceBasis:  (engine.sourceNote && engine.sourceNote.probabilityBasis) || 'engine-derived',
+    sources:          macroPacket && Array.isArray(macroPacket.sourceUsed) ? macroPacket.sourceUsed : [(engine.sourceNote && engine.sourceNote.source) || 'TradingView calendar', 'ATLAS macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y)'],
+    dataFreshness:    (macroPacket && macroPacket.dataFreshness && macroPacket.dataFreshness.calendar && macroPacket.dataFreshness.calendar.mode) || (engine.sourceNote && engine.sourceNote.mode) || (liveCtx ? 'LIVE' : 'UNAVAILABLE'),
+    confidenceBasis:  (macroPacket && macroPacket.confidenceBasis) || (engine.sourceNote && engine.sourceNote.probabilityBasis) || 'engine-derived',
   };
 
   // CHUNK 3 — full-day Market Intel coverage.
   const todaysAnnouncements = _todaysAnnouncementsFrom(engine.eventClusters);
   const primaryEvent = ev ? ev.e : null;
-  const primaryEventFocus = {
-    eventName,
-    eventTimeUTC,
-    severity,
-    severityDiscs,
-    volatilityWindow: _humanDuration(severity),
-    affectedSymbols: keyMarkets,
-    keyPriceZones: [
-      'EURUSD reaction band ≈ 1.0928',
-      'EURUSD downside liquidity ≈ 1.0880',
-      'EURUSD upside liquidity ≈ 1.0980',
-      'XAUUSD structural support ≈ 2380',
-      'XAUUSD structural resistance ≈ 2440',
-    ],
-    likelyPaths: [
-      'HIGHER surprise → USD bid, EURUSD breaks 1.0928 lower, XAUUSD pressured, US500 defensive.',
-      'LOWER surprise → USD offered, EURUSD breaks 1.0928 upper, XAUUSD rallies, US500 bid.',
-      'IN-LINE print → reaction band intact, mean-reversion inside the next 15 min.',
-      'INITIAL-DIRECTION REVERSAL → first 60-second move faded; 15-min close prints the real trend.',
-    ],
-    confirmation: 'First 5-min close + DXY / lead pair confirmation in agreement.',
-    cancellation: 'First 15-min close fails to follow through; geopolitical override hits the wire.',
-  };
-  const next24To72Hours = (opts.upcomingEvents && Array.isArray(opts.upcomingEvents) ? opts.upcomingEvents : []).map(e => ({
-    timeUTC:      e.time || 'pending',
+  const primaryEventFocus = macroPrimary
+    ? {
+        eventName,
+        eventTimeUTC,
+        severity: macroPrimary.expectedImpact || severity,
+        severityDiscs,
+        volatilityWindow: macroPrimary.volatilityWindow || _humanDuration(severity),
+        affectedSymbols: macroPrimary.affectedMarkets || keyMarkets,
+        keyPriceZones: [
+          'Pre-event range high/low for each mapped symbol',
+          'Prior session high/low',
+          'First 15-minute balance after the release window',
+        ],
+        likelyPaths: [
+          'STRONGER: ' + (macroPrimary.strongerThanExpectedPath || 'home-currency/yields strengthen if confirmed.'),
+          'WEAKER: ' + (macroPrimary.weakerThanExpectedPath || 'home-currency/yields soften if confirmed.'),
+          'IN-LINE: ' + (macroPrimary.inLinePath || 'mean reversion unless guidance/components surprise.'),
+          'REVERSAL RISK: ' + (macroPrimary.reversalRisk || 'first move fades if live drivers do not confirm.'),
+        ],
+        confirmation: macroPrimary.confidenceBasis || 'First 5-min close + lead-market confirmation.',
+        cancellation: macroPrimary.reversalRisk || 'First 15-min close fails to follow through.',
+      }
+    : {
+        eventName,
+        eventTimeUTC,
+        severity,
+        severityDiscs,
+        volatilityWindow: _humanDuration(severity),
+        affectedSymbols: keyMarkets,
+        keyPriceZones: [
+          'EURUSD reaction band ≈ 1.0928',
+          'EURUSD downside liquidity ≈1.0880',
+          'EURUSD upside liquidity ≈1.0980',
+          'XAUUSD structural support ≈2380',
+          'XAUUSD structural resistance ≈2440',
+        ],
+        likelyPaths: [
+          'HIGHER surprise -> USD bid, EURUSD breaks 1.0928 lower, XAUUSD pressured, US500 defensive.',
+          'LOWER surprise -> USD offered, EURUSD breaks 1.0928 upper, XAUUSD rallies, US500 bid.',
+          'IN-LINE print -> reaction band intact, mean-reversion inside the next 15 min.',
+          'INITIAL-DIRECTION REVERSAL -> first 60-second move faded; 15-min close prints the real trend.',
+        ],
+        confirmation: 'First 5-min close + DXY / lead pair confirmation in agreement.',
+        cancellation: 'First 15-min close fails to follow through; geopolitical override hits the wire.',
+      };
+  const upcomingSource = Array.isArray(engine.next24To72Hours) && engine.next24To72Hours.length
+    ? engine.next24To72Hours
+    : (opts.upcomingEvents && Array.isArray(opts.upcomingEvents) ? opts.upcomingEvents : []);
+  const next24To72Hours = upcomingSource.map(e => ({
+    timeUTC:      e.timeUTC || e.time || e.scheduledTimeUTC || 'pending',
     currency:     e.currency || 'multi',
     title:        e.title || 'unnamed event',
     severity:     String(e.severity || 'MED').toUpperCase(),
@@ -684,7 +714,18 @@ function buildMarketIntelPacket(opts) {
   }
 
   // CHUNK 4 — affected markets expanded.
-  const affectedMarketsExpanded = _affectedMarketsExpandedFrom(keyMarkets);
+  const affectedMarketsExpanded = Array.isArray(engine.affectedMarketsExpanded) && engine.affectedMarketsExpanded.length
+    ? engine.affectedMarketsExpanded.map(m => ({
+        instrument: m.symbol || m.instrument || '—',
+        howAffected: m.transmissionMechanism || m.howAffected || 'Affected through macro transmission from the primary catalyst.',
+        strongerResult: m.strongerThanExpectedPath || m.strongerResult || 'Stronger-than-expected path pending.',
+        weakerResult: m.weakerThanExpectedPath || m.weakerResult || 'Weaker-than-expected path pending.',
+        confirmation: m.confirmationCondition || m.confirmation || 'Lead market confirmation required.',
+        invalidation: m.invalidationCondition || m.invalidation || 'Lead market invalidation required.',
+        keyPriceLevels: m.keyPriceLevels || 'Pre-event range; prior session high/low.',
+        riskNote: m.riskNote || 'Do not weight this market without confirmation.',
+      }))
+    : _affectedMarketsExpandedFrom(keyMarkets);
 
   // CHUNK 5 — price map.
   const priceMap = _priceMapFrom(keyMarkets, eventName);
@@ -754,8 +795,18 @@ function buildMarketIntelPacket(opts) {
         validAnalogues: cloneValidation.validAnalogues != null ? cloneValidation.validAnalogues : null,
         droppedAnalogues: cloneValidation.droppedAnalogues != null ? cloneValidation.droppedAnalogues : null,
         degradedReason: cloneValidation.degradedReason || null,
+        usableForDecision: cloneValidation.usableForDecision === true,
+        sampleSize: cloneValidation.sampleSize != null ? cloneValidation.sampleSize : null,
+        denominator: cloneValidation.denominator != null ? cloneValidation.denominator : null,
+        timestampWindows: cloneValidation.timestampWindows || null,
+        sourceBasis: cloneValidation.sourceBasis || null,
+        dominantOutcome: cloneValidation.dominantOutcome || null,
       }
     : { status: 'NOT_INVOKED', confidenceBasis: 'Corey Clone not invoked this tick', validAnalogues: null };
+
+  if (macroPacket) {
+    try { console.log('[FOH] macro_packet_rendered=true'); } catch (_e) { /* swallow */ }
+  }
 
   return {
     meta, header, briefingSummary, eventDayReference, fourWayOutcomes,
