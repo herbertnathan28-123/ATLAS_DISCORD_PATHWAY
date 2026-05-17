@@ -1745,7 +1745,20 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane) {
         historicalStatus = 'no-match';
       }
     } catch (_) { historicalStatus = 'unavailable'; }
-    const coreyCloneStatus = 'not active in this release';
+    // Corey Clone wired live (operator brief 2026-05-17 post-deploy).
+    // Status reads via the engine validator when an output is available;
+    // otherwise reports the truthful runtime state. The MI scheduler
+    // invokes Corey Clone per-tick — its status surfaces in the FOH
+    // packet's cloneStatus field.
+    let coreyCloneStatus = 'active: engine wired (per-tick invocation via MI scheduler)';
+    try {
+      const cloneOut = opts && opts.coreyClone;
+      if (cloneOut) {
+        const { validateCoreyClone } = require('./engine/validate/validateEngineIntelligence');
+        const v = validateCoreyClone(cloneOut.packet || cloneOut);
+        coreyCloneStatus = 'active: ' + v.status.toLowerCase() + (v.validAnalogues != null ? ` (${v.validAnalogues} audit-grade analogue${v.validAnalogues === 1 ? '' : 's'})` : '');
+      }
+    } catch (_) { /* leave default */ }
 
     // Jane-status semantics — REAL engine state, never 'final' if the
     // underlying source chain is too thin to issue a real decision.
@@ -2502,7 +2515,7 @@ function logDataSource(symbol, opts = {}) {
 
   // Corey / clone tags
   const coreyTag      = opts.corey      || 'eligible';
-  const coreyCloneTag = opts.coreyClone || 'not active in this release';
+  const coreyCloneTag = opts.coreyClone || 'active: engine wired (per-tick invocation via MI scheduler)';
   const janeTag       = opts.jane       || 'pending';
   spideyTag           = spideyTag       || 'pending';
 

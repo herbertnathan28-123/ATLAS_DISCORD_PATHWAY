@@ -63,6 +63,7 @@ const REQUIRED_ANCHORS = Object.freeze([
   // Operator brief 2026-05-17 (master order):
   'TODAYS_ANNOUNCEMENTS', 'PRIMARY_EVENT_FOCUS', 'NEXT_24_TO_72_HOURS',
   'AFFECTED_MARKETS_EXPANDED', 'PRICE_MAP', 'OPERATIONAL_NARRATIVE',
+  'HISTORICAL_ANALOGUE',
 ]);
 
 function _fmtTraderAction(ta) {
@@ -231,6 +232,42 @@ function _fmtOperationalNarrative(n) {
   ].join('\n');
 }
 
+// Corey Clone — historical analogue (operator post-deploy 2026-05-17).
+// Surfaces audit-grade analogues if available; honest degradation
+// (PARTIAL / BLOCKED / NOT_INVOKED) if not.
+function _fmtHistoricalReaction(hist, cloneStatus) {
+  const status = cloneStatus && cloneStatus.status ? cloneStatus.status : 'NOT_INVOKED';
+  if (!hist || !hist.available) {
+    return [
+      'Historical analogue — Corey Clone status: ' + status,
+      'Confidence basis: ' + (cloneStatus && cloneStatus.confidenceBasis || 'engine not invoked this tick'),
+      (status === 'BLOCKED' || status === 'NOT_INVOKED')
+        ? 'Inline read: ATLAS is operating without historical analogue support this cycle. Treat the macro + structure read as the operating constraint.'
+        : 'Inline read: historical analogue coverage degraded this cycle; weight the macro + structure read more heavily.',
+    ].join('\n');
+  }
+  const lines = [];
+  lines.push('Historical analogue — Corey Clone status: ' + status);
+  lines.push('Symbol: ' + (hist.symbol || '—'));
+  lines.push('Confidence basis: ' + (cloneStatus && cloneStatus.confidenceBasis || 'engine-derived'));
+  if (cloneStatus && cloneStatus.validAnalogues != null) lines.push('Audit-grade analogues: ' + cloneStatus.validAnalogues + (cloneStatus.droppedAnalogues ? ' · dropped ' + cloneStatus.droppedAnalogues : ''));
+  if (Array.isArray(hist.analogues) && hist.analogues.length) {
+    lines.push('Top analogues:');
+    for (const a of hist.analogues.slice(0, 3)) {
+      const label = (a.date || a.windowStartUTC || 'analogue') + (a.outcome || a.outcomeLabel ? ' → ' + (a.outcome || a.outcomeLabel) : '');
+      const sim = a.similarity != null ? ' (similarity ' + Number(a.similarity).toFixed(2) + ')' : '';
+      lines.push('  - ' + label + sim);
+    }
+  }
+  if (hist.baseRates) {
+    const rates = [];
+    for (const k of Object.keys(hist.baseRates)) rates.push(k + '=' + hist.baseRates[k]);
+    if (rates.length) lines.push('Base rates: ' + rates.join(' · '));
+  }
+  if (Array.isArray(hist.warningFlags) && hist.warningFlags.length) lines.push('Warning flags: ' + hist.warningFlags.join(' · '));
+  return lines.join('\n');
+}
+
 function _fmtProvenance(p) {
   if (!p) return 'Source: ATLAS runtime · freshness: LIVE · confidence: engine-derived';
   const srcs = Array.isArray(p.sources) ? p.sources.join(' · ') : (p.sources || '—');
@@ -306,6 +343,8 @@ function toViewModel(packet) {
     PRICE_MAP:                     _fmtPriceMap(packet.priceMap),
     // CHUNK 7 — event-day operational storytelling.
     OPERATIONAL_NARRATIVE:         _fmtOperationalNarrative(packet.operationalNarrative),
+    // Corey Clone — historical analogue (post-deploy 2026-05-17).
+    HISTORICAL_ANALOGUE:           _fmtHistoricalReaction(packet.historicalReaction, packet.cloneStatus),
   };
   return _scrubAll(anchors);
 }
