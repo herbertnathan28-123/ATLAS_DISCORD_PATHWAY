@@ -47,6 +47,14 @@ function partial(symbol, reason, extra) {
     timestamp: nowIso(),
     matcher_version:           versions.MATCHER_VERSION,
     outcome_classifier_version: versions.OUTCOME_CLASSIFIER_VERSION,
+    usableForDecision: false,
+    sampleSize: 0,
+    denominator: 0,
+    timestampWindows: null,
+    sourceBasis: 'Corey Clone historical cache',
+    confidenceBasis: 'Not decision-grade: ' + reason,
+    dominantOutcome: null,
+    degradedReason: reason,
   }, extra || {});
 }
 
@@ -59,6 +67,14 @@ function unavailable(symbol, reason, extra) {
     timestamp: nowIso(),
     matcher_version:           versions.MATCHER_VERSION,
     outcome_classifier_version: versions.OUTCOME_CLASSIFIER_VERSION,
+    usableForDecision: false,
+    sampleSize: 0,
+    denominator: 0,
+    timestampWindows: null,
+    sourceBasis: 'Corey Clone historical cache',
+    confidenceBasis: 'Not decision-grade: ' + reason,
+    dominantOutcome: null,
+    degradedReason: reason,
   }, extra || {});
 }
 
@@ -72,6 +88,12 @@ async function coreyCloneRun(symbol, opts) {
   opts = opts || {};
   const testMode = opts.testMode || process.env.ATLAS_TEST_MODE === '1';
   const timestamp = nowIso();
+  const macroIntelligencePacket = opts.macroIntelligencePacket || opts.coreyMacro || null;
+  if (macroIntelligencePacket) {
+    try {
+      console.log('[COREY-CLONE] macro_packet_received=true primary_event=' + ((macroIntelligencePacket.primaryEventFocus && macroIntelligencePacket.primaryEventFocus.title) || 'none'));
+    } catch (_e) { /* swallow */ }
+  }
 
   if (testMode) {
     return {
@@ -84,6 +106,14 @@ async function coreyCloneRun(symbol, opts) {
       timeframeRelevance: 'daily',
       symbol,
       timestamp,
+      usableForDecision: true,
+      sampleSize: 3,
+      denominator: 3,
+      timestampWindows: { startUTC: '2024-09-05T00:00:00.000Z', endUTC: '2024-09-05T00:00:00.000Z' },
+      sourceBasis: 'test-mode historical analogue short-circuit',
+      confidenceBasis: 'test-mode short-circuit; not production evidence',
+      dominantOutcome: 'follow_through',
+      degradedReason: null,
       _testModeShortCircuit: true,
       matcher_version:           versions.MATCHER_VERSION,
       outcome_classifier_version: versions.OUTCOME_CLASSIFIER_VERSION,
@@ -412,6 +442,17 @@ async function coreyCloneRun(symbol, opts) {
     limitations,
     warningFlags:               [],
     timeframeRelevance:         'daily',
+    usableForDecision:           finalAnalogues.length >= 3,
+    sampleSize:                  finalAnalogues.length,
+    denominator:                 match.denominator_pre_filter,
+    timestampWindows: {
+      startUTC: finalAnalogues.map(a => a.window_start_utc).filter(Boolean).sort()[0] || null,
+      endUTC:   finalAnalogues.map(a => a.window_end_utc).filter(Boolean).sort().slice(-1)[0] || null,
+    },
+    sourceBasis:                 'Corey Clone historical cache, audit-grade analogue cohort',
+    confidenceBasis:             'accepted=' + finalAnalogues.length + ' denominator=' + match.denominator_pre_filter + ' dominant=' + dominantLabel + ' p=' + p_max.toFixed(2),
+    dominantOutcome:             dominantLabel,
+    degradedReason:              finalAnalogues.length >= 3 ? null : 'accepted analogue sample below decision threshold',
     auditTrail: {
       sourceDataset: { identifier: 'historicalCache.jsonl', version: 'v1.0', lastUpdatedUtc: fetchedAt },
       cohortSampleSize:        finalAnalogues.length,

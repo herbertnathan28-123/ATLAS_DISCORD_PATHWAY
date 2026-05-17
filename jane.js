@@ -51,6 +51,17 @@ async function runJane(input, opts = {}) {
 
   // Authority gating — doctrine first
   const ss = Object.assign({}, input.sourceStatus || {});
+  const macroPacket = input.coreyMacro || (input.macro && input.macro.macroIntelligencePacket) || null;
+  const cloneDecisionGrade = input.coreyClone && (input.coreyClone.decisionGrade || input.coreyClone.validation || input.coreyClone);
+  const cloneHasExplicitUsability = !!(cloneDecisionGrade && Object.prototype.hasOwnProperty.call(cloneDecisionGrade, 'usableForDecision'));
+  const coreyCloneUsableForDecision = cloneHasExplicitUsability
+    ? cloneDecisionGrade.usableForDecision === true
+    : ss.coreyClone === 'ACTIVE';
+  try {
+    console.log('[JANE] macro_packet_received=' + (macroPacket ? 'true' : 'false'));
+    console.log('[JANE] corey_clone_received=' + (input.coreyClone ? 'true' : 'false'));
+    console.log('[JANE] spidey_status=' + (ss.spidey || (input.spidey && input.spidey.status) || 'UNKNOWN'));
+  } catch (_e) { /* swallow */ }
 
   // ── Phase D Jane trust rule (D.1.0.3 §JANE TRUST RULE) ──
   // If Corey Clone arrives ACTIVE, every analogue must validate against the
@@ -71,7 +82,7 @@ async function runJane(input, opts = {}) {
 
   const spideyActive = ss.spidey === 'ACTIVE';
   const coreyActive = ss.corey === 'ACTIVE';
-  const cloneActive = ss.coreyClone === 'ACTIVE';
+  const cloneActive = ss.coreyClone === 'ACTIVE' && coreyCloneUsableForDecision;
   const macroActive = ss.macro === 'ACTIVE';
 
   // ── Spidey Phase D structure-confidence gate ──
@@ -153,7 +164,7 @@ async function runJane(input, opts = {}) {
     setupQuality,
     reasonSummary: `Phase B foundation decision. Spidey=${ss.spidey}, Corey=${ss.corey}, Clone=${ss.coreyClone}, Macro=${ss.macro}. ${tradeViability}.`,
     structureSummary: input.spidey && input.spidey.evidence ? input.spidey.evidence : null,
-    macroSummary: input.macro && input.macro.evidence ? input.macro.evidence : null,
+    macroSummary: macroPacket || (input.macro && input.macro.evidence ? input.macro.evidence : null),
     coreyCloneSummary: input.coreyClone && (input.coreyClone.analogues || input.coreyClone.status) ? (input.coreyClone.analogues || input.coreyClone.status) : null,
     eventCatalystRisk: input.corey && input.corey.riskModifiers ? input.corey.riskModifiers : [],
     conflictSummary: coreyCloneTrustReason
@@ -164,6 +175,22 @@ async function runJane(input, opts = {}) {
     chartRefs: input.rendererArtefacts && input.rendererArtefacts.chartRefs ? input.rendererArtefacts.chartRefs : [],
     dashboardURL: null,
     astraSessionContextId: null,
+    macroAlignment: macroPacket ? (macroPacket.dominantMacroTheme || 'macro packet received') : 'macro packet unavailable',
+    historicalAlignment: coreyCloneUsableForDecision ? 'Corey Clone usableForDecision=true' : 'Corey Clone not decision-grade; Jane did not weight historical lane',
+    structureAlignment: spideyActive ? 'Spidey active' : 'Spidey not active; structure confirmation incomplete',
+    monitoringState: actionState,
+    confidenceBasis: [
+      macroPacket && macroPacket.confidenceBasis,
+      coreyCloneUsableForDecision ? 'historical lane decision-grade' : 'historical lane excluded',
+      spideyActive ? 'structure lane active' : 'structure lane incomplete',
+    ].filter(Boolean).join(' | '),
+    degradedReason: [
+      macroPacket ? null : 'macro packet unavailable',
+      coreyCloneUsableForDecision ? null : 'historical analogue evidence unavailable or not decision-grade',
+      spideyActive ? null : 'structure confirmation incomplete',
+    ].filter(Boolean).join('; ') || null,
+    whatWouldUpgrade: 'Corey Clone usableForDecision=true, Spidey ACTIVE with timestamped invalidation evidence, and macro transmission confirmed by DXY/VIX/yields.',
+    whatWouldDowngrade: 'Corey Clone PARTIAL/BLOCKED, Spidey PARTIAL/BLOCKED, stale macro sources, or live drivers contradicting the primary macro path.',
     _phase: 'B-foundation',
   };
 
@@ -172,6 +199,9 @@ async function runJane(input, opts = {}) {
   if (!v.valid) {
     throw new Error(`Jane produced invalid JaneDecisionPacket: ${v.errors.join('; ')}`);
   }
+  try {
+    console.log('[JANE] final_state=' + actionState);
+  } catch (_e) { /* swallow */ }
 
   return packet;
 }

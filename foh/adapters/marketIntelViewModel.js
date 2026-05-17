@@ -283,16 +283,25 @@ function _fmtHistoricalReaction(hist, cloneStatus) {
   if (!hist || !hist.available) {
     return [
       'Historical analogue — Corey Clone status: ' + status,
+      'Usable for decision: ' + (cloneStatus && cloneStatus.usableForDecision === true ? 'true' : 'false'),
+      cloneStatus && cloneStatus.sampleSize != null ? 'Sample size / denominator: ' + cloneStatus.sampleSize + ' / ' + (cloneStatus.denominator != null ? cloneStatus.denominator : '—') : null,
       'Confidence basis: ' + (cloneStatus && cloneStatus.confidenceBasis || 'engine not invoked this tick'),
+      cloneStatus && cloneStatus.degradedReason ? 'Degraded reason: ' + cloneStatus.degradedReason : null,
       (status === 'BLOCKED' || status === 'NOT_INVOKED')
         ? 'Inline read: ATLAS is operating without historical analogue support this cycle. Treat the macro + structure read as the operating constraint.'
         : 'Inline read: historical analogue coverage degraded this cycle; weight the macro + structure read more heavily.',
-    ].join('\n');
+    ].filter(Boolean).join('\n');
   }
   const lines = [];
   lines.push('Historical analogue — Corey Clone status: ' + status);
   lines.push('Symbol: ' + (hist.symbol || '—'));
   lines.push('Confidence basis: ' + (cloneStatus && cloneStatus.confidenceBasis || 'engine-derived'));
+  if (cloneStatus && cloneStatus.usableForDecision != null) lines.push('Usable for decision: ' + (cloneStatus.usableForDecision ? 'true' : 'false'));
+  if (cloneStatus && cloneStatus.sampleSize != null) lines.push('Sample size / denominator: ' + cloneStatus.sampleSize + ' / ' + (cloneStatus.denominator != null ? cloneStatus.denominator : '—'));
+  if (cloneStatus && cloneStatus.timestampWindows) lines.push('Timestamp window: ' + (cloneStatus.timestampWindows.startUTC || '—') + ' -> ' + (cloneStatus.timestampWindows.endUTC || '—'));
+  if (cloneStatus && cloneStatus.sourceBasis) lines.push('Source basis: ' + cloneStatus.sourceBasis);
+  if (cloneStatus && cloneStatus.dominantOutcome) lines.push('Dominant outcome: ' + cloneStatus.dominantOutcome);
+  if (cloneStatus && cloneStatus.degradedReason) lines.push('Degraded reason: ' + cloneStatus.degradedReason);
   if (cloneStatus && cloneStatus.validAnalogues != null) lines.push('Audit-grade analogues: ' + cloneStatus.validAnalogues + (cloneStatus.droppedAnalogues ? ' · dropped ' + cloneStatus.droppedAnalogues : ''));
   if (Array.isArray(hist.analogues) && hist.analogues.length) {
     lines.push('Top analogues:');

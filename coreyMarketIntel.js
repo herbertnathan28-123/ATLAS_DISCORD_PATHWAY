@@ -28,6 +28,7 @@
 
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl'); // reuse banned-phrase sanitiser
+const { interpretCalendarEvents, logMacroIntelligencePacket } = require('./macro/interpretCalendarEvents');
 
 // ── ENUMS ────────────────────────────────────────────────────
 const RELEVANCE = { HIGH: 'High', MODERATE: 'Moderate', LOW: 'Low' };
@@ -104,6 +105,192 @@ let _lastDailyBulletinUtcDay = null;     // 'YYYY-MM-DD'
 function ts() { return new Date().toISOString(); }
 function log(line)  { console.log(`[${ts()}] ${line}`); }
 function logErr(line){ console.error(`[${ts()}] ${line}`); }
+
+// ============================================================
+// LIVE MACRO INTELLIGENCE PACKET
+// ============================================================
+function _sourceAvailability() {
+  let fmpData = { enabled: false, available: false, reason: 'FMP adapter not loaded' };
+  let eodhdData = { enabled: false, available: false, reason: 'EODHD adapter not loaded' };
+  try {
+    const fmp = require('./macro/fmpAdapter');
+    const enabled = !!(fmp && fmp.isEnabled && fmp.isEnabled());
+    fmpData = { enabled, available: enabled, source: 'fmp' };
+  } catch (e) {
+    fmpData = { enabled: false, available: false, reason: 'FMP adapter error: ' + e.message };
+  }
+  try {
+    const eodhd = require('./eodhdAdapter');
+    const enabled = !!(eodhd && eodhd.isEnabled && eodhd.isEnabled());
+    eodhdData = { enabled, available: enabled, source: 'eodhd' };
+  } catch (e) {
+    eodhdData = { enabled: false, available: false, reason: 'EODHD adapter error: ' + e.message };
+  }
+  return { fmpData, eodhdData };
+}
+
+function _buildMacroIntelligencePacket(snapshot, liveCtx, now, opts) {
+  const health = (snapshot && snapshot.health) || { available: false, calendar_mode: 'UNAVAILABLE', source_used: null };
+  const events = (snapshot && snapshot.events) || [];
+  const src = _sourceAvailability();
+  const packet = interpretCalendarEvents({
+    events,
+    health,
+    coreyState: liveCtx,
+    fmpData: src.fmpData,
+    eodhdData: src.eodhdData,
+    now: now || Date.now(),
+  });
+  if (!opts || opts.log !== false) {
+    logMacroIntelligencePacket(packet, line => log(line));
+  }
+  return packet;
+}
+
+function _macroPayloadSeverity(label) {
+  const v = String(label || '').toUpperCase();
+  if (v === 'EXTREME') return 'STORM';
+  if (v === 'ELEVATED') return 'ELEV';
+  if (v === 'ACTIVE') return 'MED';
+  return 'LOW';
+}
+
+function _macroDiscs(riskState) {
+  const score = riskState && Number.isFinite(riskState.scoreOutOf5) ? Math.round(riskState.scoreOutOf5) : 2;
+  const active = riskState && riskState.label === 'EXTREME' ? '🔴'
+    : riskState && riskState.label === 'ELEVATED' ? '🟠'
+    : riskState && riskState.label === 'ACTIVE' ? '🟡'
+    : '🔵';
+  return active.repeat(Math.max(1, score)) + '⚫'.repeat(Math.max(0, 5 - Math.max(1, score)));
+}
+
+function _transmissionSummary(packet) {
+  const paths = packet && Array.isArray(packet.macroTransmissionMap) ? packet.macroTransmissionMap : [];
+  if (!paths.length) return 'No transmission path available; read live DXY/VIX/yields before weighting the calendar.';
+  return paths.slice(0, 2).map(p =>
+    p.driver + ' -> ' + p.firstOrderEffect + ' -> ' + p.secondOrderEffect +
+    ' Confirms if: ' + p.whatStrengthensThis + ' Weakens if: ' + p.whatWeakensThis
+  ).join('\n');
+}
+
+function _macroEventClustersForPayload(packet) {
+  return (packet && Array.isArray(packet.eventClusters) ? packet.eventClusters : []).map(c => ({
+    currency: c.currency,
+    session: c.session,
+    severity: c.clusterImpact,
+    clusterImpact: c.clusterImpact,
+    events: (c.events || []).map(e => ({
+      title: e.title,
+      currency: e.currency || c.currency,
+      eventType: e.eventType,
+      time: e.timeUTC || e.time || 'pending',
+      timeUTC: e.timeUTC || e.time || 'pending',
+      scheduledTimeUTC: e.scheduledTimeUTC,
+      severity: e.severity || c.clusterImpact,
+      whyMatters: e.whyMatters,
+      affectedInstruments: e.affectedInstruments || c.affectedMarkets,
+    })),
+  }));
+}
+
+function _applyMacroPacketToImagePayload(base, macroPacket) {
+  if (!base || !macroPacket) return base;
+  const primary = macroPacket.primaryEventFocus || {};
+  const risk = macroPacket.riskState || {};
+  const symbols = (macroPacket.affectedMarketsExpanded || []).map(m => m.symbol);
+  base.macroIntelligencePacket = macroPacket;
+  base.eventClusters = _macroEventClustersForPayload(macroPacket);
+  base.affectedMarkets = { symbols, expanded: macroPacket.affectedMarketsExpanded || [] };
+  base.affectedMarketsExpanded = macroPacket.affectedMarketsExpanded || [];
+  base.primaryEventFocus = primary;
+  base.next24To72Hours = macroPacket.next72Hours || [];
+  base.todaysAnnouncements = macroPacket.todayAnnouncements || [];
+  base.macroTransmissionMap = macroPacket.macroTransmissionMap || [];
+  base.currentRisk = (risk.label || 'UNKNOWN') + ' ' + (risk.scoreOutOf5 || '?') + '/5 — ' + (risk.whyThisRating || 'risk basis unavailable');
+  base.whyThisMatters = primary.whyPrimary || base.whyThisMatters;
+  base.marketImpact = _transmissionSummary(macroPacket);
+  base.whatToWatch = primary.volatilityWindow || base.nextWatch || base.whatToWatch;
+  base.nextWatch = primary.volatilityWindow || base.nextWatch;
+  base.briefingSummary =
+    (macroPacket.dominantMacroTheme || 'Macro theme pending') +
+    '. Primary focus: ' + (primary.title || 'none') +
+    '. Risk state: ' + (risk.label || 'UNKNOWN') +
+    ' because ' + (risk.whyThisRating || 'risk basis unavailable') + '.';
+  base.confirmationPath = { narrative: (primary.confidenceBasis || 'Macro confirmation pending') + ' Confirmation condition: ' + ((macroPacket.affectedMarketsExpanded && macroPacket.affectedMarketsExpanded[0] && macroPacket.affectedMarketsExpanded[0].confirmationCondition) || 'DXY/yields/VIX must confirm after the first 15-minute close.') };
+  base.cancellationPath = { narrative: (primary.reversalRisk || 'Reversal risk unavailable') + ' Invalidation: ' + ((macroPacket.affectedMarketsExpanded && macroPacket.affectedMarketsExpanded[0] && macroPacket.affectedMarketsExpanded[0].invalidationCondition) || 'first move fades back inside the pre-event range.') };
+  base.mood = Object.assign({}, base.mood || {}, {
+    severity: _macroPayloadSeverity(risk.label),
+    discs: _macroDiscs(risk),
+    label: (risk.label || 'UNKNOWN') + ' — ' + (risk.whyThisRating || 'macro interpreter risk state'),
+  });
+  base.sourceNote = Object.assign({}, base.sourceNote || {}, {
+    source: Array.isArray(macroPacket.sourceUsed) ? macroPacket.sourceUsed.join('+') : 'macro_interpreter',
+    mode: macroPacket.dataFreshness && macroPacket.dataFreshness.calendar && macroPacket.dataFreshness.calendar.mode,
+    probabilityBasis: macroPacket.confidenceBasis,
+  });
+  return base;
+}
+
+function _spideyStatusLabel(spideyRes) {
+  const p = spideyRes && (spideyRes.packet || spideyRes);
+  const status = p && p.status ? String(p.status).toUpperCase() : 'BLOCKED';
+  if (status === 'ACTIVE' || status === 'OK') return 'ACTIVE';
+  if (status === 'PARTIAL') return 'PARTIAL';
+  return 'BLOCKED';
+}
+
+function _cloneDecisionGrade(cloneRes) {
+  if (!cloneRes) return { status: 'BLOCKED', usableForDecision: false, degradedReason: 'Corey Clone not invoked' };
+  if (cloneRes.decisionGrade) return cloneRes.decisionGrade;
+  const validation = cloneRes.validation || {};
+  return {
+    status: validation.status || 'PARTIAL',
+    usableForDecision: validation.usableForDecision === true,
+    sampleSize: validation.sampleSize != null ? validation.sampleSize : validation.validAnalogues,
+    denominator: validation.denominator,
+    confidenceBasis: validation.confidenceBasis,
+    degradedReason: validation.degradedReason,
+  };
+}
+
+function _buildJaneSynthesis(macroPacket, cloneRes, spideyRes) {
+  const clone = _cloneDecisionGrade(cloneRes);
+  const spideyStatus = _spideyStatusLabel(spideyRes);
+  const macroRisk = macroPacket && macroPacket.riskState ? macroPacket.riskState.label : 'UNKNOWN';
+  const degraded = [];
+  if (!macroPacket) degraded.push('macro packet unavailable');
+  if (!clone.usableForDecision) degraded.push('historical analogue evidence unavailable or not decision-grade');
+  if (spideyStatus !== 'ACTIVE') degraded.push('structure confirmation incomplete');
+  const finalState = (macroRisk === 'EXTREME' || macroRisk === 'ELEVATED' || spideyStatus !== 'ACTIVE' || !clone.usableForDecision)
+    ? 'MONITORING'
+    : 'ACTIVE_MONITORING';
+  return {
+    janeInput: {
+      coreyMacro: macroPacket,
+      coreyClone: clone,
+      spideyStructure: spideyRes && (spideyRes.packet || spideyRes),
+      engineStatusSummary: {
+        macro: macroPacket ? 'OK' : 'BLOCKED',
+        coreyClone: clone.status,
+        spidey: spideyStatus,
+      },
+    },
+    macroAlignment: macroPacket ? (macroPacket.dominantMacroTheme || 'macro theme available') : 'macro unavailable',
+    historicalAlignment: clone.usableForDecision ? ('decision-grade historical analogue: ' + (clone.dominantOutcome || 'mixed')) : 'historical analogue evidence unavailable or not decision-grade',
+    structureAlignment: spideyStatus === 'ACTIVE' ? 'structure packet active' : 'structure confirmation incomplete; execution validity unsupported',
+    conflictNotes: degraded,
+    actionState: finalState,
+    monitoringState: finalState,
+    confidenceBasis: [
+      macroPacket && macroPacket.confidenceBasis,
+      clone.confidenceBasis,
+      spideyStatus === 'ACTIVE' ? 'Spidey active' : 'Spidey ' + spideyStatus,
+    ].filter(Boolean).join(' | '),
+    degradedReason: degraded.length ? degraded.join('; ') : null,
+    whatWouldUpgrade: 'Corey Clone usableForDecision=true, Spidey ACTIVE with LTF confirmation, and macro drivers confirming the primary path.',
+    whatWouldDowngrade: 'Stale sources, Corey Clone PARTIAL/BLOCKED, Spidey PARTIAL/BLOCKED, or DXY/VIX/yields contradicting the primary path.',
+  };
+}
 
 // ============================================================
 // ANALYSIS PRIMITIVES (per-event)
@@ -985,7 +1172,7 @@ function fohSurpriseLine(rawEvent) {
 //     the structure-vocabulary anchors (Confirmed close /
 //     Structure break) for cross-doctrine continuity.
 function fohGlossaryChip() {
-  return '📘 *Glossary · Dovish · Hawkish · Yield curve · Risk-off · Liquidity sweep*';
+  return '📘 [[Glossary]] · Dovish · Hawkish · Yield curve · Risk-off · Liquidity sweep';
 }
 
 // ── Historical reaction context (operator brief 2026-05-16) ─────
@@ -1192,7 +1379,7 @@ function _buildMarketIntelImagePayload(rawEvent, a, opts) {
   const confirms = fohWhatConfirms(rawEvent);
   const cancels  = fohWhatCancels(rawEvent);
 
-  return {
+  const payload = {
     kind: isReleased ? 'released' : 'pre_event',
     headline: {
       title:     humanizeTitle(a.title),
@@ -1216,11 +1403,12 @@ function _buildMarketIntelImagePayload(rawEvent, a, opts) {
     sourceNote:  { source: calSrc, mode: calMode, probabilityBasis },
     briefingSummary: stage + ' alert · ' + humanizeTitle(a.title) + ' · ' + (a.currency || 'multi-ccy') + '. Bias remains conditional until price confirms through structure.',
   };
+  return _applyMacroPacketToImagePayload(payload, opts && opts.macroIntelligencePacket);
 }
 
 // Build the daily-bulletin image payload from a calendar
 // snapshot + geo context. Currency-grouped event clusters.
-function _buildDailyBulletinImagePayload(snapshot, geoCtx, now) {
+function _buildDailyBulletinImagePayload(snapshot, geoCtx, now, macroIntelligencePacket) {
   const NOW = now || Date.now();
   const events = (snapshot && snapshot.events) || [];
   const health = (snapshot && snapshot.health) || { calendar_mode: 'UNAVAILABLE', source_used: 'unavailable' };
@@ -1253,9 +1441,12 @@ function _buildDailyBulletinImagePayload(snapshot, geoCtx, now) {
   // Affected symbols + cross-asset narrative.
   const affected = new Set();
   for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
+  if (macroIntelligencePacket && Array.isArray(macroIntelligencePacket.affectedMarketsExpanded)) {
+    macroIntelligencePacket.affectedMarketsExpanded.forEach(m => { if (m && m.symbol) affected.add(m.symbol); });
+  }
   const buckets = bucketAffected([...affected]);
 
-  return {
+  const payload = {
     kind: 'daily',
     headline: {
       title:     'Daily Roadmap',
@@ -1284,6 +1475,7 @@ function _buildDailyBulletinImagePayload(snapshot, geoCtx, now) {
       ? (eventRisk + ' scheduled event risk · ' + highToday.length + ' high-impact catalyst' + (highToday.length === 1 ? '' : 's') + '.')
       : 'Calm session · no scheduled high-impact catalyst.',
   };
+  return _applyMacroPacketToImagePayload(payload, macroIntelligencePacket);
 }
 
 // ============================================================
@@ -1361,6 +1553,17 @@ function buildPreEventAlertPayload(rawEvent, minutesOut, opts) {
   const histLine = fohHistoricalContext(opts && opts.history);
   if (histLine) {
     lines.push(histLine);
+    lines.push('');
+  }
+  if (opts && opts.macroIntelligencePacket) {
+    const mp = opts.macroIntelligencePacket;
+    const p = mp.primaryEventFocus || {};
+    const r = mp.riskState || {};
+    lines.push(fohSection('COREY MACRO INTERPRETATION', '🧠'));
+    lines.push('');
+    lines.push('Primary: ' + (p.title || cleanTitle) + ' — ' + (p.whyPrimary || 'macro interpreter selected this as the live focus.'));
+    lines.push('Risk: ' + (r.label || 'UNKNOWN') + ' ' + (r.scoreOutOf5 || '?') + '/5 — ' + (r.whyThisRating || 'risk basis unavailable.'));
+    lines.push('Transmission: ' + _transmissionSummary(mp).split('\n')[0]);
     lines.push('');
   }
   lines.push(fohSection('SOURCE NOTE', '📚', 'cyan'));
@@ -1443,6 +1646,17 @@ function buildReleasedEventAlertPayload(rawEvent, opts) {
     lines.push(histLineReleased);
     lines.push('');
   }
+  if (opts && opts.macroIntelligencePacket) {
+    const mp = opts.macroIntelligencePacket;
+    const p = mp.primaryEventFocus || {};
+    const r = mp.riskState || {};
+    lines.push(fohSection('COREY MACRO INTERPRETATION', '🧠'));
+    lines.push('');
+    lines.push('Primary: ' + (p.title || cleanTitle) + ' — ' + (p.whyPrimary || 'macro interpreter selected this as the live focus.'));
+    lines.push('Risk: ' + (r.label || 'UNKNOWN') + ' ' + (r.scoreOutOf5 || '?') + '/5 — ' + (r.whyThisRating || 'risk basis unavailable.'));
+    lines.push('Transmission: ' + _transmissionSummary(mp).split('\n')[0]);
+    lines.push('');
+  }
   lines.push(fohSection('SOURCE NOTE', '📚', 'cyan'));
   lines.push('');
   lines.push(sourceNote);
@@ -1490,8 +1704,10 @@ function nextMajor(eventsToday, eventsTomorrow, now) {
 // keeps every doctrine field but compresses repeated prose
 // into labelled rows.
 // ============================================================
-function buildDailyBulletinPayload(snapshot, geoCtx, now) {
+function buildDailyBulletinPayload(snapshot, geoCtx, now, opts) {
+  opts = opts || {};
   const NOW = now || Date.now();
+  const macroIntelligencePacket = opts.macroIntelligencePacket || null;
   const events = (snapshot && snapshot.events) || [];
   const health = (snapshot && snapshot.health) || { available: false };
   const dayStart = new Date(NOW); dayStart.setUTCHours(0,0,0,0);
@@ -1513,6 +1729,9 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   // Affected symbols across today's high-impact set
   const affected = new Set();
   for (const e of highToday) affectedSymbols(e).forEach(s => affected.add(s));
+  if (macroIntelligencePacket && Array.isArray(macroIntelligencePacket.affectedMarketsExpanded)) {
+    macroIntelligencePacket.affectedMarketsExpanded.forEach(m => { if (m && m.symbol) affected.add(m.symbol); });
+  }
   const buckets = bucketAffected([...affected]);
 
   // Chronological catalysts (high-impact then high-interest)
@@ -1654,6 +1873,20 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   lines.push('');
   lines.push(briefingSummary);
   lines.push('');
+  if (macroIntelligencePacket) {
+    const p = macroIntelligencePacket.primaryEventFocus || {};
+    const r = macroIntelligencePacket.riskState || {};
+    const mkts = (macroIntelligencePacket.affectedMarketsExpanded || []).slice(0, 6)
+      .map(m => m.symbol + ' via ' + m.transmissionMechanism)
+      .join(' | ');
+    lines.push(fohSection('COREY MACRO INTERPRETATION', '🧠'));
+    lines.push('');
+    lines.push('Primary: ' + (p.title || 'none') + ' — ' + (p.whyPrimary || 'driver-led macro read.'));
+    lines.push('Risk: ' + (r.label || 'UNKNOWN') + ' ' + (r.scoreOutOf5 || '?') + '/5 — ' + (r.whyThisRating || 'risk basis unavailable.'));
+    lines.push('Affected: ' + (mkts || 'No affected-market mapping available.'));
+    lines.push('Transmission: ' + _transmissionSummary(macroIntelligencePacket).split('\n')[0]);
+    lines.push('');
+  }
 
   // ── SOURCE NOTE ──
   lines.push(fohSection('SOURCE NOTE', '📚', 'cyan'));
@@ -1666,12 +1899,13 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now) {
   lines.push('');
   lines.push(FOH_BIAS_DISCLAIMER);
 
-  const imagePayload = _buildDailyBulletinImagePayload(snapshot, geoCtx, NOW);
+  const imagePayload = _buildDailyBulletinImagePayload(snapshot, geoCtx, NOW, macroIntelligencePacket);
   const fohPacket = _miBuildDailyFohPacket(snapshot, geoCtx, NOW, _miInferMiMode(NOW));
   return {
     content: lines.join('\n'),
     imagePayload,
     fohPacket,
+    macroIntelligencePacket,
     counts: {
       highImpactTodayCount: highToday.length,
       highInterestTodayCount: highInterestToday.length,
@@ -1768,9 +2002,13 @@ function getCoreyMarketIntelContext() {
     .filter(e => e.actual != null && e.actual !== '' && e.scheduled_time <= NOW)
     .sort((a, b) => b.scheduled_time - a.scheduled_time)[0] || null;
   const geoCtx = inferGeopoliticalContext(liveCtx);
+  const macroIntelligencePacket = _buildMacroIntelligencePacket(snapshot, liveCtx, NOW, { log: false });
 
   const affectedSet = new Set();
   highImpactToday.forEach(e => affectedSymbols(e).forEach(s => affectedSet.add(s)));
+  if (macroIntelligencePacket && Array.isArray(macroIntelligencePacket.affectedMarketsExpanded)) {
+    macroIntelligencePacket.affectedMarketsExpanded.forEach(m => { if (m && m.symbol) affectedSet.add(m.symbol); });
+  }
 
   const eventRisk = classifyEventRisk(highImpactToday.length, geoCtx.level);
 
@@ -1787,8 +2025,8 @@ function getCoreyMarketIntelContext() {
     calendarSource:          health.source_used  || 'unavailable',
     highImpactTodayCount:    highImpactToday.length,
     highInterestTodayCount:  highInterestToday.length,
-    nextMajorEvent:          nextMajorEvent ? nextMajorEvent.title : null,
-    nextMajorEventTime:      nextMajorEvent ? nextMajorEvent.scheduled_time : null,
+    nextMajorEvent:          macroIntelligencePacket && macroIntelligencePacket.primaryEventFocus ? macroIntelligencePacket.primaryEventFocus.title : (nextMajorEvent ? nextMajorEvent.title : null),
+    nextMajorEventTime:      macroIntelligencePacket && macroIntelligencePacket.primaryEventFocus ? macroIntelligencePacket.primaryEventFocus.timeUTC : (nextMajorEvent ? nextMajorEvent.scheduled_time : null),
     next24hCount:            next24.length,
     latestRelease:           latestRelease ? { title: latestRelease.title, actual: latestRelease.actual, forecast: latestRelease.forecast, scheduled_time: latestRelease.scheduled_time } : null,
     eventRisk,
@@ -1800,6 +2038,8 @@ function getCoreyMarketIntelContext() {
     mechanism,
     traderNote:              TRADER_NOTE_DEFAULT,
     sourceStatus:            health.available ? 'live' : 'unavailable',
+    macroIntelligencePacket,
+    macroInterpreterDegradedReason: macroIntelligencePacket && macroIntelligencePacket.degradedReason,
   };
 }
 
@@ -2003,6 +2243,12 @@ async function dispatch(messageType, payloadObj, extra) {
   if (extra.expected_bias)             log(`[COREY-MARKET-INTEL] expected_bias=${extra.expected_bias}`);
   if (extra.confidence)                log(`[COREY-MARKET-INTEL] confidence=${extra.confidence}`);
   log(`[COREY-MARKET-INTEL] webhook_config=${webhookConfig}`);
+  if (payloadObj && payloadObj.macroIntelligencePacket) {
+    log(`[JANE] macro_packet_received=true`);
+    log(`[JANE] corey_clone_received=${payloadObj.coreyClone ? 'true' : 'false'}`);
+    log(`[JANE] spidey_status=${_spideyStatusLabel(payloadObj.spidey)}`);
+    log(`[JANE] final_state=${payloadObj.janeSynthesis && payloadObj.janeSynthesis.actionState ? payloadObj.janeSynthesis.actionState : 'UNKNOWN'}`);
+  }
 
   if (webhookConfig === 'missing') {
     log(`[COREY-MARKET-INTEL] send_result=skipped`);
@@ -2034,6 +2280,7 @@ async function dispatch(messageType, payloadObj, extra) {
       // prototype-shell renderer for surgical adapter substitution.
       const engineInput = payloadObj.imagePayload || payloadObj.fohPacket;
       const legacyPacket = payloadObj.fohPacket || payloadObj.imagePayload;
+      if (engineInput && payloadObj.janeSynthesis) engineInput.janeSynthesis = payloadObj.janeSynthesis;
       const fixedRes = await sendMarketIntelFoh({
         engine: engineInput,
         legacyPacket,
@@ -2177,7 +2424,38 @@ async function _fetchSpidey(featuredEvent) {
 // Per-tick Corey Clone fetch. Returns { packet, validation, leadSymbol }
 // or null when the engine is unavailable. NEVER throws — safe-fail so
 // MI dispatch is not blocked by Corey Clone failure.
-async function _fetchCoreyClone(featuredEvent) {
+function _summariseCoreyCloneDecision(packet, validation, macroPacket) {
+  const analogues = packet && Array.isArray(packet.analogues) ? packet.analogues : [];
+  const denominator = packet && (packet.denominator_pre_filter != null ? packet.denominator_pre_filter
+    : packet.accepted_analogue_count != null ? packet.accepted_analogue_count
+    : analogues.length);
+  const sampleSize = validation && validation.validAnalogues != null ? validation.validAnalogues : analogues.length;
+  const statusRaw = validation && validation.status ? validation.status : (packet && packet.status) || 'PARTIAL';
+  const status = statusRaw === 'OK' ? 'OK' : statusRaw === 'ACTIVE' ? 'OK' : statusRaw === 'BLOCKED' ? 'BLOCKED' : 'PARTIAL';
+  const usableForDecision = status === 'OK' && sampleSize >= 3 && !((validation && validation.degradedReason) || (packet && packet.reason));
+  const windows = analogues.map(a => a.window_start_utc || a.windowStartUTC || a.date || a.timestamp).filter(Boolean).sort();
+  const outcomeCounts = {};
+  for (const a of analogues) {
+    const o = a.outcome || a.outcome_label || a.outcomeLabel || 'unknown';
+    outcomeCounts[o] = (outcomeCounts[o] || 0) + 1;
+  }
+  const dominantOutcome = Object.keys(outcomeCounts).sort((a, b) => outcomeCounts[b] - outcomeCounts[a])[0] || null;
+  return {
+    status,
+    usableForDecision,
+    sampleSize,
+    denominator,
+    timestampWindows: windows.length ? { startUTC: windows[0], endUTC: windows[windows.length - 1] } : null,
+    sourceBasis: 'Corey Clone historical cache for ' + ((packet && packet.symbol) || 'lead symbol') + (macroPacket && macroPacket.primaryEventFocus ? ' conditioned on macro focus: ' + macroPacket.primaryEventFocus.title : ''),
+    confidenceBasis: usableForDecision
+      ? 'Decision-grade: validation OK with sample size ' + sampleSize + ' / denominator ' + denominator
+      : 'Not decision-grade: ' + ((validation && validation.degradedReason) || (packet && packet.reason) || ('sample size ' + sampleSize + ' below decision threshold')),
+    dominantOutcome: usableForDecision ? dominantOutcome : null,
+    degradedReason: usableForDecision ? null : ((validation && validation.degradedReason) || (packet && packet.reason) || 'insufficient decision-grade analogues'),
+  };
+}
+
+async function _fetchCoreyClone(featuredEvent, macroIntelligencePacket) {
   const fn = _coreyCloneLazy();
   if (!fn) {
     log(`[COREY-CLONE] tick=skipped reason=engine_unavailable`);
@@ -2185,13 +2463,16 @@ async function _fetchCoreyClone(featuredEvent) {
   }
   const leadSymbol = _leadSymbolForCcy(featuredEvent && featuredEvent.currency);
   try {
-    const packet = await fn(leadSymbol, {});
+    const packet = await fn(leadSymbol, { macroIntelligencePacket });
     const validateFn = _validateCoreyCloneLazy();
     const validation = (validateFn && typeof validateFn === 'function')
       ? validateFn(packet)
       : { status: 'OK', validAnalogues: (packet && Array.isArray(packet.analogues)) ? packet.analogues.length : 0 };
+    const decisionGrade = _summariseCoreyCloneDecision(packet, validation, macroIntelligencePacket);
+    const enrichedValidation = Object.assign({}, validation, decisionGrade);
     log(`[COREY-CLONE] tick=ok symbol=${leadSymbol} status=${validation.status} analogues=${validation.validAnalogues != null ? validation.validAnalogues : 'n/a'}${validation.degradedReason ? ` degraded=${validation.degradedReason}` : ''}`);
-    return { packet, validation, leadSymbol };
+    log(`[COREY-CLONE] status=${decisionGrade.status} usableForDecision=${decisionGrade.usableForDecision}`);
+    return { packet, validation: enrichedValidation, decisionGrade, leadSymbol };
   } catch (e) {
     log(`[COREY-CLONE] tick=fail symbol=${leadSymbol} error=${e.message}`);
     return null;
@@ -2217,20 +2498,22 @@ async function tick(NOW) {
   log(`[COREY-MARKET-INTEL] source_used=${health.source_used || 'unavailable'}`);
 
   const geoCtx = inferGeopoliticalContext(liveCtx);
+  const macroIntelligencePacket = _buildMacroIntelligencePacket(snapshot, liveCtx, NOW);
 
   // 1. DAILY BULLETIN — once per UTC day, at or after DAILY_BULLETIN_UTC_HOUR
   const todayKey = utcDayKey(NOW);
   const utcHour  = new Date(NOW).getUTCHours();
   if (_lastDailyBulletinUtcDay !== todayKey && utcHour >= DAILY_BULLETIN_UTC_HOUR) {
-    const bulletin = buildDailyBulletinPayload(snapshot, geoCtx, NOW);
-    const featuredForClone = (bulletin.nextMajorEvent || (events.find(e => deriveRelevance(e) === RELEVANCE.HIGH) || null));
-    const cloneRes = await _fetchCoreyClone(featuredForClone);
+    const bulletin = buildDailyBulletinPayload(snapshot, geoCtx, NOW, { macroIntelligencePacket });
+    const featuredForClone = (bulletin.nextMajorEvent || (macroIntelligencePacket && macroIntelligencePacket.primaryEventFocus) || (events.find(e => deriveRelevance(e) === RELEVANCE.HIGH) || null));
+    const cloneRes = await _fetchCoreyClone(featuredForClone, macroIntelligencePacket);
     const spideyRes = await _fetchSpidey(featuredForClone);
-    await dispatch('daily', { content: bulletin.content, imagePayload: bulletin.imagePayload, fohPacket: bulletin.fohPacket, coreyClone: cloneRes, spidey: spideyRes }, {
+    const janeSynthesis = _buildJaneSynthesis(macroIntelligencePacket, cloneRes, spideyRes);
+    await dispatch('daily', { content: bulletin.content, imagePayload: bulletin.imagePayload, fohPacket: bulletin.fohPacket, coreyClone: cloneRes, spidey: spideyRes, macroIntelligencePacket, janeSynthesis }, {
       event: 'daily_bulletin',
       affected_symbols: bulletin.affectedSymbols,
       high_impact_today: bulletin.counts.highImpactTodayCount,
-      next_major_event: bulletin.nextMajorEvent ? bulletin.nextMajorEvent.title : 'none',
+      next_major_event: macroIntelligencePacket && macroIntelligencePacket.primaryEventFocus ? macroIntelligencePacket.primaryEventFocus.title : (bulletin.nextMajorEvent ? bulletin.nextMajorEvent.title : 'none'),
       next_24h_count: bulletin.counts.next24hCount,
       expected_bias: 'mixed_conditional',
       confidence: CONFIDENCE.MODERATE,
@@ -2254,11 +2537,12 @@ async function tick(NOW) {
       if (Math.abs(minsOut - win) <= half) {
         const key = `${e.id || e.title || ''}:${e.scheduled_time}:T-${win}`;
         if (_alertsSent.has(key)) continue;
-        const payload = buildPreEventAlertPayload(e, win, { health, geoLevel: geoCtx.level });
+        const payload = buildPreEventAlertPayload(e, win, { health, geoLevel: geoCtx.level, macroIntelligencePacket });
         const a = analyseEvent(e);
-        const cloneRes = await _fetchCoreyClone(e);
+        const cloneRes = await _fetchCoreyClone(e, macroIntelligencePacket);
         const spideyRes = await _fetchSpidey(e);
-        await dispatch('pre_event', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket, coreyClone: cloneRes, spidey: spideyRes }, {
+        const janeSynthesis = _buildJaneSynthesis(macroIntelligencePacket, cloneRes, spideyRes);
+        await dispatch('pre_event', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket, coreyClone: cloneRes, spidey: spideyRes, macroIntelligencePacket, janeSynthesis }, {
           event: e.title || 'pre_event',
           affected_symbols: a.affected,
           expected_bias: a.bias.label.split(':')[0],
@@ -2280,11 +2564,12 @@ async function tick(NOW) {
   for (const e of justReleased) {
     const key = `${e.id || e.title || ''}:${e.scheduled_time}`;
     if (_releaseAlertsSent.has(key)) continue;
-    const payload = buildReleasedEventAlertPayload(e, { health, geoLevel: geoCtx.level });
+    const payload = buildReleasedEventAlertPayload(e, { health, geoLevel: geoCtx.level, macroIntelligencePacket });
     const a = analyseEvent(e);
-    const cloneRes = await _fetchCoreyClone(e);
+    const cloneRes = await _fetchCoreyClone(e, macroIntelligencePacket);
     const spideyRes = await _fetchSpidey(e);
-    await dispatch('release', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket, coreyClone: cloneRes, spidey: spideyRes }, {
+    const janeSynthesis = _buildJaneSynthesis(macroIntelligencePacket, cloneRes, spideyRes);
+    await dispatch('release', { content: payload.content, imagePayload: payload.imagePayload, fohPacket: payload.fohPacket, coreyClone: cloneRes, spidey: spideyRes, macroIntelligencePacket, janeSynthesis }, {
       event: e.title || 'release',
       affected_symbols: a.affected,
       expected_bias: a.bias.label.split(':')[0],
