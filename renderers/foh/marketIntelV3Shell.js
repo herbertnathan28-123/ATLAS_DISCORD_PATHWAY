@@ -339,6 +339,7 @@ function _buildDarkHorseControlSurface(viewModel, opts) {
     _truncate(_safeLine(viewModel.CANCELS_WHEN, 'Pending'), 78),
     '',
     '🧱 BUILDING',
+    'Market impact: ' + _truncate(building, 96),
     building,
     '',
     '📈 CHART REFERENCE',
