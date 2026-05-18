@@ -331,11 +331,17 @@ console.log('\n[T9] "controlled pullback" does not appear bare anywhere');
 // ============================================================
 console.log('\n[T10] Banned trading-directive phrases are absent');
 {
+  // Operator brief 2026-05-18 — the bare /do not enter/ ban was
+  // retired. The new CURRENT ADVICE — AT RELEASE block explicitly
+  // approves defensive wording such as "Do not enter yet. Wait
+  // for the listed validation rule." and the field label
+  // "Do Not Enter If:". The remaining bans still catch the
+  // signal-service command family (enter now / buy now / sell
+  // now / does not mean enter now / etc.).
   const BANNED = [
     /\benter\s+now\b/i,
     /\bbuy\s+now\b/i,
     /\bsell\s+now\b/i,
-    /\bdo\s+not\s+enter\b/i,
     /\bdoes\s+not\s+mean\s+enter\s+now\b/i,
     /\bpermission\b/i,
     /\bauthori[sz]ed?\b/i,

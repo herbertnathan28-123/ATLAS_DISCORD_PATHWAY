@@ -81,17 +81,30 @@ if (stripMatch && /Available/.test(stripMatch[3])) ok('Full Calendar strip line 
 if (stripMatch && /Available/.test(stripMatch[4])) ok('Terminology strip line declares Available'); else fail('Terminology strip line not Available');
 if (msg1.indexOf('📡 MARKET INTEL · DAILY ROADMAP') < msg1.indexOf('🖼️ PNG') && msg1.indexOf('🖼️ PNG') < msg1.indexOf('🔥 THE CALL')) ok('control strip sits between the report heading and THE CALL block'); else fail('control strip not positioned between report heading and THE CALL');
 
-if (_boxRegex('🔥 THE CALL').test(msg1) && msg1.indexOf('🔥 THE CALL') < msg1.indexOf('TODAY')) ok('message 1 includes coloured boxed 🔥 THE CALL header'); else fail('message 1 missing boxed THE CALL header');
-if (_boxRegex("📅 TODAY'S RANKED EVENT CALENDAR").test(msg1)) ok('message 1 includes coloured boxed calendar header'); else fail('message 1 missing boxed calendar header');
+if (_boxRegex('🔥 THE CALL').test(msg1) && msg1.indexOf('🔥 THE CALL') < msg1.indexOf('HIGH-IMPACT CALENDAR EVENTS')) ok('message 1 includes coloured boxed 🔥 THE CALL header'); else fail('message 1 missing boxed THE CALL header');
+if (_boxRegex('📅 HIGH-IMPACT CALENDAR EVENTS').test(msg1)) ok('message 1 includes coloured boxed HIGH-IMPACT CALENDAR EVENTS header (renamed from TODAY\'S RANKED EVENT CALENDAR)'); else fail('message 1 missing boxed HIGH-IMPACT CALENDAR EVENTS header');
 if (_boxRegex('⚠️ RISK STATE').test(msg1)) ok('message 1 includes coloured boxed RISK STATE block'); else fail('message 1 missing boxed RISK STATE block');
-if (/GDP Growth Rate QoQ Prel/.test(msg1) && /FOMC Member Speech/.test(msg1)) ok('ranked calendar includes next72 events despite high-impact today = 0'); else fail('ranked calendar missing next72 rows');
+// Importance-based header colour doctrine 2026-05-18 — Tier-1
+// (ECB Rate Decision) in scope means THE CALL + CALENDAR headers
+// must render red ([1;31m). The cyan top-of-report heading
+// is unaffected because it tracks report identity, not impact.
+const callBoxIdx = msg1.indexOf('🔥 THE CALL');
+const calBoxIdx = msg1.indexOf('📅 HIGH-IMPACT CALENDAR EVENTS');
+const callPrefix = msg1.slice(Math.max(0, callBoxIdx - 30), callBoxIdx);
+const calPrefix = msg1.slice(Math.max(0, calBoxIdx - 30), calBoxIdx);
+if (/\[1;31m/.test(callPrefix)) ok('THE CALL box renders red because primary focus is a Tier-1 ECB Rate Decision'); else fail('THE CALL box not red despite Tier-1 primary focus', callPrefix);
+if (/\[1;31m/.test(calPrefix)) ok('HIGH-IMPACT CALENDAR EVENTS box renders red because a Tier-1 row is in scope'); else fail('CALENDAR box not red despite Tier-1 row', calPrefix);
+if (/GDP Growth Rate QoQ Prel/.test(msg1) && /ECB Rate Decision/.test(msg1)) ok('ranked calendar surfaces Red + Amber rows from the next72 packet'); else fail('ranked calendar missing red/amber rows');
 if (/Brief Pending/.test(msg1)) ok('Full Brief column shows Brief Pending fallback'); else fail('message 1 missing Brief Pending');
 if (/Source note: TradingView LIVE/.test(msg1)) ok('message 1 source note shows TradingView LIVE'); else fail('message 1 missing TradingView LIVE source note');
 // Event names render bracketed (cyan hyperlinks when the Full
 // Brief route is real; bracketed plain text when Brief Pending).
-if (/🔴 11:45 \| EUR \| HIGH \| \[ECB Rate Decision\]/.test(msg1)) ok('ECB Rate Decision row carries 🔴 Tier-1 glyph + bracketed event name'); else fail('ECB Rate Decision row missing 🔴 Tier-1 glyph');
-if (/🟠 08:00 \| EUR \| HIGH \| \[GDP Growth Rate QoQ Prel\]/.test(msg1)) ok('GDP Growth Rate row carries 🟠 HIGH glyph + bracketed event name'); else fail('GDP Growth Rate row missing 🟠 HIGH glyph');
-if (/🟠 14:00 \| USD \| ELEV \| \[FOMC Member Speech\]/.test(msg1)) ok('FOMC Member Speech row carries 🟠 HIGH glyph + bracketed event name'); else fail('FOMC Member Speech row missing 🟠 HIGH glyph');
+// Row format dropped the middle `| HIGH |` column per the
+// operator brief 2026-05-18 — the impact glyph already conveys
+// impact, so each row leads `glyph time CCY · [Event Name]`.
+if (/🔴 11:45 EUR · \[ECB Rate Decision\]/.test(msg1)) ok('ECB Rate Decision row carries 🔴 Tier-1 glyph + new compact format (no | HIGH | pipe)'); else fail('ECB Rate Decision row missing 🔴 glyph or has stale | HIGH | column');
+if (/🟠 08:00 EUR · \[GDP Growth Rate QoQ Prel\]/.test(msg1)) ok('GDP Growth Rate row carries 🟠 HIGH glyph + new compact format'); else fail('GDP Growth Rate row missing 🟠 glyph or stale format');
+if (/🟠 14:00 USD · \[FOMC Member Speech\]/.test(msg1)) ok('FOMC Member Speech row carries 🟠 HIGH glyph + new compact format'); else fail('FOMC Member Speech row missing 🟠 glyph or stale format');
 if (/Affected: [^\n]+\nFull Brief: /.test(msg1)) ok('calendar rows render Affected + Full Brief on dedicated lines'); else fail('calendar rows missing Affected/Full Brief lines');
 
 console.log('\nT3 — messages 2/3 include coloured boxed sections:');
@@ -133,7 +146,38 @@ const narrativeAll = narrativePayload.dailyRoadmapMessages.map(m => m.content).j
 if (!/(?<!\()DXY(?!\))/.test(narrativeAll) && !/(?<!\()VIX(?!\))/.test(narrativeAll)) ok('upstream narrative bare DXY / VIX are expanded to plain-English first via _miExpandMacroLabels');
 else fail('upstream narrative bare DXY / VIX leaked through to the user surface');
 
-console.log('\nT5 — live scheduler is wired to the 3-message renderer:');
+console.log('\nT5 — Red/Amber-only default filter (Medium only when no Red/Amber in next 24h):');
+// Fixture A: Red + Amber + a sea of Medium in next 24h → Medium suppressed.
+const filterPacketA = Object.assign({}, macroPacket, {
+  next72Hours: [
+    { title: 'ECB Rate Decision',           currency: 'EUR', timeUTC: '11:45', scheduledTimeUTC: '2026-05-18T11:45:00.000Z', severity: 'HIGH', importanceScore: 95, affectedMarkets: ['EURUSD'], timeMs: now + 6 * 60 * 60 * 1000 },
+    { title: 'GDP Growth Rate QoQ Prel',    currency: 'EUR', timeUTC: '08:00', scheduledTimeUTC: '2026-05-18T08:00:00.000Z', severity: 'HIGH', importanceScore: 82, affectedMarkets: ['EURUSD'], timeMs: now + 3 * 60 * 60 * 1000 },
+    { title: 'Manufacturing PMI Flash',     currency: 'USD', timeUTC: '13:30', scheduledTimeUTC: '2026-05-18T13:30:00.000Z', severity: 'MED',  importanceScore: 45, affectedMarkets: ['DXY'],    timeMs: now + 8 * 60 * 60 * 1000 },
+    { title: 'Services PMI Flash',          currency: 'EUR', timeUTC: '09:00', scheduledTimeUTC: '2026-05-18T09:00:00.000Z', severity: 'MED',  importanceScore: 42, affectedMarkets: ['EURUSD'], timeMs: now + 4 * 60 * 60 * 1000 },
+    { title: 'Existing Home Sales',         currency: 'USD', timeUTC: '15:00', scheduledTimeUTC: '2026-05-18T15:00:00.000Z', severity: 'MED',  importanceScore: 38, affectedMarkets: ['DXY'],    timeMs: now + 10 * 60 * 60 * 1000 },
+  ],
+});
+const filterPayloadA = buildDailyBulletinPayload(snapshot, { level: 'low' }, now, { macroIntelligencePacket: filterPacketA });
+const filterMsg1A = filterPayloadA.dailyRoadmapMessages[0].content;
+if (/ECB Rate Decision/.test(filterMsg1A) && /GDP Growth Rate QoQ Prel/.test(filterMsg1A)) ok('default filter surfaces the Red + Amber rows in next 24h');
+else fail('default filter dropped expected Red/Amber rows');
+if (!/Manufacturing PMI Flash/.test(filterMsg1A) && !/Services PMI Flash/.test(filterMsg1A) && !/Existing Home Sales/.test(filterMsg1A)) ok('Medium rows suppressed when Red/Amber events exist in the next 24h');
+else fail('Medium rows leaked into the default Discord surface despite Red/Amber being present');
+
+// Fixture B: no Red/Amber in next 24h → Medium rows fall back in.
+const filterPacketB = Object.assign({}, macroPacket, {
+  next72Hours: [
+    { title: 'Manufacturing PMI Flash',     currency: 'USD', timeUTC: '13:30', scheduledTimeUTC: '2026-05-18T13:30:00.000Z', severity: 'MED',  importanceScore: 45, affectedMarkets: ['DXY'],    timeMs: now + 8 * 60 * 60 * 1000 },
+    { title: 'Services PMI Flash',          currency: 'EUR', timeUTC: '09:00', scheduledTimeUTC: '2026-05-18T09:00:00.000Z', severity: 'MED',  importanceScore: 42, affectedMarkets: ['EURUSD'], timeMs: now + 4 * 60 * 60 * 1000 },
+  ],
+  primaryEventFocus: { title: 'Manufacturing PMI Flash', currency: 'USD', timeUTC: '13:30', expectedImpact: 'MED', affectedMarkets: ['DXY'] },
+});
+const filterPayloadB = buildDailyBulletinPayload(snapshot, { level: 'low' }, now, { macroIntelligencePacket: filterPacketB });
+const filterMsg1B = filterPayloadB.dailyRoadmapMessages[0].content;
+if (/Manufacturing PMI Flash/.test(filterMsg1B) || /Services PMI Flash/.test(filterMsg1B)) ok('Medium rows fall back in when no Red/Amber events exist in the next 24h');
+else fail('Medium fallback did not surface when no Red/Amber events were available');
+
+console.log('\nT6 — live scheduler is wired to the 3-message renderer:');
 const coreyMI = fs.readFileSync(path.join(__dirname, '..', 'coreyMarketIntel.js'), 'utf8');
 if (/daily_roadmap_renderer=used model=3_message/.test(coreyMI)) ok('scheduler logs the new daily roadmap renderer'); else fail('scheduler missing daily roadmap renderer log');
 if (/for \(const msg of roadmapMessages\)/.test(coreyMI) && /dispatch\('daily_brief'/.test(coreyMI)) ok('scheduler dispatches each Daily Brief message'); else fail('scheduler does not dispatch daily_brief loop');

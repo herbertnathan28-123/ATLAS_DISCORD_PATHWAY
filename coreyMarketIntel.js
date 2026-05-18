@@ -363,16 +363,73 @@ function _miBriefUrl(value) {
   return null;
 }
 
+// Default Discord filter (operator brief 2026-05-18) — show only
+// Red / Amber rows. Yellow (Medium) rows fall back in only when
+// no Red or Amber event sits in the next 24h, so the main Discord
+// surface stays a concise control surface rather than a wall of
+// low-impact entries (full calendar lives behind the Full Calendar
+// control). Returns the filtered list bounded by `opts.limit`.
+function _miFilterByImpact(rows, opts) {
+  opts = opts || {};
+  const limit = Number.isFinite(opts.limit) ? opts.limit : 4;
+  const red = [];
+  const amber = [];
+  const yellow = [];
+  for (const r of rows) {
+    const g = _miImpactGlyph(r);
+    if (g === '🔴') red.push(r);
+    else if (g === '🟠') amber.push(r);
+    else if (g === '🟡') yellow.push(r);
+  }
+  const redAmberNext24 = red.concat(amber).some(r => r.isNext24h);
+  if (red.length || amber.length) {
+    // Prefer next24h red/amber first, then next72h red/amber, then
+    // backfill medium only if there's still headroom.
+    const ordered = redAmberNext24
+      ? red.concat(amber).filter(r => r.isNext24h).concat(
+          red.concat(amber).filter(r => !r.isNext24h))
+      : red.concat(amber);
+    return ordered.slice(0, limit);
+  }
+  return yellow.slice(0, limit);
+}
+
+// Aggregate tier of the filtered ranked rows — drives the dynamic
+// box-header colour on the calendar / THE CALL sections per the
+// operator heading colour doctrine 2026-05-18:
+//   any 🔴   → 'extreme'
+//   any 🟠   → 'high'
+//   any 🟡   → 'medium'
+//   nothing  → 'low'
+function _miTopImpactTier(rows) {
+  let tier = 'low';
+  for (const r of (rows || [])) {
+    const g = _miImpactGlyph(r);
+    if (g === '🔴') return 'extreme';
+    if (g === '🟠') tier = 'high';
+    else if (g === '🟡' && tier === 'low') tier = 'medium';
+  }
+  return tier;
+}
+
+function _miHeaderColorForTier(tier) {
+  return tier === 'extreme' ? 'red'
+    : tier === 'high' ? 'orange'
+    : tier === 'medium' ? 'yellow'
+    : 'grey';
+}
+
 function _miRankedCalendarBlock(macroPacket, opts) {
   const rows = _miRankedEventRows(macroPacket, opts);
-  if (!rows.length) {
+  const filtered = _miFilterByImpact(rows, opts);
+  if (!filtered.length) {
     return [
-      '⚪ pending | multi | LOW | [Broader market calendar pending]',
+      '⚪ pending · multi · [Broader market calendar pending]',
       'Affected: Affected markets pending',
       'Full Brief: Brief Pending',
     ].join('\n');
   }
-  return rows.map(r => {
+  return filtered.map(r => {
     const markets = r.affectedMarkets && r.affectedMarkets.length
       ? r.affectedMarkets.slice(0, 4).map(symbolDisplay).join(' · ')
       : 'Affected markets pending';
@@ -381,15 +438,16 @@ function _miRankedCalendarBlock(macroPacket, opts) {
     const briefUrl = _miBriefUrl(r.fullBrief);
     // Event name renders as a cyan Discord link when the Full
     // Brief route is real; falls back to bracketed plain text
-    // (still visually distinguished from the surrounding columns)
-    // when the Brief is pending.
+    // (still visually distinguished) when Brief Pending. The
+    // impact glyph at the start of the row already conveys impact,
+    // so the row dropped its middle `| HIGH |` column per the
+    // operator brief 2026-05-18.
     const eventCell = briefUrl
       ? '[' + cleanTitle + '](' + briefUrl + ')'
       : '[' + cleanTitle + ']';
     const line1 = glyph + ' ' + _miShort(r.timeUTC || 'pending', 10)
-      + ' | ' + _miShort(r.currency || 'multi', 6)
-      + ' | ' + _miShort(r.impact || 'MED', 8)
-      + ' | ' + eventCell;
+      + ' ' + _miShort(r.currency || 'multi', 6)
+      + ' · ' + eventCell;
     const line2 = 'Affected: ' + _miShort(markets, 80);
     const line3 = 'Full Brief: ' + _miShort(r.fullBrief || 'Brief Pending', 60);
     return [line1, line2, line3].join('\n');
@@ -556,16 +614,35 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     : /LOW|CALM|QUIET/.test(riskLabelRaw) ? 'grey'
     : 'grey';
 
+  // Operator heading colour doctrine 2026-05-18 — boxed headings
+  // carry colour by importance, not by section identity.
+  //   THE CALL                       — red if primary focus is
+  //                                    Tier-1 OR risk state is
+  //                                    EXTREME; amber if a HIGH
+  //                                    tier event is in scope;
+  //                                    yellow on a standard day.
+  //   HIGH-IMPACT CALENDAR EVENTS    — red if any 🔴 row; amber if
+  //                                    any 🟠 row; yellow if only
+  //                                    🟡 rows remain.
+  const calendarTier = _miTopImpactTier(rankedRows);
+  const callTier = /EXTREME/.test(riskLabelRaw) || calendarTier === 'extreme'
+    ? 'extreme'
+    : calendarTier === 'high' || /HIGH|ACTIVE|STRESS/.test(riskLabelRaw)
+    ? 'high'
+    : calendarTier === 'medium' ? 'medium' : 'low';
+  const callColor = _miHeaderColorForTier(callTier);
+  const calendarColor = _miHeaderColorForTier(calendarTier);
+
   const msg1 = [
     _miBoxHeader('📡 MARKET INTEL · DAILY ROADMAP', { color: 'cyan' }),
     controlStrip,
     '',
-    _miBoxHeader('🔥 THE CALL', { color: 'red' }),
+    _miBoxHeader('🔥 THE CALL', { color: callColor }),
     'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
     'Current read: MONITORING — calendar risk leads until Jane / structure confirms a tradable path.',
     'Next confirmation point: ' + _miExpandMacroLabels(p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
     '',
-    _miBoxHeader("📅 TODAY'S RANKED EVENT CALENDAR", { color: 'yellow' }),
+    _miBoxHeader('📅 HIGH-IMPACT CALENDAR EVENTS', { color: calendarColor }),
     _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 4 }),
     '',
     _miBoxHeader('⚠️ RISK STATE', { color: riskColor }),
