@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "test": "npm run qa:pr145-contracts",
     "audit": "node scripts/atlas_audit.js",
     "test:runtime": "node scripts/atlas_runtime_test.js --symbol EURUSD",
     "test:macro": "node scripts/test_macro_interpreter_operational.js",
@@ -30,6 +31,7 @@
     "qa:wording-directives": "node scripts/test_directive_wording_qa.js",
     "qa:dashboard-separation": "node scripts/test_dashboard_separation_qa.js",
     "qa:dashboard-source-audit": "node tests/dashboardSourceAudit.test.js",
+    "qa:pr145-contracts": "node tests/fohSurfaceRoutingContracts.test.js && node tests/issue144LiveOutputLockdown.test.js && node tests/prototypeImplementationContracts.test.js",
     "qa:dh-education": "node scripts/test_dh_education_qa.js",
     "qa:dh-pre-radar": "node scripts/test_dh_pre_radar_qa.js",
     "qa:dh-polish-mi-validator": "node scripts/test_dh_polish_mi_validator_qa.js",
