@@ -329,12 +329,22 @@ function marketList(items) {
   return items.map(m => displayInstrument(m && (m.symbol || m.instrument) || m)).filter(Boolean);
 }
 
-function macroAffectedBlock(affected) {
+function macroAffectedBlock(affected, focus) {
   const symbols = marketList(affected);
+  const primary = symbols.slice(0, 4).join(' · ') || 'Mapped markets pending';
+  const supportPath = focus && focus.strongerThanExpectedPath
+    ? userFacingText(focus.strongerThanExpectedPath)
+    : 'Better-than-expected / hawkish path supports the mapped lead leg only if structure confirms.';
+  const pressurePath = focus && focus.weakerThanExpectedPath
+    ? userFacingText(focus.weakerThanExpectedPath)
+    : 'Worse-than-expected / dovish path pressures the mapped lead leg only if live drivers agree.';
   return [
-    'Primary: ' + (symbols.slice(0, 4).join(' · ') || 'Mapped markets pending'),
+    'Primary: ' + primary,
     'Secondary: ' + (symbols.slice(4, 6).join(' · ') || 'Macro command context'),
     'More: macro command context',
+    'Support / pressure logic: better-than/hawkish path supports ' + primary + '; worse-than/dovish path pressures ' + primary + '.',
+    'Better-than-expected path: ' + supportPath,
+    'Worse-than-expected path: ' + pressurePath,
   ].join('\n');
 }
 
@@ -397,13 +407,15 @@ function formatSearchResponse(ctx) {
   lines.push(cloneStatusLine(ctx.cloneSummary));
   lines.push('');
   lines.push('🎯 AFFECTED MARKETS');
-  lines.push(macroAffectedBlock(affected));
+  lines.push(macroAffectedBlock(affected, focus));
   lines.push('');
   lines.push('🔵 MARKET IMPACT');
   lines.push('What is happening: ' + userFacingText(transmission.driver || focus.title || 'Live macro driver state'));
   lines.push('Why it matters: ' + userFacingText(transmission.mechanism || focus.whyPrimary || 'Macro drivers are setting risk conditions.'));
   lines.push('What moves first: ' + (Array.isArray(transmission.affectedSymbols) ? transmission.affectedSymbols.slice(0, 5).map(displayInstrument).join(', ') : 'Lead FX and rate-sensitive markets.'));
   lines.push('Scenario paths: stronger/hawkish result supports the mapped lead leg if structure confirms; weaker/dovish result pressures the mapped lead leg if live drivers agree.');
+  lines.push('Better-than-expected path: ' + userFacingText(focus.strongerThanExpectedPath || 'A better-than-expected / hawkish result supports the mapped lead leg only after structure confirms.'));
+  lines.push('Worse-than-expected path: ' + userFacingText(focus.weakerThanExpectedPath || 'A worse-than-expected / dovish result pressures the mapped lead leg only after live drivers agree.'));
   lines.push('What confirms it: ' + userFacingText(transmission.whatStrengthensThis || 'The lead market confirms after the first 15-minute close.'));
   lines.push('What weakens it: ' + userFacingText(transmission.whatWeakensThis || 'Live drivers fade or structure rejects the first move.'));
   lines.push('');
