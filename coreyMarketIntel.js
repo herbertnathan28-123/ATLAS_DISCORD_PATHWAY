@@ -558,12 +558,75 @@ function _miAffectedMarketCards(macroPacket, fallbackSymbols) {
     return expanded.slice(0, 6).map(m => {
       const symbol = symbolDisplay(m.symbol || m.instrument || 'Market');
       const how = trim(m.transmissionMechanism || m.howAffected || 'affected through the primary macro driver');
+      const stronger = trim(m.strongerThanExpectedPath || m.strongerResult || 'support path pending');
+      const weaker = trim(m.weakerThanExpectedPath || m.weakerResult || 'pressure path pending');
       const confirm = trim(m.confirmationCondition || m.confirmation || 'lead-market confirmation required');
-      return '• ' + symbol + ' — ' + how + '; confirmation: ' + confirm + '.';
+      const invalid = trim(m.invalidationCondition || m.invalidation || 'first move fades back inside the pre-release range');
+      return '• ' + symbol + ' — support: ' + _miShort(stronger, 42) +
+        '; pressure: ' + _miShort(weaker, 42) +
+        '; validate: ' + _miShort(confirm, 36) +
+        '; invalidate: ' + _miShort(invalid, 34) + '.';
     });
   }
   return _miAffectedSymbolsFrom(macroPacket, fallbackSymbols).slice(0, 6)
-    .map(s => '• ' + symbolDisplay(s) + ' — mapped from ranked calendar exposure; confirmation required after the release window.');
+    .map(s => '• ' + symbolDisplay(s) + ' — support/pressure mapped from calendar exposure; validate after release.');
+}
+
+function _miRoadmapSequenceBlock(macroPacket, now) {
+  const rows = _miRankedEventRows(macroPacket, { now, limit: 5 }).slice().sort((a, b) => {
+    const aMs = a.sortMs || Number.MAX_SAFE_INTEGER;
+    const bMs = b.sortMs || Number.MAX_SAFE_INTEGER;
+    return aMs - bMs;
+  });
+  if (!rows.length) {
+    return [
+      '🟣 ROADMAP INTEL — NEXT 24–72H SEQUENCE',
+      'No ranked event sequence published; monitor live US Dollar Strength (DXY), Market Volatility (VIX), and yields.',
+      'Forward plan: next review at scheduled refresh; keep new risk Jane-gated.',
+    ].join('\n');
+  }
+  const lines = rows.slice(0, 2).map((r, idx) => {
+    const phase = idx === 0 ? 'Next' : idx === 1 ? 'Then' : 'Later';
+    const title = humanizeTitle(r.title);
+    const markets = (r.affectedMarkets || []).slice(0, 3).map(symbolDisplay).join(' · ') || 'mapped markets pending';
+    return '• ' + phase + ': ' + (r.timeUTC || 'pending') + ' UTC · ' + (r.currency || 'multi') + ' · ' + title + ' — watch ' + markets + '.';
+  });
+  lines.push('Forward plan: re-check after each first 5M / 15M close before adding new risk.');
+  return ['🟣 ROADMAP INTEL — NEXT 24–72H SEQUENCE'].concat(lines).join('\n');
+}
+
+function _miScenarioPathBlock(macroPacket) {
+  const packet = macroPacket || {};
+  const focus = packet.primaryEventFocus || {};
+  const path = Array.isArray(packet.macroTransmissionMap) ? packet.macroTransmissionMap[0] : null;
+  const expanded = Array.isArray(packet.affectedMarketsExpanded) ? packet.affectedMarketsExpanded : [];
+  const first = expanded[0] || {};
+  const why = (path && (path.mechanism || path.firstOrderEffect)) || focus.whyPrimary || 'Surprise vs forecast reprices short-term rates, risk appetite, and lead FX flow.';
+  const stronger = focus.strongerThanExpectedPath || first.strongerThanExpectedPath || first.strongerResult || 'Stronger print supports the home-currency / rate-hike side if confirmed by the first 15M close.';
+  const weaker = focus.weakerThanExpectedPath || first.weakerThanExpectedPath || first.weakerResult || 'Weaker print pressures the home-currency / yield side if the first move holds beyond the initial spike.';
+  return [
+    'Why it matters: ' + _miExpandMacroLabels(_miShort(why, 105)),
+    'Stronger-than-expected path: ' + _miExpandMacroLabels(_miShort(stronger, 90)),
+    'Weaker-than-expected path: ' + _miExpandMacroLabels(_miShort(weaker, 90)),
+  ].join('\n');
+}
+
+function _miJanePostureBlock(macroPacket, opts) {
+  const jane = opts && opts.janeSynthesis;
+  const state = String(jane && (jane.actionState || jane.finalState || jane.monitoringState) || 'MONITORING').toUpperCase();
+  const expanded = macroPacket && Array.isArray(macroPacket.affectedMarketsExpanded) ? macroPacket.affectedMarketsExpanded : [];
+  const path = macroPacket && Array.isArray(macroPacket.macroTransmissionMap) ? macroPacket.macroTransmissionMap[0] : null;
+  const first = expanded[0] || {};
+  const validate = (path && path.whatStrengthensThis) || first.confirmationCondition || first.confirmation || 'first 5M / 15M close confirms with the lead market.';
+  const invalidate = (path && path.whatWeakensThis) || first.invalidationCondition || first.invalidation || 'first move fades back inside the pre-release range.';
+  return [
+    '🧭 EXPOSURE / NEW-RISK POSTURE',
+    'Jane state: ' + state + ' — Jane remains the final gate; this is scenario guidance, not a trade call.',
+    'Existing exposure: review stops/size before the risk window.',
+    'New risk: no fresh direction until Jane + structure confirm.',
+    'Validation: ' + _miExpandMacroLabels(_miShort(validate, 80)),
+    'Invalidation: ' + _miExpandMacroLabels(_miShort(invalidate, 80)),
+  ].join('\n');
 }
 
 function _miBriefRows(macroPacket) {
@@ -592,23 +655,14 @@ function _miNextDailyRefreshUtc(now) {
 
 function _miControlsPendingBlock() {
   return [
-    '🧭 Controls:',
-    '📅 Full Calendar: Available',
-    '📘 Terms: Available',
-    '🔗 Full Briefs: Brief Pending',
-    '',
-    'Exports:',
-    'PNG/PDF pending this cycle.',
+    '🧭 Controls: Full Calendar Available · Terms Available · Full Briefs Brief Pending · PNG/PDF pending this cycle.',
   ].join('\n');
 }
 
 function _miAffectedMarketsCompressed(macroPacket, fallbackSymbols) {
-  const symbols = _miAffectedSymbolsFrom(macroPacket, fallbackSymbols || []);
   return [
-    '🎯 AFFECTED MARKETS',
-    'Primary: ' + (symbols.slice(0, 4).map(symbolDisplay).join(' · ') || 'Mapped markets pending'),
-    'Secondary: ' + (symbols.slice(4, 6).map(symbolDisplay).join(' · ') || 'Full Brief'),
-    'More: Full Brief',
+    '🎯 AFFECTED MARKETS — SUPPORT / PRESSURE GUIDE',
+    _miAffectedMarketCards(macroPacket, fallbackSymbols || []).slice(0, 2).join('\n') || 'Mapped market guidance pending.',
   ].join('\n');
 }
 
@@ -660,9 +714,11 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
 
   const reportId = opts.reportId || _miReportId(NOW);
   const generated = _miUtcMinute(NOW);
-  const calendarRows = _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 3 });
-  const marketImpact = _miMarketImpactCards(macroPacket).map(_miExpandMacroLabels).slice(0, 6).join('\n');
-  const fullBrief = _miBriefRows(macroPacket).slice(0, 3).map(_miExpandMacroLabels).join('\n');
+  const calendarRows = _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 2 });
+  const marketImpact = _miScenarioPathBlock(macroPacket);
+  const roadmapSequence = _miRoadmapSequenceBlock(macroPacket, NOW);
+  const janePosture = _miJanePostureBlock(macroPacket, opts);
+  const fullBrief = _miBriefRows(macroPacket).slice(0, 2).map(_miExpandMacroLabels).join('\n');
   const content = [
     MI_HARD_BOUNDARY,
     '🟨 NEW MARKET INTEL REPORT',
@@ -672,24 +728,28 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     MI_HARD_BOUNDARY,
     _miControlsPendingBlock(),
     '',
-    _miBoxHeader('🔥 THE CALL', { color: callColor }),
+    '🔴 THE CALL',
     'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
     'Current read: MONITORING — calendar risk leads until Jane / structure confirms a tradable path.',
     'Next confirmation point: ' + _miExpandMacroLabels(p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
     '',
-    _miBoxHeader('📅 HIGH-IMPACT CALENDAR EVENTS', { color: calendarColor }),
+    '🟠 HIGH-IMPACT CALENDAR EVENTS',
     calendarRows,
     '',
-    _miBoxHeader('⚠️ RISK STATE', { color: riskColor }),
+    '🟡 RISK STATE',
     'Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + _miExpandMacroLabels(r.whyThisRating || 'risk basis unavailable'),
     'Key windows: ' + _miRiskWindows(macroPacket).map(_miExpandMacroLabels).slice(0, 2).join(' | '),
     '',
-    _miBoxHeader('🌍 MARKET IMPACT SUMMARY', { color: 'blue' }),
+    roadmapSequence,
+    '',
+    '🔵 MARKET IMPACT / SCENARIO PATHS',
     marketImpact,
     '',
     _miAffectedMarketsCompressed(macroPacket, affectedSymbols),
     '',
-    _miBoxHeader('🔗 FULL BRIEF / BRIEF PENDING', { color: 'cyan' }),
+    janePosture,
+    '',
+    '🔗 FULL BRIEF / BRIEF PENDING',
     fullBrief,
     '',
     sourceNote,
@@ -3182,6 +3242,7 @@ async function tick(NOW) {
       macroIntelligencePacket,
       affectedSymbols: bulletin.affectedSymbols,
       reportId,
+      janeSynthesis,
     });
     const dailyContent = roadmapMessages.map(m => m.content).join('\n\n');
     const dailyPart = '1/1';

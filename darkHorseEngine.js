@@ -940,7 +940,11 @@ function buildDarkHorseDegradedSummary(ranking, volatility, reason, opts) {
   opts = opts || {};
   const reportId = opts.reportId || _dhReportId(opts.now || Date.now());
   const generated = new Date(opts.now || Date.now()).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-  const top = Array.isArray(ranking && ranking.top10) ? ranking.top10.slice(0, 3) : [];
+  const top = Array.isArray(ranking && ranking.top10) ? ranking.top10.slice(0, 2) : [];
+  const fresh = top.filter(c => /early|fresh/i.test(String(c.movePhase || c.lifecycle || ''))).length;
+  const fading = top.filter(c => /late|exhaust|fading/i.test(String(c.movePhase || c.lifecycle || ''))).length;
+  const active = Math.max(0, top.length - fresh - fading);
+  const nextReview = nextReviewLine(opts.now || Date.now(), 15 * 60 * 1000);
   const standoutLines = top.length ? top.map((c, idx) => {
     const symbol = c.symbol || 'Unknown';
     const direction = c.direction || 'monitoring';
@@ -948,14 +952,14 @@ function buildDarkHorseDegradedSummary(ranking, volatility, reason, opts) {
     const zone = c.entryZone || c.decisionLevel || c.watchLevel || 'Pending';
     const stop = c.invalidation || c.cancellationLevel || 'Pending';
     const risk = c.dollarRiskLabel || c.riskCap || 'Reduced risk only';
+    const confirms = c.confirmationLevel || c.confirmationCondition || c.breakoutTrigger || 'confirmed close through entry/watch zone';
     return [
       String(idx + 1) + '. ' + symbol + ' · ' + direction + ' · score ' + score,
-      '   CURRENT ADVICE — AT RELEASE: Monitor only until rendered card recovers.',
-      '   Entry zone: ' + zone,
-      '   Stop / invalidation: ' + stop,
-      '   Extended stop: Pending',
-      '   Risk cap: ' + risk,
-      '   Next review: ' + nextReviewLine(opts.now || Date.now(), 15 * 60 * 1000),
+      '   CURRENT ADVICE / WHAT TO DO NOW: Monitor only until rendered card recovers; no entry without confirmation.',
+      '   Where to act: entry/watch ' + zone + '; caution on failed hold; invalidation ' + stop + '.',
+      '   Dollar risk / risk cap: ' + risk + '.',
+      '   What confirms: ' + confirms + '.',
+      '   What cancels: close through ' + stop + ' or candidate drops from next scan.',
     ].join('\n');
   }).join('\n') : 'No standout candidates available for compact summary.';
   return [
@@ -965,17 +969,22 @@ function buildDarkHorseDegradedSummary(ranking, volatility, reason, opts) {
     'Compact summary posted below.',
     '',
     DH_HARD_BOUNDARY,
-    '🐎 NEW DARK HORSE REPORT',
+    '🐎 NEW DARK HORSE SCAN',
     'Report ID: ' + reportId,
     'Generated: ' + generated,
     'Part: 1/1',
     DH_HARD_BOUNDARY,
+    'Lifecycle summary: ' + top.length + ' standout(s) shown (' + fresh + ' fresh · ' + active + ' still active · ' + fading + ' fading).',
     'Market mood: ' + ((volatility && volatility.level) || 'unknown') + ' — ' + ((volatility && volatility.reason) || 'movement digest scan'),
     '',
     standoutLines,
     '',
+    'Building: degraded renderer; scanner state remains live and re-checks the same candidate set next cycle.',
+    'Chart Reference: PNG unavailable this cycle; use the next rendered card for visual zones.',
+    'Briefing summary / next scan: compact fallback only. Next review: ' + nextReview,
+    '',
     DH_HARD_BOUNDARY,
-    '✅ END OF DARK HORSE REPORT',
+    '✅ END OF DARK HORSE SCAN',
     'Report ID: ' + reportId,
     DH_HARD_BOUNDARY,
   ].join('\n');

@@ -212,12 +212,15 @@ function _fmtTodaysAnnouncements(rows) {
 
 function _fmtPrimaryEventFocus(p) {
   if (!p) return 'No primary event this cycle.';
+  const affected = Array.isArray(p.affectedSymbols)
+    ? p.affectedSymbols.map(_displayInstrument).join(' · ')
+    : (p.affectedSymbols || '—');
   return [
     'Event: ' + (p.eventName || '—'),
     'Time (UTC): ' + (p.eventTimeUTC || '—'),
     'Severity: ' + (p.severityDiscs || p.severity || '—'),
     'Volatility window: ' + (p.volatilityWindow || '—'),
-    'Affected symbols: ' + (Array.isArray(p.affectedSymbols) ? p.affectedSymbols.join(' · ') : (p.affectedSymbols || '—')),
+    'Affected symbols: ' + affected,
     'Key price zones:',
     ...(Array.isArray(p.keyPriceZones) ? p.keyPriceZones.map(z => '  - ' + z) : []),
     'Likely paths:',
@@ -240,7 +243,7 @@ function _fmtNext24To72Hours(rows) {
 function _fmtAffectedMarketsExpanded(rows) {
   if (!Array.isArray(rows) || !rows.length) return 'No affected markets identified this cycle.';
   return rows.map(r => [
-    r.instrument || '—',
+    _displayInstrument(r.instrument) || '—',
     '  HOW: ' + (r.howAffected || '—'),
     '  STRONGER-THAN-EXPECTED: ' + (r.strongerResult || '—'),
     '  WEAKER-THAN-EXPECTED: ' + (r.weakerResult || '—'),

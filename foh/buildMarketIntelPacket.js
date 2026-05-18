@@ -853,6 +853,7 @@ function buildMarketIntelPacket(opts) {
       };
   const upcomingSource = Array.isArray(engine.next24To72Hours) && engine.next24To72Hours.length
     ? engine.next24To72Hours
+    : (macroPacket && Array.isArray(macroPacket.next72Hours) && macroPacket.next72Hours.length) ? macroPacket.next72Hours
     : (opts.upcomingEvents && Array.isArray(opts.upcomingEvents) ? opts.upcomingEvents : []);
   const next24To72Hours = upcomingSource.map(e => ({
     timeUTC:      e.timeUTC || e.time || e.scheduledTimeUTC || 'pending',

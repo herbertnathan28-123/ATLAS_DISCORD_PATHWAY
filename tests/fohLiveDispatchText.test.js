@@ -25,11 +25,11 @@ function ok(label) { passed++; console.log('  ✓ ' + label); }
 function fail(label, err) { failed++; console.error('  ✗ ' + label + (err ? ' :: ' + err : '')); }
 
 const REQUIRED_SECTIONS_IN_DISCORD_TEXT = [
-  /NEW MARKET INTEL REPORT|NEW DARK HORSE REPORT/,
+  /NEW MARKET INTEL REPORT|NEW DARK HORSE SCAN/,
   /Report ID:/,
   /MARKET IMPACT|CURRENT ADVICE/,
   /SOURCE NOTE/,
-  /END OF MARKET INTEL REPORT|END OF DARK HORSE REPORT/,
+  /END OF MARKET INTEL REPORT|END OF DARK HORSE SCAN/,
 ];
 
 console.log('\nT1 — MI Discord text carries required section headers (high-impact day):');
@@ -96,7 +96,8 @@ if (/🟠 HIGH-IMPACT CALENDAR EVENTS/.test(miNext72Text)) ok('MI next72 text in
 if (/GDP Growth Rate QoQ Prel/.test(miNext72Text) && /FOMC Member Speech/.test(miNext72Text)) ok('MI next72 text includes next72 events'); else fail('MI next72 text missing next72 event rows');
 if (/Brief Pending/.test(miNext72Text)) ok('MI next72 text shows Brief Pending fallback'); else fail('MI next72 text missing Brief Pending');
 if (/Source: TradingView calendar .* freshness: LIVE/.test(miNext72Text)) ok('MI next72 text shows TradingView LIVE source'); else fail('MI next72 text missing TradingView LIVE source');
-if (/🔵 MARKET IMPACT SUMMARY/.test(miNext72Text) && /Market impact: GDP Growth Rate QoQ Prel/.test(miNext72Text)) ok('MI next72 text populates Market Impact from macro transmission path'); else fail('MI next72 text missing macro transmission Market Impact');
+if (/🔵 MARKET IMPACT \/ SCENARIO PATHS/.test(miNext72Text) && /Stronger-than-expected path:/.test(miNext72Text) && /Weaker-than-expected path:/.test(miNext72Text)) ok('MI next72 text populates scenario paths from macro transmission path'); else fail('MI next72 text missing macro scenario paths');
+if (/AFFECTED MARKETS — SUPPORT \/ PRESSURE GUIDE/.test(miNext72Text) && /support:/i.test(miNext72Text) && /pressure:/i.test(miNext72Text)) ok('MI next72 text turns affected markets into support/pressure guidance'); else fail('MI next72 text missing support/pressure guidance');
 if (/✅ END OF MARKET INTEL REPORT/.test(miNext72Text)) ok('MI next72 text includes hard end boundary'); else fail('MI next72 text missing hard end boundary');
 
 console.log('\nT5 — DH Discord text carries the same expanded structure:');

@@ -98,11 +98,11 @@ async function main() {
     : JSON.parse(dhSent).content || '';
   assert(/DARK HORSE RENDER DEGRADED/.test(dhContent), 'Dark Horse degraded marker sent through production webhook helper');
   assert(/CURRENT ADVICE/.test(dhContent), 'Dark Horse current advice sent through production webhook helper');
-  assert(/END OF DARK HORSE REPORT/.test(dhContent), 'Dark Horse hard end sent through production webhook helper');
+  assert(/END OF DARK HORSE SCAN/.test(dhContent), 'Dark Horse hard end sent through production webhook helper');
 
   console.log('Market Intel proof: sent=true marker=MARKET_INTEL_RENDER_DEGRADED report_id=MI-proof hard_start=true hard_end=true');
   console.log('Macro command proof: query="EURUSD macro" jane_state=' + (macro.jane && (macro.jane.actionState || macro.jane.tradeViability || 'present')) + ' hard_start=true hard_end=true dxy_label=true');
-  console.log('Dark Horse proof: sent=true marker=DARK_HORSE_RENDER_DEGRADED report_id=DH-proof hard_start=true hard_end=true');
+  console.log('Dark Horse proof: sent=true marker=DARK_HORSE_RENDER_DEGRADED report_id=DH-proof hard_start=true hard_end=true prototype_flow=true');
   console.log('Renderer status:');
   console.log('market_intel renderer_attempted=false renderer_result=failed fallback_used=true fallback_reason=env_flag_disabled');
   console.log('macro_command renderer_attempted=true renderer_result=' + (macro.fohRendered ? 'ok' : 'failed') + ' fallback_used=' + (macro.fohRendered ? 'false' : 'true'));

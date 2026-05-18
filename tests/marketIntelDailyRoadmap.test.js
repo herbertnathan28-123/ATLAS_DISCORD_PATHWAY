@@ -64,16 +64,17 @@ check(/END OF MARKET INTEL REPORT/.test(msg), 'message contains hard end boundar
 check(/Next scheduled refresh: \d\d:\d\d UTC/.test(msg), 'message contains next scheduled refresh');
 
 console.log('\nT3 - pending exports no longer dominate the first screen:');
-check(/Controls:\n.*Full Calendar: Available\n.*Terms: Available\n.*Full Briefs: Brief Pending\n\nExports:\nPNG\/PDF pending this cycle\./.test(msg), 'controls show calendar/terms first and exports pending separately');
+check(/Controls: .*Full Calendar Available.*Terms Available.*Full Briefs Brief Pending.*PNG\/PDF pending/.test(msg), 'controls show calendar/terms first and exports pending separately');
 check(!/^.*PNG: Brief Pending/m.test(msg) && !/^.*PDF: Brief Pending/m.test(msg), 'message does not lead with broken PNG/PDF Brief Pending controls');
 check(msg.indexOf('Controls:') < msg.indexOf('THE CALL'), 'controls appear before THE CALL without broken export lead');
 
-console.log('\nT4 - required control-surface sections are present and compressed:');
-for (const label of ['THE CALL', 'HIGH-IMPACT CALENDAR EVENTS', 'RISK STATE', 'MARKET IMPACT SUMMARY', 'AFFECTED MARKETS', 'FULL BRIEF / BRIEF PENDING']) {
+console.log('\nT4 - required control-surface sections carry scenario meaning:');
+for (const label of ['THE CALL', 'HIGH-IMPACT CALENDAR EVENTS', 'RISK STATE', 'ROADMAP INTEL — NEXT 24–72H SEQUENCE', 'MARKET IMPACT / SCENARIO PATHS', 'AFFECTED MARKETS — SUPPORT / PRESSURE GUIDE', 'EXPOSURE / NEW-RISK POSTURE', 'FULL BRIEF / BRIEF PENDING']) {
   check(msg.includes(label), 'message includes ' + label);
 }
-check(/Primary: [^\n]+/.test(msg) && /Secondary:/.test(msg) && /More: Full Brief/.test(msg), 'affected markets are compressed into primary/secondary/more rows');
-check(!/confirmation: .*\n.*confirmation:/s.test(msg), 'message does not dump long affected-market paragraphs');
+check(/Stronger-than-expected path:/.test(msg) && /Weaker-than-expected path:/.test(msg), 'scenario paths are explicit');
+check(/support:/.test(msg) && /pressure:/.test(msg) && /validate:/.test(msg) && /invalidate:/.test(msg), 'affected markets include support/pressure validation guidance');
+check(/Jane state:/.test(msg) && /New risk:/.test(msg), 'new-risk posture is Jane-gated');
 
 console.log('\nT5 - user-facing terminology is plain-English first:');
 check(/US Dollar Strength \(DXY\)/.test(msg), 'US Dollar Strength (DXY) appears');

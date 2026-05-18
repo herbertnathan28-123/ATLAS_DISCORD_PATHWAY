@@ -21,6 +21,7 @@ Scope: Market Intel scheduled output, macro command output, and Dark Horse diges
 - Old fallback condition: daily scheduled output built `imagePayload` / `fohPacket` but sent only `content` for each `dailyRoadmapMessages` item, so FOH was optional and PNG/PDF controls were forced to `Brief Pending`.
 - New condition: daily scheduled output passes `bulletin.imagePayload` and `bulletin.fohPacket` into `dispatch('daily_brief', ...)`, making the FOH renderer the primary path when `FOH_IMAGE_RENDER_ENABLED=true`.
 - Controlled degraded condition: renderer disabled, missing render payload, renderer exception, validator failure, or multipart failure produces a short `MARKET INTEL RENDER DEGRADED` notice plus compact summary. The old long report is not silently posted after renderer failure.
+- Final Acceptance Gate addendum (PR #145): Market Intel / Roadmap Intel now carries the next 24–72 hour sequence, explicit stronger/weaker scenario paths, affected-market support/pressure guidance, existing-exposure review, Jane-gated new-risk posture, validation, invalidation, and forward review.
 
 ## B. Macro command Discord response
 
@@ -47,6 +48,7 @@ Scope: Market Intel scheduled output, macro command output, and Dark Horse diges
 - Text digest path: `darkHorseFoh.js` -> `buildDarkHorseFohPayload(...)` remains the non-image FOH path, but after an attempted image render failure the engine now posts a degraded marker instead of silently falling through.
 - `foh_contract_validation_failed` can still occur only for real Dark Horse contract failures: missing fixed-contract fields, missing/too-thin view-model anchors, invalid `whatToDoNow` item shape, banned user-facing terms, or action block shape failures.
 - New condition: any image-path not-ok/exception posts `DARK HORSE RENDER DEGRADED` with exact reason and compact current-advice summary, then returns from the movement digest branch.
+- Final Acceptance Gate addendum (PR #145): the image-path Dark Horse Discord text now follows the approved v6 prototype flow, not just headers: `NEW DARK HORSE SCAN` boundary, lifecycle summary, Market Mood, Current Advice / What To Do Now, Where To Act zones, dollar-risk / risk-cap, What Confirms, What Cancels, Building, Chart Reference, briefing summary / next scan, source note, and hard end boundary.
 
 ## Required runtime logs
 
@@ -82,19 +84,28 @@ node scripts/issue144_production_route_proof.js — PASS
 
 `scripts/issue144_production_route_proof.js` monkeypatches `https.request` and uses the production send helpers to capture Discord-bound payloads without requiring live webhook credentials. This is the fixture-equivalent proof path when live Discord access is blocked in the agent environment.
 
-Proof run: 2026-05-18 11:28 UTC.
+Proof run: 2026-05-18 12:34 UTC.
 
 Production-route fixture output:
 
 ```text
 Market Intel proof: sent=true marker=MARKET_INTEL_RENDER_DEGRADED report_id=MI-proof hard_start=true hard_end=true
 Macro command proof: query="EURUSD macro" jane_state=stand_down hard_start=true hard_end=true dxy_label=true
-Dark Horse proof: sent=true marker=DARK_HORSE_RENDER_DEGRADED report_id=DH-proof hard_start=true hard_end=true
+Dark Horse proof: sent=true marker=DARK_HORSE_RENDER_DEGRADED report_id=DH-proof hard_start=true hard_end=true prototype_flow=true
 Renderer status:
 market_intel renderer_attempted=false renderer_result=failed fallback_used=true fallback_reason=env_flag_disabled
 macro_command renderer_attempted=true renderer_result=ok fallback_used=false
 dark_horse renderer_attempted=true renderer_result=failed fallback_used=true fallback_reason=foh_contract_validation_failed:WHAT_TO_DO_NOW
 ```
+
+Final Acceptance Gate proof details:
+
+- Updated tests: `tests/marketIntelDailyRoadmap.test.js`, `tests/fohLiveDispatchText.test.js`, and `tests/issue144LiveOutputLockdown.test.js` now assert scenario paths, support/pressure guidance, Jane-gated posture, Dark Horse scan-flow sections, and hard boundaries.
+- Production-route fixture proof: `node scripts/issue144_production_route_proof.js` passes through production send helpers with mocked HTTPS transport.
+- Dark Horse prototype relevance proof: rendered and degraded Dark Horse summaries include lifecycle, market mood, current advice, where-to-act, dollar risk, confirm/cancel, building, chart reference, and next scan.
+- Market Intel / Roadmap meaning proof: daily roadmap and rendered text include 24–72h sequence, stronger/weaker paths, support/pressure guidance, exposure review, Jane-gated new-risk posture, validation, invalidation, and forward review.
+- Macro command proof: `node scripts/test_macro_search.js` passes 10/10 required commands with Jane state, hard boundaries, structure / historical status, source/degradation note, and plain-English US Dollar Strength (DXY) / Market Volatility (VIX) terminology.
+- Safe-to-merge recommendation: local fixture and targeted tests are green for PR #145 scope. Keep PR #145 draft until the human Final Acceptance Gate confirms this proof is sufficient.
 
 ## Live-output gate status
 
