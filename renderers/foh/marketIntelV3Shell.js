@@ -213,6 +213,8 @@ function _buildMarketIntelControlSurface(viewModel, opts) {
   const briefLine = /Brief Pending/i.test(calendar) ? '🔗 FULL BRIEF: Brief Pending' : '🔗 FULL BRIEF: Available where linked';
   const confirms = _safeLine(viewModel.CONFIRMS_WHEN, 'Validation condition pending.');
   const cancels = _safeLine(viewModel.CANCELS_WHEN, 'Invalidation condition pending.');
+  const structure = _sectionLines(viewModel.STRUCTURE_SNAPSHOT, 3, 96) || 'Structure status: NOT_INVOKED — structure read not supplied to this packet.';
+  const clone = _sectionLines(viewModel.HISTORICAL_ANALOGUE, 3, 96) || 'Corey Clone status: NOT_INVOKED — historical analogue read not supplied to this packet.';
   const lines = [
     HARD_BOUNDARY,
     '🟨 NEW MARKET INTEL REPORT',
@@ -234,7 +236,7 @@ function _buildMarketIntelControlSurface(viewModel, opts) {
     '🟣 ROADMAP INTEL — NEXT 24–72H SEQUENCE',
     roadmap,
     '',
-    '🔵 MARKET IMPACT / SCENARIO PATHS',
+    '🔵 Market Impact / Scenario Paths',
     scenarioPaths,
     '',
     _compactAffectedGuidance(viewModel, 1),
@@ -244,6 +246,12 @@ function _buildMarketIntelControlSurface(viewModel, opts) {
     'New risk: Jane-gated only — no fresh direction until validation prints.',
     'Validation: ' + _truncate(confirms, 76),
     'Invalidation: ' + _truncate(cancels, 76),
+    '',
+    '🧱 Structure (Spidey Phase D)',
+    structure,
+    '',
+    '🧬 Historical Analogue (Corey Clone)',
+    clone,
     '',
     briefLine,
     '',
