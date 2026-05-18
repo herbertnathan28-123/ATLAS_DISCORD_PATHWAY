@@ -61,14 +61,14 @@ function mustContain(content, label) {
     mustContain(result.content, '🔵 SOURCE / DEGRADATION NOTE');
     mustContain(result.content, 'Jane remains the final gate');
     if (/usableForDecision=false/.test(result.content)) {
-      mustContain(result.content, 'Historical comparison: unavailable for this symbol right now');
+      mustContain(result.content, 'degraded historical read; not decision-grade');
     }
     for (const re of STALE_PATTERNS) {
       assert(!re.test(result.content), query + ' did not leak stale/prototype pattern ' + re);
     }
     if (result.content.indexOf('No matching live scheduled event') === -1) {
       assert(/affected: [^\n]+/.test(result.content), query + ' event rows include affected markets');
-      assert(/Full Brief: (Brief Pending|https?:\/\/|\/market-intel\/brief\/)/.test(result.content), query + ' event rows include Full Brief or Brief Pending');
+      assert(/Macro source link:/.test(result.content), query + ' event rows include macro source status');
     }
     assert(!/(^|\n)\s*[-•]?\s*(DXY|VIX)\b/.test(result.content), query + ' does not lead user-facing lines with raw DXY/VIX');
     assert(!/\b(?:authorised|entry authorised|trade confirmed|trade permitted)\b/i.test(result.content), query + ' has no execution-authority wording');
