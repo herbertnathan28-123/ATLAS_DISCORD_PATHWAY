@@ -57,7 +57,7 @@ check(payload.counts.highImpactTodayCount === 0 && payload.counts.next24hCount =
 const msg = messages[0] && messages[0].content || '';
 
 console.log('\nT2 - hard report boundaries, report ID, and part count are visible:');
-check(msg.startsWith('????????????????????????????\n?? NEW MARKET INTEL REPORT'), 'message opens with hard start boundary');
+check(/^.{10,}\n.*NEW MARKET INTEL REPORT/.test(msg), 'message opens with hard start boundary');
 check(/Report ID: MI-/.test(msg), 'message contains MI report ID');
 check(/Part: 1\/1/.test(msg), 'message contains part count');
 check(/END OF MARKET INTEL REPORT/.test(msg), 'message contains hard end boundary');

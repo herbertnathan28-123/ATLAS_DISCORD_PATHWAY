@@ -123,8 +123,8 @@ function _buildMarketIntelControlSurface(viewModel, opts) {
   const generated = viewModel.GENERATED_AT_UTC || new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
   const nextRefresh = (opts && opts.nextRefreshUTC) || 'next scheduled refresh';
   const controlsMode = opts && opts.controlsMode === 'pending' ? 'pending' : 'rendered';
-  const calendar = _firstLines(viewModel.RANKED_EVENT_CALENDAR, 12) || 'No ranked high-impact events available · Brief Pending';
-  const marketImpact = _firstLines(viewModel.MARKET_IMPACT, 5) || 'Market impact summary pending.';
+  const calendar = _firstLines(viewModel.RANKED_EVENT_CALENDAR, 3) || 'No ranked high-impact events available · Brief Pending';
+  const marketImpact = _firstLines(viewModel.MARKET_IMPACT, 2) || 'Market impact summary pending.';
   const briefLine = /Brief Pending/i.test(calendar) ? '🔗 FULL BRIEF: Brief Pending' : '🔗 FULL BRIEF: Available where linked';
   const lines = [
     HARD_BOUNDARY,
@@ -166,7 +166,7 @@ function _buildMarketIntelControlSurface(viewModel, opts) {
 function _buildDarkHorseControlSurface(viewModel, opts) {
   const reportId = _reportId(viewModel, opts, 'DH');
   const generated = viewModel.GENERATED_AT_UTC || new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
-  const currentAdvice = _firstLines(viewModel.WHAT_TO_DO_NOW, 12) || 'No standout advice block published this cycle.';
+  const currentAdvice = _firstLines(viewModel.WHAT_TO_DO_NOW, 3) || 'No standout advice block published this cycle.';
   const lines = [
     HARD_BOUNDARY,
     '🐎 NEW DARK HORSE REPORT',

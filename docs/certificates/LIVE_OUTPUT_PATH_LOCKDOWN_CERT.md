@@ -73,14 +73,28 @@ Dark Horse logs from `darkHorseEngine.js` use `[LIVE-OUTPUT] ... surface=dark_ho
 Targeted tests/proof:
 
 ```text
-node tests/marketIntelDailyRoadmap.test.js
-node tests/issue144LiveOutputLockdown.test.js
-node tests/fohLiveDispatchText.test.js
-node scripts/test_macro_search.js
-node scripts/issue144_production_route_proof.js
+node tests/marketIntelDailyRoadmap.test.js — PASS
+node tests/issue144LiveOutputLockdown.test.js — PASS
+node tests/fohLiveDispatchText.test.js — PASS
+node scripts/test_macro_search.js — PASS (10/10 required Issue #144 commands)
+node scripts/issue144_production_route_proof.js — PASS
 ```
 
 `scripts/issue144_production_route_proof.js` monkeypatches `https.request` and uses the production send helpers to capture Discord-bound payloads without requiring live webhook credentials. This is the fixture-equivalent proof path when live Discord access is blocked in the agent environment.
+
+Proof run: 2026-05-18 11:28 UTC.
+
+Production-route fixture output:
+
+```text
+Market Intel proof: sent=true marker=MARKET_INTEL_RENDER_DEGRADED report_id=MI-proof hard_start=true hard_end=true
+Macro command proof: query="EURUSD macro" jane_state=stand_down hard_start=true hard_end=true dxy_label=true
+Dark Horse proof: sent=true marker=DARK_HORSE_RENDER_DEGRADED report_id=DH-proof hard_start=true hard_end=true
+Renderer status:
+market_intel renderer_attempted=false renderer_result=failed fallback_used=true fallback_reason=env_flag_disabled
+macro_command renderer_attempted=true renderer_result=ok fallback_used=false
+dark_horse renderer_attempted=true renderer_result=failed fallback_used=true fallback_reason=foh_contract_validation_failed:WHAT_TO_DO_NOW
+```
 
 ## Live-output gate status
 

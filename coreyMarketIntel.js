@@ -2745,7 +2745,16 @@ function _logRendererStatus({ surface, attempted, result, fallbackUsed, reason, 
 }
 
 function _compactMarketIntelFallback(content, reportId) {
-  const raw = String(content || '').split('\n');
+  const full = String(content || '');
+  const endIdx = full.lastIndexOf('END OF MARKET INTEL REPORT');
+  if (endIdx > 0 && full.length > 1300) {
+    const tailStart = Math.max(0, full.lastIndexOf(MI_HARD_BOUNDARY, endIdx));
+    const tail = full.slice(tailStart).trimStart();
+    const maxHead = Math.max(240, 1300 - tail.length - 6);
+    const head = full.slice(0, maxHead).trimEnd();
+    return head + '\n...\n' + tail;
+  }
+  const raw = full.split('\n');
   const keep = [];
   for (const line of raw) {
     const s = line.trim();
@@ -2892,7 +2901,7 @@ async function dispatch(messageType, payloadObj, extra) {
   }
 
   if (surface === 'market_intel' && rendererFailureReason) {
-    const compact = _compactMarketIntelFallback(validated.content, reportId);
+    const compact = _compactMarketIntelFallback(sanitized.content || validated.content, reportId);
     const degradedContent = _marketIntelDegradedNotice(rendererFailureReason, compact);
     try {
       const textRes = await sendWebhook(_webhookUrl, { content: degradedContent });
@@ -3169,10 +3178,11 @@ async function tick(NOW) {
     const spideyRes = await _fetchSpidey(featuredForClone);
     const janeSynthesis = _buildJaneSynthesis(macroIntelligencePacket, cloneRes, spideyRes);
     const reportId = _miReportId(NOW);
-    const roadmapMessages = Array.isArray(bulletin.dailyRoadmapMessages) && bulletin.dailyRoadmapMessages.length === 3
-      ? bulletin.dailyRoadmapMessages
-      ? bulletin.dailyRoadmapMessages
-      : buildDailyRoadmapMessages(snapshot, geoCtx, NOW, { macroIntelligencePacket, affectedSymbols: bulletin.affectedSymbols, reportId });
+    const roadmapMessages = buildDailyRoadmapMessages(snapshot, geoCtx, NOW, {
+      macroIntelligencePacket,
+      affectedSymbols: bulletin.affectedSymbols,
+      reportId,
+    });
     const dailyContent = roadmapMessages.map(m => m.content).join('\n\n');
     const dailyPart = '1/1';
     log(`[COREY-MARKET-INTEL] daily_roadmap_renderer=used model=foh_primary_control_surface prototype=false messages=${roadmapMessages.length} high_impact_today=${bulletin.counts.highImpactTodayCount} next_24h_count=${bulletin.counts.next24hCount} next72_count=${bulletin.counts.next72hCount} ranked_event_count=${bulletin.counts.rankedEventCount} source=${roadmapMessages[0] && roadmapMessages[0].sourceLine || 'unknown'} report_id=${reportId}`);

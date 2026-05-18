@@ -75,9 +75,10 @@ async function main() {
   });
   assert(miResult.sent, 'Market Intel fixture webhook sent');
   const miSent = sentPayloads[sentPayloads.length - 1];
-  assert(/MARKET INTEL RENDER DEGRADED/.test(miSent), 'Market Intel degraded marker sent through dispatch');
-  assert(/NEW MARKET INTEL REPORT/.test(miSent), 'Market Intel hard start sent through dispatch');
-  assert(/END OF MARKET INTEL REPORT/.test(miSent), 'Market Intel hard end sent through dispatch');
+  const miContent = JSON.parse(miSent).content || '';
+  assert(/MARKET INTEL RENDER DEGRADED/.test(miContent), 'Market Intel degraded marker sent through dispatch');
+  assert(/NEW MARKET INTEL REPORT/.test(miContent), 'Market Intel hard start sent through dispatch');
+  assert(/END OF MARKET INTEL REPORT/.test(miContent), 'Market Intel hard end sent through dispatch');
 
   const macro = await runMacroSearch('EURUSD macro', { snapshot, refreshCalendar: false, now });
   assert(/NEW MACRO COMMAND REPORT/.test(macro.content), 'Macro command hard start present');
@@ -92,9 +93,12 @@ async function main() {
   const dhResult = await dhSendWebhook('https://discord.test/api/webhooks/issue144-dh', { content: dhText }, { wait: true });
   assert(dhResult && dhResult.ok, 'Dark Horse degraded fixture webhook sent');
   const dhSent = sentPayloads[sentPayloads.length - 1];
-  assert(/DARK HORSE RENDER DEGRADED/.test(dhSent), 'Dark Horse degraded marker sent through production webhook helper');
-  assert(/CURRENT ADVICE/.test(dhSent), 'Dark Horse current advice sent through production webhook helper');
-  assert(/END OF DARK HORSE REPORT/.test(dhSent), 'Dark Horse hard end sent through production webhook helper');
+  const dhContent = dhSent.includes('payload_json')
+    ? dhSent
+    : JSON.parse(dhSent).content || '';
+  assert(/DARK HORSE RENDER DEGRADED/.test(dhContent), 'Dark Horse degraded marker sent through production webhook helper');
+  assert(/CURRENT ADVICE/.test(dhContent), 'Dark Horse current advice sent through production webhook helper');
+  assert(/END OF DARK HORSE REPORT/.test(dhContent), 'Dark Horse hard end sent through production webhook helper');
 
   console.log('Market Intel proof: sent=true marker=MARKET_INTEL_RENDER_DEGRADED report_id=MI-proof hard_start=true hard_end=true');
   console.log('Macro command proof: query="EURUSD macro" jane_state=' + (macro.jane && (macro.jane.actionState || macro.jane.tradeViability || 'present')) + ' hard_start=true hard_end=true dxy_label=true');
@@ -106,11 +110,13 @@ async function main() {
 }
 
 main()
+  .then(() => {
+    https.request = originalRequest;
+    process.exit(0);
+  })
   .catch(err => {
+    https.request = originalRequest;
     console.error('[ISSUE-144-PRODUCTION-ROUTE-PROOF] FAIL ' + err.message);
     if (err && err.stack) console.error(err.stack);
-    process.exitCode = 1;
-  })
-  .finally(() => {
-    https.request = originalRequest;
+    process.exit(1);
   });
