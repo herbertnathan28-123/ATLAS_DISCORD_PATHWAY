@@ -78,7 +78,7 @@ const engine = {
 };
 const fohPacket = buildMarketIntelPacket({ engine });
 const vm = miViewModel.toViewModel(fohPacket);
-const discord = miShell.buildDiscordTextSummary(vm, { maxDiscordChunkChars: 100000 });
+const discord = miShell.buildDiscordTextSummary(vm, { surface: 'market_intel', maxDiscordChunkChars: 100000 });
 
 assert(/Source:/.test(vm.SOURCE_PROVENANCE), 'source provenance rendered');
 assert(/HOW:/.test(vm.AFFECTED_MARKETS_EXPANDED), 'affected market explanations rendered');

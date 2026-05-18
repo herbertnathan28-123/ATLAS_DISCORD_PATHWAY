@@ -27,8 +27,8 @@ const miPacket = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { sever
 const dhPacket = buildDarkHorsePacket({ ranking: { top10: [{ symbol: 'EURUSD', movePhase: 'early', score: 9, direction: 'Bullish', rewardRLabel: '3R' }], allCount: 33 }, volatility: { level: 'ELEV' } });
 const miVM = miViewModel.toViewModel(miPacket);
 const dhVM = dhViewModel.toViewModel(dhPacket);
-const miText = miShell.buildDiscordTextSummary(miVM, {});
-const dhText = miShell.buildDiscordTextSummary(dhVM, {});
+const miText = miShell.buildDiscordTextSummary(miVM, { surface: 'market_intel' });
+const dhText = miShell.buildDiscordTextSummary(dhVM, { surface: 'dark_horse' });
 
 console.log('\nT1 — "Market Impact" surfaces user-facing:');
 if (/Market Impact|Market impact/.test(miVM.MARKET_IMPACT)) ok('MI MARKET_IMPACT anchor uses "Market impact"'); else fail('MI MARKET_IMPACT anchor missing label');

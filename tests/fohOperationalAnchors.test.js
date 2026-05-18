@@ -96,8 +96,8 @@ assertHasDoctrineMarkers(miVM.FOUR_WAY_REVERSAL, 'MI FOUR_WAY_REVERSAL doctrine 
 assertHasDoctrineMarkers(dhVM.FOUR_WAY_HIGHER, 'DH FOUR_WAY_HIGHER doctrine markers');
 
 console.log('\nT4 — Discord text summary carries the doctrine markers:');
-const miText = miShell.buildDiscordTextSummary(miVM, { maxDiscordChunkChars: 100000 });
-const dhText = miShell.buildDiscordTextSummary(dhVM, { maxDiscordChunkChars: 100000 });
+const miText = miShell.buildDiscordTextSummary(miVM, { surface: 'market_intel', maxDiscordChunkChars: 100000 });
+const dhText = miShell.buildDiscordTextSummary(dhVM, { surface: 'dark_horse', maxDiscordChunkChars: 100000 });
 // Discord summary doesn't include four-way (caps at briefing+actions+impact+conf/cancel+source); but the doctrine markers also live in the structured traderAction which IS reachable. The four-way payload is in the rendered cards. Verify the view model has them, and verify the text summary at least carries no banned shorthand.
 assertNoBannedShorthand(miText, 'MI Discord text — no banned shorthand');
 assertNoBannedShorthand(dhText, 'DH Discord text — no banned shorthand');

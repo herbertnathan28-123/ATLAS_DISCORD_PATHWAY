@@ -70,7 +70,7 @@ function _writeText(name, s) {
   _writeJson('sample-mi-packet.json', miPacket);
   const miVM = miViewModel.toViewModel(miPacket);
   _writeJson('sample-mi-viewmodel.json', miVM);
-  const miText = miShell.buildDiscordTextSummary(miVM, {});
+  const miText = miShell.buildDiscordTextSummary(miVM, { surface: 'market_intel' });
   _writeText('sample-mi-discord-text.txt', miText);
   const miRender = await miShell.render({ packet: miPacket, viewModel: miVM, opts: { legacyPacket: miEngine, includeRawHtml: true } });
   miRender.pngs.forEach((p, i) => _writeBuf('sample-mi-card-' + (i + 1) + '-' + (p.label || ('card-' + (i + 1))) + '.png', p.png));
@@ -92,7 +92,7 @@ function _writeText(name, s) {
   _writeJson('sample-dh-packet.json', dhPacket);
   const dhVM = dhViewModel.toViewModel(dhPacket);
   _writeJson('sample-dh-viewmodel.json', dhVM);
-  const dhText = miShell.buildDiscordTextSummary(dhVM, {});
+  const dhText = miShell.buildDiscordTextSummary(dhVM, { surface: 'dark_horse' });
   _writeText('sample-dh-discord-text.txt', dhText);
   const legacyDhPayload = {
     now: Date.parse('2026-05-16T12:00:00Z'),

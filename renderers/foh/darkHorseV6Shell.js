@@ -33,7 +33,7 @@ async function render({ packet, viewModel, opts }) {
     renderHtmlToPdf(html),
   ]);
   const pngs = (pngBatch && pngBatch.pngs ? pngBatch.pngs : []).map((p, i) => Object.assign({ label: cards[i] && cards[i].label }, p));
-  const discordText = buildDiscordTextSummary(viewModel || {}, opts);
+  const discordText = buildDiscordTextSummary(viewModel || {}, Object.assign({}, opts, { surface: 'dark_horse' }));
 
   return {
     discordText,

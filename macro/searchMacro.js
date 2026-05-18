@@ -266,7 +266,7 @@ function eventLine(e) {
   const affected = markets.length
     ? markets.slice(0, 4).map(displayInstrument).join(', ')
     : 'Affected markets pending';
-  const brief = e && e.briefUrl ? ('Full Brief: ' + e.briefUrl) : 'Full Brief: Brief Pending';
+  const brief = e && e.briefUrl ? ('Macro source link: ' + e.briefUrl) : 'Macro source link: unavailable in command response';
   const parts = [
     e && e.title ? e.title : 'Unnamed event',
     e && e.currency ? '(' + e.currency + ')' : null,
@@ -336,8 +336,8 @@ function macroAffectedBlock(affected) {
   const symbols = marketList(affected);
   return [
     'Primary: ' + (symbols.slice(0, 4).join(' · ') || 'Mapped markets pending'),
-    'Secondary: ' + (symbols.slice(4, 6).join(' · ') || 'Full Brief'),
-    'More: Full Brief / calendar details',
+    'Secondary: ' + (symbols.slice(4, 6).join(' · ') || 'Macro command context'),
+    'More: macro command context',
   ].join('\n');
 }
 
@@ -404,6 +404,7 @@ function formatSearchResponse(ctx) {
   lines.push('What is happening: ' + userFacingText(transmission.driver || focus.title || 'Live macro driver state'));
   lines.push('Why it matters: ' + userFacingText(transmission.mechanism || focus.whyPrimary || 'Macro drivers are setting risk conditions.'));
   lines.push('What moves first: ' + (Array.isArray(transmission.affectedSymbols) ? transmission.affectedSymbols.slice(0, 5).map(displayInstrument).join(', ') : 'Lead FX and rate-sensitive markets.'));
+  lines.push('Scenario paths: stronger/hawkish result supports the mapped lead leg if structure confirms; weaker/dovish result pressures the mapped lead leg if live drivers agree.');
   lines.push('What confirms it: ' + userFacingText(transmission.whatStrengthensThis || 'The lead market confirms after the first 15-minute close.'));
   lines.push('What weakens it: ' + userFacingText(transmission.whatWeakensThis || 'Live drivers fade or structure rejects the first move.'));
   lines.push('');
@@ -533,7 +534,7 @@ async function runMacroSearch(query, opts) {
       now: opts.now,
     });
     const viewModel = miViewModel.toViewModel(fohPacket);
-    const discordText = miShell.buildDiscordTextSummary(viewModel, { maxDiscordChunkChars: 2600 });
+    const discordText = miShell.buildDiscordTextSummary(viewModel, { surface: 'market_intel', maxDiscordChunkChars: 2600 });
     const validation = validateFohOutput({ packet: fohPacket, viewModel, discordText });
     fohRendered = !!validation.ok;
     if (!validation.ok) fohReason = validation.failures && validation.failures[0] || 'foh validation failed';

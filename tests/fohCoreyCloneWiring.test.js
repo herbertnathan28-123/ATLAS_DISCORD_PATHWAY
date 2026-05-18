@@ -84,7 +84,7 @@ if (/Corey Clone status:/.test(vmOK.HISTORICAL_ANALOGUE)) ok('HISTORICAL_ANALOGU
 else fail('HISTORICAL_ANALOGUE missing label');
 
 console.log('\nT7 — Discord text body carries Corey Clone section:');
-const textOK = buildDiscordTextSummary(vmOK, { maxDiscordChunkChars: 10000 });
+const textOK = buildDiscordTextSummary(vmOK, { surface: 'market_intel', maxDiscordChunkChars: 10000 });
 if (/Historical Analogue \(Corey Clone\)/.test(textOK)) ok('Discord text includes "Historical Analogue (Corey Clone)" header');
 else fail('Discord text missing Corey Clone header');
 if (/Corey Clone status:/.test(textOK)) ok('Discord text surfaces clone status');
@@ -92,7 +92,7 @@ else fail('Discord text does not surface clone status');
 
 console.log('\nT8 — Discord text on PARTIAL clone shows degradation:');
 const vmPartial = miViewModel.toViewModel(pPartial);
-const textPartial = buildDiscordTextSummary(vmPartial, { maxDiscordChunkChars: 10000 });
+const textPartial = buildDiscordTextSummary(vmPartial, { surface: 'market_intel', maxDiscordChunkChars: 10000 });
 if (/PARTIAL/.test(textPartial)) ok('Discord text shows PARTIAL when clone degraded');
 else fail('PARTIAL not surfaced in Discord text');
 if (/degraded|warning/i.test(textPartial)) ok('Discord text indicates degraded read');
@@ -100,7 +100,7 @@ else fail('Discord text does not flag degradation');
 
 console.log('\nT9 — Discord text on NOT_INVOKED is still honest:');
 const vmNone = miViewModel.toViewModel(pNone);
-const textNone = buildDiscordTextSummary(vmNone, { maxDiscordChunkChars: 10000 });
+const textNone = buildDiscordTextSummary(vmNone, { surface: 'market_intel', maxDiscordChunkChars: 10000 });
 if (/NOT_INVOKED/.test(textNone)) ok('Discord text shows NOT_INVOKED when clone absent');
 else fail('NOT_INVOKED not surfaced');
 

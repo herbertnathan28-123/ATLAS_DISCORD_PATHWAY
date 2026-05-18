@@ -26,6 +26,7 @@
 const protoShell = require('./protoShell');
 const miAdapter = require('./marketIntelV3Adapter');
 const { renderHtmlsToPngs, renderHtmlToPdf } = require('./pngRenderer');
+const { validateSurfaceText } = require('../../foh/config/fohSurfaceContracts');
 
 const RENDER_PARAMETERS = Object.freeze({
   format: ['discord_text', 'png_cards', 'pdf'],
@@ -53,6 +54,22 @@ function _truncate(s, n) {
   if (typeof s !== 'string') return '';
   if (s.length <= n) return s;
   return s.slice(0, Math.max(0, n - 1)).trimEnd() + '…';
+}
+
+function _truncateSurfaceText(s, n, sourceMarker) {
+  if (typeof s !== 'string') return '';
+  if (s.length <= n) return s;
+  const marker = sourceMarker || '🔵 SOURCE NOTE';
+  const sourceIdx = s.lastIndexOf(marker);
+  if (sourceIdx > 0) {
+    const tailStart = Math.max(0, s.lastIndexOf('\n', sourceIdx - 1) + 1);
+    const tail = s.slice(tailStart).trimStart();
+    const headMax = Math.max(300, n - tail.length - 8);
+    if (headMax > 0 && tail.length < n - 100) {
+      return s.slice(0, headMax).trimEnd() + '\n…\n' + tail;
+    }
+  }
+  return _truncate(s, n);
 }
 
 const HARD_BOUNDARY = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
@@ -83,6 +100,12 @@ function _sourceNoteLine(text, fallback) {
     ].join(' · ');
   }
   return _truncate(raw, 120);
+}
+
+function _darkHorseSourceNoteLine(text, fallback) {
+  return _sourceNoteLine(text, fallback || 'Source: ATLAS scan engine · freshness: LIVE')
+    .replace(/\bATLAS Dark Horse scanner\b/gi, 'ATLAS scan engine')
+    .replace(/\bDark Horse scanner\b/gi, 'scan engine');
 }
 
 function _sectionLines(text, count, maxEach) {
@@ -214,7 +237,7 @@ function _buildMarketIntelControlSurface(viewModel, opts) {
   const confirms = _safeLine(viewModel.CONFIRMS_WHEN, 'Validation condition pending.');
   const cancels = _safeLine(viewModel.CANCELS_WHEN, 'Invalidation condition pending.');
   const structure = _sectionLines(viewModel.STRUCTURE_SNAPSHOT, 3, 96) || 'Structure status: NOT_INVOKED — structure read not supplied to this packet.';
-  const clone = _sectionLines(viewModel.HISTORICAL_ANALOGUE, 3, 96) || 'Corey Clone status: NOT_INVOKED — historical analogue read not supplied to this packet.';
+  const clone = _sectionLines(viewModel.HISTORICAL_ANALOGUE, 5, 96) || 'Corey Clone status: NOT_INVOKED — historical analogue read not supplied to this packet.';
   const lines = [
     HARD_BOUNDARY,
     '🟨 NEW MARKET INTEL REPORT',
@@ -233,11 +256,12 @@ function _buildMarketIntelControlSurface(viewModel, opts) {
     '🟡 RISK STATE',
     'Jane/FOH state: ' + (viewModel.RISK_STATE_DISC_SCALE || 'risk state pending'),
     '',
+    '🔵 MARKET IMPACT / SCENARIO PATHS',
+    'Market Impact: live catalyst path and confirmation map.',
+    scenarioPaths,
+    '',
     '🟣 ROADMAP INTEL — NEXT 24–72H SEQUENCE',
     roadmap,
-    '',
-    '🔵 Market Impact / Scenario Paths',
-    scenarioPaths,
     '',
     _compactAffectedGuidance(viewModel, 1),
     '',
@@ -270,6 +294,14 @@ function _buildMarketIntelControlSurface(viewModel, opts) {
 function _buildDarkHorseControlSurface(viewModel, opts) {
   const reportId = _reportId(viewModel, opts, 'DH');
   const generated = viewModel.GENERATED_AT_UTC || new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const subtitle = _safeLine(viewModel.HEADER_SUBTITLE, '');
+  const standoutMatch = subtitle.match(/(\d+)\s+standouts?/i);
+  const standoutCount = Number.isFinite(opts && opts.standoutCount)
+    ? opts.standoutCount
+    : standoutMatch ? Number(standoutMatch[1]) : null;
+  if (standoutCount === 0) {
+    return _buildDarkHorseZeroStandoutSurface(viewModel, opts);
+  }
   const lifecycle = _sectionLines(viewModel.BRIEFING_SUMMARY, 2, 82) || 'Lifecycle summary pending.';
   const currentAdvice = _compactDarkHorseAdvice(viewModel);
   const riskCap = (String(viewModel.WHAT_TO_DO_NOW || '').split('\n').find(line => /\$\$:/i.test(line)) || '').replace(/^\s*\$\$:\s*/i, '').trim();
@@ -292,7 +324,7 @@ function _buildDarkHorseControlSurface(viewModel, opts) {
     '🔴 CURRENT ADVICE / WHAT TO DO NOW — AT RELEASE',
     currentAdvice,
     '',
-    '🟠 WHERE TO ACT',
+    '🟠 ENTRY / WATCH ZONE',
     'Entry/watch zone: ' + _truncate(whatToWatch, 96),
     'Caution zone: ' + _truncate(_safeLine(viewModel.RISK_ESCALATION_CAUTION, 'Pending'), 66),
     'Invalidation zone: ' + _truncate(_safeLine(viewModel.CANCELS_WHEN, 'Pending'), 66),
@@ -312,11 +344,11 @@ function _buildDarkHorseControlSurface(viewModel, opts) {
     '📈 CHART REFERENCE',
     chartReference + '; PNG attached when render succeeds.',
     '',
-    '🧾 BRIEFING SUMMARY / NEXT SCAN',
+    '🧾 NEXT REVIEW / NEXT SCAN',
     'Next review: Next scheduled Dark Horse scan.',
     '',
     '🔵 SOURCE NOTE',
-    _sourceNoteLine(viewModel.SOURCE_PROVENANCE, 'Source: ATLAS Dark Horse runtime · freshness: LIVE'),
+    _darkHorseSourceNoteLine(viewModel.SOURCE_PROVENANCE, 'Source: ATLAS scan engine · freshness: LIVE'),
     '',
     HARD_BOUNDARY,
     '✅ END OF DARK HORSE SCAN',
@@ -326,72 +358,69 @@ function _buildDarkHorseControlSurface(viewModel, opts) {
   return lines.join('\n');
 }
 
+function _buildDarkHorseZeroStandoutSurface(viewModel, opts) {
+  const reportId = _reportId(viewModel, opts, 'DH');
+  const generated = viewModel.GENERATED_AT_UTC || new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const subtitle = _safeLine(viewModel.HEADER_SUBTITLE, '0 standouts · markets scanned');
+  const nextReview = (opts && opts.nextReviewUTC) || 'Next scheduled Dark Horse scan.';
+  const source = _darkHorseSourceNoteLine(viewModel.SOURCE_PROVENANCE, 'Source: ATLAS scan engine · freshness: LIVE');
+  const lines = [
+    HARD_BOUNDARY,
+    '🐎 NEW DARK HORSE SCAN',
+    subtitle.replace(/on this scan\s*·\s*/i, '· '),
+    'Report ID: ' + reportId,
+    'Generated: ' + generated,
+    'Part: 1/1',
+    HARD_BOUNDARY,
+    '🟡 Market Mood',
+    viewModel.RISK_STATE_DISC_SCALE || 'market mood pending',
+    '',
+    '🔴 CURRENT ADVICE — AT RELEASE',
+    'No trade priority. No fresh exposure from this scan. Stand aside until a candidate clears the publication threshold.',
+    '',
+    '🧾 Why nothing promoted',
+    _truncate(_sectionLines(viewModel.BRIEFING_SUMMARY, 2, 112) || 'No candidate cleared the publication threshold on this scan.', 260),
+    '',
+    '🧱 Building / Pre-Radar',
+    _truncate(_sectionLines(viewModel.MARKET_IMPACT, 1, 130) || 'Building reads remain below publication grade; keep them internal until structure strengthens.', 180),
+    '',
+    '✅ What would promote a candidate next',
+    _truncate(_safeLine(viewModel.CONFIRMS_WHEN, 'A future scan publishes at least one candidate at the publication-grade threshold.'), 160),
+    '',
+    '⛔ What cancels the watch',
+    _truncate(_safeLine(viewModel.CANCELS_WHEN, 'No candidate clears threshold on the next scan or the macro/volatility backdrop reverses.'), 160),
+    '',
+    '🧾 Next review / next scan',
+    nextReview,
+    '',
+    '🔵 Source / engine status',
+    source,
+    '',
+    HARD_BOUNDARY,
+    '✅ END DARK HORSE SCAN',
+    'Report ID: ' + reportId,
+    HARD_BOUNDARY,
+  ];
+  return lines.join('\n');
+}
+
 function buildDiscordTextSummary(viewModel, opts) {
   opts = opts || {};
   const maxChars = Number.isFinite(opts.maxDiscordChunkChars) ? opts.maxDiscordChunkChars : RENDER_PARAMETERS.maxDiscordChunkChars;
-  const isDarkHorseSurface = /dark horse/i.test(String(viewModel.HEADER_TITLE || viewModel.HEADER_SUBTITLE || opts.surface || ''));
-  if (isDarkHorseSurface) {
-    return _truncate(_buildDarkHorseControlSurface(viewModel || {}, opts), maxChars);
-  }
-  const isMarketIntelCalendarSurface = !!(viewModel.THE_CALL || viewModel.RANKED_EVENT_CALENDAR);
-  if (isMarketIntelCalendarSurface) {
-    return _truncate(_buildMarketIntelControlSurface(viewModel || {}, opts), maxChars);
-  }
-  // Priority order — the live Discord surface is calendar-first.
-  // THE CALL + ranked event table lead, then Market Impact and
-  // source provenance fit before the Discord cap. Deeper operator
-  // detail expands in the PDF/rendered cards if this summary truncates.
-  const lines = [];
-  lines.push('**' + viewModel.HEADER_TITLE + ' · ' + viewModel.HEADER_SUBTITLE + '**');
-  lines.push('Risk State: ' + viewModel.RISK_STATE_DISC_SCALE);
-  lines.push('Generated: ' + viewModel.GENERATED_AT_UTC);
-  lines.push('');
-  if (isMarketIntelCalendarSurface) {
-    lines.push('__Market Impact__');
-    lines.push(viewModel.MARKET_IMPACT);
-    lines.push('');
-    lines.push('__Confirmation / Cancellation__');
-    lines.push('Confirms: ' + viewModel.CONFIRMS_WHEN);
-    lines.push('Cancels: ' + viewModel.CANCELS_WHEN);
-    lines.push('');
-    lines.push('__Source / Provenance__');
-    lines.push(viewModel.SOURCE_PROVENANCE);
-    lines.push('');
-    lines.push('__Briefing Summary__');
-    lines.push(viewModel.BRIEFING_SUMMARY);
-    lines.push('');
+  const surface = String(opts.surface || '').trim();
+  let text;
+  if (surface === 'market_intel') {
+    text = _truncateSurfaceText(_buildMarketIntelControlSurface(viewModel || {}, opts), maxChars, '🔵 SOURCE NOTE');
+  } else if (surface === 'dark_horse') {
+    text = _truncateSurfaceText(_buildDarkHorseControlSurface(viewModel || {}, opts), maxChars, /0 standouts/i.test(String(viewModel && viewModel.HEADER_SUBTITLE || '')) ? '🔵 Source / engine status' : '🔵 SOURCE NOTE');
   } else {
-    lines.push('__Briefing Summary__');
-    lines.push(viewModel.BRIEFING_SUMMARY);
-    lines.push('');
-    lines.push('__Market Impact__');
-    lines.push(viewModel.MARKET_IMPACT);
-    lines.push('');
+    throw new Error('explicit_foh_surface_required: expected market_intel or dark_horse');
   }
-  if (!isMarketIntelCalendarSurface) {
-    lines.push('__Confirmation / Cancellation__');
-    lines.push('Confirms: ' + viewModel.CONFIRMS_WHEN);
-    lines.push('Cancels: ' + viewModel.CANCELS_WHEN);
-    lines.push('');
-    lines.push('__Source / Provenance__');
-    lines.push(viewModel.SOURCE_PROVENANCE);
-    lines.push('');
+  const validation = validateSurfaceText(surface, text);
+  if (!validation.ok) {
+    throw new Error('foh_surface_contract_failed:' + validation.failures.join('|'));
   }
-  lines.push('__Structure (Spidey Phase D)__');
-  lines.push(viewModel.STRUCTURE_SNAPSHOT || '—');
-  lines.push('');
-  lines.push('__Historical Analogue (Corey Clone)__');
-  lines.push(viewModel.HISTORICAL_ANALOGUE || '—');
-  lines.push('');
-  lines.push('__Operational Read__');
-  lines.push(viewModel.OPERATIONAL_NARRATIVE || '—');
-  lines.push('');
-  lines.push('__What To Do Now__');
-  lines.push(viewModel.WHAT_TO_DO_NOW);
-  lines.push('');
-  lines.push('__Primary Event Focus__');
-  lines.push(viewModel.PRIMARY_EVENT_FOCUS || '—');
-  return _truncate(lines.join('\n'), maxChars);
+  return text;
 }
 
 async function render({ packet, viewModel, opts }) {
@@ -411,7 +440,7 @@ async function render({ packet, viewModel, opts }) {
     renderHtmlToPdf(html),
   ]);
   const pngs = (pngBatch && pngBatch.pngs ? pngBatch.pngs : []).map((p, i) => Object.assign({ label: cards[i] && cards[i].label }, p));
-  const discordText = buildDiscordTextSummary(viewModel || {}, opts);
+  const discordText = buildDiscordTextSummary(viewModel || {}, Object.assign({}, opts, { surface: 'market_intel' }));
 
   return {
     discordText,

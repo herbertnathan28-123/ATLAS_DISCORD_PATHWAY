@@ -941,10 +941,55 @@ function buildDarkHorseDegradedSummary(ranking, volatility, reason, opts) {
   const reportId = opts.reportId || _dhReportId(opts.now || Date.now());
   const generated = new Date(opts.now || Date.now()).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
   const top = Array.isArray(ranking && ranking.top10) ? ranking.top10.slice(0, 2) : [];
+  const scanned = Number.isFinite(opts.universeSize) ? opts.universeSize : Number.isFinite(ranking && ranking.allCount) ? ranking.allCount : 'markets';
   const fresh = top.filter(c => /early|fresh/i.test(String(c.movePhase || c.lifecycle || ''))).length;
   const fading = top.filter(c => /late|exhaust|fading/i.test(String(c.movePhase || c.lifecycle || ''))).length;
   const active = Math.max(0, top.length - fresh - fading);
   const nextReview = nextReviewLine(opts.now || Date.now(), 15 * 60 * 1000);
+  if (!top.length) {
+    return [
+      '⚠️ DARK HORSE RENDER DEGRADED',
+      'Rendered card unavailable this cycle.',
+      'Reason: ' + (reason || 'unknown'),
+      'Compact Dark Horse fallback posted below.',
+      '',
+      DH_HARD_BOUNDARY,
+      '🐎 NEW DARK HORSE SCAN',
+      '0 standouts · ' + scanned + ' markets scanned',
+      'Report ID: ' + reportId,
+      'Generated: ' + generated,
+      'Part: 1/1',
+      DH_HARD_BOUNDARY,
+      '🟡 Market Mood',
+      ((volatility && volatility.level) || 'unknown') + ' — ' + ((volatility && volatility.reason) || 'movement digest scan'),
+      '',
+      '🔴 CURRENT ADVICE — AT RELEASE',
+      'No trade priority. No fresh exposure from this scan. Stand aside until a candidate clears the publication threshold.',
+      '',
+      '🧾 Why nothing promoted',
+      'No candidate cleared the publication threshold; the scan stays internal until price structure and live drivers align.',
+      '',
+      '🧱 Building / Pre-Radar',
+      'Candidate reads remain below publication grade. Keep them on watch only; do not convert an internal watch into a Discord call.',
+      '',
+      '✅ What would promote a candidate next',
+      'A future scan publishes a candidate above the publication threshold with structure, momentum, breakout quality, cleanliness, and continuation probability aligned.',
+      '',
+      '⛔ What cancels the watch',
+      'No candidate clears threshold on the next scan, the macro/volatility backdrop reverses, or structure fails before confirmation.',
+      '',
+      '🧾 Next review / next scan',
+      nextReview,
+      '',
+      '🔵 Source / engine status',
+      'Source: ATLAS scan engine · freshness: LIVE · renderer fallback reason: ' + (reason || 'unknown'),
+      '',
+      DH_HARD_BOUNDARY,
+      '✅ END DARK HORSE SCAN',
+      'Report ID: ' + reportId,
+      DH_HARD_BOUNDARY,
+    ].join('\n');
+  }
   const standoutLines = top.length ? top.map((c, idx) => {
     const symbol = c.symbol || 'Unknown';
     const direction = c.direction || 'monitoring';
@@ -956,7 +1001,7 @@ function buildDarkHorseDegradedSummary(ranking, volatility, reason, opts) {
     return [
       String(idx + 1) + '. ' + symbol + ' · ' + direction + ' · score ' + score,
       '   CURRENT ADVICE / WHAT TO DO NOW: Monitor only until rendered card recovers; no entry without confirmation.',
-      '   Where to act: entry/watch ' + zone + '; caution on failed hold; invalidation ' + stop + '.',
+      '   Entry / watch zone: ' + zone + '; caution on failed hold; invalidation ' + stop + '.',
       '   Dollar risk / risk cap: ' + risk + '.',
       '   What confirms: ' + confirms + '.',
       '   What cancels: close through ' + stop + ' or candidate drops from next scan.',
@@ -981,7 +1026,7 @@ function buildDarkHorseDegradedSummary(ranking, volatility, reason, opts) {
     '',
     'Building: degraded renderer; scanner state remains live and re-checks the same candidate set next cycle.',
     'Chart Reference: PNG unavailable this cycle; use the next rendered card for visual zones.',
-    'Briefing summary / next scan: compact fallback only. Next review: ' + nextReview,
+    'Next review / next scan: compact fallback only. Next review: ' + nextReview,
     '',
     DH_HARD_BOUNDARY,
     '✅ END OF DARK HORSE SCAN',

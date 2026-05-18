@@ -135,7 +135,7 @@ process.env.SPIDEY_QUIET = '1';
   if (vm.STRUCTURE_SNAPSHOT && vm.STRUCTURE_SNAPSHOT.length > 0) ok('STRUCTURE_SNAPSHOT anchor populated');
   else fail('STRUCTURE_SNAPSHOT missing');
   const { buildDiscordTextSummary } = require(path.join(__dirname, '..', 'renderers', 'foh', 'marketIntelV3Shell'));
-  const text = buildDiscordTextSummary(vm, { maxDiscordChunkChars: 100000 });
+  const text = buildDiscordTextSummary(vm, { surface: 'market_intel', maxDiscordChunkChars: 100000 });
   if (/Structure \(Spidey Phase D\)/.test(text)) ok('Discord text includes Structure section header');
   else fail('Discord text missing Structure section');
   if (/Spidey Phase D/.test(vm.STRUCTURE_SNAPSHOT)) ok('Anchor labels as Phase D');

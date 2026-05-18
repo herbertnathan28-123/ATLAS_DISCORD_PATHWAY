@@ -142,8 +142,8 @@ function assertNoBannedUserFacing(haystack, label) {
   console.log('\nT5 — Discord text summary free of notion + bad placeholders:');
   const miVM = miViewModel.toViewModel(miPacket);
   const dhVM = dhViewModel.toViewModel(dhPacket);
-  const miText = miShell.buildDiscordTextSummary(miVM, {});
-  const dhText = miShell.buildDiscordTextSummary(dhVM, {});
+  const miText = miShell.buildDiscordTextSummary(miVM, { surface: 'market_intel' });
+  const dhText = miShell.buildDiscordTextSummary(dhVM, { surface: 'dark_horse' });
   assertNoBannedUserFacing(miText, 'MI Discord text summary clean');
   assertNoBannedUserFacing(dhText, 'DH Discord text summary clean');
 

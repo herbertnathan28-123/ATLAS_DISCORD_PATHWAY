@@ -51,7 +51,7 @@ const miPacket = buildMarketIntelPacket({
   reportId: 'MI-proof',
   now,
 });
-const miRenderedText = buildDiscordTextSummary(miViewModel.toViewModel(miPacket), { reportId: 'MI-proof', maxDiscordChunkChars: 4000 });
+const miRenderedText = buildDiscordTextSummary(miViewModel.toViewModel(miPacket), { surface: 'market_intel', reportId: 'MI-proof', maxDiscordChunkChars: 4000 });
 assert(/Report ID: MI-proof/.test(miRenderedText), 'Rendered MI text carries report ID');
 assert(/Controls:/.test(miRenderedText), 'Rendered MI text carries controls');
 assert(/END OF MARKET INTEL REPORT/.test(miRenderedText), 'Rendered MI text carries end boundary');
@@ -68,7 +68,7 @@ const dhDegraded = buildDarkHorseDegradedSummary(dhRanking, { level: 'ELEVATED',
 assert(dhDegraded.startsWith('⚠️ DARK HORSE RENDER DEGRADED'), 'Dark Horse degraded notice leads fallback');
 assert(/Reason: foh_contract_validation_failed:WHAT_TO_DO_NOW/.test(dhDegraded), 'Dark Horse degraded notice includes exact reason');
 assert(/CURRENT ADVICE \/ WHAT TO DO NOW/.test(dhDegraded), 'Dark Horse compact summary includes current advice');
-assert(/entry\/watch 1\.0920-1\.0940/.test(dhDegraded), 'Dark Horse compact summary includes entry zone');
+assert(/Entry \/ watch zone: 1\.0920-1\.0940/.test(dhDegraded), 'Dark Horse compact summary includes entry zone');
 assert(/invalidation Below 1\.0880/.test(dhDegraded), 'Dark Horse compact summary includes stop/invalidation');
 assert(/END OF DARK HORSE SCAN/.test(dhDegraded), 'Dark Horse compact summary has hard end boundary');
 
@@ -77,7 +77,7 @@ const dhRenderedText = buildDiscordTextSummary(dhViewModel.toViewModel(dhPacket)
 assert(/NEW DARK HORSE SCAN/.test(dhRenderedText), 'Rendered DH text has hard start');
 assert(/Report ID: DH-rendered/.test(dhRenderedText), 'Rendered DH text carries report ID');
 assert(/LIFECYCLE SUMMARY/.test(dhRenderedText), 'Rendered DH text carries lifecycle summary');
-assert(/WHERE TO ACT/.test(dhRenderedText), 'Rendered DH text carries where-to-act guidance');
+assert(/ENTRY \/ WATCH ZONE/.test(dhRenderedText), 'Rendered DH text carries entry/watch guidance');
 assert(/DOLLAR RISK \/ RISK CAP/.test(dhRenderedText), 'Rendered DH text carries dollar risk guidance');
 assert(/CURRENT ADVICE \/ WHAT TO DO NOW/.test(dhRenderedText), 'Rendered DH text carries current advice');
 assert(/END OF DARK HORSE SCAN/.test(dhRenderedText), 'Rendered DH text has hard end');

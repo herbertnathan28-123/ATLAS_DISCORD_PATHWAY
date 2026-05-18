@@ -23,7 +23,7 @@ function fail(label, err) { failed++; console.error('  ✗ ' + label + (err ? ' 
 function buildAndValidate(engineInput, label) {
   const packet = buildMarketIntelPacket({ engine: engineInput });
   const vm = miViewModel.toViewModel(packet);
-  const text = miShell.buildDiscordTextSummary(vm, { maxDiscordChunkChars: 100000 });
+  const text = miShell.buildDiscordTextSummary(vm, { surface: 'market_intel', maxDiscordChunkChars: 100000 });
   const v = validateFohOutput({ packet, viewModel: vm, discordText: text });
   if (v.ok) ok(label + ' → contract OK');
   else fail(label + ' → contract failed', v.failures.slice(0, 5).join(' | '));
@@ -86,7 +86,7 @@ const { packet } = (function () {
 // Mutate briefingSummary to be thin.
 packet.briefingSummary = { primaryRead: 'x', operationalMeaning: 'y', keyMarkets: ['DXY'], currentRisk: 'z' };
 const vm7 = miViewModel.toViewModel(packet);
-const text7 = miShell.buildDiscordTextSummary(vm7, { maxDiscordChunkChars: 100000 });
+const text7 = miShell.buildDiscordTextSummary(vm7, { surface: 'market_intel', maxDiscordChunkChars: 100000 });
 const v7 = validateFohOutput({ packet, viewModel: vm7, discordText: text7 });
 if (!v7.ok && v7.failures.some(f => /too_thin:BRIEFING_SUMMARY/.test(f))) ok('Thin briefing summary rejected'); else fail('Thin briefing summary should reject', JSON.stringify(v7.failures.slice(0, 5)));
 
@@ -94,7 +94,7 @@ console.log('\nT8 — Contract REJECTS a packet with banned "lot" content:');
 const packet8 = buildMarketIntelPacket({ engine: { kind:'daily', mood:{severity:'HIGH'}, eventClusters:[{currency:'USD',events:[{title:'CPI',time:'12:30',severity:'HIGH'}]}] } });
 packet8.affectedMarketsExpanded[0].riskNote = 'Standard 1 lot EURUSD exposure carries $300–$800 swing';
 const vm8 = miViewModel.toViewModel(packet8);
-const text8 = miShell.buildDiscordTextSummary(vm8, { maxDiscordChunkChars: 100000 });
+const text8 = miShell.buildDiscordTextSummary(vm8, { surface: 'market_intel', maxDiscordChunkChars: 100000 });
 const v8 = validateFohOutput({ packet: packet8, viewModel: vm8, discordText: text8 });
 if (!v8.ok && v8.failures.some(f => /banned_pattern.*lots?/.test(f))) ok('Banned "lot" content rejected'); else fail('Banned lot content should reject', JSON.stringify(v8.failures.slice(0, 5)));
 

@@ -35,7 +35,7 @@ const REQUIRED_SECTIONS_IN_DISCORD_TEXT = [
 console.log('\nT1 — MI Discord text carries required section headers (high-impact day):');
 const miHigh = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { severity: 'HIGH' }, eventClusters: [{ currency: 'USD', events: [{ title: 'CPI (USD)', time: '12:30 UTC', severity: 'HIGH' }]}] } });
 const miHighVM = miViewModel.toViewModel(miHigh);
-const miHighText = buildDiscordTextSummary(miHighVM, {});
+const miHighText = buildDiscordTextSummary(miHighVM, { surface: 'market_intel' });
 for (const re of REQUIRED_SECTIONS_IN_DISCORD_TEXT) {
   if (re.test(miHighText)) ok('MI HIGH text includes ' + re.toString());
   else fail('MI HIGH text missing section ' + re.toString(), 'len=' + miHighText.length);
@@ -65,7 +65,7 @@ for (const re of DOCTRINE_MARKERS) {
 console.log('\nT4 — MI Discord text on empty calendar still uses expanded format:');
 const miEmpty = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { severity: 'LOW' }, eventClusters: [] } });
 const miEmptyVM = miViewModel.toViewModel(miEmpty);
-const miEmptyText = buildDiscordTextSummary(miEmptyVM, {});
+const miEmptyText = buildDiscordTextSummary(miEmptyVM, { surface: 'market_intel' });
 if (miEmptyText.length >= 1000) ok('MI empty-calendar text ≥ 1000 chars (' + miEmptyText.length + ')');
 else fail('MI empty-calendar text too thin', miEmptyText.length);
 for (const re of REQUIRED_SECTIONS_IN_DISCORD_TEXT) {
@@ -90,7 +90,7 @@ const next72MacroPacket = {
   confidenceBasis: 'ranked 86 calendar rows into 43 next-72h relevant rows; calendar source=TradingView/LIVE',
 };
 const miNext72 = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { severity: 'MED' }, eventClusters: [], macroIntelligencePacket: next72MacroPacket } });
-const miNext72Text = buildDiscordTextSummary(miViewModel.toViewModel(miNext72), { maxDiscordChunkChars: 100000 });
+const miNext72Text = buildDiscordTextSummary(miViewModel.toViewModel(miNext72), { surface: 'market_intel', maxDiscordChunkChars: 100000 });
 if (/^━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🟨 NEW MARKET INTEL REPORT/.test(miNext72Text)) ok('MI next72 text leads with Issue #144 hard start boundary'); else fail('MI next72 text does not lead with hard start boundary');
 if (/🟠 HIGH-IMPACT CALENDAR EVENTS/.test(miNext72Text)) ok('MI next72 text includes high-impact calendar section'); else fail('MI next72 text missing high-impact calendar section');
 if (/GDP Growth Rate QoQ Prel/.test(miNext72Text) && /FOMC Member Speech/.test(miNext72Text)) ok('MI next72 text includes next72 events'); else fail('MI next72 text missing next72 event rows');
@@ -103,7 +103,7 @@ if (/✅ END OF MARKET INTEL REPORT/.test(miNext72Text)) ok('MI next72 text incl
 console.log('\nT5 — DH Discord text carries the same expanded structure:');
 const dh = buildDarkHorsePacket({ ranking: { top10: [{ symbol: 'EURUSD', movePhase: 'early', score: 9, direction: 'Bullish' }], allCount: 33 }, volatility: { level: 'ELEV' } });
 const dhVM = dhViewModel.toViewModel(dh);
-const dhText = buildDiscordTextSummary(dhVM, {});
+const dhText = buildDiscordTextSummary(dhVM, { surface: 'dark_horse' });
 if (dhText.length >= 1000) ok('DH text length ≥ 1000 chars (' + dhText.length + ')');
 else fail('DH text too thin', dhText.length);
 for (const re of REQUIRED_SECTIONS_IN_DISCORD_TEXT) {
