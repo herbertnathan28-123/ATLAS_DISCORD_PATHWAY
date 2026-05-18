@@ -1026,6 +1026,112 @@ function _redNewDividerTop(nowMs, universeSize) {
 // Discord clients render ANSI box colours inconsistently (some
 // clients turn bright codes white). Use plain Discord code blocks
 // so the text sits inside an actual rendered container.
+const DH_PROTO_MARKER = Object.freeze({
+  newBadge: '\u{1F195}',
+  bang: '\u2757',
+  yellow: '\u{1F7E8}',
+  orange: '\u{1F7E7}',
+  red: '\u{1F7E5}',
+  bullet: '\u2022',
+  dot: '\u00B7',
+});
+
+function _prototypeNewScanDivider(nowMs, universeSize) {
+  const utc = _fmtUtcStamp(nowMs);
+  const awst = _fmtAwstStamp(nowMs);
+  return [
+    '```diff',
+    '- ' + BAR_HEAVY,
+    '- ' + DH_PROTO_MARKER.newBadge + ' ' + DH_PROTO_MARKER.bang + DH_PROTO_MARKER.bang + ' NEW DARK HORSE SCAN ' + DH_PROTO_MARKER.bang + DH_PROTO_MARKER.bang + ' ' + DH_PROTO_MARKER.newBadge,
+    '- ' + BAR_LIGHT,
+    '- ' + utc + ' ' + awst + ' ' + DH_PROTO_MARKER.bullet + ' ' + universeSize + ' markets scanned',
+    '- ' + BAR_HEAVY,
+    '```',
+  ].join('\n');
+}
+
+function _parseTimeMs(value) {
+  if (value == null || value === '') return null;
+  if (Number.isFinite(value)) return value;
+  const t = Date.parse(String(value));
+  return Number.isFinite(t) ? t : null;
+}
+
+function _fmtShortUtcStamp(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  const yy = String(d.getUTCFullYear()).slice(-2);
+  return _pad2(d.getUTCDate()) + '/' + _pad2(d.getUTCMonth() + 1) + '/' + yy
+    + ' ' + _pad2(d.getUTCHours()) + ':' + _pad2(d.getUTCMinutes()) + ' UTC';
+}
+
+function _humanElapsed(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return 'this scan';
+  const totalMinutes = Math.max(1, Math.floor(ms / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+  if (days) parts.push(days + ' ' + (days === 1 ? 'day' : 'days'));
+  if (hours) parts.push(hours + ' ' + (hours === 1 ? 'hr' : 'hrs'));
+  if (minutes && (parts.length < 3 || !days)) parts.push(minutes + ' ' + (minutes === 1 ? 'min' : 'mins'));
+  return parts.length ? parts.join(' ') : 'under 1 min';
+}
+
+function _standoutFirstLoggedMs(record, nowMs) {
+  const direct = _parseTimeMs(record && (record.firstDetectedAt || record.firstDetected || record.detectedAt || record.firstLoggedAt));
+  if (direct != null) return direct;
+  const moveAge = Number(record && record.moveAge);
+  if (Number.isFinite(moveAge) && moveAge >= 0) return (Number.isFinite(nowMs) ? nowMs : Date.now()) - moveAge * 24 * 60 * 60 * 1000;
+  return null;
+}
+
+function _standoutAliveLabel(record, nowMs) {
+  if (record && record.durationAliveLabel) return String(record.durationAliveLabel);
+  if (record && record.durationAlive) return String(record.durationAlive);
+  const firstMs = _standoutFirstLoggedMs(record, nowMs);
+  if (firstMs != null) return _humanElapsed((Number.isFinite(nowMs) ? nowMs : Date.now()) - firstMs);
+  const moveAge = Number(record && record.moveAge);
+  if (Number.isFinite(moveAge) && moveAge >= 0) return _humanElapsed(moveAge * 24 * 60 * 60 * 1000);
+  return null;
+}
+
+function _stillActiveValidityLine(record, nowMs) {
+  const firstMs = _standoutFirstLoggedMs(record, nowMs);
+  const first = _fmtShortUtcStamp(firstMs);
+  const alive = _standoutAliveLabel(record, nowMs);
+  if (first && alive) {
+    return DH_PROTO_MARKER.orange + ' First logged ' + first + ' ' + DH_PROTO_MARKER.dot + ' still Dark Horse worthy after ' + alive + '.';
+  }
+  if (alive) return DH_PROTO_MARKER.orange + ' First logged: pending ' + DH_PROTO_MARKER.dot + ' still Dark Horse worthy after ' + alive + '.';
+  return DH_PROTO_MARKER.orange + ' First logged: pending ' + DH_PROTO_MARKER.dot + ' still active across multiple scan cycles.';
+}
+
+function _prototypeLifecycleSeparator(record, lifecycle, idx, total, opts) {
+  const nowMs = opts && Number.isFinite(opts.now) ? opts.now : Date.now();
+  const rankLabel = 'STANDOUT #' + (idx + 1) + ' of ' + total;
+  const symbolNote = (record.symbol || 'unknown') + ' ' + DH_PROTO_MARKER.bullet + ' ' + lifecycle.narrative;
+  if (lifecycle.tone === 'fresh') {
+    return [
+      _boxedHeading('INITIAL STANDOUT ' + DH_PROTO_MARKER.bullet + ' ' + rankLabel, DH_PROTO_MARKER.yellow + DH_PROTO_MARKER.yellow),
+      '**' + symbolNote + '**',
+      DH_PROTO_MARKER.yellow + ' First active on this scan ' + DH_PROTO_MARKER.dot + ' new-cycle standout.',
+    ].join('\n');
+  }
+  if (lifecycle.tone === 'active') {
+    return [
+      _boxedHeading('STILL ACTIVE ' + DH_PROTO_MARKER.bullet + ' ' + rankLabel, DH_PROTO_MARKER.orange + DH_PROTO_MARKER.orange),
+      '**' + symbolNote + '**',
+      _stillActiveValidityLine(record, nowMs),
+    ].join('\n');
+  }
+  return [
+    _boxedHeading('FADING ' + DH_PROTO_MARKER.bullet + ' ' + rankLabel, DH_PROTO_MARKER.red + DH_PROTO_MARKER.orange),
+    '**' + symbolNote + '**',
+    DH_PROTO_MARKER.red + ' Validity is ageing ' + DH_PROTO_MARKER.dot + ' late-stage caution remains in force.',
+  ].join('\n');
+}
+
 function _boxedHeading(text, marker) {
   const label = marker + ' ' + text + ' ' + marker;
   const width = Math.min(66, Math.max(32, label.length + 2));
@@ -1123,7 +1229,7 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
       + '._';
 
   const parts = [
-    _redNewDividerTop(nowMs, universeSize),
+    _prototypeNewScanDivider(nowMs, universeSize),
     '',
     _sectionBanner('🝎  DARK HORSE — GLOBAL MOVER RADAR', 'gold'),
     '',
@@ -1774,7 +1880,7 @@ function buildDarkHorseFohPayload(ranking, volatility, opts) {
   for (let i = 0; i < withAnchors.length; i++) {
     const record = withAnchors[i];
     const lifecycle = lifecycleStage(record);
-    const separator = _lifecycleSeparator(record, lifecycle, i, withAnchors.length);
+    const separator = _prototypeLifecycleSeparator(record, lifecycle, i, withAnchors.length, opts);
     const isLast = (i === withAnchors.length - 1);
     const embed = _candidateEmbed(record, i, withAnchors.length, isLast, opts, urlMap, volatility, ctx);
     messages.push({ content: separator, embeds: [embed] });
