@@ -13,6 +13,7 @@
 
 const fs   = require('fs');
 const path = require('path');
+const childProcess = require('child_process');
 const config    = require('./corey_history_config');
 const validator = require('./corey_history_validator');
 const audit     = require('./corey_history_audit');
@@ -59,6 +60,56 @@ function freshnessFromVerifiedAt(lastVerifiedAt) {
   return { ok: false, severity: 'severe', ageDays, reason: 'cache verification severely stale (>90 days); cache:verify/cache:refresh required before evidence trusted' };
 }
 
+function autoBootstrapEnabled(opts) {
+  if (opts && opts.autoBootstrap === false) return false;
+  if (process.env.COREY_CLONE_AUTO_BOOTSTRAP === 'false') return false;
+  return true;
+}
+
+function tryBootstrapMissingCache(atlasSymbol, jsonl, opts) {
+  if (!autoBootstrapEnabled(opts)) return { attempted: false, reason: 'auto_bootstrap_disabled' };
+  if (fs.existsSync(jsonl)) return { attempted: false, reason: 'cache_present' };
+  const script = path.join(__dirname, 'scripts', 'cache_harvest.js');
+  if (!fs.existsSync(script)) return { attempted: false, reason: 'cache_harvest_script_missing' };
+
+  audit.info('corey_clone_cache_bootstrap_start', {
+    symbol: atlasSymbol,
+    cacheDir: config.CACHE_DIR,
+    jsonlPath: jsonl,
+    mode: 'reader_sync_harvest',
+  });
+
+  let result;
+  try {
+    result = childProcess.spawnSync(process.execPath, [script, '--symbol', atlasSymbol], {
+      env: process.env,
+      encoding: 'utf8',
+      timeout: Number(process.env.COREY_CLONE_BOOTSTRAP_TIMEOUT_MS || 180000),
+      maxBuffer: 1024 * 1024,
+    });
+  } catch (e) {
+    const err = audit.sanitiseError ? audit.sanitiseError(e) : (e && e.message) || 'spawn failed';
+    audit.error('corey_clone_cache_bootstrap_spawn_failed', { symbol: atlasSymbol, error: err });
+    return { attempted: true, ok: false, reason: 'spawn_failed', error: err };
+  }
+
+  const ok = result && result.status === 0 && fs.existsSync(jsonl);
+  const stdoutTail = result && result.stdout ? result.stdout.slice(-1000) : '';
+  const stderrTail = result && result.stderr ? result.stderr.slice(-1000) : '';
+  const payload = {
+    symbol: atlasSymbol,
+    ok,
+    status: result && result.status,
+    signal: result && result.signal,
+    jsonlExists: fs.existsSync(jsonl),
+    stdoutTail,
+    stderrTail,
+  };
+  if (ok) audit.info('corey_clone_cache_bootstrap_complete', payload);
+  else audit.warn('corey_clone_cache_bootstrap_failed', payload);
+  return Object.assign({ attempted: true, reason: ok ? 'harvest_ok' : 'harvest_failed' }, payload);
+}
+
 /**
  * readCandles(atlasSymbol, opts?) → { ok, rows, manifest, freshness, errors }
  */
@@ -69,8 +120,12 @@ function readCandles(atlasSymbol, opts) {
   if (!sym) return { ok: false, rows: [], errors: [`unknown symbol: ${atlasSymbol}`], manifest: null, freshness: null };
 
   const jsonl = config.jsonlPath(atlasSymbol);
+  let bootstrap = null;
   if (!fs.existsSync(jsonl)) {
-    return { ok: false, rows: [], errors: [`cache file missing: ${atlasSymbol}/1D.jsonl`], manifest: null, freshness: { ok: false, severity: 'severe', ageDays: null, reason: 'cache file missing' } };
+    bootstrap = tryBootstrapMissingCache(atlasSymbol, jsonl, opts);
+  }
+  if (!fs.existsSync(jsonl)) {
+    return { ok: false, rows: [], errors: [`cache file missing: ${atlasSymbol}/1D.jsonl`], manifest: null, freshness: { ok: false, severity: 'severe', ageDays: null, reason: 'cache file missing' }, bootstrap };
   }
 
   const manifestAll = readManifest();
@@ -128,6 +183,7 @@ function readCandles(atlasSymbol, opts) {
     errors,
     manifest: symManifest,
     freshness,
+    bootstrap,
   };
 }
 
