@@ -14,6 +14,31 @@ const dhShell = require('../../renderers/foh/darkHorseV6Shell');
 const { postFohDeliverable, containsPrivateBackendUrl } = require('./_discordPost');
 const { validateFohOutput } = require('../validate/validateFohOutput');
 
+function _phaseToLifecycle(movePhase) {
+  const p = String(movePhase || '').toLowerCase();
+  if (p === 'early') return 'FRESH';
+  if (p === 'late' || p === 'exhaustion') return 'FADING';
+  return 'STILL ACTIVE';
+}
+
+function _liveStandoutsFromRanking(ranking) {
+  const top = ranking && Array.isArray(ranking.top10) ? ranking.top10 : [];
+  return top
+    .filter(c => Number.isFinite(c && c.score) && c.score >= 7)
+    .slice(0, 4)
+    .map(c => ({
+      symbol: c.symbol,
+      lifecycle: _phaseToLifecycle(c.movePhase),
+      direction: c.direction || 'unspecified',
+      score: c.score,
+      firstDetected: c.firstDetectedAt || c.firstDetected || null,
+      durationAlive: c.durationAliveLabel || c.durationAlive || null,
+      reason: c.summary || (Array.isArray(c.reasons) ? c.reasons.join(' · ') : null),
+      decisionLevel: c.decisionLevel || null,
+      invalidation: c.invalidation || null,
+    }));
+}
+
 async function sendDarkHorseFoh({ ranking, volatility, legacyPayload, webhookUrl, opts }) {
   if (process.env.FOH_IMAGE_RENDER_ENABLED !== 'true') {
     return { ok: false, reason: 'env_flag_disabled' };
@@ -32,12 +57,27 @@ async function sendDarkHorseFoh({ ranking, volatility, legacyPayload, webhookUrl
   const v = dhViewModel.validate(viewModel);
   if (!v.ok) return { ok: false, reason: 'view_model_missing_anchors', missing: v.missing };
 
+  // 2.5. Attach the live Dark Horse candidate list to the shell VM.
+  // The generic MI-compatible view-model intentionally does not carry
+  // Dark Horse standout objects. The prototype shell needs them so live
+  // zero-standout scans suppress the static EURUSD/XAUUSD/NVDA sample cards
+  // and live non-zero scans keep only real candidates.
+  const liveViewModel = Object.assign({}, viewModel, {
+    now: opts && opts.now,
+    marketsScanned: (opts && Number.isFinite(opts.universeSize)) ? opts.universeSize : (ranking && Number.isFinite(ranking.allCount) ? ranking.allCount : 0),
+    marketMood: {
+      discs: packet && packet.header && packet.header.severityDiscs,
+      label: packet && packet.header && packet.header.riskState,
+    },
+    standouts: _liveStandoutsFromRanking(ranking || {}),
+  });
+
   // 3. VIEW MODEL → PROTOTYPE SHELL render
   let rendered;
   try {
     rendered = await dhShell.render({
       packet,
-      viewModel,
+      viewModel: liveViewModel,
       opts: Object.assign({}, opts, { legacyPayload: legacyPayload || {} }),
     });
   } catch (e) {

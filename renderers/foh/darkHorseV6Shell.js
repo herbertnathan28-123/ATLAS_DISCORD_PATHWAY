@@ -22,9 +22,14 @@ function _scrubExternalLinks(html) {
 
 async function render({ packet, viewModel, opts }) {
   opts = Object.assign({}, RENDER_PARAMETERS, opts || {});
-  const legacyPayload = (opts && opts.legacyPayload) || packet || {};
+
   let html = protoShell.getDarkHorseV6Html();
-  html = dhAdapter.adapt(html, legacyPayload);
+
+  // Live production must render from the current FOH view model.
+  // The previous path preferred opts.legacyPayload, which allowed stale
+  // prototype/sample candidate content to survive in live no-standout PDFs.
+  const liveViewModel = viewModel || packet || {};
+  html = dhAdapter.adapt(html, liveViewModel);
   html = _scrubExternalLinks(html);
 
   const cards = protoShell.buildDarkHorseV6Cards(html).map(c => ({ ...c, html: _scrubExternalLinks(c.html) }));
