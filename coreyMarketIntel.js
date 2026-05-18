@@ -727,7 +727,7 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     '🟨 NEW MARKET INTEL REPORT',
     'Report ID: ' + reportId,
     'Generated: ' + generated,
-    'Part: 1/7',
+    'Part: 1/1',
     MI_HARD_BOUNDARY,
     _miControlsPendingBlock(),
     '',
@@ -735,6 +735,8 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
     'Current read: MONITORING — calendar risk leads until Jane / structure confirms a tradable path.',
     'Next confirmation point: ' + _miExpandMacroLabels(p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
+    'Context: ' + _miExpandMacroLabels(r.whyThisRating || 'risk basis unavailable'),
+    '✅ END OF MARKET INTEL REPORT',
   ].join('\n');
   const msg2 = [
     MI_HARD_BOUNDARY,

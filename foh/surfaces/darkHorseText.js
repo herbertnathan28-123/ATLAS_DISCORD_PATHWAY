@@ -163,6 +163,7 @@ function renderDarkHorseSurface(viewModel, opts) {
     '🟢 STANDOUTS',
     'Standouts on this scan: ' + (standoutCount == null ? 'published candidates' : standoutCount),
     _cardFieldBlock(viewModel, opts),
+    '🟡 LIFECYCLE SUMMARY',
     lifecycle,
     '↳ Expanded Terminology: available from dashboard controls',
     '',
