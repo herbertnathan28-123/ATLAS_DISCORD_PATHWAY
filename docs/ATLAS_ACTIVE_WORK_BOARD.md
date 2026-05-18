@@ -1,6 +1,6 @@
 # ATLAS FX — Active Work Board
 
-Last updated: 17 May 2026 AWST
+Last updated: 18 May 2026 UTC
 
 ---
 
@@ -20,6 +20,25 @@ Every required item carries one inline marker:
 ## Current Production Position
 
 Macro engine production chain is accepted through Cursor PR #126.
+
+Foundation recovery addendum status (Cursor stack PR #142 on top of draft PR #141):
+
+- [x] Current-state certificate updated before addendum edits (`docs/certificates/ATLAS_CURRENT_STATE_CERT.md`, PR #142, 18 May)
+- [x] Macro/Corey role separation strengthened with source-weight proof and macro-verbosity test (`MACRO_COREY_ROLE_SEPARATION_CERT.md`, `tests/janeEvidenceWeighting.test.js`, PR #142, 18 May)
+- [x] Macro search command proof run against live TradingView calendar data (`node scripts/test_macro_search.js`, 10/10 required commands PASS, PR #142, 18 May)
+- [x] PR #140 FOH acceptance re-verified by live-path fixtures (`marketIntelDailyRoadmap`, `darkHorseCurrentAdvice`, `darkHorseHeaderControls`, `fohLiveDispatchText`, PR #142, 18 May)
+- [!] Hyperlink infrastructure remains **not complete** — safe fallbacks exist, but central registry/helper and public URL targets are deferred to a focused follow-up (`HYPERLINK_INFRASTRUCTURE_CERT.md`, PR #142, 18 May)
+- [!] Render/deploy proof remains **blocked** — Render MCP has no selected workspace, `list_workspaces` is unauthorized, and Render CLI is unavailable (`DEPLOY_RENDER_PROOF_CERT.md`, PR #142, 18 May)
+
+Safe-to-merge scope:
+
+- [x] PR #141/#142 foundation cert/test additions are safe to review/merge as a controlled recovery stack once regression tests pass.
+
+Must **not** be considered complete:
+
+- [!] Live Render deploy proof / live Discord send proof
+- [!] Hyperlink registry / Expanded Terminology URL routing / event-link routing
+- [!] Provider-backed Corey Clone cache population on Render
 
 Confirmed live chain:
 
