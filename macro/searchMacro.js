@@ -22,7 +22,7 @@ const { buildMarketIntelPacket } = require('../foh/buildMarketIntelPacket');
 const miViewModel = require('../foh/adapters/marketIntelViewModel');
 const miShell = require('../renderers/foh/marketIntelV3Shell');
 const { validateFohOutput } = require('../foh/validate/validateFohOutput');
-const { boxHeader, controlStrip } = require('../foh/headerStrip');
+const { formatMacroSearchFoh } = require('./formatMacroSearchFoh');
 
 let coreyLive = null;
 try { coreyLive = require('../corey_live_data'); } catch (_e) { coreyLive = null; }
@@ -148,7 +148,7 @@ function fallbackAffectedMarketsForEvent(resolution) {
 function fallbackAffectedMarketsForSymbol(symbol) {
   const s = String(symbol || '').toUpperCase();
   if (isEquitySymbol(s)) {
-    const peers = SEMI_SYMBOLS.has(s) ? ['NVDA','MU','ASML'] : ['AAPL','MSFT','AMZN'];
+    const peers = SEMI_SYMBOLS.has(s) ? ['AMD','NVDA','MU','ASML'] : ['AAPL','MSFT','AMZN'];
     return Array.from(new Set([s, 'NAS100', 'US500', 'DXY', 'VIX'].concat(peers.filter(p => p !== s)))).slice(0, 9);
   }
   if (isIndexSymbol(s)) return [s, 'DXY', 'VIX', 'XAUUSD', 'USDJPY', 'NAS100', 'US500'].filter((v, i, a) => a.indexOf(v) === i);
@@ -316,152 +316,6 @@ function eventRowsForResponse(packet, resolution, focus) {
   return rows.slice(0, 5);
 }
 
-function displayInstrument(symbol) {
-  const s = String(symbol || '');
-  if (s === 'DXY') return 'US Dollar Strength (DXY)';
-  if (s === 'VIX') return 'Market Volatility (VIX)';
-  return s;
-}
-
-function userFacingText(text) {
-  return String(text || '')
-    .replace(/\bDXY\s*\/\s*VIX\b/g, 'US Dollar Strength (DXY) / Market Volatility (VIX)')
-    .replace(/\bDXY\s+and\s+VIX\b/gi, 'US Dollar Strength (DXY) and Market Volatility (VIX)')
-    .replace(/\bDXY\s*,\s*yields\s*,\s*VIX\b/gi, 'US Dollar Strength (DXY), yields, Market Volatility (VIX)')
-    .replace(/(?<!\()DXY\b/g, 'US Dollar Strength (DXY)')
-    .replace(/(?<!\()VIX\b/g, 'Market Volatility (VIX)')
-    .replace(/US Dollar Strength \(DXY\)\s*\/\s*yields\s*\/\s*Market Volatility \(VIX\)/g, 'US Dollar Strength (DXY), yields, and Market Volatility (VIX)');
-}
-
-function riskDiscs(score) {
-  const n = Math.max(1, Math.min(5, Math.round(Number(score) || 1)));
-  const active = n >= 5 ? '🔴' : n >= 4 ? '🟠' : n >= 3 ? '🟡' : '🔵';
-  return active.repeat(n) + '⚫'.repeat(Math.max(0, 5 - n));
-}
-
-const IMPACT_TIER1_TITLE_RE = /(rate decision|policy decision|interest rate decision|press conference|cpi\b|inflation rate|non[- ]?farm|nfp\b)/i;
-const IMPACT_HIGH_TITLE_RE = /(gdp|retail sales|unemployment|inflation|minutes|speech|payrolls)/i;
-
-function impactGlyph(row) {
-  const impact = String(row && (row.impact || row.expectedImpact || row.severity) || '').toUpperCase();
-  const title = String(row && row.title || '');
-  if (/EXTREME|TIER\s*1/.test(impact) || IMPACT_TIER1_TITLE_RE.test(title)) return '🔴';
-  if (/HIGH|ELEV/.test(impact)) return '🟠';
-  if (IMPACT_HIGH_TITLE_RE.test(title)) return '🟠';
-  if (/MED|MEDIUM/.test(impact)) return '🟡';
-  if (/LOW/.test(impact)) return '⚪';
-  return '🟡';
-}
-
-function topImpactTier(rows) {
-  let tier = 'low';
-  for (const r of (rows || [])) {
-    const g = impactGlyph(r);
-    if (g === '🔴') return 'extreme';
-    if (g === '🟠') tier = 'high';
-    else if (g === '🟡' && tier === 'low') tier = 'medium';
-  }
-  return tier;
-}
-
-function headerColorForTier(tier) {
-  return tier === 'extreme' ? 'red'
-    : tier === 'high' ? 'orange'
-    : tier === 'medium' ? 'yellow'
-    : 'grey';
-}
-
-function riskColorForLabel(label) {
-  const u = String(label || '').toUpperCase();
-  if (/EXTREME/.test(u)) return 'red';
-  if (/HIGH|ACTIVE|STRESS|ELEVATED/.test(u)) return 'orange';
-  if (/MED|MODERATE/.test(u)) return 'yellow';
-  return 'grey';
-}
-
-function rankedEventBlock(events) {
-  if (!events.length) {
-    return [
-      '⚪ pending · multi · [No matching live scheduled event in the current calendar window]',
-      'Affected: Affected markets pending',
-      'Full Brief: Brief Pending',
-    ].join('\n');
-  }
-  return events.slice(0, 5).map(e => {
-    const glyph = impactGlyph(e);
-    const time = e.timeUTC || e.scheduledTimeUTC || 'pending';
-    const ccy = e.currency || 'multi';
-    const title = e.title || 'Unnamed event';
-    const markets = Array.isArray(e.affectedMarkets) ? e.affectedMarkets
-      : Array.isArray(e.affectedInstruments) ? e.affectedInstruments
-      : [];
-    const marketsTxt = markets.length
-      ? markets.slice(0, 4).map(displayInstrument).join(' · ')
-      : 'Affected markets pending';
-    const brief = e.briefUrl && !/notion\.(so|com|site)/i.test(String(e.briefUrl)) ? e.briefUrl : 'Brief Pending';
-    return [
-      glyph + ' ' + time + ' ' + ccy + ' · [' + title + ']',
-      'Affected: ' + marketsTxt,
-      'Full Brief: ' + brief,
-    ].join('\n');
-  }).join('\n\n');
-}
-
-function marketImpactCards(packet, focus) {
-  const paths = Array.isArray(packet.macroTransmissionMap) ? packet.macroTransmissionMap : [];
-  const t = paths[0] || {};
-  const happening = userFacingText(focus.title || t.driver || 'Live macro driver state');
-  const why = userFacingText(t.mechanism || focus.whyPrimary || 'Macro drivers are setting risk conditions.');
-  const moverSyms = Array.isArray(t.affectedSymbols) && t.affectedSymbols.length
-    ? t.affectedSymbols
-    : (Array.isArray(focus.affectedMarkets) ? focus.affectedMarkets : []);
-  const movers = moverSyms.length
-    ? moverSyms.slice(0, 6).map(displayInstrument).join(', ') + '.'
-    : 'US Dollar Strength (DXY), yields, and Market Volatility (VIX).';
-  const confirms = userFacingText(t.whatStrengthensThis || focus.confidenceBasis || 'First confirmed 15-minute close agrees with the lead market and live macro drivers.');
-  const weakens = userFacingText(t.whatWeakensThis || focus.reversalRisk || 'Lead market fades back inside the pre-release range or live drivers reject the first move.');
-  return [
-    '🟦 What is happening',
-    happening,
-    '',
-    '🟨 Why this matters',
-    why,
-    '',
-    '🟧 What moves first',
-    movers,
-    '',
-    '🟩 What confirms it',
-    confirms,
-    '',
-    '🟥 What weakens it',
-    weakens,
-  ].join('\n');
-}
-
-function affectedMarketCards(packet, focus) {
-  const expanded = Array.isArray(packet.affectedMarketsExpanded) ? packet.affectedMarketsExpanded : [];
-  if (expanded.length) {
-    return expanded.slice(0, 8).map(m => {
-      const sym = displayInstrument(m.symbol || m.instrument || 'Market');
-      const how = userFacingText(m.transmissionMechanism || m.howAffected || 'affected through the primary macro driver');
-      const confirm = userFacingText(m.confirmationCondition || m.confirmation || 'lead-market confirmation required');
-      return '• ' + sym + ' — ' + how + '; confirmation: ' + confirm + '.';
-    }).join('\n');
-  }
-  const fallback = Array.isArray(focus.affectedMarkets) ? focus.affectedMarkets : [];
-  if (!fallback.length) return '• No affected markets mapped by the live interpreter.';
-  return fallback.slice(0, 8).map(s => '• ' + displayInstrument(s) + ' — mapped from selected-symbol macro exposure; confirmation required after live drivers align.').join('\n');
-}
-
-function macroSearchSourceLine(packet) {
-  const cal = (packet.dataFreshness && packet.dataFreshness.calendar) || {};
-  const sourceRaw = cal.source || 'calendar_unknown';
-  const source = /tradingview/i.test(sourceRaw) ? 'TradingView' : sourceRaw;
-  const mode = cal.mode || 'UNAVAILABLE';
-  const sourceUsed = Array.isArray(packet.sourceUsed) ? packet.sourceUsed.join('+') : (packet.sourceUsed || 'none');
-  const conf = packet.confidenceScore != null ? packet.confidenceScore : 'engine-derived';
-  return 'Source: ' + source + ' ' + mode + ' · source_used=' + sourceUsed + ' · confidence=' + conf + ' · basis=' + (packet.confidenceBasis || '—');
-}
 
 function deriveJaneFinalState(janeOut) {
   if (!janeOut || typeof janeOut !== 'object') return 'MONITORING';
@@ -471,12 +325,6 @@ function deriveJaneFinalState(janeOut) {
   if (trade === 'INVALID' || action === 'STAND_DOWN') return 'STAND_DOWN';
   if (trade === 'WAITING_FOR_CONFIRMATION' || trade === 'PARTIAL' || trade === 'MARGINAL' || action === 'WAIT') return 'MONITORING';
   return action || trade || 'MONITORING';
-}
-
-function currentReadLine(state) {
-  if (state === 'ARMED') return 'ARMED — Jane has a stronger validated state; follow the engine confirmation and degradation notes.';
-  if (state === 'STAND_DOWN') return 'STAND_DOWN — Jane rejected a confirmed execution read for this search.';
-  return 'MONITORING — no confirmed execution read yet.';
 }
 
 function buildEngineInput(macroPacket) {
@@ -500,102 +348,6 @@ function buildEngineInput(macroPacket) {
   };
 }
 
-function formatSearchResponse(ctx) {
-  const packet = ctx.macroPacket;
-  const focus = packet.primaryEventFocus || {};
-  const risk = packet.riskState || {};
-  const events = eventRowsForResponse(packet, ctx.resolution, focus);
-
-  const calendarTier = topImpactTier(events);
-  const riskLabelRaw = String(risk.label || '').toUpperCase();
-  const callTier = /EXTREME/.test(riskLabelRaw) || calendarTier === 'extreme'
-    ? 'extreme'
-    : calendarTier === 'high' || /HIGH|ELEV|ACTIVE|STRESS/.test(riskLabelRaw)
-    ? 'high'
-    : calendarTier === 'medium' || /MED|MODERATE/.test(riskLabelRaw)
-    ? 'medium'
-    : 'low';
-
-  const callColor = headerColorForTier(callTier);
-  const calendarColor = headerColorForTier(calendarTier);
-  const riskColor = riskColorForLabel(risk.label);
-
-  const bar = controlStrip({
-    png: 'pending',
-    pdf: 'pending',
-    calendar: 'available',
-    glossary: 'available',
-    dashboard: 'pending',
-    rows: ['png', 'pdf', 'calendar', 'glossary', 'dashboard'],
-    labels: {
-      png:       '🖼️ PNG',
-      pdf:       '📄 PDF',
-      calendar:  '📅 Full Calendar',
-      glossary:  '📘 Terminology',
-      dashboard: '🔗 Full Brief',
-    },
-  });
-
-  const primaryFocusLine = userFacingText((focus.title || ctx.resolution.displayTarget) + (focus.currency ? ' / ' + focus.currency : ''));
-  const nextConfirmation = userFacingText(focus.volatilityWindow || 'first confirmed close after the live risk window.');
-  const next72Count = Array.isArray(packet.next72Hours) ? packet.next72Hours.length : 0;
-  const next24Count = Array.isArray(packet.todayAnnouncements) ? packet.todayAnnouncements.length : 0;
-
-  const degradationLine = ctx.degradationReason === 'none'
-    ? 'Degradation: None from macro search. Engine gates: Corey=' + ctx.coreyStatus + ', Corey Clone=' + ctx.cloneSummary.status + ' (usableForDecision=' + ctx.cloneSummary.usableForDecision + '), Spidey=' + ctx.spideyStatus + '.'
-    : 'Degradation: ' + userFacingText(ctx.degradationReason);
-
-  const cloneNote = !ctx.cloneSummary.usableForDecision
-    ? 'Historical reference: Not decision-grade yet. Current read is based on live macro / calendar / structure only.'
-    : null;
-  const spideyNote = (ctx.spideyStatus === 'PARTIAL' || ctx.spideyStatus === 'BLOCKED')
-    ? 'Structure: confirmation pending. No active execution zone is confirmed by this macro search.'
-    : null;
-
-  const lines = [
-    boxHeader('📡 MARKET INTEL · MACRO SEARCH — ' + ctx.resolution.displayTarget, { color: 'cyan' }),
-    bar,
-    'Generated: ' + (packet.generatedAtUTC || '—'),
-    '',
-    boxHeader('🔥 THE CALL', { color: callColor }),
-    'Primary focus: ' + primaryFocusLine,
-    'Risk state: ' + (risk.label || 'UNKNOWN') + (risk.scoreOutOf5 != null ? ' ' + risk.scoreOutOf5 + '/5' : '') + ' — ' + userFacingText(risk.whyThisRating || 'risk basis unavailable'),
-    'Current read: ' + currentReadLine(ctx.janeFinalState),
-    'Next confirmation point: ' + nextConfirmation,
-    '',
-    boxHeader('📅 RANKED CALENDAR EVENTS', { color: calendarColor }),
-    rankedEventBlock(events),
-    '',
-    boxHeader('⚠️ RISK STATE', { color: riskColor }),
-    riskDiscs(risk.scoreOutOf5) + ' — ' + (risk.label || 'UNKNOWN'),
-    'Why: ' + userFacingText(risk.whyThisRating || 'risk basis unavailable.'),
-    'What this means: ' + userFacingText(focus.reversalRisk || 'Direction is not reliable until the first confirmed close agrees with live macro drivers.'),
-    '',
-    boxHeader('🌍 MARKET IMPACT', { color: 'blue' }),
-    marketImpactCards(packet, focus),
-    '',
-    boxHeader('🎯 AFFECTED MARKETS', { color: 'cyan' }),
-    affectedMarketCards(packet, focus),
-    '',
-    boxHeader('✅ CONFIRMATION / DEGRADATION', { color: 'green' }),
-    'Confirmation: ' + userFacingText(focus.confidenceBasis || 'First confirmed close agrees with the lead market and live macro drivers.'),
-    degradationLine,
-    cloneNote,
-    spideyNote,
-    '',
-    boxHeader('🗓️ FORWARD PLANNING', { color: 'yellow' }),
-    'Next 24h: ' + next24Count + ' scheduled event(s). Next 72h: ' + next72Count + ' ranked relevant event(s).',
-    'Primary event: ' + userFacingText(focus.title || 'none') + '. Prepare around named windows; outside them, read live US Dollar Strength (DXY), Market Volatility (VIX), yields, and liquidity.',
-    'Ranked coverage: ' + (events.length ? events.slice(0, 4).map(e => userFacingText(e.title || 'event')).join(' | ') : 'Brief Pending until the next live packet resolves ranked events.'),
-    '',
-    boxHeader('🔗 SOURCE / PROVENANCE', { color: 'cyan' }),
-    macroSearchSourceLine(packet),
-    '',
-    '_Jane remains final gate. FOH renders engine output only; no trade call is created from macro search alone._',
-  ].filter(l => l != null);
-
-  return userFacingText(lines.join('\n'));
-}
 
 function logProof(ctx) {
   const logs = [];
@@ -725,6 +477,7 @@ async function runMacroSearch(query, opts) {
     resolution,
     leadSymbol,
     macroPacket,
+    events: eventRowsForResponse(macroPacket, resolution, focus),
     coreyStatus: publicStatus(sourceStatus.corey),
     cloneSummary,
     spideyStatus,
@@ -747,7 +500,7 @@ async function runMacroSearch(query, opts) {
     fohRendered,
     degradationReason: ctx.degradationReason,
     proofLogs,
-    content: formatSearchResponse(ctx),
+    content: formatMacroSearchFoh(ctx),
   };
 }
 
@@ -755,5 +508,5 @@ module.exports = {
   isMacroSearchQuery,
   resolveMacroSearch,
   runMacroSearch,
-  _private: { formatSearchResponse, fallbackAffectedMarketsForSymbol, buildSymbolFocus },
+  _private: { eventRowsForResponse, fallbackAffectedMarketsForSymbol, buildSymbolFocus, deriveJaneFinalState },
 };
