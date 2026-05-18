@@ -28,7 +28,6 @@ function _fmtBannerTimestamp(ms) {
   return day + ' ' + d.getUTCDate() + ' ' + month + ' · ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ' UTC';
 }
 
-function _asArray(v) { return Array.isArray(v) ? v : []; }
 function _num(...vals) {
   for (const v of vals) if (Number.isFinite(v)) return v;
   return null;
@@ -60,12 +59,34 @@ function _removeMessageByIdx(html, idx) {
   const re = new RegExp('\\n?\\s*<div class="message"[^>]*data-idx="' + idx + '"[\\s\\S]*?(?=\\n\\s*<div class="message"[^>]*data-idx="\\d+"|\\n\\s*</div>\\s*</body>|\\n\\s*</body>|$)', 'i');
   return html.replace(re, '\n');
 }
+function _moveReferenceMessage(html, newIdx) {
+  return html.replace(/data-idx="3"/g, 'data-idx="' + newIdx + '"');
+}
+function _stripFirstPrototypeStandoutFromBannerMessage(html) {
+  const noStandoutsBlock = [
+    '<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗\n</span><span style="color:#FAA61A;font-weight:700">║   ⭐  STANDOUTS — TODAY\'S STRONGEST MOVERS       ║\n</span><span style="color:#FAA61A;font-weight:700">╚══════════════════════════════════════════════════╝</span></pre>',
+    '<br><br><strong>No live standouts cleared this scan.</strong>',
+    '<br>Re-read at the next 15-minute Dark Horse cycle. No prototype/sample cards are attached to this live scan.',
+    '</div>\n    </div>',
+  ].join('');
+
+  // In the DH v6 prototype, data-idx="0" contains BOTH the banner and
+  // the first EURUSD standout. Strip from the STANDOUTS banner through
+  // the end of message 0, leaving the scan banner / terminology / mood
+  // in place and closing message 0 cleanly.
+  return html.replace(
+    /<br><br><pre class="fence"><span style="color:#FAA61A;font-weight:700">╔══════════════════════════════════════════════════╗[\s\S]*?STANDOUTS — TODAY'S STRONGEST MOVERS[\s\S]*?(?=\n\s*<div class="message" data-idx="1">)/i,
+    noStandoutsBlock
+  );
+}
 function _stripPrototypeStandoutMessages(html) {
-  let out = html;
+  let out = _stripFirstPrototypeStandoutFromBannerMessage(html);
   out = _removeMessageByIdx(out, 1);
   out = _removeMessageByIdx(out, 2);
-  out = _removeMessageByIdx(out, 3);
-  // Last-line guard for any prototype fragments that live outside the
+  // data-idx="3" is the chart/reference card, not a standout. Preserve it
+  // and renumber it so protoShell does not emit blank intermediate cards.
+  out = _moveReferenceMessage(out, 1);
+  // Last-line guards for any prototype fragments that live outside the
   // expected message wrappers.
   out = out.replace(/FRESH\s*·\s*STANDOUT #1 of 3[\s\S]*?(?=STILL ACTIVE\s*·\s*STANDOUT|FADING\s*·\s*STANDOUT|BUILDING\s*·\s*CHART REFERENCE|<\/body>)/gi, '');
   out = out.replace(/STILL ACTIVE\s*·\s*STANDOUT #2 of 3[\s\S]*?(?=FADING\s*·\s*STANDOUT|BUILDING\s*·\s*CHART REFERENCE|<\/body>)/gi, '');
@@ -99,9 +120,9 @@ function adapt(prototypeHtml, vm) {
     fresh + ' fresh (new this scan)  ·  ' + active + ' still active (1+ day)  ·  ' + fading + ' fading.');
 
   // Critical live-mode gate: zero live standouts means zero
-  // candidate cards in the PDF/PNG. The prototype's EURUSD/XAUUSD/NVDA
-  // cards are visual reference material only and must not leak into
-  // live no-standout dispatches.
+  // candidate cards in the PDF/PNG. The first prototype standout is
+  // inside message index 0 with the banner; candidates 2/3 are indexes
+  // 1/2; index 3 is chart/reference and must be preserved.
   if (total === 0) {
     return _stripPrototypeStandoutMessages(html);
   }
@@ -113,16 +134,24 @@ function adapt(prototypeHtml, vm) {
   html = html.replace(/▸  Market Mood  ·  🟠🟠🟠🟠⚫ 4\/5 — Elevated/g, '▸  Market Mood  ·  ' + moodDiscs + ' ' + moodLabel);
 
   // ── Per-candidate substitutions ──────────────────────────
+  // Prototype layout reality:
+  //   data-idx 0 = banner + candidate #1 (EURUSD)
+  //   data-idx 1 = candidate #2 (XAUUSD)
+  //   data-idx 2 = candidate #3 (NVDA)
+  //   data-idx 3 = chart/reference card
   const protoCandidates = [
-    { idx: 1, lifecycle: 'FRESH',        symbol: 'EURUSD', titlePattern: /STANDOUT #1 of 3\s*·\s*EURUSD just appeared on this scan/ },
-    { idx: 2, lifecycle: 'STILL ACTIVE', symbol: 'XAUUSD', titlePattern: /STANDOUT #2 of 3\s*·\s*XAUUSD \(cycle 2 — trending 1\+ day\)/ },
-    { idx: 3, lifecycle: 'FADING',       symbol: 'NVDA',   titlePattern: /STANDOUT #3 of 3\s*·\s*NVDA — older mover, late-stage caution/ },
+    { idx: 0, lifecycle: 'FRESH',        symbol: 'EURUSD', titlePattern: /STANDOUT #1 of 3\s*·\s*EURUSD just appeared on this scan/ },
+    { idx: 1, lifecycle: 'STILL ACTIVE', symbol: 'XAUUSD', titlePattern: /STANDOUT #2 of 3\s*·\s*XAUUSD \(cycle 2 — trending 1\+ day\)/ },
+    { idx: 2, lifecycle: 'FADING',       symbol: 'NVDA',   titlePattern: /STANDOUT #3 of 3\s*·\s*NVDA — older mover, late-stage caution/ },
   ];
   for (let i = 0; i < protoCandidates.length; i++) {
     const proto = protoCandidates[i];
     const live = standouts[i];
     if (!live || !live.symbol) {
-      html = _removeMessageByIdx(html, proto.idx);
+      // Candidate #1 shares message 0 with the banner and is handled only
+      // by the zero-standout path above. For fewer-than-three live scans,
+      // remove only surplus standalone candidate messages 1/2.
+      if (proto.idx > 0) html = _removeMessageByIdx(html, proto.idx);
       continue;
     }
     const sym = _esc(live.symbol);
@@ -139,6 +168,11 @@ function adapt(prototypeHtml, vm) {
     const embedTitleRe = new RegExp('🐎  ' + proto.symbol + '  ·  [A-Z][A-Z A-Z]+', 'g');
     html = html.replace(embedTitleRe, '🐎  ' + sym + '  ·  ' + lifecycleLabel);
   }
+
+  // If one or two live candidates exist, the reference card must move down
+  // to the first available contiguous index. Otherwise protoShell counts the
+  // missing index gap and can emit blank attachment cards.
+  if (total < 3) html = _moveReferenceMessage(html, total);
 
   return html;
 }
