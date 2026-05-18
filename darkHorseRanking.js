@@ -1115,7 +1115,11 @@ function buildExpandedDetail(rank, idx, isStandout) {
     ...visualPatternProse(r.direction),
     compactVisualDiagram(r.direction),
     `Why not WATCH: ${r.whyNotWatch}`,
-    `Promotion criteria: ${_translateChartJargon(r.promotionTrigger)}`,
+    // Operator brief 2026-05-18 — user-facing label is "Entry
+    // Validation" (the internal `promotion_trigger` field name
+    // is log-only). _translateChartJargon scrubs HH/HL etc. on
+    // its way out.
+    `Entry Validation: ${_translateChartJargon(r.promotionTrigger)}`,
     ...renderInvalidationRow(r.invalidationTrigger),
     `ATLAS state: ${r.atlasState}`,
   ];
@@ -1420,6 +1424,12 @@ module.exports = {
 
   structureConfirmTemplate, invalidationTemplate, promotionTriggerTemplate,
   whyNotWatch, atlasStateFromPhase,
+
+  // Plain-English jargon translator — exported so FOH builders
+  // (foh/buildDarkHorsePacket.js) can scrub HH/HL / LH/LL / HTF /
+  // LTF / VWAP out of user-facing copy at the output boundary.
+  // Logs / internal diagnostics keep the raw labels.
+  _translateChartJargon,
 
   enrichCandidate, rankCandidates, buildRanking,
   buildExpandedDetail, buildCompactDetail, buildRankedMovementDigestPayload,

@@ -9,7 +9,10 @@
 // controllers so all gates agree on the same rule book.
 // ============================================================
 
-const REQUIRED_PACKET_FIELDS = Object.freeze([
+// ============================================================
+// MARKET INTEL CONTRACT — `meta.module = 'market_intel'`
+// ============================================================
+const MARKET_INTEL_REQUIRED_PACKET_FIELDS = Object.freeze([
   'meta', 'header', 'briefingSummary', 'eventDayReference',
   'fourWayOutcomes', 'marketImpact', 'riskEscalation', 'whatToDoNow',
   'confirmationCancellation', 'provenance',
@@ -23,7 +26,7 @@ const REQUIRED_PACKET_FIELDS = Object.freeze([
   'structureSnapshot',
 ]);
 
-const REQUIRED_VIEW_MODEL_ANCHORS = Object.freeze([
+const MARKET_INTEL_REQUIRED_VIEW_MODEL_ANCHORS = Object.freeze([
   'HEADER_TITLE', 'HEADER_SUBTITLE', 'RISK_STATE_DISC_SCALE',
   'THE_CALL', 'RANKED_EVENT_CALENDAR',
   'BRIEFING_SUMMARY', 'EVENT_DAY_REFERENCE',
@@ -37,6 +40,80 @@ const REQUIRED_VIEW_MODEL_ANCHORS = Object.freeze([
   'HISTORICAL_ANALOGUE', 'STRUCTURE_SNAPSHOT',
 ]);
 
+const MARKET_INTEL_REQUIRED_ARRAYS = Object.freeze({
+  todaysAnnouncements:     { minLength: 0, perItemFields: ['session','timeUTC','currency','title','severity','severityDiscs','whyItMatters','affectedInstruments'] },
+  next24To72Hours:         { minLength: 0, perItemFields: ['timeUTC','currency','title','severity','severityDiscs','expectedSensitivity','preparationGuidance'] },
+  affectedMarketsExpanded: { minLength: 1, perItemFields: ['instrument','howAffected','strongerResult','weakerResult','confirmation','invalidation','keyPriceLevels','riskNote'] },
+  priceMap:                { minLength: 1, perItemFields: ['instrument','level','role','whyMatters','ifHolds','ifFails','confirmation','invalidation','dollarConsequence'] },
+  whatToDoNow:             { minLength: 1, perItemFields: ['step','action','why','ifIgnored','confirmation','actionChangesWhen','dollarConsequence'] },
+});
+
+const MARKET_INTEL_MINIMUM_DEPTH_RULES = Object.freeze({
+  BRIEFING_SUMMARY:        80,
+  EVENT_DAY_REFERENCE:     80,
+  PRIMARY_EVENT_FOCUS:    160,
+  AFFECTED_MARKETS_EXPANDED: 200,
+  PRICE_MAP:               200,
+  OPERATIONAL_NARRATIVE:   160,
+  WHAT_TO_DO_NOW:          200,
+  MARKET_IMPACT:           160,
+});
+
+// ============================================================
+// DARK HORSE CONTRACT — `meta.module = 'dark_horse'`
+//
+// Dark Horse is a movement-scanner output, not an economic-event
+// calendar. The MI-specific packet fields (theCall, rankedEventCalendar,
+// todaysAnnouncements, primaryEventFocus, next24To72Hours,
+// affectedMarketsExpanded, priceMap, operationalNarrative,
+// historicalReaction, cloneStatus, structureSnapshot) are MI domain
+// concepts — they do not exist on the DH packet by design. Before
+// the per-module scope was added, validateFohOutput rejected every
+// DH packet at the contract gate with multiple `packet_missing_field:`
+// failures and the dispatcher fell through to the text-only payload
+// (see live runtime log: `[DH-FOH-IMAGE] image render path returned
+// not-ok reason=foh_contract_validation_failed, falling through to
+// text`). The DH lists below cover only the fields that
+// buildDarkHorsePacket actually emits and the anchors the MI-shared
+// view-model adapter can fill from those fields.
+// ============================================================
+const DARK_HORSE_REQUIRED_PACKET_FIELDS = Object.freeze([
+  'meta', 'header', 'briefingSummary', 'eventDayReference',
+  'fourWayOutcomes', 'marketImpact', 'riskEscalation', 'whatToDoNow',
+  'confirmationCancellation', 'provenance',
+]);
+
+const DARK_HORSE_REQUIRED_VIEW_MODEL_ANCHORS = Object.freeze([
+  'HEADER_TITLE', 'HEADER_SUBTITLE', 'RISK_STATE_DISC_SCALE',
+  'BRIEFING_SUMMARY', 'EVENT_DAY_REFERENCE',
+  'FOUR_WAY_HIGHER', 'FOUR_WAY_LOWER', 'FOUR_WAY_INLINE', 'FOUR_WAY_REVERSAL',
+  'MARKET_IMPACT',
+  'RISK_ESCALATION_HEALTHY', 'RISK_ESCALATION_CAUTION', 'RISK_ESCALATION_DANGER', 'RISK_ESCALATION_INVALIDATION',
+  'WHAT_TO_DO_NOW', 'CONFIRMS_WHEN', 'CANCELS_WHEN',
+  'SOURCE_PROVENANCE', 'GENERATED_AT_UTC',
+]);
+
+const DARK_HORSE_REQUIRED_ARRAYS = Object.freeze({
+  whatToDoNow: { minLength: 1, perItemFields: ['step','action','why','ifIgnored','confirmation','actionChangesWhen','dollarConsequence'] },
+});
+
+const DARK_HORSE_MINIMUM_DEPTH_RULES = Object.freeze({
+  BRIEFING_SUMMARY:    80,
+  EVENT_DAY_REFERENCE: 80,
+  MARKET_IMPACT:      160,
+  WHAT_TO_DO_NOW:     200,
+});
+
+// ============================================================
+// Backward-compat aliases — older callers that imported the
+// REQUIRED_* names without a module hint get the MI semantics by
+// default, matching the pre-scope behaviour.
+// ============================================================
+const REQUIRED_PACKET_FIELDS = MARKET_INTEL_REQUIRED_PACKET_FIELDS;
+const REQUIRED_VIEW_MODEL_ANCHORS = MARKET_INTEL_REQUIRED_VIEW_MODEL_ANCHORS;
+const REQUIRED_ARRAYS = MARKET_INTEL_REQUIRED_ARRAYS;
+const MINIMUM_DEPTH_RULES = MARKET_INTEL_MINIMUM_DEPTH_RULES;
+
 const BANNED_TERMS_USERFACING = Object.freeze([
   // Private backend / workspace exposure (operator 2026-05-17 part A).
   'notion.so', 'notion.com', 'notion.site', 'Notion',
@@ -49,6 +126,11 @@ const BANNED_TERMS_USERFACING = Object.freeze([
   'prototype render', 'Future scans will', 'future scans will',
   // Engineering placeholders.
   '[object Object]',
+  // Internal label that previously leaked into Dark Horse cards
+  // (operator brief 2026-05-18) — user-facing copy must say
+  // "Entry Validation" instead.
+  'promotion_trigger',
+  'Promotion criteria:',
 ]);
 
 // Banned regex patterns for token-level checks (e.g. /\blot\b/).
@@ -76,27 +158,6 @@ const APPROVED_TERMINOLOGY = Object.freeze([
   'continuation gate',
   'confirmed directional structure',
 ]);
-
-const REQUIRED_ARRAYS = Object.freeze({
-  todaysAnnouncements:     { minLength: 0, perItemFields: ['session','timeUTC','currency','title','severity','severityDiscs','whyItMatters','affectedInstruments'] },
-  next24To72Hours:         { minLength: 0, perItemFields: ['timeUTC','currency','title','severity','severityDiscs','expectedSensitivity','preparationGuidance'] },
-  affectedMarketsExpanded: { minLength: 1, perItemFields: ['instrument','howAffected','strongerResult','weakerResult','confirmation','invalidation','keyPriceLevels','riskNote'] },
-  priceMap:                { minLength: 1, perItemFields: ['instrument','level','role','whyMatters','ifHolds','ifFails','confirmation','invalidation','dollarConsequence'] },
-  whatToDoNow:             { minLength: 1, perItemFields: ['step','action','why','ifIgnored','confirmation','actionChangesWhen','dollarConsequence'] },
-});
-
-const MINIMUM_DEPTH_RULES = Object.freeze({
-  // Each anchor must have at least this many non-whitespace chars
-  // — defends against thin / placeholder content.
-  BRIEFING_SUMMARY:        80,
-  EVENT_DAY_REFERENCE:     80,
-  PRIMARY_EVENT_FOCUS:    160,
-  AFFECTED_MARKETS_EXPANDED: 200,
-  PRICE_MAP:               200,
-  OPERATIONAL_NARRATIVE:   160,
-  WHAT_TO_DO_NOW:          200,
-  MARKET_IMPACT:           160,
-});
 
 const SEVERITY_DISC_RULES = Object.freeze({
   EXTREME: { glyph: '🔴', count: 5, label: 'Extreme' },
@@ -140,11 +201,19 @@ const ACTION_BLOCK_RULES = Object.freeze({
 module.exports = {
   REQUIRED_PACKET_FIELDS,
   REQUIRED_VIEW_MODEL_ANCHORS,
+  REQUIRED_ARRAYS,
+  MINIMUM_DEPTH_RULES,
+  MARKET_INTEL_REQUIRED_PACKET_FIELDS,
+  MARKET_INTEL_REQUIRED_VIEW_MODEL_ANCHORS,
+  MARKET_INTEL_REQUIRED_ARRAYS,
+  MARKET_INTEL_MINIMUM_DEPTH_RULES,
+  DARK_HORSE_REQUIRED_PACKET_FIELDS,
+  DARK_HORSE_REQUIRED_VIEW_MODEL_ANCHORS,
+  DARK_HORSE_REQUIRED_ARRAYS,
+  DARK_HORSE_MINIMUM_DEPTH_RULES,
   BANNED_TERMS_USERFACING,
   BANNED_PATTERNS_USERFACING,
   APPROVED_TERMINOLOGY,
-  REQUIRED_ARRAYS,
-  MINIMUM_DEPTH_RULES,
   SEVERITY_DISC_RULES,
   LINK_RULES,
   PRICE_MAP_RULES,
