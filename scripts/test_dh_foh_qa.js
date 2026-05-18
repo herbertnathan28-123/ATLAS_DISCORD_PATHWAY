@@ -56,7 +56,7 @@
 //       5-disc block + STANDOUTS banner. No "Today's read"
 //       v1.2.1 subheading.
 //   T13 Sanitiser walker preserves shape
-//   T14 Lifecycle badge — FRESH (filled red ```diff fence),
+//   T14 Lifecycle badge — INITIAL STANDOUT (yellow boxed marker),
 //       STILL ACTIVE / FADING (mobile-safe boxed code-block markers);
 //       no dashed "── NEW ──" text
 //   T15 BUILDING + Chart Reference — present as its own
@@ -147,7 +147,7 @@ console.log('\n[T2] Single promoted candidate → 4 messages (banner + card + re
   ok('embedCount === 1', out.embedCount === 1);
   ok('M1 (banner) carries terminology embed', out.messages[0].embeds && /EXPANDED TERMINOLOGY HYPERLINKS/.test(out.messages[0].embeds[0].title));
   ok('M2 carries the candidate embed', out.messages[1].embeds && out.messages[1].embeds.length === 1);
-  ok('M2 lifecycle separator names "FRESH"', /FRESH/.test(out.messages[1].content));
+  ok('M2 lifecycle separator names "INITIAL STANDOUT"', /INITIAL STANDOUT/.test(out.messages[1].content));
 }
 
 // ============================================================
@@ -171,8 +171,8 @@ console.log('\n[T3] Three promoted candidates (FRESH/STILL ACTIVE/FADING) → 6 
      /DARK HORSE/.test(out.messages[0].content)
      && !out.messages.slice(1, -2).some(m => /GLOBAL MOVER RADAR/.test(m.content || '')));
   // Lifecycle separators
-  ok('M2 separator says FRESH + STANDOUT #1 of 3',
-     /FRESH/.test(out.messages[1].content) && /STANDOUT #1 of 3/.test(out.messages[1].content));
+  ok('M2 separator says INITIAL STANDOUT + STANDOUT #1 of 3',
+     /INITIAL STANDOUT/.test(out.messages[1].content) && /STANDOUT #1 of 3/.test(out.messages[1].content));
   ok('M3 separator says STILL ACTIVE + STANDOUT #2 of 3',
      /STILL ACTIVE/.test(out.messages[2].content) && /STANDOUT #2 of 3/.test(out.messages[2].content));
   ok('M4 separator says FADING + STANDOUT #3 of 3',
@@ -404,8 +404,8 @@ console.log('\n[T12] Banner — red NEW divider + gold DARK HORSE banner + EXPAN
   });
   const banner = out.messages[0].content;
   ok('banner opens with red NEW divider (```diff fence)', /^```diff\n-/.test(banner));
-  ok('banner has "N E W   D A R K   H O R S E   S C A N" line', /N E W   D A R K   H O R S E   S C A N/.test(banner));
-  ok('banner has 🆕 markers around scan stamp', /🆕[\s\S]*33 markets scanned[\s\S]*🆕/.test(banner));
+  ok('banner has "NEW DARK HORSE SCAN" prototype line', /NEW DARK HORSE SCAN/.test(banner));
+  ok('banner has compact UTC + AWST scan stamp', /2026-05-13 12:00 UTC 20:00 AWST • 33 markets scanned/.test(banner));
   ok('banner has DARK HORSE — GLOBAL MOVER RADAR section banner', /DARK HORSE/.test(banner) && /GLOBAL MOVER RADAR/.test(banner));
   ok('banner has EXPANDED TERMINOLOGY HYPERLINKS heading', /EXPANDED TERMINOLOGY HYPERLINKS/.test(banner));
   ok('banner points to terminology panel', /terminology panel/.test(banner));
@@ -438,7 +438,7 @@ console.log('\n[T13] Sanitiser walker preserves message shape');
 }
 
 // ============================================================
-// T14 — Lifecycle badge — FRESH (filled red), STILL ACTIVE/FADING boxed markers
+// T14 — Lifecycle badge — INITIAL STANDOUT (yellow), STILL ACTIVE/FADING boxed markers
 // ============================================================
 console.log('\n[T14] Lifecycle badges — FRESH/STILL ACTIVE/FADING — no dashed "── NEW ──"');
 {
@@ -448,12 +448,13 @@ console.log('\n[T14] Lifecycle badges — FRESH/STILL ACTIVE/FADING — no dashe
     mkRanked('C', 7, 'Bullish', rank.SECTIONS.EQUITIES,    900,   'late'),
   ];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
-  // FRESH = filled red diff fence
-  ok('FRESH separator uses ```diff fence (filled red)',  /^```diff/m.test(out.messages[1].content));
-  ok('FRESH separator contains "FRESH" label',           /FRESH/.test(out.messages[1].content));
+  // FRESH / initial standout = yellow boxed separator
+  ok('initial standout separator uses yellow boxed code block', /^```\n┌[\s\S]*🟨🟨 INITIAL STANDOUT/m.test(out.messages[1].content));
+  ok('initial standout separator explains first active on this scan', /First active on this scan/.test(out.messages[1].content));
   // STILL ACTIVE = Discord-native amber/orange boxed code block
   ok('STILL ACTIVE separator uses amber boxed code block', /^```\n┌[\s\S]*🟧🟧 STILL ACTIVE/m.test(out.messages[2].content));
   ok('STILL ACTIVE separator contains "STILL ACTIVE" label', /STILL ACTIVE/.test(out.messages[2].content));
+  ok('STILL ACTIVE separator shows first-logged validity age', /First logged \d{2}\/\d{2}\/\d{2} \d{2}:\d{2} UTC · still Dark Horse worthy after/.test(out.messages[2].content));
   // FADING = Discord-native muted red/orange boxed code block
   ok('FADING separator uses red-orange boxed code block', /^```\n┌[\s\S]*🟥🟧 FADING/m.test(out.messages[3].content));
   ok('FADING separator contains "FADING" label',         /FADING/.test(out.messages[3].content));
