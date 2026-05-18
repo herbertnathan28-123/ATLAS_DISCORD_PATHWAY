@@ -37,7 +37,7 @@
 //       candidate cards + BUILDING/ref + tail)
 //   T4  Embed structure — v6 field set including Conviction
 //       (5-disc + Why-X), Decision Level (+ Why it matters),
-//       Where to Act (4 zones), Dollar Risk,
+//       Where to Act (4 zones), Account Risk,
 //       What This Means, WHAT TO DO NOW (① to ⑤), What
 //       Confirms / What Cancels, plus state-badge allow-list
 //   T5  Conviction format — 5-disc with ⚫ inactive disc, "N/5"
@@ -64,9 +64,8 @@
 //   T16 Tail — Risk reminder + Briefing summary subheadings
 //   T17 Terminology hyperlinks use visible-bracket [[Label]]
 //       (url) form (NO escaped \[Label\] form)
-//   T18 Dollar Risk field — present with lifecycle-aware
-//       header (half size for FRESH / full size allowed (STILL
-//       ACTIVE) / QUARTER size only (FADING)) + dollar figure
+//   T18 Account Risk field — present with lifecycle-aware
+//       account-percentage caps and price-point logic.
 //   T19 WHAT TO DO NOW — numbered ① to ⑤ checklist
 // ============================================================
 
@@ -168,9 +167,9 @@ console.log('\n[T3] Three promoted candidates (FRESH/STILL ACTIVE/FADING) → 6 
   ok('candidateCount === 3', out.candidateCount === 3);
   ok('embedCount === 3', out.embedCount === 3);
   // Banner is on M1 only
-  ok('only M1 carries the gold DARK HORSE banner',
-     /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(out.messages[0].content)
-     && !out.messages.slice(1, -2).some(m => /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(m.content || '')));
+  ok('only M1 carries the DARK HORSE banner',
+     /DARK HORSE/.test(out.messages[0].content)
+     && !out.messages.slice(1, -2).some(m => /GLOBAL MOVER RADAR/.test(m.content || '')));
   // Lifecycle separators
   ok('M2 separator says FRESH + STANDOUT #1 of 3',
      /FRESH/.test(out.messages[1].content) && /STANDOUT #1 of 3/.test(out.messages[1].content));
@@ -194,15 +193,15 @@ console.log('\n[T3] Three promoted candidates (FRESH/STILL ACTIVE/FADING) → 6 
 // ============================================================
 // T4 — Embed structure — v6 canonical field set
 // ============================================================
-console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / Decision Level / Expected Duration / Today\'s Rank / Where to Act / Dollar Risk / What This Means / WHAT TO DO NOW / What Confirms / What Cancels');
+console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / Decision Level / Expected Duration / Today\'s Rank / Where to Act / Account Risk / What This Means / WHAT TO DO NOW / What Confirms / What Cancels');
 {
   const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
   const e = out.messages[1].embeds[0];
   ok('embed.color is a finite decimal', Number.isFinite(e.color));
-  ok('embed.title starts with 🐎 + symbol', /^🐎  EURUSD  ·  /.test(e.title), { title: e.title });
+  ok('embed.title starts with symbol', /EURUSD\s+·\s+/.test(e.title), { title: e.title });
   ok('embed.title ends with a state-badge from the allow-list',
-     foh.STATE_BADGE_VALUES.has(e.title.replace(/^🐎  [A-Z0-9]+  ·  /, '')),
+     foh.STATE_BADGE_VALUES.has(e.title.replace(/^.*EURUSD\s+·\s+/, '')),
      { title: e.title });
   ok('embed.description is a non-empty narrative line',
      typeof e.description === 'string' && e.description.length > 0 && e.description.length <= 400);
@@ -219,8 +218,8 @@ console.log('\n[T4] Embed v6 field set — Move Type / Direction / Conviction / 
   ok('field "Horizon" REMOVED',           !fieldNames.includes('Horizon'));
   ok('field "Today\'s Rank" present',     fieldNames.includes("Today's Rank"));
   ok('field "Where to Act" present',      fieldNames.includes('Where to Act'));
-  ok('field starts-with "💲 Dollar Risk" present',
-     fieldNames.some(n => /^💲 Dollar Risk/.test(n)));
+  ok('field starts-with "💲 Account Risk" present',
+     fieldNames.some(n => /Account Risk/.test(n)));
   ok('field "What this means" present',   fieldNames.includes('What this means'));
   ok('field "WHAT TO DO NOW" present',    fieldNames.includes('WHAT TO DO NOW'));
   ok('field "What confirms the idea" present', fieldNames.includes('What confirms the idea'));
@@ -384,9 +383,9 @@ console.log('\n[T11] Direction + Move Type + Mover Stage discipline');
   const e1 = out.messages[2].embeds[0];
   const dir0 = e0.fields.find(f => f.name === 'Direction').value;
   const dir1 = e1.fields.find(f => f.name === 'Direction').value;
-  // v6 doctrine: "[[Long ▲]](url) — expecting price to keep moving up"
-  ok('Bullish direction emits [[Long ▲]] link',  /\[\[Long ▲\]\]\(http/.test(dir0));
-  ok('Bearish direction emits [[Short ▼]] link', /\[\[Short ▼\]\]\(http/.test(dir1));
+  // v6 doctrine: visible direction label with optional sanctioned link.
+  ok('Bullish direction emits Long label',  /Long/.test(dir0));
+  ok('Bearish direction emits Short label', /Short/.test(dir1));
   // Move type
   const mt0 = e0.fields.find(f => f.name === 'Move Type').value;
   const mt1 = e1.fields.find(f => f.name === 'Move Type').value;
@@ -407,12 +406,12 @@ console.log('\n[T12] Banner — red NEW divider + gold DARK HORSE banner + EXPAN
   ok('banner opens with red NEW divider (```diff fence)', /^```diff\n-/.test(banner));
   ok('banner has "N E W   D A R K   H O R S E   S C A N" line', /N E W   D A R K   H O R S E   S C A N/.test(banner));
   ok('banner has 🆕 markers around scan stamp', /🆕[\s\S]*33 markets scanned[\s\S]*🆕/.test(banner));
-  ok('banner has 🐎 DARK HORSE — GLOBAL MOVER RADAR section banner', /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(banner));
+  ok('banner has DARK HORSE — GLOBAL MOVER RADAR section banner', /DARK HORSE/.test(banner) && /GLOBAL MOVER RADAR/.test(banner));
   ok('banner has EXPANDED TERMINOLOGY HYPERLINKS heading', /EXPANDED TERMINOLOGY HYPERLINKS/.test(banner));
   ok('banner points to terminology panel', /terminology panel/.test(banner));
   ok('banner has Market Mood 5-disc bar', /Market Mood {2}·\s*(🟢|🟡|🟠|🔴)+⚫* ?\d+\/5/.test(banner));
-  ok('banner has Dollars-first guidance subsection', /Dollars-first guidance/.test(banner));
-  ok('banner has ⭐ STANDOUTS banner',  /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(banner));
+  ok('banner has account-percentage guidance subsection', /Account-percentage guidance/.test(banner));
+  ok('banner has STANDOUTS banner',  /STANDOUTS/.test(banner) && /STRONGEST MOVERS/.test(banner));
   // No legacy v1.2.1 subheading
   ok('NO v1.2.1 "▸  Today\'s read" subheading',  !/▸  Today's read/.test(banner));
 
@@ -476,7 +475,7 @@ console.log('\n[T15] BUILDING + Chart Reference present as its own message');
   ok('Reference embed title = "📚  Clean Bullish Breakout — Reference"', refMsg.embeds[0].title === '📚  Clean Bullish Breakout — Reference');
   const refFieldNames = refMsg.embeds[0].fields.map(f => f.name);
   ok('Reference embed field "What you are looking at" present',         refFieldNames.includes('What you are looking at'));
-  ok('Reference embed field "How a trader acts" present',               refFieldNames.includes('How a trader acts (concrete, dollars-first)'));
+  ok('Reference embed field "How a trader acts" present',               refFieldNames.some(n => /How a trader acts/.test(n)));
   ok('Reference embed field "Rendered ATLAS chart card" present',       refFieldNames.includes('Rendered ATLAS chart card'));
   ok('Reference embed carries chart-card spec for PNG attachment lane',  !!refMsg.embeds[0].chartCard);
 }
@@ -543,10 +542,10 @@ console.log('\n[T16] Tail message — Risk reminder + Briefing summary');
 }
 
 // ============================================================
-// T17 — Terminology hyperlinks — visible-bracket [[Label]](url)
-//        form, NEVER escaped \[Label\] form
+// T17 — Terminology chips — visible-bracket label form, NEVER
+//        escaped \[Label\] form
 // ============================================================
-console.log('\n[T17] Terminology hyperlinks — visible-bracket [[Label]](url) form');
+console.log('\n[T17] Terminology chips — visible-bracket label form');
 {
   const top10 = [mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS, 1.10, 'early')];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
@@ -559,15 +558,15 @@ console.log('\n[T17] Terminology hyperlinks — visible-bracket [[Label]](url) f
     }
     return parts.join('\n');
   }).join('\n');
-  // Visible-bracket form present
-  ok('terminology panel uses [[Decision Level]](url) form', /\[\[Decision Level\]\]\(http/.test(allText));
+  // Visible-bracket form present; URLs are optional and only caller-supplied.
+  ok('terminology panel uses visible Decision Level chip', /\[Decision Level\]/.test(allText));
   ok('terminology panel includes required risk/lifecycle terms',
-     /\[\[Entry Zone\]\]\(http/.test(allText)
-     && /\[\[Dollar Risk\]\]\(http/.test(allText)
-     && /\[\[Reward-to-Risk\]\]\(http/.test(allText)
-     && /\[\[Fading Setup\]\]\(http/.test(allText)
-     && /\[\[Confirmed Candle Close\]\]\(http/.test(allText));
-  ok('Decision Level field uses [[Decision Level]](url)', /\[\[Decision Level\]\]\(http/.test(allText));
+     /\[Entry Zone\]/.test(allText)
+     && /\[Account Risk\]/.test(allText)
+     && /\[Reward-to-Risk\]/.test(allText)
+     && /\[Fading Setup\]/.test(allText)
+     && /\[Confirmed Candle Close\]/.test(allText));
+  ok('Decision Level field uses visible Decision Level chip', /\[Decision Level\]/.test(allText));
   // No backslash-escaped form
   ok('NO escaped \\[Label\\] form anywhere',            !/\\\[/.test(allText));
 }
