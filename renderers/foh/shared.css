@@ -484,6 +484,16 @@ body { padding: 24px; }
   font-weight: 500;
   background: rgba(91,192,222,0.04);
 }
+.foh-term-chip {
+  color: var(--atlas-cyan);
+  text-decoration: none;
+  border: 1px solid rgba(91,192,222,0.45);
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(91,192,222,0.08);
+}
 
 /* ── HISTORICAL REACTION PANEL ────────────────────────────── */
 .foh-historical {
@@ -589,6 +599,37 @@ body { padding: 24px; }
   margin-top: 6px;
 }
 .foh-dh-candidate-meta strong { color: var(--atlas-text); }
+.foh-dh-price-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(91,192,222,0.35);
+  border-radius: 8px;
+  background: rgba(91,192,222,0.06);
+}
+.foh-dh-price-grid div {
+  background: #0a0c12;
+  border-left: 3px solid var(--atlas-cyan);
+  border-radius: 4px;
+  padding: 7px 9px;
+}
+.foh-dh-price-grid div.wide { grid-column: 1 / -1; }
+.foh-dh-price-grid span {
+  display: block;
+  color: var(--atlas-cyan);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.foh-dh-price-grid strong {
+  color: var(--atlas-text);
+  font-size: 12px;
+  font-weight: 700;
+}
 
 /* ── FOOTER ───────────────────────────────────────────────── */
 .foh-footer {

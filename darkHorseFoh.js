@@ -61,6 +61,12 @@ const DISCORD_FIELD_VALUE_LIMIT = 1024;
 const DISCORD_EMBED_TITLE_LIMIT = 256;
 const DISCORD_EMBED_DESC_LIMIT  = 4096;
 const DISCORD_EMBED_FOOTER_LIMIT = 2048;
+const {
+  profileForInstrument,
+  formatDistance,
+  riskCapForLifecycle,
+  buildPlanFromBands,
+} = require('./foh/darkHorsePricePoints');
 
 let _sharp = null;
 function _loadSharp() {
@@ -127,6 +133,13 @@ const BANNED_PATTERNS = [
   /\bpath of least resistance\b/i,
   /\bconfirmed directional structure\b/i,
   /\bstructural anchors?\b/i,
+  /\bBUY close\b/i,
+  /\bSELL close\b/i,
+  /\bExit ALL\b/i,
+  /\bfull size allowed\b/i,
+  /\bby law\b/i,
+  /\blegal(?:ly)? required buffer\b/i,
+  /\blegal buffer\b/i,
   /─── NEW ───/,
 ];
 
@@ -174,9 +187,10 @@ function _contractInfo(symbol, record) {
   const seeded = CONTRACT_INFO[symbol];
   if (seeded) return Object.assign({ symbol, seeded: true }, seeded);
   const section = String((record && record.section) || '').toLowerCase();
-  const isFx = /^([A-Z]{6})$/.test(symbol || '') || section.indexOf('fx_') === 0;
+  const isMetal = /^XA[UG]/.test(symbol || '') || section === 'commodities';
+  const isFx = !isMetal && (/^([A-Z]{6})$/.test(symbol || '') || section.indexOf('fx_') === 0);
   const isJpy = /JPY$/.test(symbol || '');
-  const isCommodity = section === 'commodities' || /^X[A-Z]{2}USD$/.test(symbol || '');
+  const isCommodity = isMetal;
   const isEquity = section === 'equities';
   const isIndex = section === 'indices';
   return {
@@ -548,7 +562,7 @@ const ANSI_CYAN   = ESC + '[36;1m';
 const ANSI_MAGENTA = ESC + '[35;1m';
 const ANSI_GREY   = ESC + '[30;1m';
 
-const BAR_HEAVY   = '━'.repeat(50);
+const BAR_HEAVY   = '┝'.repeat(50);
 const BAR_LIGHT   = '─'.repeat(50);
 const BAR_DOTTED  = '· '.repeat(25).trimEnd();
 
@@ -575,7 +589,7 @@ const TERMINOLOGY = Object.freeze({
   'Caution Zone':                      'term-caution-zone',
   'Conviction':                        'term-conviction',
   'Position Size':                     'term-position-size',
-  'Dollar Risk':                       'term-dollar-risk',
+  'Account Risk':                      'term-account-risk',
   'Reward-to-Risk':                    'term-reward-to-risk',
   'Fading Setup':                      'term-fading-setup',
   'Fresh Setup':                       'term-fresh-setup',
@@ -714,7 +728,7 @@ function lifecycleStage(record) {
     stage:    'STILL ACTIVE',
     tone:     'active',
     narrative:'trending across multiple cycles',
-    sizeNote: 'full size allowed after repeated level defence',
+    sizeNote: 'standard account-risk cap after repeated level defence',
   };
 }
 
@@ -736,42 +750,22 @@ function moverStage(record) {
 }
 
 function _precisionProfile(record, volatility, trigger) {
-  const symbol = String((record && record.symbol) || '').toUpperCase();
-  const section = String((record && record.section) || '').toLowerCase();
-  const lvl = String((volatility && volatility.level) || '').toLowerCase();
-  const volMult = lvl === 'extreme' ? 1.5 : lvl === 'elevated' ? 1.25 : lvl === 'quiet' ? 0.75 : 1;
-  const isFx = /^([A-Z]{6})$/.test(symbol) || section.indexOf('fx_') === 0;
-  const isJpy = /JPY$/.test(symbol);
-  const isMetal = /^XAU|^XAG/.test(symbol) || section === 'commodities';
-  const isEquity = section === 'equities';
-  const isIndex = section === 'indices';
-  let tick = 0.01, decimals = 2, baseBuffer = 0.05, label = 'general 5-cent model buffer';
-  if (isFx && isJpy) {
-    tick = 0.01; decimals = 2; baseBuffer = 0.02; label = 'JPY FX: 2-pip minimum structural buffer';
-  } else if (isFx) {
-    tick = 0.0001; decimals = 4; baseBuffer = 0.0002; label = 'FX: 2-pip minimum structural buffer';
-  } else if (/^XAU/.test(symbol)) {
-    tick = 0.10; decimals = 2; baseBuffer = 1.00; label = 'Gold: $1 minimum structural buffer';
-  } else if (/^XAG/.test(symbol)) {
-    tick = 0.01; decimals = 2; baseBuffer = 0.03; label = 'Silver: 3-cent minimum structural buffer';
-  } else if (isIndex) {
-    tick = 0.25; decimals = 2; baseBuffer = Math.max(1.00, Math.abs(trigger || 0) * 0.0004); label = 'Index: tick-aware 0.04% structural buffer';
-  } else if (isEquity) {
-    tick = 0.01; decimals = 2; baseBuffer = Math.max(0.05, Math.abs(trigger || 0) * 0.0005); label = 'Equity: tick-aware 0.05% structural buffer';
-  } else if (isMetal) {
-    tick = 0.10; decimals = 2; baseBuffer = Math.max(0.50, Math.abs(trigger || 0) * 0.0005); label = 'Commodity: tick-aware 0.05% structural buffer';
-  }
-  const entryBuffer = Math.max(tick, _roundToTick(baseBuffer * volMult, tick));
-  const invalidationBuffer = Math.max(tick, _roundToTick(baseBuffer * volMult, tick));
-  const cautionBuffer = Math.max(tick, _roundToTick(baseBuffer * volMult, tick));
+  const shared = profileForInstrument(record && record.symbol, record && record.section, volatility, trigger);
+  const tick = shared.tick;
+  const decimals = shared.decimals;
+  const entryBuffer = shared.buffer;
+  const invalidationBuffer = shared.buffer;
+  const cautionBuffer = shared.buffer;
   return {
     tick,
     decimals,
     entryBuffer,
     invalidationBuffer,
     cautionBuffer,
-    bufferText: _fmtPriceForProfile(entryBuffer, { decimals }),
-    why: label + (volMult !== 1 ? ' × ' + lvl + ' volatility multiplier' : ''),
+    bufferText: formatDistance(entryBuffer, shared),
+    why: shared.bufferReason,
+    unitType: shared.unitType,
+    kind: shared.kind,
   };
 }
 
@@ -877,6 +871,7 @@ function _positionRule(lifecycle, volatility, contract, bands) {
   // Final multiplier (apply mood only when lifecycle is STILL
   // ACTIVE; FRESH and FADING already enforce reduced size).
   const finalMult = lifecycle.stage === 'STILL ACTIVE' ? (base * moodMult) : base;
+  const riskCap = riskCapForLifecycle(lifecycle, volatility);
   const modelRisk = _modelRiskFromBands(contract, bands);
   const standardDollarRisk = modelRisk ? modelRisk.standardDollarRisk : 250;
   const dollarRisk = Math.max(1, Math.round(standardDollarRisk * finalMult));
@@ -891,6 +886,9 @@ function _positionRule(lifecycle, volatility, contract, bands) {
     dollarRisk,
     dollarRiskText: '$' + dollarRisk.toLocaleString('en-US'),
     riskDistanceText: modelRisk ? modelRisk.distanceText : 'n/a',
+    accountRiskCapPct: riskCap.pct,
+    accountRiskCapText: riskCap.text,
+    accountRiskCapLabel: riskCap.label,
   };
 }
 
@@ -951,7 +949,8 @@ function _sourceProofFieldValue(record, bands) {
   return [
     'Same evidence payload feeds text + PNG:',
     'Decision **' + bands.triggerText + '** · Entry **' + bands.entryLowText + ' – ' + bands.entryHighText + '** · Watch **' + bands.watchText + '** · Invalidation **' + bands.invalidationText + '**.',
-    'Minimum buffer: **' + bands.bufferUsedText + '**. Why: ' + bands.bufferWhy + '.',
+    'Minimum ATLAS Buffer: **' + bands.bufferUsedText + '**. Buffer reason: ' + bands.bufferWhy + '.',
+    'Instrument-aware unit type: **' + (bands.precision && bands.precision.unitType ? bands.precision.unitType : 'native price points') + '**.',
     'Chart labels use these same values.',
   ].join('\n');
 }
@@ -990,7 +989,9 @@ function buildPricePrecisionAuditRows(ranking, volatility, opts) {
       invalidation: bands.invalidationText,
       bufferUsed: bands.bufferUsedText,
       whyThisBuffer: bands.bufferWhy,
-      dollarRisk: position.dollarRiskText,
+      accountRisk: position.accountRiskCapText,
+      dollarRisk: position.accountRiskCapText,
+      technicalDistance: position.riskDistanceText,
       rewardToRisk: rewardR.toFixed(1) + 'R',
       status: 'PASS',
     };
@@ -1031,7 +1032,7 @@ function _boxedHeading(text, marker) {
   const inner = label.slice(0, width - 2).padEnd(width - 2, ' ');
   return [
     '```',
-    '┌' + '─'.repeat(width) + '┐',
+    '┌' + '─'.repeat(width) + '┝',
     '│ ' + inner + ' │',
     '└' + '─'.repeat(width) + '┘',
     '```',
@@ -1067,7 +1068,7 @@ function _terminologyEmbed(urlMap) {
       },
       {
         name: 'Risk and lifecycle',
-        value: _terminologyRow(['Conviction', 'Position Size', 'Dollar Risk', 'Reward-to-Risk', 'Risk Reduction', 'Fresh Setup', 'Still Active Setup', 'Fading Setup', 'Late-Stage Move'], urlMap),
+        value: _terminologyRow(['Conviction', 'Position Size', 'Account Risk', 'Reward-to-Risk', 'Risk Reduction', 'Fresh Setup', 'Still Active Setup', 'Fading Setup', 'Late-Stage Move'], urlMap),
         inline: false,
       },
       {
@@ -1089,16 +1090,15 @@ function _marketMoodBlock(volatility, urlMap) {
     '_What ' + moodLink + ' means right now:_',
     '   ' + mood.trailer + '.',
     '',
-    '_Dollars-first guidance for today:_',
-    '   🟢 Position size — if your normal risk is $500 on a $10k account,',
-    '       reduce to ~$300 (60%) for the next 6 hours.',
-    '   🟡 Exit-points — use the full invalidation level from the card.',
-    '       Tight exits get hit before the 5-minute close confirms.',
-    '   🟠 Lower-quality cards — skip them. Only act when price closes',
-    '       beyond the decision level AND the next candle confirms with',
-    '       a close in the required direction.',
+    '_Account-percentage guidance for today:_',
+    '   🟢 Position size — risk is capped as a percentage of account equity,',
+    '       then reduced by lifecycle and current Market Mood.',
+    '   🟡 Exit-points — use the published invalidation / exit price from the card.',
+    '       Tight exits get hit before the confirmation condition completes.',
+    '   🟠 Lower-quality cards — skip them unless entry reference, confirmation,',
+    '       invalidation / exit, and Minimum ATLAS Buffer are all visible.',
     '   🛑 Do NOT chase already-extended moves. Wait for price to return',
-    '       to the listed entry zone and confirm with a candle close.',
+    '       to the listed entry zone and confirm with the stated candle-close condition.',
   ].join('\n');
 }
 
@@ -1125,11 +1125,11 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
   const parts = [
     _redNewDividerTop(nowMs, universeSize),
     '',
-    _sectionBanner('🐎  DARK HORSE — GLOBAL MOVER RADAR', 'gold'),
+    _sectionBanner('🝎  DARK HORSE — GLOBAL MOVER RADAR', 'gold'),
     '',
     standoutCountLine,
     '',
-    '📘 **EXPANDED TERMINOLOGY HYPERLINKS**',
+    _subheading('EXPANDED TERMINOLOGY HYPERLINKS', 'cyan'),
     '_See the terminology panel attached to this message._',
     '',
     _marketMoodBlock(volatility, urlMap),
@@ -1137,7 +1137,7 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
 
   if (promoted > 0) {
     parts.push('');
-    parts.push(_sectionBanner("⭐  STANDOUTS — TODAY'S STRONGEST MOVERS", 'gold'));
+    parts.push(_sectionBanner("⭝  STANDOUTS — TODAY'S STRONGEST MOVERS", 'gold'));
   }
 
   return parts.join('\n');
@@ -1296,50 +1296,48 @@ function _moveTypeFieldValue(record) {
   return mt + ' · ' + stage + ' stage';
 }
 
-function _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp) {
+function _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp, lifecycle, volatility) {
   if (!bands) {
     return '_Entry / watch / caution bands unavailable — evidence anchors pending. Re-read at next scan._';
   }
+  const plan = buildPlanFromBands(record, bands, lifecycle, volatility);
   const isShort = bands.isShort;
-  const verb = isShort ? 'SELL' : 'BUY';
-  const movers = isShort ? 'sellers' : 'buyers';
   const reachDir = isShort ? 'above' : 'below';
-  const bandHighLowDescriptor = isShort ? 'closes below the band high' : 'closes above the band low';
   const invalidationLink = _termLink('Invalidation', urlMap);
   const dirNoun = isShort ? 'bearish' : 'bullish';
 
-  // Dollar amounts at each zone — derived from the position rule.
-  const fullRiskDollars = position.dollarRisk;
-  const partialRiskDollars = Math.round(fullRiskDollars * 0.4);
-  const drawdownDollars = Math.round(fullRiskDollars * 0.65);
-
   return [
     '🟢 ENTRY zone  {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}}',
-    '   Meaning: price returned to the band where the last turn occurred.',
-    '   Need: 5-minute candle opens inside the band AND ' + bandHighLowDescriptor + '.',
-    '   Gate: ' + _termLink('Confirmed Candle Close', urlMap) + '. Action: ' + verb + ' close; model risk {{money:~$' + fullRiskDollars + '}}.',
+    '   Entry reference price: **' + (plan ? plan.entryReferencePrice : bands.entryLowText + ' - ' + bands.entryHighText) + '**.',
+    '   Confirmation condition: ' + (plan ? plan.confirmationCondition : 'published candle-close condition pending'),
+    '   Risk basis: ' + (plan ? plan.riskBasis : 'account-percentage risk cap pending'),
     '',
     '🟡 WATCH level  {{watch:' + bands.watchText + '}}',
     '   Warning: price is moving against the idea before invalidation.',
-    '   If 1H closes ' + reachDir + ' {{watch:' + bands.watchText + '}}, model drawdown is often 30–50%',
-    '   ({{money:~$' + partialRiskDollars + '}} of {{money:~$' + fullRiskDollars + '}}). Action: hold; do NOT add.',
+    '   If 1H closes ' + reachDir + ' {{watch:' + bands.watchText + '}}, reduce exposure or stand aside; do not add risk.',
     '',
     '🟠 CAUTION zone  {{caution:' + bands.watchText + ' – ' + bands.cautionText + '}}',
-    '   {{caution:Price is against the setup. Ignoring this can turn a}}',
-    '   {{caution:controlled exit into full invalidation loss.}}',
-    '   💲 Drawdown 50–80% ({{money:~$' + drawdownDollars + '}} of {{money:~$' + fullRiskDollars + '}}). Action: scratch and re-read.',
+    '   {{caution:Price is against the setup. Technical distance is nearly spent.}}',
+    '   {{caution:Stand aside unless the next scan restores the entry reference.}}',
     '',
     '🔴 ' + invalidationLink + '  {{invalid:' + bands.invalidationText + '}}',
-    '   ' + dirNoun + ' idea OFF. Full model risk: {{money:$' + fullRiskDollars + '}}.',
-    '   Exit ALL. Do NOT re-enter until a new ' + _termLink('Re-entry Structure', urlMap) + ' appears.',
+    '   Invalidation / exit price: **' + (plan ? plan.invalidationExitPrice : bands.invalidationText) + '**.',
+    '   ' + (plan ? plan.invalidationCondition : dirNoun + ' idea is off at the published invalidation / exit price.'),
+    '   Re-entry only after a new ' + _termLink('Re-entry Structure', urlMap) + ' appears.',
+    '',
+    '📝 Price-point logic',
+    '   Minimum ATLAS Buffer: **' + (plan ? plan.minimumAtlasBuffer : bands.bufferUsedText) + '**.',
+    '   Technical distance: **' + (plan ? plan.technicalDistance : position.riskDistanceText) + '**.',
+    '   Instrument-aware unit type: **' + (plan ? plan.unitType : (bands.precision && bands.precision.unitType || 'native price points')) + '**.',
+    '   Buffer reason: ' + (plan ? plan.bufferReason : bands.bufferWhy) + '.',
     '',
     '🔵 Next review  ' + nextReviewStamp,
     '   ATLAS re-reads every zone at the next scan.',
   ].join('\n');
 }
 
-function _whereToActFields(record, bands, position, urlMap, nextReviewStamp) {
-  const value = _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp);
+function _whereToActFields(record, bands, position, urlMap, nextReviewStamp, lifecycle, volatility) {
+  const value = _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp, lifecycle, volatility);
   if (!bands || value.length <= DISCORD_FIELD_VALUE_LIMIT) {
     return [{ name: 'Where to Act', value, inline: false }];
   }
@@ -1355,45 +1353,36 @@ function _whereToActFields(record, bands, position, urlMap, nextReviewStamp) {
 function _dollarRiskFieldValue(record, lifecycle, position, contract, bands) {
   // Header reflects lifecycle sizing.
   const headerNoun = lifecycle.stage === 'FRESH'
-    ? 'half size for FRESH'
+    ? 'fresh-card account-risk cap'
     : lifecycle.stage === 'FADING'
-      ? 'quarter-size only because this is a FADING card'
-      : 'full size allowed (STILL ACTIVE)';
+      ? 'late-stage account-risk cap'
+      : 'standard account-risk cap (STILL ACTIVE)';
   const lines = [];
+  const plan = bands ? buildPlanFromBands(record, bands, lifecycle, null) : null;
 
-  const standardDollar = position.standardDollarRisk;
-  const standardDescriptor = contract.seeded
-    ? '{{money:$' + standardDollar.toLocaleString('en-US') + ' risk on ' + contract.standardSizeLabel + '}} (distance ' + position.riskDistanceText + ')'
-    : '{{money:$' + standardDollar + ' risk}} (model distance ' + position.riskDistanceText + ')';
-  lines.push('💲 Model example: ' + standardDescriptor + '.');
-
-  // Recommended dollars at the lifecycle-adjusted multiplier.
-  const baseExpected = lifecycle.stage === 'FRESH' ? 0.5 : lifecycle.stage === 'FADING' ? 0.25 : 1.0;
-  const moodAppendix = position.multiplier !== baseExpected ? ' × ' + position.moodNote : '';
-  if (lifecycle.stage === 'FADING') {
-    lines.push('💲 This card uses quarter-size because the setup is late-stage, so model planned risk is {{money:~' + position.dollarRiskText + '}}.');
+  lines.push('💲 Risk basis: account percentage, not fixed dollar examples.');
+  lines.push('💲 Maximum planned loss at invalidation / exit: **' + position.accountRiskCapText + '** (' + position.accountRiskCapLabel + ').');
+  if (bands && plan) {
+    lines.push('💲 Entry reference: {{entry:' + plan.entryReferencePrice + '}}.');
+    lines.push('💲 Invalidation / exit price: {{invalid:' + plan.invalidationExitPrice + '}}.');
+    lines.push('💲 Technical distance: **' + plan.technicalDistance + '**.');
+    lines.push('💲 Minimum ATLAS Buffer: **' + bands.bufferUsedText + '**.');
+    lines.push('💲 Unit type: **' + plan.unitType + '**.');
   } else {
-    lines.push('💲 Model size for this card (' + lifecycle.stage + ' · ' + position.lifecycleNote + moodAppendix + '): {{money:~' + position.dollarRiskText + '}}.');
+    lines.push('💲 Technical distance pending until entry and invalidation prices are available.');
   }
 
   // Mood scaling hint (only when relevant).
   if (lifecycle.stage === 'STILL ACTIVE' && position.multiplier < 1.0) {
-    lines.push('💲 If Market Mood drops back to Quiet, scale up to full size after a valid re-read.');
+    lines.push('💲 If Market Mood drops back to Quiet, the cap can return to the standard account-risk cap after a valid re-read.');
   }
   if (lifecycle.stage === 'FRESH') {
-    lines.push('💲 If Market Mood drops to Quiet (1/5) you can scale up to full size after a valid re-read.');
-  }
-
-  // Reward-target heuristic — fixed 2R or 3R based on lifecycle.
-  if (bands) {
-    const rewardR = _rewardRForLifecycle(lifecycle);
-    const rewardDollar = Math.round(position.dollarRisk * rewardR);
-    lines.push('💲 Reward target after confirmed follow-through: {{money:~$' + rewardDollar + '}} on the model size · {{money:' + rewardR.toFixed(1) + 'R}}.');
+    lines.push('💲 Fresh cards stay capped until a later scan confirms the structure is still holding.');
   }
 
   // Late-stage warning.
   if (lifecycle.stage === 'FADING') {
-    lines.push('⚠️ R:R is below 2R — use only if no higher-quality card is available: stronger conviction, closer entry, better R:R, less invalidation pressure.');
+    lines.push('⚠︝ R:R is below 2R — use only if no higher-quality card is available: stronger conviction, closer entry, better R:R, less invalidation pressure.');
   }
 
   return { value: lines.join('\n'), header: headerNoun };
@@ -1405,8 +1394,8 @@ function _whatThisMeansFieldValue(record, bands, urlMap) {
   }
   const isShort = bands.isShort;
   return isShort
-    ? 'The bearish idea remains valid only while price stays below the decision level and below invalidation at {{invalid:' + bands.invalidationText + '}}. Selling a controlled rally into the green entry band is the planned read.'
-    : 'The bullish idea remains valid only while price stays above the decision level and above invalidation at {{invalid:' + bands.invalidationText + '}}. Buying a controlled pullback into the green entry band is the planned read.';
+    ? 'The bearish idea remains valid only while price stays below decision level **' + bands.triggerText + '** and below invalidation / exit at {{invalid:' + bands.invalidationText + '}}. Entry is referenced only inside {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}} after the stated confirmation condition.'
+    : 'The bullish idea remains valid only while price stays above decision level **' + bands.triggerText + '** and above invalidation / exit at {{invalid:' + bands.invalidationText + '}}. Entry is referenced only inside {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}} after the stated confirmation condition.';
 }
 
 function _whatToDoNowFieldValue(record, lifecycle, position, bands, contract) {
@@ -1417,25 +1406,24 @@ function _whatToDoNowFieldValue(record, lifecycle, position, bands, contract) {
     ].join('\n');
   }
   const isShort = bands.isShort;
-  const verb = isShort ? 'SELL' : 'BUY';
-  const halfRisk = Math.round(position.dollarRisk * 0.5);
-  // FADING — quarter-size flow.
+  const plan = buildPlanFromBands(record, bands, lifecycle, null);
+  // FADING — reduced-risk flow.
   if (lifecycle.stage === 'FADING') {
     return [
-      '① QUARTER size at most — not a primary entry. {{money:' + position.dollarRiskText + ' model risk}}.',
-      '② Only ' + verb.toLowerCase() + ' if price returns to {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}} and forms a strong 5-minute close in the required direction.',
-      '③ Place the exit-point at {{invalid:' + bands.invalidationText + '}} ({{money:' + position.dollarRiskText + ' model risk}}).',
-      '④ If {{watch:' + bands.watchText + '}} closes ' + (isShort ? 'above' : 'below') + ' on 1H, exit ALL — late-stage cards do not get second chances.',
+      '① Late-stage card: cap planned loss at **' + position.accountRiskCapText + '** of account equity.',
+      '② Entry reference price: {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}}.',
+      '③ Confirmation condition: ' + (plan ? plan.confirmationCondition : 'pending'),
+      '④ Invalidation / exit price: {{invalid:' + bands.invalidationText + '}}; if 1H closes ' + (isShort ? 'above' : 'below') + ' it, the ' + (isShort ? 'bearish' : 'bullish') + ' idea is off.',
       '⑤ Skip if another standout has stronger conviction, closer entry, better R:R, and less invalidation pressure.',
     ].join('\n');
   }
   // FRESH / STILL ACTIVE common flow.
   return [
-    '① Wait for a 5-min candle to open inside {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}}.',
-    '② ' + verb + " that candle's close — {{money:" + position.dollarRiskText + ' model risk}}.',
-    '③ Place the exit-point at {{invalid:' + bands.invalidationText + '}} ({{money:' + position.dollarRiskText + ' model risk}}).',
-    '④ If {{watch:' + bands.watchText + '}} closes ' + (isShort ? 'above' : 'below') + ' on 1H, exit half (freeing {{money:~$' + halfRisk + '}}) and keep the exit-point unchanged.',
-    '⑤ Full exit at {{invalid:' + bands.invalidationText + '}} if reached — the ' + (isShort ? 'bearish' : 'bullish') + ' idea is OFF.',
+    '① Entry reference price: {{entry:' + bands.entryLowText + ' – ' + bands.entryHighText + '}}.',
+    '② Confirmation condition: ' + (plan ? plan.confirmationCondition : 'pending'),
+    '③ Risk basis: cap planned loss at **' + position.accountRiskCapText + '** of account equity.',
+    '④ If {{watch:' + bands.watchText + '}} closes ' + (isShort ? 'above' : 'below') + ' on 1H, reduce exposure or stand aside; do not add risk.',
+    '⑤ Invalidation / exit price: {{invalid:' + bands.invalidationText + '}}; a 1H close ' + (isShort ? 'above' : 'below') + ' that level turns the ' + (isShort ? 'bearish' : 'bullish') + ' idea off.',
   ].join('\n');
 }
 
@@ -1482,20 +1470,20 @@ function _candidateEmbed(record, idx, total, isLast, opts, urlMap, volatility, c
     { name: 'Expected Duration', value: _expectedDurationFieldValue(record, urlMap), inline: true },
     { name: "Today's Rank",      value: _todaysRankFieldValue(idx, total, urlMap), inline: true },
   ];
-  fields.push(..._whereToActFields(record, bands, position, urlMap, nextReview));
+  fields.push(..._whereToActFields(record, bands, position, urlMap, nextReview, lifecycle, volatility));
 
   const dollarRisk = _dollarRiskFieldValue(record, lifecycle, position, contract, bands);
-  fields.push({ name: '💲 Dollar Risk — ' + dollarRisk.header, value: dollarRisk.value, inline: false });
+  fields.push({ name: '💲 Account Risk — ' + dollarRisk.header, value: dollarRisk.value, inline: false });
   fields.push({ name: 'What this means', value: _whatThisMeansFieldValue(record, bands, urlMap), inline: false });
   fields.push({ name: 'WHAT TO DO NOW',  value: _whatToDoNowFieldValue(record, lifecycle, position, bands, contract), inline: false });
   fields.push({ name: 'What confirms the idea', value: _whatConfirmsFieldValue(record, bands, urlMap), inline: false });
   fields.push({ name: 'What cancels the idea',  value: _whatCancelsFieldValue(record, bands), inline: false });
   fields.push({ name: 'Source proof', value: _sourceProofFieldValue(record, bands), inline: false });
   if (lifecycle.stage === 'FADING') {
-    fields.push({ name: '⚠️  Late-stage risk note', value: _lateStageCaveatFieldValue(), inline: false });
+    fields.push({ name: '⚠︝  Late-stage risk note', value: _lateStageCaveatFieldValue(), inline: false });
   }
 
-  const title = '🐎  ' + (record.symbol || '?') + '  ·  ' + stateBadge;
+  const title = '🝎  ' + (record.symbol || '?') + '  ·  ' + stateBadge;
   const footerText = 'ATLAS · Dark Horse · standout ' + (idx + 1) + ' of ' + total
     + ' · ' + lifecycle.stage.toLowerCase() + ' lifecycle'
     + (isLast ? ' · next review ' + nextReview : '');
@@ -1539,10 +1527,10 @@ function _buildingAndReferenceMessage(opts, urlMap) {
     chartCard: _referenceChartCardSpec(),
     fields: [
       { name: 'What you are looking at', value: 'Price closed above the decision level, returned to test that same area, and held above it. Buyers defended the level, so the long idea remains valid while invalidation holds.', inline: false },
-      { name: 'How a trader acts (concrete, dollars-first)', value: [
-        '🟢 BUY the pullback into the {{entry:green ENTRY band}} — ONLY if the next 5-min candle opens inside the band AND closes above the band low.',
-        '🔴 Place the exit-point just below the {{invalid:dashed red INVALIDATION line}}. If price closes below it on the 1H, exit immediately.',
-        '💲 Dollar risk = (entry price − exit price) × position size × $/point. Size the trade so this number ≤ 1% of your account ({{money:$100 on $10k}}, {{money:$250 on $25k}}, {{money:$1,000 on $100k}}).',
+      { name: 'How a trader acts (concrete, account-risk based)', value: [
+        '🟢 Entry reference lives inside the {{entry:green ENTRY band}} — ONLY if the next 5-min candle opens inside the band AND closes above the band low.',
+        '🔴 Invalidation / exit lives at the {{invalid:dashed red INVALIDATION line}}. If price closes below it on the 1H, the idea is off.',
+        '💲 Account risk = entry-to-exit distance × position size × native point value. Size the trade so planned loss is capped at the card percentage of account equity.',
       ].join('\n'), inline: false },
       { name: 'Rendered ATLAS chart card', value: 'The attached chart image shows the same four zones used above: green entry band, yellow watch level, red invalidation line, and ATLAS price boxes.', inline: false },
     ],
@@ -1563,11 +1551,10 @@ function _tailContent(ranking, volatility, opts, urlMap, ctx) {
   const standouts = ctx.standouts || [];
   const summaryLines = standouts.map(s => {
     const lc = s.lifecycle.stage;
-    const dollarText = s.position.dollarRiskText;
     const rewardR = lc === 'FADING' ? 1.3 : lc === 'FRESH' ? 5.7 : 3.0;
     return '_The ' + lc + ' ' + s.record.symbol + ' card is the '
       + (lc === 'FRESH' ? 'cleanest reward-to-risk' : lc === 'STILL ACTIVE' ? 'highest-conviction continuation' : 'late-stage scalp')
-      + ': {{money:~' + dollarText + ' risk}} · target {{money:' + rewardR.toFixed(1) + 'R}}._';
+      + ': risk cap **' + s.position.accountRiskCapText + '** of account equity · target model **' + rewardR.toFixed(1) + 'R**._';
   });
 
   const briefingParts = [

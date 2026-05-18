@@ -9,7 +9,7 @@
 //   - "Market Impact" surfaces user-facing
 //   - "Mechanism Chain" does NOT surface user-facing
 //   - No legacy glossary wording leaks
-//   - Dollar-first guidance present in WHAT_TO_DO_NOW
+//   - MI dollar-first guidance remains; DH uses account-percentage risk
 // ============================================================
 
 const path = require('path');
@@ -24,7 +24,7 @@ function ok(label) { passed++; console.log('  ✓ ' + label); }
 function fail(label, err) { failed++; console.error('  ✗ ' + label + (err ? ' :: ' + err : '')); }
 
 const miPacket = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { severity: 'HIGH' }, eventClusters: [{ currency: 'USD', events: [{ title: 'CPI (USD)', time: '12:30 UTC' }]}] } });
-const dhPacket = buildDarkHorsePacket({ ranking: { top10: [{ symbol: 'EURUSD', movePhase: 'early', score: 9, direction: 'Bullish', dollarRiskLabel: '~$150', rewardRLabel: '3R' }], allCount: 33 }, volatility: { level: 'ELEV' } });
+const dhPacket = buildDarkHorsePacket({ ranking: { top10: [{ symbol: 'EURUSD', movePhase: 'early', score: 9, direction: 'Bullish', rewardRLabel: '3R' }], allCount: 33 }, volatility: { level: 'ELEV' } });
 const miVM = miViewModel.toViewModel(miPacket);
 const dhVM = dhViewModel.toViewModel(dhPacket);
 const miText = miShell.buildDiscordTextSummary(miVM, {});
@@ -42,9 +42,9 @@ if (!/Mechanism Chain/.test(dhVM.MARKET_IMPACT)) ok('DH MARKET_IMPACT has no "Me
 if (!/Mechanism Chain/.test(miText)) ok('MI Discord text has no "Mechanism Chain"'); else fail('MI Discord text leaks "Mechanism Chain"');
 if (!/Mechanism Chain/.test(dhText)) ok('DH Discord text has no "Mechanism Chain"'); else fail('DH Discord text leaks "Mechanism Chain"');
 
-console.log('\nT3 — Dollar-first guidance present in WHAT_TO_DO_NOW:');
+console.log('\nT3 — Risk guidance present in WHAT_TO_DO_NOW:');
 if (/\$/.test(miVM.WHAT_TO_DO_NOW)) ok('MI WHAT_TO_DO_NOW carries $ figures'); else fail('MI WHAT_TO_DO_NOW missing $ figures');
-if (/\$/.test(dhVM.WHAT_TO_DO_NOW)) ok('DH WHAT_TO_DO_NOW carries $ figures'); else fail('DH WHAT_TO_DO_NOW missing $ figures');
+if (/account-percentage risk|account equity|Account-risk cap/i.test(dhVM.WHAT_TO_DO_NOW)) ok('DH WHAT_TO_DO_NOW carries account-percentage risk wording'); else fail('DH WHAT_TO_DO_NOW missing account-percentage risk wording');
 
 console.log('\nT4 — No legacy glossary wording leaks:');
 const LEGACY_BANNED = [/\bMechanism\s+Chain\b/i, /\bview\s+in\s+notion\b/i, /\bgo\s+to\s+notion\b/i, /\bopen\s+workspace\b/i];

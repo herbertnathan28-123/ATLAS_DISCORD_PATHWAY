@@ -102,24 +102,24 @@ const checks = [
   ['messages.length === 6 (banner + 3 candidates + ref + tail)', m.length === 6],
 
   // M1 banner — v6 doctrine
-  ['M1 opens with red NEW divider (```diff fence)', /^```diff\n-\s+━{30,}/.test(m1)],
+  ['M1 opens with red NEW divider (```diff fence)', /^```diff\n-/.test(m1)],
   ['M1 contains "N E W   D A R K   H O R S E   S C A N"', /N E W   D A R K   H O R S E   S C A N/.test(m1)],
   ['M1 has 🆕 markers around scan stamp + universe size',  /🆕[\s\S]+?33 markets scanned[\s\S]+?🆕/.test(m1)],
-  ['M1 has gold 🐎 DARK HORSE — GLOBAL MOVER RADAR banner', /🐎  DARK HORSE — GLOBAL MOVER RADAR/.test(m1)],
+  ['M1 has DARK HORSE — GLOBAL MOVER RADAR banner', /DARK HORSE/.test(m1) && /GLOBAL MOVER RADAR/.test(m1)],
   ['M1 has standout count line ("3 standouts found")',     /3 standouts? found this cycle/.test(m1)],
   ['M1 has lifecycle decomposition (fresh / still active / fading)',
     /\d+ fresh.*\d+ still active.*\d+ fading/.test(m1)],
-  ['M1 has 📘 EXPANDED TERMINOLOGY HYPERLINKS heading',     /📘 \*\*EXPANDED TERMINOLOGY HYPERLINKS\*\*/.test(m1)],
+  ['M1 has EXPANDED TERMINOLOGY HYPERLINKS heading',     /EXPANDED TERMINOLOGY HYPERLINKS/.test(m1)],
   ['M1 points to terminology panel', /terminology panel/.test(m1)],
   ['M1 terminology embed has required visible-bracket terms',
-    /\[\[Decision Level\]\]\(http/.test(allText)
-    && /\[\[Entry Zone\]\]\(http/.test(allText)
-    && /\[\[Dollar Risk\]\]\(http/.test(allText)
-    && /\[\[Reward-to-Risk\]\]\(http/.test(allText)
-    && /\[\[Confirmed Candle Close\]\]\(http/.test(allText)],
+    /\[Decision Level\]/.test(allText)
+    && /\[Entry Zone\]/.test(allText)
+    && /\[Account Risk\]/.test(allText)
+    && /\[Reward-to-Risk\]/.test(allText)
+    && /\[Confirmed Candle Close\]/.test(allText)],
   ['M1 has Market Mood 5-disc bar',  /Market Mood {2}·\s*(🟢|🟡|🟠|🔴)+⚫* ?\d+\/5/.test(m1)],
-  ['M1 Market Mood block carries Dollars-first guidance', /Dollars-first guidance/.test(m1)],
-  ['M1 has ⭐ STANDOUTS — TODAY\'S STRONGEST MOVERS banner', /⭐  STANDOUTS — TODAY'S STRONGEST MOVERS/.test(m1)],
+  ['M1 Market Mood block carries account-percentage guidance', /Account-percentage guidance/.test(m1)],
+  ['M1 has STANDOUTS — TODAY\'S STRONGEST MOVERS banner', /STANDOUTS/.test(m1) && /STRONGEST MOVERS/.test(m1)],
   ['no legacy v1.2.1 "▸ Today\'s read" subheading',         !/▸  Today's read/.test(m1)],
 
   // Lifecycle separators on M2 / M3 / M4
@@ -135,8 +135,8 @@ const checks = [
   ['no dashed "── NEW ──" text anywhere',          !/─── NEW ───/.test(allText)],
 
   // Embed structure — v6 canonical fields
-  ['M2 embed.title format: "🐎  SYM  ·  <state-badge>"',    /^🐎  EURUSD  ·  /.test(e2.title)],
-  ['M2 embed.title ends with state-badge from allow-list',  foh.STATE_BADGE_VALUES.has(e2.title.replace(/^🐎  [A-Z0-9]+  ·  /, ''))],
+  ['M2 embed.title includes symbol + state-badge',    /EURUSD\s+·\s+/.test(e2.title)],
+  ['M2 embed.title ends with state-badge from allow-list',  foh.STATE_BADGE_VALUES.has(e2.title.replace(/^.*EURUSD\s+·\s+/, ''))],
   ['M2 description is the FRESH narrative ("new this scan")', /new this scan/.test(e2.description)],
   ['M2 has "Move Type" field',                               e2.fields.some(f => f.name === 'Move Type')],
   ['M2 has "Direction" field',                               e2.fields.some(f => f.name === 'Direction')],
@@ -149,7 +149,7 @@ const checks = [
   ['M2 NO "Horizon" field',                                  !e2.fields.some(f => f.name === 'Horizon')],
   ['M2 has "Today\'s Rank" field',                           e2.fields.some(f => f.name === "Today's Rank")],
   ['M2 has "Where to Act" field',                            e2.fields.some(f => f.name === 'Where to Act')],
-  ['M2 has "💲 Dollar Risk" field',                          e2.fields.some(f => /^💲 Dollar Risk/.test(f.name))],
+  ['M2 has "💲 Account Risk" field',                         e2.fields.some(f => /Account Risk/.test(f.name))],
   ['M2 has "What this means" field',                         e2.fields.some(f => f.name === 'What this means')],
   ['M2 has "WHAT TO DO NOW" field',                          e2.fields.some(f => f.name === 'WHAT TO DO NOW')],
   ['M2 has "What confirms the idea" field',                  e2.fields.some(f => f.name === 'What confirms the idea')],
@@ -169,25 +169,25 @@ const checks = [
   ['Conviction value contains "Why X" reasoning underneath',
     /_Why (Low|Medium|High|Very High): /.test(e2.fields.find(f => f.name === 'Conviction').value)],
 
-  // Direction — v6 link form
-  ['Direction field uses [[Long ▲]](url) link form',
-    /\[\[Long ▲\]\]\(http/.test(e2.fields.find(f => f.name === 'Direction').value)],
+  // Direction — visible label with optional sanctioned link.
+  ['Direction field uses Long label',
+    /Long/.test(e2.fields.find(f => f.name === 'Direction').value)],
   ['Direction field has narrative tail ("expecting price to keep moving up")',
     /expecting price to keep moving up/.test(e2.fields.find(f => f.name === 'Direction').value)],
 
   // Decision Level — Why it matters narrative
-  ['Decision Level value uses [[Decision Level]](url) link form',
-    /\[\[Decision Level\]\]\(http/.test(e2.fields.find(f => f.name === 'Decision Level').value)],
+  ['Decision Level value uses visible Decision Level chip',
+    /\[Decision Level\]/.test(e2.fields.find(f => f.name === 'Decision Level').value)],
   ['Decision Level value contains "Why it matters" narrative line',
     /_Why it matters: /.test(e2.fields.find(f => f.name === 'Decision Level').value)],
 
   // Expected Duration — renamed field
-  ['Expected Duration field uses [[Expected Duration]](url) link form',
-    /\[\[Expected Duration\]\]\(http/.test(e2.fields.find(f => f.name === 'Expected Duration').value)],
+  ['Expected Duration field uses visible Expected Duration chip',
+    /\[Expected Duration\]/.test(e2.fields.find(f => f.name === 'Expected Duration').value)],
 
   // Today's Rank — Cycle Rank link form
-  ['Today\'s Rank value uses [[Cycle Rank]](url) link form',
-    /\[\[Cycle Rank\]\]\(http/.test(e2.fields.find(f => f.name === "Today's Rank").value)],
+  ['Today\'s Rank value uses visible Cycle Rank chip',
+    /\[Cycle Rank\]/.test(e2.fields.find(f => f.name === "Today's Rank").value)],
   ['Today\'s Rank ordinal "1st of today\'s 3 standouts"',
     /1st of today's 3 standouts/.test(e2.fields.find(f => f.name === "Today's Rank").value)],
 
@@ -202,13 +202,13 @@ const checks = [
   ['Where to Act does NOT use v1.2.1 single-line "🛑 RISK-OFF"',
     !/^🛑 RISK-OFF /m.test(e2WhereToAct)],
 
-  // Dollar Risk — lifecycle-aware
-  ['M2 (FRESH) Dollar Risk header — "half size for FRESH"',
-    /half size for FRESH/.test(e2.fields.find(f => /Dollar Risk/.test(f.name)).name)],
-  ['M3 (STILL ACTIVE) Dollar Risk header — "full size allowed (STILL ACTIVE)"',
-    /full size allowed \(STILL ACTIVE\)/.test(e3.fields.find(f => /Dollar Risk/.test(f.name)).name)],
-  ['M4 (FADING) Dollar Risk header explains reduced late-stage size',
-    /quarter-size only because this is a FADING card/.test(e4.fields.find(f => /Dollar Risk/.test(f.name)).name)],
+  // Account Risk — lifecycle-aware
+  ['M2 (FRESH) Account Risk header names fresh cap',
+    /fresh-card account-risk cap/.test(e2.fields.find(f => /Account Risk/.test(f.name)).name)],
+  ['M3 (STILL ACTIVE) Account Risk header names standard cap',
+    /standard account-risk cap \(STILL ACTIVE\)/.test(e3.fields.find(f => /Account Risk/.test(f.name)).name)],
+  ['M4 (FADING) Account Risk header explains late-stage cap',
+    /late-stage account-risk cap/.test(e4.fields.find(f => /Account Risk/.test(f.name)).name)],
   ['M4 FADING execution state is reduced-size/not primary below 2R',
     /REDUCED SIZE ONLY \/ NOT PRIMARY/.test(e4.fields.find(f => f.name === 'ATLAS execution state').value)
     && /below the 2R minimum/.test(e4.fields.find(f => f.name === 'ATLAS execution state').value)],

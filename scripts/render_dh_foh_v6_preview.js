@@ -18,11 +18,9 @@
 //                "Half size" / "wider stops" / "weak structure" /
 //                "aggressive move" all replaced with operational
 //                consequences.
-//   Priority 3 — Dollar-first execution everywhere. "Reduce size
-//                to 60%" → "If your normal risk is $500, reduce to
-//                ~$300". "Half size" → "HALF dollar exposure (~$150 risk vs
-//                $300 normal)". "Exit half" → "Exit half of your
-//                remaining dollar exposure (quarter of the original HALF entry)".
+//   Priority 3 — Account-risk execution everywhere. Fixed-dollar
+//                examples are removed; each card shows entry reference,
+//                confirmation, invalidation / exit, and percentage risk cap.
 //   Priority 4 — Colour doctrine on prices. Watch level YELLOW,
 //                Caution zone ORANGE, Invalidation RED, Entry GREEN.
 //                Applied inline via {{watch:X}} {{caution:X}}
@@ -108,7 +106,7 @@ const TERM = {
   confirmedDir:   '[confirmed directional structure](#term-confirmed-directional-structure)',
 };
 
-// ── Market Mood — v6 with 5-disc + dollars-first behaviour ─
+// ── Market Mood — v6 with 5-disc + account-risk behaviour ─
 function marketMoodSection() {
   const moodLine = discScale(4, 5, 'Elevated', '🟠');
   return [
@@ -119,19 +117,13 @@ function marketMoodSection() {
     '   more likely than usual. Trades that worked in calm conditions are',
     '   more likely to be stopped out before reaching their target.',
     '',
-    '_What this means for your trading today (dollars-first):_',
-    '   🟢 Position size — If your normal risk per trade is $500 on a',
-    '       $10,000 account, reduce to ~$300 (60% of normal) for the',
-    '       next 6 hours. On a $25,000 account, reduce from $1,250 to',
-    '       ~$750. Why: bigger market swings mean wider exit-points are',
-    '       needed, which means more $$$ at risk per setup.',
-    '   🟡 Exit-points — give the trade more room. A tight exit-point is',
-    '       more likely to be hit before the move confirms direction.',
-    '       Concrete: instead of 30-point exit on EURUSD, use 40-50.',
-    '   🟠 Marginal setups — skip them. Only act on candidates where',
-    '       the trigger level is broken AND the next candle closes',
-    '       beyond it (the {{caution:confirmed directional structure}}',
-    '       check, see below for example).',
+    '_What this means for your trading today (account-percentage based):_',
+    '   🟢 Position size — cap risk as a percentage of account equity,',
+    '       then reduce it by lifecycle and current Market Mood.',
+    '   🟡 Exit-points — use the published invalidation / exit price from',
+    '       the card. Tight exits get hit before confirmation completes.',
+    '   🟠 Marginal setups — skip them unless entry reference, confirmation,',
+    '       invalidation / exit, and Minimum ATLAS Buffer are all visible.',
     '   🛑 Do NOT chase already-extended moves. Example: NVDA at $940',
     '       after a $20 push from $920 is NOT a fresh entry. Wait for',
     '       price to come back to a structural test (the floor that',
@@ -140,11 +132,11 @@ function marketMoodSection() {
 }
 
 // ── v6 Where to Act zones — tighter bands + coloured prices ─
-function whereToActZonesV6({ direction, entryLow, entryHigh, watch, caution, invalidation, dollarRiskStandard, exposureLabel, exposureReduced, dollarReduced, nextReviewStamp, plannedDollarRisk }) {
+function whereToActZonesV6({ direction, entryLow, entryHigh, watch, caution, invalidation, nextReviewStamp }) {
   const isShort = direction === 'Bearish';
-  const buySell = isShort ? 'SELL' : 'BUY';
   const direction2 = isShort ? 'sellers' : 'buyers';
   const reachDir = isShort ? 'above' : 'below';
+  const confirmEdge = isShort ? entryHigh : entryLow;
   return [
     `🟢 ENTRY zone  {{entry:${entryLow} – ${entryHigh}}}`,
     `   What this means: price has pulled back into the tight band where`,
@@ -152,30 +144,26 @@ function whereToActZonesV6({ direction, entryLow, entryHigh, watch, caution, inv
     `   Required price behaviour: a 5-minute candle that opens inside the`,
     `   band AND closes ${isShort ? 'below the band high' : 'above the band low'} (this is the {{entry:confirmed`,
     `   directional structure}} test).`,
-    `   Action: ${buySell} on that candle close — start with HALF your`,
-    `   normal dollar exposure for this card. Concrete: at standard dollar risk for this card,`,
-    `   begin with HALF dollar exposure = **{{money:~$${Math.round(dollarRiskStandard * 0.5)}}}** risk.`,
+    `   Entry reference price: **${entryLow} – ${entryHigh}**.`,
+    `   Confirmation condition: 5-minute candle opens inside the band AND`,
+    `   closes ${isShort ? 'below' : 'above'} ${confirmEdge}; next candle must hold.`,
     ``,
     `🟡 WATCH level  {{watch:${watch}}}`,
     `   What this means: ${direction2} are losing initial control. The`,
     `   first warning sign that the move is weakening.`,
-    `   💲 If price closes ${reachDir} {{watch:${watch}}} on the 1H, the`,
-    `   half-size position is typically down 30–50% of planned risk`,
-    `   ({{money:~$${Math.round(dollarRiskStandard * 0.5 * 0.4)}}} of the {{money:~$${Math.round(dollarRiskStandard * 0.5)}}} at risk).`,
-    `   Action: hold what you have, do NOT add more.`,
+    `   If price closes ${reachDir} {{watch:${watch}}} on the 1H, reduce exposure`,
+    `   or stand aside; do NOT add more.`,
     ``,
     `🟠 CAUTION zone  {{caution:${watch} – ${caution}}}`,
     `   {{caution:What this means: the other side is in control inside this band.}}`,
     `   {{caution:Holding from here means fighting the structure — exit risk}}`,
     `   {{caution:is now real, not theoretical.}}`,
-    `   💲 Position drawdown 50–80% of planned risk ({{money:~$${Math.round(dollarRiskStandard * 0.5 * 0.65)}}} of the {{money:~$${Math.round(dollarRiskStandard * 0.5)}}}).`,
-    `   Action: scratch the trade for a small loss now. Re-read at next scan.`,
+    `   Technical distance is nearly spent. Re-read at next scan.`,
     ``,
     `🔴 ${TERM.invalidation}  {{invalid:${invalidation}}}`,
     `   What this means: the ${isShort ? 'bearish' : 'bullish'} idea is OFF entirely.`,
-    `   💲 Full planned risk taken: {{money:$${Math.round(dollarRiskStandard * 0.5)}}} on ${exposureReduced}.`,
-    `   Action: exit ALL remaining size NOW. Do NOT re-enter — wait for`,
-    `   a fresh structure on a later scan.`,
+    `   Invalidation / exit price: **${invalidation}**.`,
+    `   Re-entry only after a fresh structure appears on a later scan.`,
     ``,
     `🔵 Next review  ${nextReviewStamp}`,
     `   ATLAS re-reads every zone at the next scan.`,
@@ -271,25 +259,21 @@ const SAMPLE_MESSAGES = [
             entryLow: '1.0924', entryHigh: '1.0928',
             watch: '1.0900', caution: '1.0880',
             invalidation: '1.0875',
-            dollarRiskStandard: 300, exposureLabel: 'standard contract ($100k notional exposure)',
-            exposureReduced: 'HALF dollar exposure ($50k notional)',
-            dollarReduced: '$150',
-            plannedDollarRisk: 150,
             nextReviewStamp: NEXT_REVIEW,
           }), inline: false },
-        { name: '💲 Dollar risk this trade — half size for FRESH', value: [
-            `💲 Standard plan: **{{money:$300 risk at $100k EURUSD notional exposure}}** ({{entry:entry 1.0925}}, {{invalid:exit 1.0895}}, 30-point distance).`,
-            `💲 Recommended start (HALF size on a FRESH candidate): **HALF dollar exposure = {{money:~$150 risk}}**.`,
-            `💲 If Market Mood drops to Calm (1/5) you can scale dollar exposure back up to the full standard plan after a clean re-read.`,
-            `💲 Reward target if EURUSD reaches 1.1010 first: **{{money:~$255}}** on the HALF-exposure entry · **{{money:5.7R}}**.`,
+        { name: '💲 Account risk this card — fresh-card cap', value: [
+            `💲 Risk basis: account percentage, not fixed-dollar examples.`,
+            `💲 Entry reference: {{entry:1.0924 – 1.0928}} · invalidation / exit: {{invalid:1.0875}}.`,
+            `💲 Maximum planned loss: **0.50% account equity** until a later scan confirms the structure is still holding.`,
+            `💲 Minimum ATLAS Buffer: **2.0 pips / 20 pipettes** · technical distance shown separately from risk size.`,
           ].join('\n'), inline: false },
-        { name: 'What this means', value: 'The path of least resistance is up while {{invalid:1.0875}} holds. Buying the dip into the tight green entry band is the trade ATLAS would take.', inline: false },
+        { name: 'What this means', value: 'The bullish idea is valid only while {{invalid:1.0875}} holds. Entry is referenced inside {{entry:1.0924 – 1.0928}} only after the confirmation condition is met.', inline: false },
         { name: 'WHAT TO DO NOW', value: [
-            '① Wait for a 5-min candle to open inside {{entry:1.0924 – 1.0928}}.',
-            '② BUY that candle\'s close — {{money:HALF dollar exposure}} of normal.',
-            '③ Place the exit-point at {{invalid:1.0895}} ({{money:~$150 risk}}).',
-            '④ If {{watch:1.0900}} closes below on 1H, exit half of your remaining position (quarter dollar exposure, freeing {{money:~$75}}) and hold the rest with the exit-point unchanged.',
-            '⑤ Full exit at {{invalid:1.0875}} if reached — the bullish idea is OFF.',
+            '① Entry reference price: {{entry:1.0924 – 1.0928}}.',
+            '② Confirmation condition: 5m candle opens inside the band and closes above 1.0924; next candle must hold above 1.0950.',
+            '③ Risk basis: cap planned loss at **0.50% account equity**.',
+            '④ If {{watch:1.0900}} closes below on 1H, reduce exposure or stand aside; do not add risk.',
+            '⑤ Invalidation / exit price: {{invalid:1.0875}} — a 1H close below that level turns the bullish idea off.',
           ].join('\n'), inline: false },
         { name: 'What confirms the idea', value: 'A 5m close above {{entry:1.0928}} after pulling back into the entry band — the {{caution:confirmed directional structure}} test (price closes past the trigger AND the next candle holds beyond it).', inline: false },
         { name: 'What cancels the idea', value: 'A 1H close below {{invalid:1.0875}}. At that point the ceiling-to-floor flip has failed and the move is invalidated.', inline: false },
@@ -322,24 +306,21 @@ const SAMPLE_MESSAGES = [
             entryLow: '2398', entryHigh: '2401',
             watch: '2406', caution: '2412',
             invalidation: '2415',
-            dollarRiskStandard: 1350, exposureLabel: 'standard XAUUSD contract (100 oz notional)',
-            exposureReduced: 'HALF dollar exposure (50 oz)',
-            dollarReduced: '$675',
-            plannedDollarRisk: 675,
             nextReviewStamp: NEXT_REVIEW,
           }), inline: false },
-        { name: '💲 Dollar risk this trade — full size allowed (STILL ACTIVE)', value: [
-            `💲 Standard plan: **{{money:$1,350 risk at standard XAUUSD notional exposure}}** ({{entry:entry 2401}}, {{invalid:exit 2415}}, $13.50/oz × 100 oz).`,
-            `💲 STILL ACTIVE candidates have proven their structure across 2+ cycles, so full size is acceptable — but Market Mood ELEVATED reduces dollar exposure to **≈{{money:$945}}**.`,
-            `💲 Reward target if XAUUSD reaches 2360 first: **{{money:~$2,870}}** on the reduced-exposure entry · **{{money:3.0R}}**.`,
+        { name: '💲 Account risk this card — standard cap (STILL ACTIVE)', value: [
+            `💲 Risk basis: account percentage, not fixed-dollar examples.`,
+            `💲 Entry reference: {{entry:2398 – 2401}} · invalidation / exit: {{invalid:2415}}.`,
+            `💲 Maximum planned loss: **0.70% account equity** after elevated-mood reduction.`,
+            `💲 Minimum ATLAS Buffer: **1.25 metal points / 13 ticks** · technical distance shown separately from risk size.`,
           ].join('\n'), inline: false },
-        { name: 'What this means', value: 'The path of least resistance is down while {{invalid:2415}} holds. Selling rallies into the tight green entry band is the trade.', inline: false },
+        { name: 'What this means', value: 'The bearish idea is valid only while {{invalid:2415}} holds. Entry is referenced inside {{entry:2398 – 2401}} only after the confirmation condition is met.', inline: false },
         { name: 'WHAT TO DO NOW', value: [
-            '① Wait for price to rally into {{entry:2398 – 2401}}.',
-            '② Look for the candle to stall (small range body, no close above 2401).',
-            '③ SELL that stall — {{money:reduced-exposure entry}} (Market Mood ELEVATED reduction).',
-            '④ Place the exit-point at {{invalid:2415}} ({{money:~$945 risk}}).',
-            '⑤ If {{watch:2406}} closes above on 1H, exit half (quarter dollar exposure, freeing {{money:~$470}}).',
+            '① Entry reference price: {{entry:2398 – 2401}}.',
+            '② Confirmation condition: 5m candle opens inside the band and closes below 2401; next candle must hold below 2398.',
+            '③ Risk basis: cap planned loss at **0.70% account equity**.',
+            '④ If {{watch:2406}} closes above on 1H, reduce exposure or stand aside; do not add risk.',
+            '⑤ Invalidation / exit price: {{invalid:2415}} — a 1H close above that level turns the bearish idea off.',
           ].join('\n'), inline: false },
         { name: 'What confirms the idea', value: 'A 5m close below {{entry:2398}} after rallying into the entry band, with the next candle holding below.', inline: false },
         { name: 'What cancels the idea', value: 'A 1H close above {{invalid:2415}}. At that point the broken floor has been reclaimed and the bearish idea is OFF.', inline: false },
@@ -372,24 +353,21 @@ const SAMPLE_MESSAGES = [
             entryLow: '919.00', entryHigh: '921.00',
             watch: '912.80', caution: '906.00',
             invalidation: '902.50',
-            dollarRiskStandard: 1860, exposureLabel: '100 shares NVDA',
-            exposureReduced: '25 shares',
-            dollarReduced: '$465',
-            plannedDollarRisk: 465,
             nextReviewStamp: NEXT_REVIEW,
           }), inline: false },
-        { name: '💲 Dollar risk this trade — QUARTER size only (FADING)', value: [
-            `💲 Standard plan: **{{money:$1,860 risk on 100 shares NVDA}}** ({{entry:entry $920}}, {{invalid:exit $902.50}}, $18.60/share × 100).`,
-            `💲 FADING candidates: QUARTER size at most — **25 shares = {{money:~$465 risk}}**.`,
-            `💲 Reward target if NVDA reaches $945 first: **{{money:~$600}}** on 25 shares · **{{money:1.3R}}**.`,
+        { name: '💲 Account risk this card — late-stage cap', value: [
+            `💲 Risk basis: account percentage, not fixed-dollar examples.`,
+            `💲 Entry reference: {{entry:919.00 – 921.00}} · invalidation / exit: {{invalid:902.50}}.`,
+            `💲 Maximum planned loss: **0.25% account equity** because this is late-stage.`,
+            `💲 Minimum ATLAS Buffer: **$0.45 / 45 cents** · technical distance shown separately from risk size.`,
             `⚠️  Reward-to-risk is below 2R — only take this if no other cards are available.`,
           ].join('\n'), inline: false },
         { name: 'What this means', value: 'The trend still exists, but the easy reward has already been earned. Late buyers get stopped out the most often.', inline: false },
         { name: 'WHAT TO DO NOW', value: [
-            '① QUARTER size at most — this is not a primary entry. {{money:25 shares = ~$465 risk}}.',
-            '② Only buy a clean pullback into {{entry:919 – 921}} that prints a strong defensive 5-min close.',
-            '③ Place the exit-point at {{invalid:902.50}} ({{money:~$465 risk}}).',
-            '④ If {{watch:912.80}} closes below on 1H, exit ALL — late-stage cards do not give second chances.',
+            '① Late-stage card: cap planned loss at **0.25% account equity**.',
+            '② Entry reference price: {{entry:919 – 921}}.',
+            '③ Confirmation condition: 5m candle opens inside the band and closes above 919; next candle must hold above 925.40.',
+            '④ Invalidation / exit price: {{invalid:902.50}}; if 1H closes below it, the bullish idea is off.',
             '⑤ Skip this card entirely if the FRESH or STILL ACTIVE standouts above offer a cleaner setup today.',
           ].join('\n'), inline: false },
         { name: 'What confirms the idea', value: 'A 5m close above {{entry:921}} after pulling back, with strong defensive volume on the bounce.', inline: false },
@@ -436,10 +414,10 @@ const SAMPLE_MESSAGES = [
       },
       fields: [
         { name: 'The story', value: 'Price pushed through a level that had capped it for weeks (the old high). It came back to test the same level. Buyers stepped in to defend it. The ceiling has flipped into a floor.', inline: false },
-        { name: 'How a trader acts (concrete, dollars-first)', value: [
-            '🟢 BUY the pullback into the {{entry:green ENTRY band}} — ONLY if the next 5-min candle opens inside the band AND closes above the band low.',
-            '🔴 Place the exit-point just below the {{invalid:dashed red INVALIDATION line}}. If price closes below it on the 1H, exit immediately.',
-            '💲 Dollar risk = (entry price − exit price) × position size × $/point. Size the trade so this number ≤ 1% of your account ({{money:$100 on $10k}}, {{money:$250 on $25k}}, {{money:$1,000 on $100k}}).',
+        { name: 'How a trader acts (concrete, account-risk based)', value: [
+            '🟢 Entry reference lives inside the {{entry:green ENTRY band}} — ONLY if the next 5-min candle opens inside the band AND closes above the band low.',
+            '🔴 Invalidation / exit lives at the {{invalid:dashed red INVALIDATION line}}. If price closes below it on the 1H, the idea is off.',
+            '💲 Account risk = entry-to-exit distance × position size × native point value. Size the trade so planned loss is capped at the card percentage of account equity.',
           ].join('\n'), inline: false },
         { name: 'Rendered ATLAS chart cards — next evolution', value: 'Future scans will replace this prototype with a snapshot of the actual candidate, with the four zones drawn on live price action. Captured as TRC-20260513-006.', inline: false },
       ],
@@ -454,10 +432,10 @@ const SAMPLE_MESSAGES = [
       '_Every zone above is what ATLAS sees right now. Live price moves, the zones move with it. Cross-check the current price against the zone before acting. ATLAS reviews again at ' + NEXT_REVIEW + '._',
       '',
       subheading('Briefing summary', 'CYAN'),
-      '_3 standouts today (1 FRESH, 1 STILL ACTIVE, 1 FADING). Market Mood 🟠🟠🟠🟠⚫ 4/5 — Elevated. Cut your normal $500/trade risk to ~$300._',
-      '_The FRESH EURUSD card is the cleanest reward-to-risk: **HALF dollar exposure = {{money:~$150 risk}}**, target **{{money:~$255}}** at 1.1010 (5.7R)._',
-      '_The STILL ACTIVE XAUUSD short allows up to reduced dollar exposure ({{money:~$945 risk}}) since structure has held across 2 cycles._',
-      '_The FADING NVDA card is a 25-share quarter-size scalp only ({{money:~$465 risk}}, 1.3R) — skip if better setups exist._',
+      '_3 standouts today (1 FRESH, 1 STILL ACTIVE, 1 FADING). Market Mood 🟠🟠🟠🟠⚫ 4/5 — Elevated. Risk is capped by account percentage per card._',
+      '_The FRESH EURUSD card is the cleanest reward-to-risk: **0.50% account-equity cap**, target model **5.7R**._',
+      '_The STILL ACTIVE XAUUSD short uses a **0.70% account-equity cap** after elevated-mood reduction._',
+      '_The FADING NVDA card uses a **0.25% account-equity cap** only — skip if better setups exist._',
       '_Next scan ' + NEXT_REVIEW + '._',
     ].join('\n'),
   },
