@@ -84,7 +84,7 @@ function renderTerminologyChip(payload) {
     : ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Account Risk','Reward-to-Risk'];
   const chips = terms.map(t => `<span class="foh-term-chip">${esc(t)}</span>`).join('');
   return `<div class="foh-hyperlinks">
-    <span class="foh-hyperlinks-label">📘 Expanded Terminology</span>
+    <span class="foh-hyperlinks-label">📘 EXPANDED TERMINOLOGY HYPERLINKS</span>
     ${chips}
   </div>`;
 }
@@ -93,7 +93,7 @@ function renderStandout(s, idx, total) {
   const lcClass = lifecycleClass(s.lifecycle);
   const lcLabel = lifecycleSeverityLabel(s.lifecycle);
   const pill = lcClass === 'fresh' ? 'fresh' : lcClass === 'fading' ? 'fading' : 'active';
-  const firstDet = s.firstDetected ? `<div class="foh-dh-candidate-meta">First detected: <strong>${esc(s.firstDetected)}</strong>${s.durationAlive ? ' · still Dark Horse valid after <strong>' + esc(s.durationAlive) + '</strong>' : ''}</div>` : '';
+  const firstDet = s.firstDetected ? `<div class="foh-dh-candidate-meta">First logged: <strong>${esc(s.firstDetected)}</strong>${s.durationAlive ? ' · First active: <strong>' + esc(s.firstDetected) + '</strong> · Still Dark Horse worthy after <strong>' + esc(s.durationAlive) + '</strong>' : ''}</div>` : '';
   const reason = s.reason ? `<div class="foh-dh-candidate-meta">${esc(s.reason)}</div>` : '';
   const decisionLevel = s.decisionLevel ? `<div class="foh-dh-candidate-meta">🎯 Decision level: <strong>${esc(s.decisionLevel)}</strong></div>` : '';
   const invalidation = s.invalidation ? `<div class="foh-dh-candidate-meta">❌ Invalidation: <strong>${esc(s.invalidation)}</strong></div>` : '';
@@ -145,7 +145,7 @@ function _renderDhRichStandout(s, idx, total) {
   const lcLabel = lifecycleSeverityLabel(s.lifecycle);
   const pill = lcClass === 'fresh' ? 'fresh' : lcClass === 'fading' ? 'fading' : 'active';
   const lines = [];
-  if (s.firstDetected) lines.push(`<div class="foh-dh-candidate-meta">First detected: <strong>${esc(s.firstDetected)}</strong>${s.durationAlive ? ' · still Dark Horse valid after <strong>' + esc(s.durationAlive) + '</strong>' : ''}</div>`);
+  if (s.firstDetected) lines.push(`<div class="foh-dh-candidate-meta">First logged: <strong>${esc(s.firstDetected)}</strong>${s.durationAlive ? ' · First active: <strong>' + esc(s.firstDetected) + '</strong> · Still Dark Horse worthy after <strong>' + esc(s.durationAlive) + '</strong>' : ''}</div>`);
   if (s.whyFlagged)     lines.push(`<div class="foh-dh-candidate-meta">${esc(s.whyFlagged)}</div>`);
   if (s.structureState) lines.push(`<div class="foh-dh-candidate-meta">📐 Structure: <strong>${esc(s.structureState)}</strong></div>`);
   if (s.decisionLevel)  lines.push(`<div class="foh-dh-candidate-meta">🎯 Decision level: <strong>${esc(s.decisionLevel)}</strong></div>`);

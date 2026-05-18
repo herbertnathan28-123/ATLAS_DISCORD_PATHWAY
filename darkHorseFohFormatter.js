@@ -57,6 +57,23 @@ function fmtAwstStamp(ms) {
     + ' ' + _pad2(d.getUTCHours()) + ':' + _pad2(d.getUTCMinutes()) + ' AWST'
   );
 }
+function fmtShortUtcStamp(ms) {
+  const d = new Date(ms);
+  return _pad2(d.getUTCDate()) + '/' + _pad2(d.getUTCMonth() + 1) + '/' + String(d.getUTCFullYear()).slice(-2)
+    + ' ' + _pad2(d.getUTCHours()) + ':' + _pad2(d.getUTCMinutes()) + ' UTC';
+}
+function humanDurationCompact(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return 'this scan';
+  const totalMinutes = Math.max(1, Math.floor(ms / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+  if (days) parts.push(days + 'd');
+  if (hours) parts.push(hours + 'h');
+  if (minutes || parts.length === 0) parts.push(minutes + 'm');
+  return parts.join(' ');
+}
 
 // ── Discord-safe separators ──────────────────────────────────
 const HR = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
@@ -64,6 +81,19 @@ const SUB = '━━━━━━━━━━';
 function buildNewSeparator(label) {
   const safeLabel = label || 'CURRENT LIVE READ';
   return SUB + ' 🔴 ' + safeLabel + ' ' + SUB;
+}
+function buildNewScanAlert(ctx) {
+  const nowMs = (ctx && ctx.nowMs) || Date.now();
+  const universe = (ctx && ctx.universeSize) || 0;
+  return [
+    '```diff',
+    '- ' + HR,
+    '- 🆕 ❗❗ NEW DARK HORSE SCAN ❗❗ 🆕',
+    '- ' + SUB + ' alert-style scan boundary ' + SUB,
+    '- ' + fmtUtcStamp(nowMs) + ' · ' + fmtAwstStamp(nowMs) + ' · ' + universe + ' markets scanned',
+    '- ' + HR,
+    '```',
+  ].join('\n');
 }
 function buildSectionSeparator(label, glyph) {
   return SUB + ' ' + (glyph || '📡') + ' ' + label + ' ' + SUB;
@@ -123,10 +153,10 @@ function buildMarketMoodScale(volatility) {
 //    narration lands.
 function buildLifecycleBadge(movePhase) {
   switch (String(movePhase || '').toLowerCase()) {
-    case 'early':       return '🌱 **EARLY** · move just forming';
-    case 'mid':         return '🌿 **MID** · move established and carrying weight';
-    case 'late':        return '🍂 **LATE** · move stretched, room thinning';
-    case 'exhaustion':  return '💀 **EXHAUSTION** · move running out of fuel';
+    case 'early':       return '🟨 **FRESH / EARLY** · move just forming';
+    case 'mid':         return '🟧 **STILL ACTIVE / MID** · move established and carrying weight';
+    case 'late':        return '🟥 **FADING / LATE** · move stretched, room thinning';
+    case 'exhaustion':  return '🟥 **FADING / EXHAUSTION** · move running out of fuel';
     default:            return '⚪ **UNCLASSIFIED** · phase reading still developing';
   }
 }
@@ -255,8 +285,10 @@ function buildAtmosphereBanner(ctx) {
     glossary: 'available',
   });
   return [
-    _atlasBoxHeader('🐎 ATLAS · DARK HORSE · MOVEMENT DIGEST'),
+    _atlasBoxHeader('🐎 ATLAS · DARK HORSE · MOVEMENT DIGEST', { color: 'yellow' }),
     controlStrip,
+    '',
+    buildNewScanAlert(ctx),
     '',
     '🐎 **ATLAS · DARK HORSE · FOH OPERATOR SURFACE**',
     '*v1.3 — operator edition*',
@@ -306,14 +338,55 @@ function buildGlobalRead(ctx) {
 function buildTerminologyRow(learningLinks) {
   // When the URL map is wired, surface the Markdown-link form
   // from buildLearningLinksBlock so wired terms become real
-  // hyperlinks — but always rebranded as "Expanded Terminology".
+  // hyperlinks — but always rebranded with the locked FOH label.
   if (learningLinks && learningLinks.linkRoutingStatus === 'partial' && typeof learningLinks.text === 'string') {
     // Replace the legacy "Learning links:" label with the FOH label.
     const tailIdx = learningLinks.text.indexOf(':');
     const tail = tailIdx >= 0 ? learningLinks.text.slice(tailIdx + 1).trim() : learningLinks.text;
-    return '🟦 **Expanded Terminology** · ' + tail;
+    return '🟦 **EXPANDED TERMINOLOGY HYPERLINKS** · ' + tail;
   }
-  return '🟦 **Expanded Terminology** · structure acceptance · structure rejection · late-entry quality · continuation runway · reference area · monitoring vs publication-grade.';
+  return '🟦 **EXPANDED TERMINOLOGY HYPERLINKS** · structure acceptance · structure rejection · late-entry quality · continuation runway · reference area · monitoring vs publication-grade.';
+}
+
+function _firstLoggedMs(record, ctx) {
+  const direct = record && (record.firstDetectedAt || record.firstDetected || record.detectedAt || record.firstLoggedAt);
+  const parsed = direct ? Date.parse(String(direct)) : NaN;
+  if (Number.isFinite(parsed)) return parsed;
+  const age = Number(record && record.moveAge);
+  if (Number.isFinite(age) && age >= 0) return ((ctx && ctx.nowMs) || Date.now()) - age * 24 * 60 * 60 * 1000;
+  return null;
+}
+
+function _lifecycleForSummary(record) {
+  const phase = String(record && record.movePhase || '').toLowerCase();
+  if (phase === 'early') return { label: 'INITIAL / FRESH', glyph: '🟨', text: 'newly promoted or initial standout' };
+  if (phase === 'late' || phase === 'exhaustion') return { label: 'FADING', glyph: '🟥', text: 'validity is weakening; cancellation/restoration rules required' };
+  return { label: 'STILL ACTIVE', glyph: '🟧', text: 'idea remains valid across later scans' };
+}
+
+function buildStandoutsSummary(ctx) {
+  const rows = Array.isArray(ctx && ctx.standouts) ? ctx.standouts : [];
+  if (!rows.length) return '';
+  const lines = [
+    _atlasBoxHeader("⭐ STANDOUTS — TODAY'S STRONGEST MOVERS", { color: 'yellow' }),
+    '',
+  ];
+  rows.forEach((record, idx) => {
+    const lc = _lifecycleForSummary(record);
+    const firstMs = _firstLoggedMs(record, ctx);
+    const first = firstMs ? fmtShortUtcStamp(firstMs) : 'pending';
+    const activeFor = firstMs ? humanDurationCompact(((ctx && ctx.nowMs) || Date.now()) - firstMs) : 'pending';
+    lines.push(lc.glyph + ' **' + lc.label + '** · STANDOUT #' + (idx + 1) + ' of ' + rows.length + ' · ' + (record.symbol || 'unknown') + ' · score ' + (Number.isFinite(record.score) ? record.score : '?') + '/10');
+    if (lc.label === 'STILL ACTIVE') {
+      lines.push('   First logged: ' + first + ' · First active: ' + first + ' · Still Dark Horse worthy after ' + activeFor + '.');
+    } else if (lc.label === 'FADING') {
+      lines.push('   Weakening: momentum/reward efficiency is fading · Cancels: published invalidation fails · Restores: fresh entry reference + confirmation on a later scan.');
+    } else {
+      lines.push('   First active: this scan · fresh-cycle standout.');
+    }
+    lines.push('   Lifecycle colour: ' + lc.text + '.');
+  });
+  return lines.join('\n');
 }
 
 // ── Section radar block (visual hierarchy) ───────────────────
@@ -631,7 +704,8 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
   const ignoredArr  = Array.isArray(opts.ignored)  ? opts.ignored  : [];
   const universeSize = Number.isFinite(opts.universeSize) ? opts.universeSize : (top.length + internalArr.length + ignoredArr.length);
 
-  const standoutSet = new Set(rank.selectStandouts(top, 2).map(s => s.symbol));
+  const standouts = rank.selectStandouts(top, 2);
+  const standoutSet = new Set(standouts.map(s => s.symbol));
 
   const bySection = {};
   for (const row of top) {
@@ -655,6 +729,7 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
     universeSize,
     sectionAvgs,
     sectionLabels,
+    standouts,
     watchThreshold: 8,
     nextReview: rank.nextReviewLine(opts.now, opts.intervalMs),
   };
@@ -702,6 +777,11 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
   // 5. Expanded terminology row (placed early so the reader has
   //    vocabulary before the section radar / cards land).
   blocks.push(buildTerminologyRow(learningLinks));
+
+  // 5b. Lifecycle-coded standouts summary. Presentation-only:
+  // uses the same selected standout rows already used to star cards.
+  const standoutsSummary = buildStandoutsSummary(ctx);
+  if (standoutsSummary) blocks.push(standoutsSummary);
 
   // 6. Section radar
   if (sectionBlocks.length) {
@@ -765,9 +845,11 @@ module.exports = {
   buildAtmosphereBanner,
   buildOperatorPanel,
   buildNewSeparator,
+  buildNewScanAlert,
   buildSectionSeparator,
   buildCardBanner,
   buildGlobalRead,
+  buildStandoutsSummary,
   buildSectionRadar,
   buildCandidateCard,
   buildWatchExplanation,

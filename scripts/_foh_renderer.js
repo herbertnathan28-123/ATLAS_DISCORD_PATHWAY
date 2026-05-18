@@ -271,7 +271,7 @@ function renderChartCardSvg(spec) {
     if (Number.isFinite(c.o)) allPrices.push(c.o);
     if (Number.isFinite(c.c)) allPrices.push(c.c);
   }
-  for (const v of [spec.entryHigh, spec.entryLow, spec.watch, spec.invalidation, spec.currentPrice]) {
+  for (const v of [spec.entryHigh, spec.entryLow, spec.watch, spec.caution, spec.invalidation, spec.currentPrice, spec.highPrice, spec.lowPrice]) {
     if (Number.isFinite(v)) allPrices.push(v);
   }
   const maxP = Math.max.apply(null, allPrices);
@@ -320,13 +320,19 @@ function renderChartCardSvg(spec) {
   if (Number.isFinite(spec.watch)) {
     const y = yFor(spec.watch);
     zones += `<line x1="${PADL}" y1="${y}" x2="${PADL + innerW}" y2="${y}" stroke="#F1C40F" stroke-width="1" stroke-dasharray="4 4"/>`;
-    zones += `<text x="${PADL + 6}" y="${y - 3}" fill="#F1C40F" font-family="Consolas, monospace" font-size="11">watch</text>`;
+    zones += `<text x="${PADL + 6}" y="${y - 3}" fill="#F1C40F" font-family="Consolas, monospace" font-size="11">WATCH LEVEL</text>`;
+  }
+  // Caution zone — orange warning marker
+  if (Number.isFinite(spec.caution)) {
+    const y = yFor(spec.caution);
+    zones += `<line x1="${PADL}" y1="${y}" x2="${PADL + innerW}" y2="${y}" stroke="#E67E22" stroke-width="1.3" stroke-dasharray="5 4"/>`;
+    zones += `<text x="${PADL + 6}" y="${y + 12}" fill="#E67E22" font-family="Consolas, monospace" font-size="11">CAUTION ZONE</text>`;
   }
   // Invalidation — red dashed line
   if (Number.isFinite(spec.invalidation)) {
     const y = yFor(spec.invalidation);
     zones += `<line x1="${PADL}" y1="${y}" x2="${PADL + innerW}" y2="${y}" stroke="#ED4245" stroke-width="1.5" stroke-dasharray="6 4"/>`;
-    zones += `<text x="${PADL + 6}" y="${y + 13}" fill="#ED4245" font-family="Consolas, monospace" font-size="11">invalidation</text>`;
+    zones += `<text x="${PADL + 6}" y="${y + 13}" fill="#ED4245" font-family="Consolas, monospace" font-size="11">INVALIDATION</text>`;
   }
 
   // ATLAS price-label boxes (right side)
@@ -550,9 +556,9 @@ function buildHtml(messages, opts) {
       border-top: 1px solid #40444B;
     }
     /* ─ NEW badge lifecycle variants ────────────────────────
-       FRESH (solid red filled, white text) for first-appearance
-       on a scan; STILL ACTIVE (outlined red) for 1+ day still
-       trending; FADING (outlined orange) for late-stage / older
+       FRESH / INITIAL = yellow-gold filled for first-appearance
+       on a scan; STILL ACTIVE = amber/orange outlined for 1+ day
+       still trending; FADING = red-orange outlined for late-stage / older
        candidates. Renderer-only visual — full Discord delivery
        requires the rendered-card-image surface lane.            */
     .new-badge {
@@ -567,9 +573,9 @@ function buildHtml(messages, opts) {
       vertical-align: middle;
       margin: 0 4px;
     }
-    .new-badge.badge-fresh  { background:#ED4245; color:#FFF; border:1px solid #ED4245; }
-    .new-badge.badge-active { background:transparent; color:#ED4245; border:2px solid #ED4245; }
-    .new-badge.badge-fading { background:transparent; color:#E67E22; border:2px solid #E67E22; }
+    .new-badge.badge-fresh  { background:#FFD600; color:#111; border:1px solid #FFD600; }
+    .new-badge.badge-active { background:rgba(255,145,0,0.14); color:#FFB347; border:2px solid #FF9100; }
+    .new-badge.badge-fading { background:rgba(237,66,69,0.12); color:#FF6B35; border:2px solid #ED4245; }
     /* ─ Chart card (ATLAS-styled SVG snapshot) ───────────── */
     .chart-card {
       background: #131722;
@@ -676,11 +682,24 @@ async function renderAll(messages, opts) {
     }
 
     // (4) Finer detail crops per caller-supplied spec
-    // detailSpecs: [{ messageIdx, selector, label }, ...]
+    // detailSpecs: [{ messageIdx, selector, label, text?, nth?, padding? }, ...]
     for (const spec of detailSpecs) {
       const msgHandle = messageHandles[spec.messageIdx];
       if (!msgHandle) continue;
-      const children = await msgHandle.$$(spec.selector);
+      let children = await msgHandle.$$(spec.selector);
+      if (spec.text) {
+        const needle = String(spec.text);
+        const filtered = [];
+        for (const child of children) {
+          const hasText = await child.evaluate((el, t) => (el.textContent || '').indexOf(t) !== -1, needle);
+          if (hasText) filtered.push(child);
+        }
+        children = filtered;
+      }
+      if (Number.isFinite(spec.nth)) {
+        children = children[spec.nth] ? [children[spec.nth]] : [];
+      }
+      const pad = Number.isFinite(spec.padding) ? spec.padding : 16;
       for (let j = 0; j < children.length; j++) {
         const c = children[j];
         const bb = await c.boundingBox();
@@ -690,10 +709,10 @@ async function renderAll(messages, opts) {
         await page.screenshot({
           path: filePath,
           clip: {
-            x: Math.max(0, bb.x - 16),
-            y: Math.max(0, bb.y - 16),
-            width: Math.ceil(bb.width + 32),
-            height: Math.ceil(bb.height + 32),
+            x: Math.max(0, bb.x - pad),
+            y: Math.max(0, bb.y - pad),
+            width: Math.ceil(bb.width + pad * 2),
+            height: Math.ceil(bb.height + pad * 2),
           },
         });
         written.push(filePath);

@@ -295,6 +295,7 @@ function _candidateChartAnnotations(record, bands, candles, currentPrice) {
     _chartAnnotation(defended, candles[3] ? candles[3].h : bands.trigger, 3, sideTone, 'right'),
     _chartAnnotation('ENTRY ZONE', (bands.entryHigh + bands.entryLow) / 2, 2, 'entry', 'left'),
     _chartAnnotation('WATCH LEVEL', bands.watch, 1, 'watch', 'right'),
+    _chartAnnotation('CAUTION ZONE', bands.caution, 3, 'caution', 'left'),
     _chartAnnotation('INVALIDATION', bands.invalidation, 1, 'danger', 'right'),
     _chartAnnotation(isShort ? 'SHORT IDEA' : 'LONG IDEA', currentPrice, 4, sideTone, 'right'),
   ];
@@ -351,12 +352,14 @@ function _candidateChartCardSpec(record, bands) {
     entryHigh: bands.entryHigh,
     entryLow: bands.entryLow,
     watch: bands.watch,
+    caution: bands.caution,
     invalidation: bands.invalidation,
     candles,
     annotations: _candidateChartAnnotations(record, bands, candles, currentPrice),
     caption: 'ATLAS chart card · ' + sym + ' · entry '
       + bands.entryLowText + '–' + bands.entryHighText
       + ' · watch ' + bands.watchText
+      + ' · caution ' + bands.cautionText
       + ' · invalidation ' + bands.invalidationText,
   };
 }
@@ -369,6 +372,7 @@ function _referenceChartCardSpec() {
     entryHigh: 100,
     entryLow: 96,
     watch: 92,
+    caution: 90,
     invalidation: 88,
     decisionLevel: 96,
     direction: 'Bullish',
@@ -388,6 +392,7 @@ function _referenceChartCardSpec() {
       _chartAnnotation('BUYERS DEFENDING', 96, 3, 'entry', 'right'),
       _chartAnnotation('ENTRY ZONE', 98, 2, 'entry', 'left'),
       _chartAnnotation('WATCH LEVEL', 92, 1, 'watch', 'right'),
+      _chartAnnotation('CAUTION ZONE', 90, 1, 'caution', 'left'),
       _chartAnnotation('INVALIDATION', 88, 0, 'danger', 'right'),
       _chartAnnotation('LONG IDEA', 107, 4, 'info', 'right'),
     ],
@@ -402,7 +407,7 @@ function _renderChartCardSvg(spec) {
   for (const c of candles) {
     for (const k of ['o', 'h', 'l', 'c']) if (Number.isFinite(c[k])) allPrices.push(c[k]);
   }
-  for (const v of [spec.entryHigh, spec.entryLow, spec.watch, spec.invalidation, spec.currentPrice, spec.highPrice, spec.lowPrice]) {
+  for (const v of [spec.entryHigh, spec.entryLow, spec.watch, spec.caution, spec.invalidation, spec.currentPrice, spec.highPrice, spec.lowPrice]) {
     if (Number.isFinite(v)) allPrices.push(v);
   }
   if (allPrices.length === 0) {
@@ -453,6 +458,11 @@ function _renderChartCardSvg(spec) {
     const y = yFor(spec.watch);
     zones += '<line x1="' + PADL + '" y1="' + y + '" x2="' + (PADL + innerW) + '" y2="' + y + '" stroke="#F1C40F" stroke-width="2" stroke-dasharray="7 6"/>';
     zones += '<text x="' + (PADL + 8) + '" y="' + (y - 6) + '" fill="#F1C40F" font-family="Consolas, monospace" font-size="14" font-weight="700">WATCH LEVEL</text>';
+  }
+  if (Number.isFinite(spec.caution)) {
+    const y = yFor(spec.caution);
+    zones += '<line x1="' + PADL + '" y1="' + y + '" x2="' + (PADL + innerW) + '" y2="' + y + '" stroke="#E67E22" stroke-width="2.25" stroke-dasharray="6 5"/>';
+    zones += '<text x="' + (PADL + 8) + '" y="' + (y + 16) + '" fill="#E67E22" font-family="Consolas, monospace" font-size="14" font-weight="700">CAUTION ZONE</text>';
   }
   if (Number.isFinite(spec.invalidation)) {
     const y = yFor(spec.invalidation);
@@ -562,9 +572,9 @@ const ANSI_CYAN   = ESC + '[36;1m';
 const ANSI_MAGENTA = ESC + '[35;1m';
 const ANSI_GREY   = ESC + '[30;1m';
 
-const BAR_HEAVY   = '┝'.repeat(50);
-const BAR_LIGHT   = '─'.repeat(50);
-const BAR_DOTTED  = '· '.repeat(25).trimEnd();
+const BAR_HEAVY   = '?'.repeat(50);
+const BAR_LIGHT   = '?'.repeat(50);
+const BAR_DOTTED  = '? '.repeat(25).trimEnd();
 
 // ── Terminology table (visible-bracket hyperlinks) ──────────
 const TERMINOLOGY = Object.freeze({
@@ -1077,6 +1087,18 @@ function _humanElapsed(ms) {
   if (minutes && (parts.length < 3 || !days)) parts.push(minutes + ' ' + (minutes === 1 ? 'min' : 'mins'));
   return parts.length ? parts.join(' ') : 'under 1 min';
 }
+function _humanElapsedCompact(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return 'this scan';
+  const totalMinutes = Math.max(1, Math.floor(ms / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  const parts = [];
+  if (days) parts.push(days + 'd');
+  if (hours) parts.push(hours + 'h');
+  if (minutes || parts.length === 0) parts.push(minutes + 'm');
+  return parts.join(' ');
+}
 
 function _standoutFirstLoggedMs(record, nowMs) {
   const direct = _parseTimeMs(record && (record.firstDetectedAt || record.firstDetected || record.detectedAt || record.firstLoggedAt));
@@ -1090,9 +1112,9 @@ function _standoutAliveLabel(record, nowMs) {
   if (record && record.durationAliveLabel) return String(record.durationAliveLabel);
   if (record && record.durationAlive) return String(record.durationAlive);
   const firstMs = _standoutFirstLoggedMs(record, nowMs);
-  if (firstMs != null) return _humanElapsed((Number.isFinite(nowMs) ? nowMs : Date.now()) - firstMs);
+  if (firstMs != null) return _humanElapsedCompact((Number.isFinite(nowMs) ? nowMs : Date.now()) - firstMs);
   const moveAge = Number(record && record.moveAge);
-  if (Number.isFinite(moveAge) && moveAge >= 0) return _humanElapsed(moveAge * 24 * 60 * 60 * 1000);
+  if (Number.isFinite(moveAge) && moveAge >= 0) return _humanElapsedCompact(moveAge * 24 * 60 * 60 * 1000);
   return null;
 }
 
@@ -1101,10 +1123,12 @@ function _stillActiveValidityLine(record, nowMs) {
   const first = _fmtShortUtcStamp(firstMs);
   const alive = _standoutAliveLabel(record, nowMs);
   if (first && alive) {
-    return DH_PROTO_MARKER.orange + ' First logged ' + first + ' ' + DH_PROTO_MARKER.dot + ' still Dark Horse worthy after ' + alive + '.';
+    return DH_PROTO_MARKER.orange + ' First logged: ' + first + ' ' + DH_PROTO_MARKER.dot
+      + ' First active: ' + first + ' ' + DH_PROTO_MARKER.dot
+      + ' Still Dark Horse worthy after ' + alive + '.';
   }
-  if (alive) return DH_PROTO_MARKER.orange + ' First logged: pending ' + DH_PROTO_MARKER.dot + ' still Dark Horse worthy after ' + alive + '.';
-  return DH_PROTO_MARKER.orange + ' First logged: pending ' + DH_PROTO_MARKER.dot + ' still active across multiple scan cycles.';
+  if (alive) return DH_PROTO_MARKER.orange + ' First logged: pending ' + DH_PROTO_MARKER.dot + ' First active: pending ' + DH_PROTO_MARKER.dot + ' Still Dark Horse worthy after ' + alive + '.';
+  return DH_PROTO_MARKER.orange + ' First logged: pending ' + DH_PROTO_MARKER.dot + ' First active: pending ' + DH_PROTO_MARKER.dot + ' Still active across multiple scan cycles.';
 }
 
 function _prototypeLifecycleSeparator(record, lifecycle, idx, total, opts) {
@@ -1128,34 +1152,53 @@ function _prototypeLifecycleSeparator(record, lifecycle, idx, total, opts) {
   return [
     _boxedHeading('FADING ' + DH_PROTO_MARKER.bullet + ' ' + rankLabel, DH_PROTO_MARKER.red + DH_PROTO_MARKER.orange),
     '**' + symbolNote + '**',
-    DH_PROTO_MARKER.red + ' Validity is ageing ' + DH_PROTO_MARKER.dot + ' late-stage caution remains in force.',
+    DH_PROTO_MARKER.red + ' Weakening: momentum/reward efficiency is fading ' + DH_PROTO_MARKER.dot
+      + ' Cancels: the published invalidation level fails ' + DH_PROTO_MARKER.dot
+      + ' Restores: a new entry reference and confirmation appear on a later scan.',
   ].join('\n');
 }
 
-function _boxedHeading(text, marker) {
+function _headingAnsiCode(marker, accent) {
+  const key = String(accent || '').toLowerCase();
+  if (key === 'red') return '31';
+  if (key === 'orange' || key === 'amber' || key === 'gold' || key === 'yellow') return '33';
+  if (key === 'green') return '32';
+  if (key === 'blue') return '34';
+  if (key === 'cyan') return '36';
+  if (key === 'magenta') return '35';
+  const m = String(marker || '');
+  if (m.indexOf(DH_PROTO_MARKER.red) !== -1) return '31';
+  if (m.indexOf(DH_PROTO_MARKER.orange) !== -1 || m.indexOf(DH_PROTO_MARKER.yellow) !== -1) return '33';
+  return null;
+}
+
+function _boxedHeading(text, marker, accent) {
   const label = marker + ' ' + text + ' ' + marker;
   const width = Math.min(66, Math.max(32, label.length + 2));
   const inner = label.slice(0, width - 2).padEnd(width - 2, ' ');
+  const code = _headingAnsiCode(marker, accent);
+  const open = code ? ESC + '[1;' + code + 'm' : '';
+  const close = code ? ANSI_RESET : '';
   return [
-    '```',
-    '┌' + '─'.repeat(width) + '┝',
-    '│ ' + inner + ' │',
-    '└' + '─'.repeat(width) + '┘',
+    code ? '```ansi' : '```',
+    open + '?' + '?'.repeat(width) + '?' + close,
+    open + '? ' + inner + ' ?' + close,
+    open + '?' + '?'.repeat(width) + '?' + close,
     '```',
   ].join('\n');
 }
 
 function _sectionBanner(text, accent) {
-  const marker = accent === 'cyan' ? '🟦'
-               : accent === 'magenta' ? '🟧'
-               : '🟨';
-  return _boxedHeading(text, marker + marker);
+  const marker = accent === 'cyan' ? '??'
+               : accent === 'magenta' ? '??'
+               : DH_PROTO_MARKER.yellow;
+  return _boxedHeading(text, marker + marker, accent);
 }
 
 // ── Discord-native subheading ("▸  …") ──────────────────────
 function _subheading(text, accent) {
-  const marker = accent === 'cyan' ? '🟦' : '🟨';
-  return _boxedHeading('▸  ' + text, marker);
+  const marker = accent === 'cyan' ? '??' : DH_PROTO_MARKER.yellow;
+  return _boxedHeading('?  ' + text, marker, accent);
 }
 
 // ── Terminology row — visible-bracket hyperlinks ────────────
