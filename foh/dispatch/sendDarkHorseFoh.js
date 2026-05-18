@@ -15,6 +15,7 @@ const { postFohDeliverable, containsPrivateBackendUrl } = require('./_discordPos
 const { validateFohOutput } = require('../validate/validateFohOutput');
 
 async function sendDarkHorseFoh({ ranking, volatility, legacyPayload, webhookUrl, opts }) {
+  opts = opts || {};
   if (process.env.FOH_IMAGE_RENDER_ENABLED !== 'true') {
     return { ok: false, reason: 'env_flag_disabled' };
   }
@@ -24,7 +25,7 @@ async function sendDarkHorseFoh({ ranking, volatility, legacyPayload, webhookUrl
 
   // 1. ENGINE → FOH PACKET
   let packet;
-  try { packet = buildDarkHorsePacket({ ranking: ranking || {}, volatility: volatility || null, now: opts && opts.now, universeSize: opts && opts.universeSize }); }
+  try { packet = buildDarkHorsePacket({ ranking: ranking || {}, volatility: volatility || null, now: opts.now, universeSize: opts.universeSize, reportId: opts.reportId }); }
   catch (e) { return { ok: false, reason: 'packet_build_failed', error: e.message }; }
 
   // 2. PACKET → VIEW MODEL (named anchors)
@@ -38,7 +39,7 @@ async function sendDarkHorseFoh({ ranking, volatility, legacyPayload, webhookUrl
     rendered = await dhShell.render({
       packet,
       viewModel,
-      opts: Object.assign({}, opts, { legacyPayload: legacyPayload || {} }),
+      opts: Object.assign({}, opts, { legacyPayload: legacyPayload || {}, reportId: packet.meta && packet.meta.reportId, surface: 'dark_horse' }),
     });
   } catch (e) {
     return { ok: false, reason: 'shell_render_failed', error: e.message };

@@ -919,6 +919,68 @@ function nextReviewLine(nowMs, intervalMs) {
   return `${utcH}:${utcM} UTC / ${awstH}:${awstM} AWST`;
 }
 
+const DH_HARD_BOUNDARY = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+function _dhReportId(now) {
+  const d = new Date(now || Date.now());
+  return 'DH-' + d.toISOString().replace(/[-:]/g, '').slice(0, 13);
+}
+
+function _dhRenderReason(res, err) {
+  if (err) return 'exception:' + err.message;
+  if (!res) return 'renderer_returned_empty_result';
+  if (res.reason) {
+    const detail = res.failures && res.failures.length ? ':' + res.failures[0] : res.error ? ':' + res.error : '';
+    return String(res.reason) + detail;
+  }
+  return res.error || 'renderer_not_ok';
+}
+
+function buildDarkHorseDegradedSummary(ranking, volatility, reason, opts) {
+  opts = opts || {};
+  const reportId = opts.reportId || _dhReportId(opts.now || Date.now());
+  const generated = new Date(opts.now || Date.now()).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const top = Array.isArray(ranking && ranking.top10) ? ranking.top10.slice(0, 3) : [];
+  const standoutLines = top.length ? top.map((c, idx) => {
+    const symbol = c.symbol || 'Unknown';
+    const direction = c.direction || 'monitoring';
+    const score = Number.isFinite(c.score) ? c.score : 'n/a';
+    const zone = c.entryZone || c.decisionLevel || c.watchLevel || 'Pending';
+    const stop = c.invalidation || c.cancellationLevel || 'Pending';
+    const risk = c.dollarRiskLabel || c.riskCap || 'Reduced risk only';
+    return [
+      String(idx + 1) + '. ' + symbol + ' · ' + direction + ' · score ' + score,
+      '   CURRENT ADVICE — AT RELEASE: Monitor only until rendered card recovers.',
+      '   Entry zone: ' + zone,
+      '   Stop / invalidation: ' + stop,
+      '   Extended stop: Pending',
+      '   Risk cap: ' + risk,
+      '   Next review: ' + nextReviewLine(opts.now || Date.now(), 15 * 60 * 1000),
+    ].join('\n');
+  }).join('\n') : 'No standout candidates available for compact summary.';
+  return [
+    '⚠️ DARK HORSE RENDER DEGRADED',
+    'Rendered card unavailable this cycle.',
+    'Reason: ' + (reason || 'unknown'),
+    'Compact summary posted below.',
+    '',
+    DH_HARD_BOUNDARY,
+    '🐎 NEW DARK HORSE REPORT',
+    'Report ID: ' + reportId,
+    'Generated: ' + generated,
+    'Part: 1/1',
+    DH_HARD_BOUNDARY,
+    'Market mood: ' + ((volatility && volatility.level) || 'unknown') + ' — ' + ((volatility && volatility.reason) || 'movement digest scan'),
+    '',
+    standoutLines,
+    '',
+    DH_HARD_BOUNDARY,
+    '✅ END OF DARK HORSE REPORT',
+    'Report ID: ' + reportId,
+    DH_HARD_BOUNDARY,
+  ].join('\n');
+}
+
 // ============================================================
 // ENRICH WATCH CANDIDATE — adds trend-age / phase / continuation /
 // transition / level fields. Returns the original candidate with
@@ -1444,12 +1506,14 @@ async function runDarkHorseScan(universeOrOpts) {
           // below. Production behaviour unchanged unless operator
           // flips the env flag. NEVER reads/writes engine state.
           if (process.env.FOH_IMAGE_RENDER_ENABLED === 'true') {
+            const imageReportId = _dhReportId(Date.now());
             try {
               const dhImage = require('./darkHorseImageDispatch');
               const imgRes = await dhImage.tryPostDarkHorseAsImage(DH_WEBHOOK_URL, ranking, volatility, {
                 universeSize: DH_UNIVERSE.length,
                 watch, internal, ignored,
                 coreyLiveModule: _coreyLive,
+                reportId: imageReportId,
               });
               if (imgRes && imgRes.ok) {
                 _markDigestPosted({
@@ -1459,13 +1523,45 @@ async function runDarkHorseScan(universeOrOpts) {
                   kind: 'movement_digest_foh_v1_0_image',
                 });
                 dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=image status=${imgRes.status} pdf_skipped=${imgRes.pdfSkipped ? 'true' : 'false'}`);
+                dhLog('INFO', `[LIVE-OUTPUT] renderer_attempted=true renderer_result=ok fallback_used=false fallback_reason=none surface=dark_horse report_id=${imgRes.reportId || imageReportId} part=1/1`);
                 return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
               }
-              dhLog('WARN', `[DH-FOH-IMAGE] image render path returned not-ok reason=${imgRes && imgRes.reason}, falling through to text`);
+              const reason = _dhRenderReason(imgRes);
+              dhLog('WARN', `[DH-FOH-IMAGE] image render path returned not-ok reason=${reason}, posting controlled degraded summary`);
+              const degraded = buildDarkHorseDegradedSummary(ranking, volatility, reason, { reportId: imageReportId, now: Date.now() });
+              const send = await dhSendWebhook(DH_WEBHOOK_URL, { content: degraded }, { wait: true });
+              dhLog('INFO', `[LIVE-OUTPUT] renderer_attempted=true renderer_result=failed fallback_used=true fallback_reason=${reason} surface=dark_horse report_id=${imageReportId} part=1/1`);
+              if (send && send.ok) {
+                _markDigestPosted({
+                  set_by: 'movement_digest_send_ok',
+                  reason: 'discord_2xx_ack_foh_v6_image_degraded',
+                  status: send.status,
+                  kind: 'movement_digest_foh_v1_0_image_degraded',
+                });
+                dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=image_degraded status=${send.status} bodyLen=${send.bodyLen} durationMs=${send.durationMs}`);
+              } else {
+                dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=image_degraded ${_dhExcerptResponse(send)}`);
+              }
+              return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
             } catch (imgErr) {
-              dhLog('WARN', `[DH-FOH-IMAGE] image render path threw, falling through to text: ${imgErr.message}`);
+              const reason = _dhRenderReason(null, imgErr);
+              dhLog('WARN', `[DH-FOH-IMAGE] image render path threw, posting controlled degraded summary: ${imgErr.message}`);
+              const degraded = buildDarkHorseDegradedSummary(ranking, volatility, reason, { reportId: imageReportId, now: Date.now() });
+              const send = await dhSendWebhook(DH_WEBHOOK_URL, { content: degraded }, { wait: true });
+              dhLog('INFO', `[LIVE-OUTPUT] renderer_attempted=true renderer_result=failed fallback_used=true fallback_reason=${reason} surface=dark_horse report_id=${imageReportId} part=1/1`);
+              if (send && send.ok) {
+                _markDigestPosted({
+                  set_by: 'movement_digest_send_ok',
+                  reason: 'discord_2xx_ack_foh_v6_image_degraded_exception',
+                  status: send.status,
+                  kind: 'movement_digest_foh_v1_0_image_degraded',
+                });
+              } else {
+                dhLog('ERROR', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=fail kind=image_degraded ${_dhExcerptResponse(send)}`);
+              }
+              return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
             }
-            // Fall through to existing text FOH v6 path below.
+            // No silent fall-through after an attempted image render.
           }
           const fohPayload = foh.buildDarkHorseFohPayload(ranking, volatility, {
             now: Date.now(),
@@ -1768,6 +1864,7 @@ module.exports = {
   // state, drive the gate, and inspect provenance without going
   // through a full scan.
   _markDigestPosted,
+  buildDarkHorseDegradedSummary,
   __resetMovementDigestForTests,
   __getMovementDigestAtForTests,
   __getMovementDigestMetaForTests,

@@ -46,6 +46,7 @@ const { postFohDeliverable, containsPrivateBackendUrl } = require('./_discordPos
 const { validateFohOutput } = require('../validate/validateFohOutput');
 
 async function sendMarketIntelFoh({ engine, legacyPacket, coreyClone, spidey, webhookUrl, opts }) {
+  opts = opts || {};
   if (process.env.FOH_IMAGE_RENDER_ENABLED !== 'true') {
     return { ok: false, reason: 'env_flag_disabled' };
   }
@@ -62,7 +63,8 @@ async function sendMarketIntelFoh({ engine, legacyPacket, coreyClone, spidey, we
       engine: engine || legacyPacket || {},
       coreyClone: coreyClone || null,
       spidey: spidey || null,
-      now: opts && opts.now,
+      now: opts.now,
+      reportId: opts.reportId,
     });
   }
   catch (e) { return { ok: false, reason: 'packet_build_failed', error: e.message }; }
@@ -72,7 +74,7 @@ async function sendMarketIntelFoh({ engine, legacyPacket, coreyClone, spidey, we
   const v = miViewModel.validate(viewModel);
   // Always build the Discord text — the runtime needs it for the
   // text-only fallback if the renderer fails.
-  const discordText = miShell.buildDiscordTextSummary(viewModel || {}, opts || {});
+  const discordText = miShell.buildDiscordTextSummary(viewModel || {}, opts);
   if (!v.ok) return { ok: false, reason: 'view_model_missing_anchors', missing: v.missing, discordText };
 
   // 3. VIEW MODEL → PROTOTYPE SHELL render

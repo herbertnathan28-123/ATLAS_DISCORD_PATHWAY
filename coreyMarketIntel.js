@@ -29,7 +29,7 @@
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl'); // reuse banned-phrase sanitiser
 const { interpretCalendarEvents, logMacroIntelligencePacket } = require('./macro/interpretCalendarEvents');
-const { boxHeader: _miBoxHeader, controlStrip: _miControlStrip } = require('./foh/headerStrip');
+const { boxHeader: _miBoxHeader } = require('./foh/headerStrip');
 
 // ── ENUMS ────────────────────────────────────────────────────
 const RELEVANCE = { HIGH: 'High', MODERATE: 'Moderate', LOW: 'Low' };
@@ -572,6 +572,46 @@ function _miBriefRows(macroPacket) {
   return rows.map(r => '• ' + (r.timeUTC || 'pending') + ' UTC · ' + (r.currency || 'multi') + ' · ' + humanizeTitle(r.title) + ' — ' + (r.fullBrief || 'Brief Pending'));
 }
 
+const MI_HARD_BOUNDARY = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+function _miReportId(now) {
+  const d = new Date(now || Date.now());
+  return 'MI-' + d.toISOString().replace(/[-:]/g, '').slice(0, 13);
+}
+
+function _miUtcMinute(now) {
+  return new Date(now || Date.now()).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+}
+
+function _miNextDailyRefreshUtc(now) {
+  const d = new Date(now || Date.now());
+  d.setUTCDate(d.getUTCDate() + 1);
+  d.setUTCHours(DAILY_BULLETIN_UTC_HOUR, 0, 0, 0);
+  return d.toISOString().replace('T', ' ').slice(11, 16) + ' UTC';
+}
+
+function _miControlsPendingBlock() {
+  return [
+    '🧭 Controls:',
+    '📅 Full Calendar: Available',
+    '📘 Terms: Available',
+    '🔗 Full Briefs: Brief Pending',
+    '',
+    'Exports:',
+    'PNG/PDF pending this cycle.',
+  ].join('\n');
+}
+
+function _miAffectedMarketsCompressed(macroPacket, fallbackSymbols) {
+  const symbols = _miAffectedSymbolsFrom(macroPacket, fallbackSymbols || []);
+  return [
+    '🎯 AFFECTED MARKETS',
+    'Primary: ' + (symbols.slice(0, 4).map(symbolDisplay).join(' · ') || 'Mapped markets pending'),
+    'Secondary: ' + (symbols.slice(4, 6).map(symbolDisplay).join(' · ') || 'Full Brief'),
+    'More: Full Brief',
+  ].join('\n');
+}
+
 function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
   opts = opts || {};
   const NOW = now || Date.now();
@@ -589,30 +629,6 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     ' · 24h=' + next24Count +
     ' · 72h=' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) +
     ' · clusters=' + (Array.isArray(macroPacket.eventClusters) ? macroPacket.eventClusters.length : 0);
-
-  // Control strip sits under the top boxed heading per the FOH
-  // download-controls spec. PNG / PDF are flagged Brief Pending
-  // because the 3-message daily_brief dispatch path does not yet
-  // thread the imagePayload through to a multipart attachment;
-  // Full Calendar + Terminology are wired (the calendar feed
-  // backing the roadmap is the live TradingView source, and the
-  // Expanded Terminology block exists upstream); Full Briefs
-  // defers to live brief routing.
-  const controlStrip = _miControlStrip({
-    png: 'pending',
-    pdf: 'pending',
-    calendar: 'available',
-    glossary: 'available',
-    dashboard: 'pending',
-    rows: ['png', 'pdf', 'calendar', 'glossary', 'dashboard'],
-    labels: {
-      png:       '🖼️ PNG',
-      pdf:       '📄 PDF',
-      calendar:  '📅 Full Calendar',
-      glossary:  '📘 Terminology',
-      dashboard: '🔗 Full Briefs',
-    },
-  });
 
   // Risk-state colour follows the operator spec:
   //   EXTREME → red, HIGH → orange, MEDIUM → yellow, LOW → grey.
@@ -642,9 +658,19 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
   const callColor = _miHeaderColorForTier(callTier);
   const calendarColor = _miHeaderColorForTier(calendarTier);
 
-  const msg1 = [
-    _miBoxHeader('📡 MARKET INTEL · DAILY ROADMAP', { color: 'cyan' }),
-    controlStrip,
+  const reportId = opts.reportId || _miReportId(NOW);
+  const generated = _miUtcMinute(NOW);
+  const calendarRows = _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 3 });
+  const marketImpact = _miMarketImpactCards(macroPacket).map(_miExpandMacroLabels).slice(0, 6).join('\n');
+  const fullBrief = _miBriefRows(macroPacket).slice(0, 3).map(_miExpandMacroLabels).join('\n');
+  const content = [
+    MI_HARD_BOUNDARY,
+    '🟨 NEW MARKET INTEL REPORT',
+    'Report ID: ' + reportId,
+    'Generated: ' + generated,
+    'Part: 1/1',
+    MI_HARD_BOUNDARY,
+    _miControlsPendingBlock(),
     '',
     _miBoxHeader('🔥 THE CALL', { color: callColor }),
     'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
@@ -652,46 +678,34 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     'Next confirmation point: ' + _miExpandMacroLabels(p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
     '',
     _miBoxHeader('📅 HIGH-IMPACT CALENDAR EVENTS', { color: calendarColor }),
-    _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 4 }),
+    calendarRows,
     '',
     _miBoxHeader('⚠️ RISK STATE', { color: riskColor }),
     'Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + _miExpandMacroLabels(r.whyThisRating || 'risk basis unavailable'),
-    'Key windows:',
-    _miRiskWindows(macroPacket).map(_miExpandMacroLabels).join('\n'),
+    'Key windows: ' + _miRiskWindows(macroPacket).map(_miExpandMacroLabels).slice(0, 2).join(' | '),
     '',
-    sourceNote,
-  ].join('\n');
-
-  const msg2 = [
-    _miBoxHeader('🌍 MARKET IMPACT', { color: 'blue' }),
-    _miMarketImpactCards(macroPacket).map(_miExpandMacroLabels).join('\n'),
+    _miBoxHeader('🌍 MARKET IMPACT SUMMARY', { color: 'blue' }),
+    marketImpact,
     '',
-    _miBoxHeader('🎯 AFFECTED MARKETS', { color: 'cyan' }),
-    _miAffectedMarketCards(macroPacket, affectedSymbols).map(_miExpandMacroLabels).join('\n'),
-    '',
-    _miBoxHeader('✅ CONFIRMATION / DEGRADATION', { color: 'green' }),
-    'Confirmation: ' + _miExpandMacroLabels(p.confidenceBasis || 'first 5M / 15M close agrees with the lead market and live macro drivers.'),
-    'Degradation: ' + _miExpandMacroLabels(macroPacket.degradedReason || 'none from calendar packet') + '. Downgrade if US Dollar Strength (DXY), Market Volatility (VIX), yields, Corey Clone, or Spidey contradict the primary path.',
-    '',
-    sourceNote,
-  ].join('\n');
-
-  const msg3 = [
-    _miBoxHeader('🗓️ FORWARD PLANNING', { color: 'yellow' }),
-    'Next 24h: ' + next24Count + ' scheduled event(s). Next 72h: ' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) + ' ranked relevant event(s).',
-    'Primary event: ' + humanizeTitle(p.title || 'none') + '. Prepare around named windows; outside them, read live US Dollar Strength (DXY), Market Volatility (VIX), yields, and liquidity.',
-    'Ranked coverage: ' + (rankedRows.length ? rankedRows.map(e => humanizeTitle(e.title)).slice(0, 4).join(' | ') : 'Brief Pending until the next live packet resolves ranked events.'),
+    _miAffectedMarketsCompressed(macroPacket, affectedSymbols),
     '',
     _miBoxHeader('🔗 FULL BRIEF / BRIEF PENDING', { color: 'cyan' }),
-    _miBriefRows(macroPacket).map(_miExpandMacroLabels).join('\n'),
+    fullBrief,
     '',
     sourceNote,
+    '',
+    MI_HARD_BOUNDARY,
+    '✅ END OF MARKET INTEL REPORT',
+    'Report ID: ' + reportId,
+    'Next scheduled refresh: ' + _miNextDailyRefreshUtc(NOW),
+    MI_HARD_BOUNDARY,
   ].join('\n');
 
-  return [msg1, msg2, msg3].map((content, idx) => ({
+  return [content].map((content, idx) => ({
     content,
     index: idx + 1,
-    total: 3,
+    total: 1,
+    reportId,
     rankedEventCount: rankedRows.length,
     affectedSymbols,
     sourceLine,
@@ -2703,6 +2717,71 @@ function sendWebhook(url, payload) {
   });
 }
 
+function _surfaceForMessageType(messageType) {
+  if (messageType === 'daily_brief' || messageType === 'pre_event' || messageType === 'release') return 'market_intel';
+  return String(messageType || 'market_intel');
+}
+
+function _renderFailureReason(res, fallback) {
+  if (!res) return fallback || 'renderer_returned_empty_result';
+  if (res.reason) {
+    const detail = res.failures && res.failures.length ? ':' + res.failures[0] : res.error ? ':' + res.error : '';
+    return String(res.reason) + detail;
+  }
+  if (res.error) return String(res.error);
+  return fallback || 'renderer_not_ok';
+}
+
+function _logRendererStatus({ surface, attempted, result, fallbackUsed, reason, reportId, part }) {
+  log(
+    `[LIVE-OUTPUT] renderer_attempted=${attempted ? 'true' : 'false'} ` +
+    `renderer_result=${result || 'failed'} ` +
+    `fallback_used=${fallbackUsed ? 'true' : 'false'} ` +
+    `fallback_reason=${reason || 'none'} ` +
+    `surface=${surface || 'market_intel'} ` +
+    `report_id=${reportId || 'n/a'} ` +
+    `part=${part || '1/1'}`
+  );
+}
+
+function _compactMarketIntelFallback(content, reportId) {
+  const raw = String(content || '').split('\n');
+  const keep = [];
+  for (const line of raw) {
+    const s = line.trim();
+    if (!s) continue;
+    keep.push(s);
+    if (keep.join('\n').length > 1200) break;
+  }
+  const body = keep.join('\n') || [
+    MI_HARD_BOUNDARY,
+    '🟨 NEW MARKET INTEL REPORT',
+    'Report ID: ' + (reportId || 'MI-pending'),
+    'Part: 1/1',
+    MI_HARD_BOUNDARY,
+    'THE CALL: Monitoring only until the renderer recovers.',
+    'High-impact calendar events: pending compact summary.',
+    'Source note: ATLAS runtime.',
+    MI_HARD_BOUNDARY,
+    '✅ END OF MARKET INTEL REPORT',
+    'Report ID: ' + (reportId || 'MI-pending'),
+    MI_HARD_BOUNDARY,
+  ].join('\n');
+  return body.length <= 1300 ? body : body.slice(0, 1290).trimEnd() + '\n…';
+}
+
+function _marketIntelDegradedNotice(reason, compactSummary) {
+  return [
+    '⚠️ MARKET INTEL RENDER DEGRADED',
+    'Rendered output unavailable this cycle.',
+    'Reason: ' + (reason || 'unknown'),
+    'Compact summary posted below.',
+    'Renderer retry: next scheduled refresh.',
+    '',
+    compactSummary,
+  ].join('\n');
+}
+
 // ============================================================
 // DISPATCH WRAPPERS — log + safe-fail webhook delivery
 // ============================================================
@@ -2757,14 +2836,19 @@ async function dispatch(messageType, payloadObj, extra) {
     log(`[COREY-MARKET-INTEL] skipped_reason=validator_${validation.failureReason}`);
     return { sent: false, reason: `validator_${validation.failureReason}`, payload: validated, diagnostics: validation.diagnostics };
   }
-  // ── FOH_IMAGE_RENDER_ENABLED — opt-in image path ──
-  // When the env flag is set AND the builder attached an
-  // imagePayload field AND `foh/dispatch/sendMarketIntelFoh.js`
-  // loads cleanly, render the premium PNG+PDF cards AND build the
-  // expanded fixed-contract Discord message body (operator brief
-  // 2026-05-17: Discord-native text must be useful BEFORE opening
-  // attachments). Failure falls through to the existing text send.
-  if (process.env.FOH_IMAGE_RENDER_ENABLED === 'true' && payloadObj && (payloadObj.fohPacket || payloadObj.imagePayload)) {
+  const surface = _surfaceForMessageType(messageType);
+  const reportId = (payloadObj && payloadObj.reportId) || (extra && extra.report_id) || (surface === 'market_intel' ? _miReportId(Date.now()) : 'n/a');
+  const partLabel = (extra && extra.daily_brief_message) || '1/1';
+  const hasRenderPayload = !!(payloadObj && (payloadObj.fohPacket || payloadObj.imagePayload));
+  let rendererAttempted = false;
+  let rendererFailureReason = null;
+
+  // ── FOH_IMAGE_RENDER_ENABLED — primary image path ──
+  // Issue #144: rendered/structured FOH is the live product path.
+  // If this path fails, Discord receives an explicit degraded
+  // marker plus a compact summary, never the old long text dump.
+  if (process.env.FOH_IMAGE_RENDER_ENABLED === 'true' && hasRenderPayload) {
+    rendererAttempted = true;
     try {
       const { sendMarketIntelFoh } = require('./foh/dispatch/sendMarketIntelFoh');
       // Engine input for the fixed-contract pipeline. The legacy
@@ -2781,35 +2865,48 @@ async function dispatch(messageType, payloadObj, extra) {
         coreyClone: payloadObj.coreyClone || null,
         spidey: payloadObj.spidey || null,
         webhookUrl: _webhookUrl,
-        opts: {},
+        opts: {
+          reportId,
+          surface,
+          now: payloadObj.generatedAtMs || Date.now(),
+          nextRefreshUTC: extra && extra.next_refresh_utc,
+          controlsMode: 'rendered',
+        },
       });
       if (fixedRes && fixedRes.ok) {
         log(`[COREY-MARKET-INTEL] send_result=ok image_render=true mode=fixed_contract status=${fixedRes.status} attachments=${(fixedRes.attachments || []).length} pdf_skipped=${fixedRes.pdfSkipped ? 'true' : 'false'} report_id=${fixedRes.reportId || 'n/a'}`);
+        _logRendererStatus({ surface, attempted: true, result: 'ok', fallbackUsed: false, reportId: fixedRes.reportId || reportId, part: partLabel });
         return { sent: true, status: fixedRes.status, mode: 'image_fixed_contract', payload: validated, attachments: fixedRes.attachments, pdfSkipped: fixedRes.pdfSkipped, reportId: fixedRes.reportId, diagnostics: validation.diagnostics };
       }
-      log(`[COREY-MARKET-INTEL] image_render=fail reason=${fixedRes && (fixedRes.reason || (fixedRes.failures && fixedRes.failures[0]))} fallback=expanded_text_only`);
-      // EXPANDED-TEXT FALLBACK — operator brief: Discord-native
-      // text must carry the FOH intelligence even when image render
-      // fails. The new dispatcher exposes `discordText` on the
-      // failure result so we can ship the expanded body without
-      // attachments rather than collapse back to the legacy
-      // 1714-char wrapper.
-      if (fixedRes && fixedRes.discordText && fixedRes.discordText.length > 0) {
-        try {
-          const textRes = await sendWebhook(_webhookUrl, { content: fixedRes.discordText });
-          if (textRes && textRes.status >= 200 && textRes.status < 300) {
-            log(`[COREY-MARKET-INTEL] send_result=ok image_render=false mode=fixed_contract_text_only status=${textRes.status} content_len=${fixedRes.discordText.length}`);
-            return { sent: true, status: textRes.status, mode: 'fixed_contract_text_only', payload: validated, content_len: fixedRes.discordText.length, diagnostics: validation.diagnostics };
-          }
-          log(`[COREY-MARKET-INTEL] expanded_text_fallback=fail status=${textRes && textRes.status}`);
-        } catch (e2) {
-          log(`[COREY-MARKET-INTEL] expanded_text_fallback=exception ${e2.message}`);
-        }
-      }
+      rendererFailureReason = _renderFailureReason(fixedRes);
+      log(`[COREY-MARKET-INTEL] image_render=fail reason=${rendererFailureReason} fallback=controlled_degraded_summary`);
     } catch (e) {
-      log(`[COREY-MARKET-INTEL] image_render=fail reason=exception:${e.message} fallback=text`);
+      rendererAttempted = true;
+      rendererFailureReason = 'exception:' + e.message;
+      log(`[COREY-MARKET-INTEL] image_render=fail reason=${rendererFailureReason} fallback=controlled_degraded_summary`);
     }
-    // Fall through to existing text send.
+  } else if (surface === 'market_intel') {
+    rendererFailureReason = process.env.FOH_IMAGE_RENDER_ENABLED === 'true'
+      ? 'no_render_payload'
+      : 'env_flag_disabled';
+  }
+
+  if (surface === 'market_intel' && rendererFailureReason) {
+    const compact = _compactMarketIntelFallback(validated.content, reportId);
+    const degradedContent = _marketIntelDegradedNotice(rendererFailureReason, compact);
+    try {
+      const textRes = await sendWebhook(_webhookUrl, { content: degradedContent });
+      if (textRes && textRes.status >= 200 && textRes.status < 300) {
+        _logRendererStatus({ surface, attempted: rendererAttempted, result: 'failed', fallbackUsed: true, reason: rendererFailureReason, reportId, part: partLabel });
+        log(`[COREY-MARKET-INTEL] send_result=ok image_render=false mode=controlled_degraded_summary status=${textRes.status} content_len=${degradedContent.length}`);
+        return { sent: true, status: textRes.status, mode: 'controlled_degraded_summary', payload: validated, content_len: degradedContent.length, fallbackReason: rendererFailureReason, diagnostics: validation.diagnostics };
+      }
+      log(`[COREY-MARKET-INTEL] controlled_degraded_fallback=fail status=${textRes && textRes.status}`);
+    } catch (e2) {
+      log(`[COREY-MARKET-INTEL] controlled_degraded_fallback=exception ${e2.message}`);
+    }
+    _logRendererStatus({ surface, attempted: rendererAttempted, result: 'failed', fallbackUsed: true, reason: rendererFailureReason, reportId, part: partLabel });
+    return { sent: false, reason: `controlled_degraded_fallback_failed:${rendererFailureReason}`, payload: validated, diagnostics: validation.diagnostics };
   }
 
   try {
@@ -3071,25 +3168,39 @@ async function tick(NOW) {
     const cloneRes = await _fetchCoreyClone(featuredForClone, macroIntelligencePacket);
     const spideyRes = await _fetchSpidey(featuredForClone);
     const janeSynthesis = _buildJaneSynthesis(macroIntelligencePacket, cloneRes, spideyRes);
+    const reportId = _miReportId(NOW);
     const roadmapMessages = Array.isArray(bulletin.dailyRoadmapMessages) && bulletin.dailyRoadmapMessages.length === 3
       ? bulletin.dailyRoadmapMessages
-      : buildDailyRoadmapMessages(snapshot, geoCtx, NOW, { macroIntelligencePacket, affectedSymbols: bulletin.affectedSymbols });
-    log(`[COREY-MARKET-INTEL] daily_roadmap_renderer=used model=3_message prototype=false messages=${roadmapMessages.length} high_impact_today=${bulletin.counts.highImpactTodayCount} next_24h_count=${bulletin.counts.next24hCount} next72_count=${bulletin.counts.next72hCount} ranked_event_count=${bulletin.counts.rankedEventCount} source=${roadmapMessages[0] && roadmapMessages[0].sourceLine || 'unknown'}`);
-    for (const msg of roadmapMessages) {
-      await dispatch('daily_brief', { content: msg.content, coreyClone: cloneRes, spidey: spideyRes, macroIntelligencePacket, janeSynthesis }, {
-        event: 'daily_bulletin',
-        affected_symbols: msg.affectedSymbols && msg.affectedSymbols.length ? msg.affectedSymbols : bulletin.affectedSymbols,
-        high_impact_today: bulletin.counts.highImpactTodayCount,
-        next_major_event: macroIntelligencePacket && macroIntelligencePacket.primaryEventFocus ? macroIntelligencePacket.primaryEventFocus.title : (bulletin.nextMajorEvent ? bulletin.nextMajorEvent.title : 'none'),
-        next_24h_count: bulletin.counts.next24hCount,
-        next72_count: bulletin.counts.next72hCount,
-        ranked_event_count: msg.rankedEventCount,
-        daily_roadmap_renderer: 'used',
-        daily_brief_message: msg.index + '/' + msg.total,
-        expected_bias: 'mixed_conditional',
-        confidence: CONFIDENCE.MODERATE,
-      });
-    }
+      ? bulletin.dailyRoadmapMessages
+      : buildDailyRoadmapMessages(snapshot, geoCtx, NOW, { macroIntelligencePacket, affectedSymbols: bulletin.affectedSymbols, reportId });
+    const dailyContent = roadmapMessages.map(m => m.content).join('\n\n');
+    const dailyPart = '1/1';
+    log(`[COREY-MARKET-INTEL] daily_roadmap_renderer=used model=foh_primary_control_surface prototype=false messages=${roadmapMessages.length} high_impact_today=${bulletin.counts.highImpactTodayCount} next_24h_count=${bulletin.counts.next24hCount} next72_count=${bulletin.counts.next72hCount} ranked_event_count=${bulletin.counts.rankedEventCount} source=${roadmapMessages[0] && roadmapMessages[0].sourceLine || 'unknown'} report_id=${reportId}`);
+    await dispatch('daily_brief', {
+      content: dailyContent,
+      imagePayload: bulletin.imagePayload,
+      fohPacket: bulletin.fohPacket,
+      coreyClone: cloneRes,
+      spidey: spideyRes,
+      macroIntelligencePacket,
+      janeSynthesis,
+      reportId,
+      generatedAtMs: NOW,
+    }, {
+      event: 'daily_bulletin',
+      report_id: reportId,
+      affected_symbols: bulletin.affectedSymbols,
+      high_impact_today: bulletin.counts.highImpactTodayCount,
+      next_major_event: macroIntelligencePacket && macroIntelligencePacket.primaryEventFocus ? macroIntelligencePacket.primaryEventFocus.title : (bulletin.nextMajorEvent ? bulletin.nextMajorEvent.title : 'none'),
+      next_24h_count: bulletin.counts.next24hCount,
+      next72_count: bulletin.counts.next72hCount,
+      ranked_event_count: roadmapMessages[0] && roadmapMessages[0].rankedEventCount,
+      daily_roadmap_renderer: 'used',
+      daily_brief_message: dailyPart,
+      next_refresh_utc: _miNextDailyRefreshUtc(NOW),
+      expected_bias: 'mixed_conditional',
+      confidence: CONFIDENCE.MODERATE,
+    });
     _lastDailyBulletinUtcDay = todayKey;
   }
 

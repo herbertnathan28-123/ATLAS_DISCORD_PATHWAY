@@ -2251,7 +2251,6 @@ client.on('messageCreate', async (msg) => {
 
     if (macroSearch.isMacroSearchQuery(userInput)) {
       console.log(`[ROUTE] macro_search query=${userInput}`);
-      await msg.channel.send({ content: `📡 Running macro search — **${userInput}**` });
       const searchResult = await macroSearch.runMacroSearch(userInput);
       const chunks = chunkMessage(searchResult.content, DISCORD_MAX);
       for (let i = 0; i < chunks.length; i++) {

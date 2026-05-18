@@ -434,6 +434,7 @@ function toViewModel(packet) {
     CANCELS_WHEN:                  cc.cancelsWhen || '—',
     SOURCE_PROVENANCE:             _fmtProvenance(prov),
     GENERATED_AT_UTC:              (packet.meta && packet.meta.generatedAtUTC) || header.generatedAtUTC || '—',
+    REPORT_ID:                     (packet.meta && packet.meta.reportId) || 'report-pending',
     // CHUNK 3 — full-day coverage anchors.
     TODAYS_ANNOUNCEMENTS:          _fmtTodaysAnnouncements(packet.todaysAnnouncements),
     PRIMARY_EVENT_FOCUS:           _fmtPrimaryEventFocus(packet.primaryEventFocus),

@@ -315,80 +315,114 @@ function buildEngineInput(macroPacket) {
   };
 }
 
+const MACRO_HARD_BOUNDARY = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+
+function macroReportId(ctx) {
+  const stamp = String((ctx.macroPacket && ctx.macroPacket.generatedAtUTC) || new Date().toISOString())
+    .replace(/[^0-9]/g, '')
+    .slice(0, 12);
+  return 'MC-' + (stamp || Date.now().toString(36));
+}
+
+function generatedAt(packet) {
+  return packet && packet.generatedAtUTC ? packet.generatedAtUTC : new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+}
+
+function marketList(items) {
+  return items.map(m => displayInstrument(m && (m.symbol || m.instrument) || m)).filter(Boolean);
+}
+
+function macroAffectedBlock(affected) {
+  const symbols = marketList(affected);
+  return [
+    'Primary: ' + (symbols.slice(0, 4).join(' · ') || 'Mapped markets pending'),
+    'Secondary: ' + (symbols.slice(4, 6).join(' · ') || 'Full Brief'),
+    'More: Full Brief / calendar details',
+  ].join('\n');
+}
+
+function cloneStatusLine(summary) {
+  if (summary && summary.usableForDecision) {
+    return 'Historical comparison: decision-grade historical analogue evidence is available.';
+  }
+  return 'Historical comparison: unavailable for this symbol right now; Jane will not use analogue confidence.';
+}
+
+function structureStatusLine(status, spideyOut) {
+  if (status === 'ACTIVE') return 'Structure: ACTIVE — Spidey has a usable structure packet.';
+  if (status === 'NOT_APPLICABLE') return 'Structure: Not applicable to this calendar-wide query.';
+  const reason = spideyOut && (spideyOut.degradedReason || spideyOut.reason);
+  return 'Structure: ' + status + ' — missing live structure confirmation' + (reason ? ' (' + userFacingText(reason) + ')' : '') + '.';
+}
+
 function formatSearchResponse(ctx) {
   const packet = ctx.macroPacket;
   const focus = packet.primaryEventFocus;
   const risk = packet.riskState;
   const affected = (packet.affectedMarketsExpanded || []).slice(0, 10);
   const transmission = packet.macroTransmissionMap && packet.macroTransmissionMap[0] || {};
-  const transmission2 = packet.macroTransmissionMap && packet.macroTransmissionMap[1] || null;
   const keyEvents = eventRowsForResponse(packet, ctx.resolution, focus);
   const source = packet.dataFreshness && packet.dataFreshness.calendar || {};
+  const reportId = ctx.reportId || macroReportId(ctx);
   const lines = [];
-  lines.push('🔥 **THE CALL**');
+  lines.push(MACRO_HARD_BOUNDARY);
+  lines.push('🟦 NEW MACRO COMMAND REPORT');
+  lines.push('Report ID: ' + reportId);
+  lines.push('Query: ' + ctx.query);
+  lines.push('Symbol / scope: ' + displayInstrument(ctx.resolution.resolved_target));
+  lines.push('Generated: ' + generatedAt(packet));
+  lines.push('Part: 1/1');
+  lines.push(MACRO_HARD_BOUNDARY);
+  lines.push('');
+  lines.push('🧠 JANE STATE');
+  lines.push('Jane state: ' + ctx.janeFinalState);
+  lines.push('Final gate: Jane remains the final gate; this macro command is monitoring guidance, not a trade call.');
+  lines.push('');
+  lines.push('🔴 THE CALL');
   lines.push('Primary focus: ' + userFacingText(focus.title || ctx.resolution.displayTarget) + (focus.currency ? ' / ' + focus.currency : ''));
   lines.push('Risk state: ' + risk.label + ' — ' + userFacingText(risk.whyThisRating));
   lines.push('Current read: ' + currentReadLine(ctx.janeFinalState));
   lines.push('Best action: wait for confirmation before treating direction as reliable.');
   lines.push('Next confirmation point: ' + userFacingText(focus.volatilityWindow || 'first confirmed close after the live risk window.'));
   lines.push('');
-  lines.push('**ATLAS Macro Search — ' + ctx.resolution.displayTarget + '**');
-  lines.push('Generated: ' + packet.generatedAtUTC);
-  lines.push('');
-  lines.push('**RISK STATE**');
+  lines.push('🟡 MARKET CONTEXT');
   lines.push(riskDiscs(risk.scoreOutOf5) + ' / 5 — ' + risk.label);
+  lines.push('Why: ' + userFacingText(risk.whyThisRating));
+  lines.push('What this means: ' + userFacingText(focus.reversalRisk || 'Direction is not reliable until the first confirmed close agrees with live macro drivers.'));
   lines.push('');
-  lines.push('Why:');
-  lines.push(userFacingText(risk.whyThisRating));
+  lines.push('🕷️ STRUCTURE STATUS');
+  lines.push(structureStatusLine(ctx.spideyStatus, ctx.spidey));
   lines.push('');
-  lines.push('What this means:');
-  lines.push(userFacingText(focus.reversalRisk || 'Direction is not reliable until the first confirmed close agrees with live macro drivers.'));
+  lines.push('🧬 COREY CLONE STATUS');
+  lines.push('Corey Clone: ' + ctx.cloneSummary.status + ' · usableForDecision=' + (ctx.cloneSummary.usableForDecision ? 'true' : 'false'));
+  lines.push(cloneStatusLine(ctx.cloneSummary));
   lines.push('');
-  lines.push('Affected:');
-  lines.push(affected.length ? affected.slice(0, 6).map(m => displayInstrument(m.symbol)).join(', ') : 'None mapped by the live interpreter.');
+  lines.push('🎯 AFFECTED MARKETS');
+  lines.push(macroAffectedBlock(affected));
   lines.push('');
-  lines.push('**Affected instruments**');
-  lines.push(affected.length ? affected.map(m => '- ' + displayInstrument(m.symbol) + ' — ' + userFacingText(m.transmissionMechanism)).join('\n') : '- None mapped by the live interpreter.');
-  lines.push('');
-  lines.push('**Key events driving the read**');
-  lines.push(keyEvents.length ? keyEvents.map(eventLine).join('\n') : '- No matching live scheduled event in the current calendar window.');
-  lines.push('');
-  lines.push('**MARKET IMPACT**');
-  lines.push('Card 1:');
+  lines.push('🔵 MARKET IMPACT');
   lines.push('What is happening: ' + userFacingText(transmission.driver || focus.title || 'Live macro driver state'));
   lines.push('Why it matters: ' + userFacingText(transmission.mechanism || focus.whyPrimary || 'Macro drivers are setting risk conditions.'));
   lines.push('What moves first: ' + (Array.isArray(transmission.affectedSymbols) ? transmission.affectedSymbols.slice(0, 5).map(displayInstrument).join(', ') : 'Lead FX and rate-sensitive markets.'));
   lines.push('What confirms it: ' + userFacingText(transmission.whatStrengthensThis || 'The lead market confirms after the first 15-minute close.'));
   lines.push('What weakens it: ' + userFacingText(transmission.whatWeakensThis || 'Live drivers fade or structure rejects the first move.'));
-  if (transmission2) {
-    lines.push('');
-    lines.push('Card 2:');
-    lines.push('What is happening: ' + userFacingText(transmission2.driver || 'Live cross-market drivers'));
-    lines.push('Why it matters: ' + userFacingText(transmission2.mechanism || 'Live drivers decide whether the calendar impulse is amplified or faded.'));
-    lines.push('What moves first: ' + (Array.isArray(transmission2.affectedSymbols) ? transmission2.affectedSymbols.slice(0, 5).map(displayInstrument).join(', ') : 'US Dollar Strength (DXY), yields, and Market Volatility (VIX).'));
-    lines.push('What confirms it: ' + userFacingText(transmission2.whatStrengthensThis || 'US Dollar Strength (DXY), yields, and Market Volatility (VIX) agree.'));
-    lines.push('What weakens it: ' + userFacingText(transmission2.whatWeakensThis || 'One or more live drivers reverses.'));
-  }
   lines.push('');
-  lines.push('**What strengthens the read**');
-  lines.push(userFacingText(transmission.whatStrengthensThis || risk.whatWouldRaiseIt || 'US Dollar Strength (DXY), yields, Market Volatility (VIX), and the lead pair confirm the macro path after the first 15-minute close.'));
+  lines.push('🧭 CURRENT ADVICE / MONITORING STATE');
+  lines.push(currentReadLine(ctx.janeFinalState));
+  lines.push('Strengthens if: ' + userFacingText(transmission.whatStrengthensThis || risk.whatWouldRaiseIt || 'US Dollar Strength (DXY), yields, Market Volatility (VIX), and the lead pair confirm after the first 15-minute close.'));
+  lines.push('Weakens if: ' + userFacingText(transmission.whatWeakensThis || risk.whatWouldLowerIt || 'Live drivers fade or structure rejects the first macro impulse.'));
   lines.push('');
-  lines.push('**What weakens the read**');
-  lines.push(userFacingText(transmission.whatWeakensThis || risk.whatWouldLowerIt || 'Live drivers fade or structure rejects the first macro impulse.'));
+  lines.push('📅 KEY EVENTS');
+  lines.push(keyEvents.length ? keyEvents.slice(0, 3).map(eventLine).join('\n') : '- No matching live scheduled event in the current calendar window.');
   lines.push('');
-  lines.push('**Blocked / degraded**');
-  lines.push(ctx.degradationReason === 'none' ? 'None from the macro interpreter. Engine gates: Corey=' + ctx.coreyStatus + ', Corey Clone=' + ctx.cloneSummary.status + ' usableForDecision=' + ctx.cloneSummary.usableForDecision + ', Spidey=' + ctx.spideyStatus + '.' : userFacingText(ctx.degradationReason));
-  if (!ctx.cloneSummary.usableForDecision) {
-    lines.push('Historical reference: Not decision-grade yet. Current read is based on live macro / calendar / structure only.');
-  }
-  if (ctx.spideyStatus === 'PARTIAL' || ctx.spideyStatus === 'BLOCKED') {
-    lines.push('Structure: confirmation pending. No active execution zone is confirmed by this macro search.');
-  }
+  lines.push('🔵 SOURCE / DEGRADATION NOTE');
+  lines.push('Calendar source: ' + (source.source || 'none') + ' · mode: ' + (source.mode || 'none') + ' · confidence: ' + (packet.confidenceScore || 'pending'));
+  lines.push(ctx.degradationReason === 'none' ? 'No degradation reported by the macro interpreter.' : userFacingText(ctx.degradationReason));
   lines.push('');
-  lines.push('**Source note**');
-  lines.push('calendar_source=' + (source.source || 'none') + ' · mode=' + (source.mode || 'none') + ' · source_used=' + (Array.isArray(packet.sourceUsed) ? packet.sourceUsed.join('+') : packet.sourceUsed) + ' · confidence=' + packet.confidenceScore + ' · basis=' + packet.confidenceBasis);
-  lines.push('');
-  lines.push('_Jane remains final gate. FOH renders engine output only; no trade call is created from macro search alone._');
+  lines.push(MACRO_HARD_BOUNDARY);
+  lines.push('✅ END OF MACRO COMMAND REPORT');
+  lines.push('Report ID: ' + reportId);
+  lines.push(MACRO_HARD_BOUNDARY);
   return userFacingText(lines.join('\n'));
 }
 
@@ -514,18 +548,23 @@ async function runMacroSearch(query, opts) {
   if (spideyStatus === 'PARTIAL' || spideyStatus === 'BLOCKED') degradation.push('Spidey ' + spideyStatus + (spideyOut && spideyOut.degradedReason ? ': ' + spideyOut.degradedReason : ''));
   if (!fohRendered) degradation.push('FOH validation/render: ' + (fohReason || 'not rendered'));
   if (resolution.resolved_type === 'unknown') degradation.push('query could not be resolved to a symbol, event, or calendar scope');
+  const reportId = 'MC-' + Date.now().toString(36);
   const ctx = {
+    reportId,
     query: cleanQuery,
     resolution,
     macroPacket,
     coreyStatus: publicStatus(sourceStatus.corey),
     cloneSummary,
+    spidey: spideyOut,
     spideyStatus,
     janeFinalState: deriveJaneFinalState(janeOut),
     fohRendered,
     degradationReason: degradation.length ? degradation.join('; ') : 'none',
   };
   const proofLogs = logProof(ctx);
+  proofLogs.push('[LIVE-OUTPUT] renderer_attempted=true renderer_result=' + (fohRendered ? 'ok' : 'failed') + ' fallback_used=' + (fohRendered ? 'false' : 'true') + ' fallback_reason=' + (fohRendered ? 'none' : (fohReason || 'foh_validation_failed')) + ' surface=macro_command report_id=' + reportId + ' part=1/1');
+  console.log(proofLogs[proofLogs.length - 1]);
   return {
     ok: resolution.resolved_type !== 'unknown' && fohRendered,
     query: cleanQuery,

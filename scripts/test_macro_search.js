@@ -47,17 +47,22 @@ function mustContain(content, label) {
     assert(result.proofLogs.some(l => /^\[COREY-CLONE\] status=.* usableForDecision=(true|false)$/.test(l)), query + ' proof log includes Corey Clone usability');
     assert(result.proofLogs.some(l => /^\[JANE\] final_state=(ARMED|MONITORING|STAND_DOWN|VALID|INVALID|PARTIAL|MARGINAL|WAITING_FOR_CONFIRMATION)$/.test(l)), query + ' proof log includes Jane final state');
     assert(result.proofLogs.some(l => /^\[FOH\] rendered=true$/.test(l)), query + ' proof log includes FOH rendered=true');
-    assert(result.content.startsWith('🔥 **THE CALL**'), query + ' response starts with THE CALL');
+    assert(result.proofLogs.some(l => /^\[LIVE-OUTPUT\] renderer_attempted=true renderer_result=(ok|failed) fallback_used=(true|false) fallback_reason=.* surface=macro_command report_id=MC-/.test(l)), query + ' proof log includes Issue #144 renderer status');
+    assert(result.content.startsWith('━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🟦 NEW MACRO COMMAND REPORT'), query + ' response starts with hard macro boundary');
+    assert(/✅ END OF MACRO COMMAND REPORT/.test(result.content), query + ' response ends with hard macro boundary');
+    assert(/Jane state: (ARMED|MONITORING|STAND_DOWN)/.test(result.content), query + ' response carries visible Jane state');
     assert(/Current read: (ARMED|MONITORING|STAND_DOWN)/.test(result.content), query + ' response carries Jane-derived current read');
-    mustContain(result.content, '**RISK STATE**');
-    mustContain(result.content, '**Affected instruments**');
-    mustContain(result.content, '**Key events driving the read**');
-    mustContain(result.content, '**MARKET IMPACT**');
-    mustContain(result.content, '**What strengthens the read**');
-    mustContain(result.content, '**What weakens the read**');
-    mustContain(result.content, '**Blocked / degraded**');
-    mustContain(result.content, '**Source note**');
-    mustContain(result.content, 'Jane remains final gate');
+    mustContain(result.content, '🟡 MARKET CONTEXT');
+    mustContain(result.content, '🕷️ STRUCTURE STATUS');
+    mustContain(result.content, '🧬 COREY CLONE STATUS');
+    mustContain(result.content, '🎯 AFFECTED MARKETS');
+    mustContain(result.content, '🔵 MARKET IMPACT');
+    mustContain(result.content, '🧭 CURRENT ADVICE / MONITORING STATE');
+    mustContain(result.content, '🔵 SOURCE / DEGRADATION NOTE');
+    mustContain(result.content, 'Jane remains the final gate');
+    if (/usableForDecision=false/.test(result.content)) {
+      mustContain(result.content, 'Historical comparison: unavailable for this symbol right now');
+    }
     for (const re of STALE_PATTERNS) {
       assert(!re.test(result.content), query + ' did not leak stale/prototype pattern ' + re);
     }

@@ -25,10 +25,11 @@ function ok(label) { passed++; console.log('  ✓ ' + label); }
 function fail(label, err) { failed++; console.error('  ✗ ' + label + (err ? ' :: ' + err : '')); }
 
 const REQUIRED_SECTIONS_IN_DISCORD_TEXT = [
-  /__Briefing Summary__/,
-  /__Market Impact__/,
-  /__Confirmation \/ Cancellation__/,
-  /__Source \/ Provenance__/,
+  /NEW MARKET INTEL REPORT|NEW DARK HORSE REPORT/,
+  /Report ID:/,
+  /MARKET IMPACT|CURRENT ADVICE/,
+  /SOURCE NOTE/,
+  /END OF MARKET INTEL REPORT|END OF DARK HORSE REPORT/,
 ];
 
 console.log('\nT1 — MI Discord text carries required section headers (high-impact day):');
@@ -52,9 +53,9 @@ else ok('MI HIGH text length is not the regression signature');
 console.log('\nT3 — MI Discord text carries operationally-anchored doctrine markers:');
 const DOCTRINE_MARKERS = [
   /Market impact/i,
-  /Confirms?:/i,
-  /Cancels?:/i,
-  /Source:/i,
+  /THE CALL/i,
+  /Risk State/i,
+  /Source/i,
 ];
 for (const re of DOCTRINE_MARKERS) {
   if (re.test(miHighText)) ok('MI text includes doctrine marker ' + re.toString());
@@ -90,12 +91,13 @@ const next72MacroPacket = {
 };
 const miNext72 = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { severity: 'MED' }, eventClusters: [], macroIntelligencePacket: next72MacroPacket } });
 const miNext72Text = buildDiscordTextSummary(miViewModel.toViewModel(miNext72), { maxDiscordChunkChars: 100000 });
-if (/^🔥 \*\*THE CALL\*\*/.test(miNext72Text)) ok('MI next72 text leads with THE CALL'); else fail('MI next72 text does not lead with THE CALL');
-if (/TODAY'S RANKED EVENT CALENDAR/.test(miNext72Text) && /TIME \| CCY \| IMPACT \| EVENT \| AFFECTED MARKETS \| FULL BRIEF/.test(miNext72Text)) ok('MI next72 text includes ranked calendar table header'); else fail('MI next72 text missing ranked calendar header');
+if (/^━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🟨 NEW MARKET INTEL REPORT/.test(miNext72Text)) ok('MI next72 text leads with Issue #144 hard start boundary'); else fail('MI next72 text does not lead with hard start boundary');
+if (/🟠 HIGH-IMPACT CALENDAR EVENTS/.test(miNext72Text)) ok('MI next72 text includes high-impact calendar section'); else fail('MI next72 text missing high-impact calendar section');
 if (/GDP Growth Rate QoQ Prel/.test(miNext72Text) && /FOMC Member Speech/.test(miNext72Text)) ok('MI next72 text includes next72 events'); else fail('MI next72 text missing next72 event rows');
 if (/Brief Pending/.test(miNext72Text)) ok('MI next72 text shows Brief Pending fallback'); else fail('MI next72 text missing Brief Pending');
 if (/Source: TradingView calendar .* freshness: LIVE/.test(miNext72Text)) ok('MI next72 text shows TradingView LIVE source'); else fail('MI next72 text missing TradingView LIVE source');
-if (/Market impact: GDP Growth Rate QoQ Prel/.test(miNext72Text)) ok('MI next72 text populates Market Impact from macro transmission path'); else fail('MI next72 text missing macro transmission Market Impact');
+if (/🔵 MARKET IMPACT SUMMARY/.test(miNext72Text) && /Market impact: GDP Growth Rate QoQ Prel/.test(miNext72Text)) ok('MI next72 text populates Market Impact from macro transmission path'); else fail('MI next72 text missing macro transmission Market Impact');
+if (/✅ END OF MARKET INTEL REPORT/.test(miNext72Text)) ok('MI next72 text includes hard end boundary'); else fail('MI next72 text missing hard end boundary');
 
 console.log('\nT5 — DH Discord text carries the same expanded structure:');
 const dh = buildDarkHorsePacket({ ranking: { top10: [{ symbol: 'EURUSD', movePhase: 'early', score: 9, direction: 'Bullish' }], allCount: 33 }, volatility: { level: 'ELEV' } });
