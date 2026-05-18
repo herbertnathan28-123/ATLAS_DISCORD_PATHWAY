@@ -1,10 +1,10 @@
 # PR #140 Live FOH Acceptance Certificate
 
-**Date / time (UTC):** 2026-05-18T08:12:00Z
-**Repo SHA:** `b285df2` (PR #140 merge) + `4ae3739` (PR #141 contract scope fix on top)
-**Operator brief:** ATLAS FX Full Foundation + FOH Recovery (P1 — PR #140 live FOH acceptance)
+**Date / time (UTC):** 2026-05-18T09:37:00Z
+**Repo SHA:** `b285df2` (PR #140 merge) + `6858a90b51de38f0a6633d52d22133d89b0daf90` (PR #141 recovery branch) + Cursor addendum commits
+**Operator brief:** ATLAS FX Full Foundation + FOH Recovery addendum (P1 — PR #140 live FOH acceptance)
 
-**Verification mode:** fixture-level proof against the test suite. Live Discord screenshots are deferred to the next Render deploy — this sandbox has no Discord webhook access.
+**Verification mode:** live-path fixture proof against the test suite. Live Discord screenshots / webhook POST are deferred to the next Render deploy — this sandbox has no Discord webhook access.
 
 ---
 
@@ -55,6 +55,44 @@
 | `npm run qa:dh-delivery` | 36 PASS | instrumentation + no webhook URL leaks |
 | `scripts/test_dh_education_qa.js` | 368 PASS | DH digest education + chunker + glossary anchors |
 | `scripts/test_dh_chunking_qa.js` | 45 PASS | chunker preserves boundaries + every chunk under hard limit |
+
+## Cursor addendum run (2026-05-18T09:35Z)
+
+Executed directly on `cursor/foundation-recovery-addendum-c4f5`:
+
+```bash
+node tests/marketIntelDailyRoadmap.test.js
+node tests/darkHorseCurrentAdvice.test.js
+node tests/darkHorseHeaderControls.test.js
+node tests/fohLiveDispatchText.test.js
+```
+
+Results:
+
+| Suite | Result | Specific PR #140 acceptance locked |
+|---|---:|---|
+| `tests/marketIntelDailyRoadmap.test.js` | 36 PASS / 0 FAIL | compact calendar rows; `HIGH-IMPACT CALENDAR EVENTS`; Red/Amber filtering; Full Brief / Brief Pending; top controls; DXY/VIX expansion |
+| `tests/darkHorseCurrentAdvice.test.js` | 30 PASS / 0 FAIL | `CURRENT ADVICE — AT RELEASE` directly under card header; Entry Zone; Stop / Invalidation; Risk Cap; Minimum ATLAS Buffer; Technical Distance; no command-style full-size wording |
+| `tests/darkHorseHeaderControls.test.js` | 11 PASS / 0 FAIL | top control strip visible; Expanded Terminology state; PNG/PDF/Dashboard fallback states |
+| `tests/fohLiveDispatchText.test.js` | 31 PASS / 0 FAIL | expanded Discord text, dispatch path, Brief Pending fallback, TradingView LIVE source note |
+
+Live-output blocker remains exact: this workspace has no Discord webhook/bot credentials, so the final HTTP POST cannot be performed here. The tested functions are the live formatter / dispatch text paths that produce the Discord payload.
+
+## Addendum acceptance checklist
+
+| Addendum requirement | Status | Evidence |
+|---|---|---|
+| Market Intel compact calendar rows | PASS | `tests/marketIntelDailyRoadmap.test.js` T2 compact `🔴/🟠 time CCY · [Event]` assertions |
+| `HIGH-IMPACT CALENDAR EVENTS` heading | PASS | same T2 boxed heading assertion |
+| Red/amber filtering | PASS | same T5 filter fixtures |
+| Full Brief / Brief Pending states | PASS | same T2 + `fohLiveDispatchText` T4b |
+| Top controls visible | PASS | `darkHorseHeaderControls` T2 + `marketIntelDailyRoadmap` T2 |
+| No raw DXY/VIX user-facing leakage | PASS | `marketIntelDailyRoadmap` T4 bare-token guard |
+| Dark Horse `CURRENT ADVICE — AT RELEASE` | PASS | `darkHorseCurrentAdvice` T1 |
+| No huge model-dollar risk figures | PASS | `darkHorseCurrentAdvice` T5: account-percentage risk cap; legacy hidden-contract dollar panel replaced |
+| No raw HH/HL/LH/LL in user-facing output | PASS | `fohContract.darkHorse` T6 in PR #141 + user-facing label scrub |
+| No `promotion_trigger` label in user-facing output | PASS | `fohOutputContract` banned terms + `darkHorseRanking.js` label renamed to `Entry Validation:` |
+| No truncated validation wording | PASS | `darkHorseCurrentAdvice` T2 full `Entry Validation` field + no `.slice(0,80)` output path |
 
 ## Sample fixture output (proof artefact)
 
