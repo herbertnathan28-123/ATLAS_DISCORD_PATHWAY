@@ -62,20 +62,40 @@ const msg2 = messages[1] && messages[1].content || '';
 const msg3 = messages[2] && messages[2].content || '';
 const all = [msg1, msg2, msg3].join('\n---\n');
 
-console.log('\nT2 — message 1 leads with boxed THE CALL and ranked calendar:');
-if (/╔═+╗\n║\s+🔥 THE CALL\s+║\n╚═+╝/.test(msg1) && msg1.indexOf('🔥 THE CALL') < msg1.indexOf('TODAY')) ok('message 1 leads with boxed 🔥 THE CALL header'); else fail('message 1 missing boxed THE CALL header');
-if (/╔═+╗\n║\s+📅 TODAY'S RANKED EVENT CALENDAR\s+║\n╚═+╝/.test(msg1) && /TIME \| CCY \| IMPACT \| EVENT \| AFFECTED MARKETS \| FULL BRIEF/.test(msg1)) ok('message 1 includes boxed calendar header and release table header'); else fail('message 1 missing boxed calendar header');
-if (/╔═+╗\n║\s+⚠️ RISK STATE\s+║\n╚═+╝/.test(msg1)) ok('message 1 includes boxed RISK STATE block'); else fail('message 1 missing boxed RISK STATE block');
+// Box-header helper — boxes now wrap in a Discord ANSI code fence
+// for section colour. The ANSI escapes ([...m) live between
+// the fence and the box-drawing chars, so the regex tolerates a
+// non-greedy chunk of fence + escape prefix before each ║ line.
+function _boxRegex(label, escapedLabel) {
+  const lit = escapedLabel || label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp('```ansi\\n[^\\n]*╔═+╗[^\\n]*\\n[^\\n]*║\\s+' + lit + '\\s+║[^\\n]*\\n[^\\n]*╚═+╝[^\\n]*\\n```');
+}
+
+console.log('\nT2 — message 1 leads with boxed report heading + control strip:');
+if (_boxRegex('📡 MARKET INTEL · DAILY ROADMAP').test(msg1) && msg1.startsWith('```ansi\n')) ok('message 1 opens with the ANSI-coloured boxed MARKET INTEL · DAILY ROADMAP report heading'); else fail('message 1 missing coloured boxed MARKET INTEL · DAILY ROADMAP heading');
+const stripMatch = msg1.match(/🖼️ PNG: ([^\n]+)\n📄 PDF: ([^\n]+)\n📅 Full Calendar: ([^\n]+)\n📘 Terminology: ([^\n]+)\n🔗 Full Briefs: ([^\n]+)/);
+if (stripMatch) ok('message 1 includes the five-line control strip (PNG / PDF / Full Calendar / Terminology / Full Briefs)'); else fail('message 1 missing the five-line control strip');
+if (stripMatch && /Brief Pending/.test(stripMatch[1])) ok('PNG strip line declares Brief Pending until daily_brief carries the imagePayload'); else fail('PNG strip line not Brief Pending');
+if (stripMatch && /Brief Pending|Not generated/.test(stripMatch[2])) ok('PDF strip line declares Brief Pending / Not generated honestly'); else fail('PDF strip line not Brief Pending / Not generated');
+if (stripMatch && /Available/.test(stripMatch[3])) ok('Full Calendar strip line declares Available (TradingView feed is live)'); else fail('Full Calendar strip line not Available');
+if (stripMatch && /Available/.test(stripMatch[4])) ok('Terminology strip line declares Available'); else fail('Terminology strip line not Available');
+if (msg1.indexOf('📡 MARKET INTEL · DAILY ROADMAP') < msg1.indexOf('🖼️ PNG') && msg1.indexOf('🖼️ PNG') < msg1.indexOf('🔥 THE CALL')) ok('control strip sits between the report heading and THE CALL block'); else fail('control strip not positioned between report heading and THE CALL');
+
+if (_boxRegex('🔥 THE CALL').test(msg1) && msg1.indexOf('🔥 THE CALL') < msg1.indexOf('TODAY')) ok('message 1 includes coloured boxed 🔥 THE CALL header'); else fail('message 1 missing boxed THE CALL header');
+if (_boxRegex("📅 TODAY'S RANKED EVENT CALENDAR").test(msg1)) ok('message 1 includes coloured boxed calendar header'); else fail('message 1 missing boxed calendar header');
+if (_boxRegex('⚠️ RISK STATE').test(msg1)) ok('message 1 includes coloured boxed RISK STATE block'); else fail('message 1 missing boxed RISK STATE block');
 if (/GDP Growth Rate QoQ Prel/.test(msg1) && /FOMC Member Speech/.test(msg1)) ok('ranked calendar includes next72 events despite high-impact today = 0'); else fail('ranked calendar missing next72 rows');
 if (/Brief Pending/.test(msg1)) ok('Full Brief column shows Brief Pending fallback'); else fail('message 1 missing Brief Pending');
 if (/Source note: TradingView LIVE/.test(msg1)) ok('message 1 source note shows TradingView LIVE'); else fail('message 1 missing TradingView LIVE source note');
-if (/🔴 11:45 \| EUR \| HIGH \| ECB Rate Decision/.test(msg1)) ok('ECB Rate Decision row carries 🔴 Tier-1 glyph'); else fail('ECB Rate Decision row missing 🔴 Tier-1 glyph');
-if (/🟠 08:00 \| EUR \| HIGH \| GDP Growth Rate QoQ Prel/.test(msg1)) ok('GDP Growth Rate row carries 🟠 HIGH glyph'); else fail('GDP Growth Rate row missing 🟠 HIGH glyph');
-if (/🟠 14:00 \| USD \| ELEV \| FOMC Member Speech/.test(msg1)) ok('FOMC Member Speech row carries 🟠 HIGH glyph'); else fail('FOMC Member Speech row missing 🟠 HIGH glyph');
+// Event names render bracketed (cyan hyperlinks when the Full
+// Brief route is real; bracketed plain text when Brief Pending).
+if (/🔴 11:45 \| EUR \| HIGH \| \[ECB Rate Decision\]/.test(msg1)) ok('ECB Rate Decision row carries 🔴 Tier-1 glyph + bracketed event name'); else fail('ECB Rate Decision row missing 🔴 Tier-1 glyph');
+if (/🟠 08:00 \| EUR \| HIGH \| \[GDP Growth Rate QoQ Prel\]/.test(msg1)) ok('GDP Growth Rate row carries 🟠 HIGH glyph + bracketed event name'); else fail('GDP Growth Rate row missing 🟠 HIGH glyph');
+if (/🟠 14:00 \| USD \| ELEV \| \[FOMC Member Speech\]/.test(msg1)) ok('FOMC Member Speech row carries 🟠 HIGH glyph + bracketed event name'); else fail('FOMC Member Speech row missing 🟠 HIGH glyph');
 if (/Affected: [^\n]+\nFull Brief: /.test(msg1)) ok('calendar rows render Affected + Full Brief on dedicated lines'); else fail('calendar rows missing Affected/Full Brief lines');
 
-console.log('\nT3 — messages 2/3 include approved blocks:');
-if (/╔═+╗\n║\s+🌍 MARKET IMPACT\s+║\n╚═+╝/.test(msg2)) ok('message 2 leads with boxed 🌍 MARKET IMPACT header'); else fail('message 2 missing boxed MARKET IMPACT header');
+console.log('\nT3 — messages 2/3 include coloured boxed sections:');
+if (_boxRegex('🌍 MARKET IMPACT').test(msg2)) ok('message 2 leads with coloured boxed 🌍 MARKET IMPACT header'); else fail('message 2 missing boxed MARKET IMPACT header');
 const cardOrder = ['🟦 What is happening', '🟨 Why this matters', '🟧 What moves first', '🟩 What confirms it', '🟥 What weakens it'];
 let lastIdx = -1, cardsOk = true;
 for (const c of cardOrder) {
@@ -84,8 +104,8 @@ for (const c of cardOrder) {
   lastIdx = idx;
 }
 if (cardsOk) ok('message 2 emits all five coloured Market Impact cards in order'); else fail('message 2 missing or mis-ordered coloured Market Impact cards');
-if (/╔═+╗\n║\s+🎯 AFFECTED MARKETS\s+║\n╚═+╝/.test(msg2) && /╔═+╗\n║\s+✅ CONFIRMATION \/ DEGRADATION\s+║\n╚═+╝/.test(msg2)) ok('message 2 includes boxed AFFECTED MARKETS and CONFIRMATION/DEGRADATION'); else fail('message 2 missing boxed AFFECTED MARKETS or CONFIRMATION/DEGRADATION');
-if (/╔═+╗\n║\s+🗓️ FORWARD PLANNING\s+║\n╚═+╝/.test(msg3) && /╔═+╗\n║\s+🔗 FULL BRIEF \/ BRIEF PENDING\s+║\n╚═+╝/.test(msg3)) ok('message 3 includes boxed FORWARD PLANNING and FULL BRIEF headers'); else fail('message 3 missing boxed FORWARD PLANNING or FULL BRIEF headers');
+if (_boxRegex('🎯 AFFECTED MARKETS').test(msg2) && _boxRegex('✅ CONFIRMATION / DEGRADATION', '✅ CONFIRMATION \\/ DEGRADATION').test(msg2)) ok('message 2 includes coloured boxed AFFECTED MARKETS and CONFIRMATION/DEGRADATION'); else fail('message 2 missing boxed AFFECTED MARKETS or CONFIRMATION/DEGRADATION');
+if (_boxRegex('🗓️ FORWARD PLANNING').test(msg3) && _boxRegex('🔗 FULL BRIEF / BRIEF PENDING', '🔗 FULL BRIEF \\/ BRIEF PENDING').test(msg3)) ok('message 3 includes coloured boxed FORWARD PLANNING and FULL BRIEF headers'); else fail('message 3 missing boxed FORWARD PLANNING or FULL BRIEF headers');
 
 console.log('\nT4 — user-facing terminology is plain-English first:');
 if (/US Dollar Strength \(DXY\)/.test(all)) ok('US Dollar Strength (DXY) appears'); else fail('US Dollar Strength (DXY) missing');
@@ -98,6 +118,20 @@ const bareDxy = all.match(/(?<!\()DXY(?!\))/g) || [];
 if (!bareDxy.length) ok('no bare DXY token leaks into the daily roadmap surface'); else fail('bare DXY leaked', bareDxy.length + 'x');
 const bareVix = all.match(/(?<!\()VIX(?!\))/g) || [];
 if (!bareVix.length) ok('no bare VIX token leaks into the daily roadmap surface'); else fail('bare VIX leaked', bareVix.length + 'x');
+
+// Narrative-text expander — a fixture that arrives with bare
+// "DXY directional bias Bullish" upstream must surface to the
+// user with the plain-English expansion in place.
+const narrativePacket = Object.assign({}, macroPacket, {
+  riskState: { label: 'ACTIVE', scoreOutOf5: 3.1, whyThisRating: 'DXY rising and VIX elevated; yields supportive' },
+  primaryEventFocus: Object.assign({}, macroPacket.primaryEventFocus, {
+    confidenceBasis: 'DXY directional bias confirms the path',
+  }),
+});
+const narrativePayload = buildDailyBulletinPayload(snapshot, { level: 'low' }, now, { macroIntelligencePacket: narrativePacket });
+const narrativeAll = narrativePayload.dailyRoadmapMessages.map(m => m.content).join('\n---\n');
+if (!/(?<!\()DXY(?!\))/.test(narrativeAll) && !/(?<!\()VIX(?!\))/.test(narrativeAll)) ok('upstream narrative bare DXY / VIX are expanded to plain-English first via _miExpandMacroLabels');
+else fail('upstream narrative bare DXY / VIX leaked through to the user surface');
 
 console.log('\nT5 — live scheduler is wired to the 3-message renderer:');
 const coreyMI = fs.readFileSync(path.join(__dirname, '..', 'coreyMarketIntel.js'), 'utf8');
