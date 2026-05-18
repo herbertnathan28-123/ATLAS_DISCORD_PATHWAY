@@ -92,6 +92,15 @@ const BIAS_CONDITIONAL_DISCLAIMER =
 let _calendarModule = null;
 let _coreyLiveModule = null;
 let _webhookUrl = null;
+// Operator brief 2026-05-18 (Spidey candle ingestion) — optional
+// async candle fetcher injected at init time. Signature:
+//   async fetcher(symbol, resolution, count?) → candles[] | null
+// Used by _fetchSpidey to populate HTF (1day/4h/1h) + LTF
+// (15min/5min) slots from the runtime live-fetch path
+// (index.js safeOHLC), so Spidey no longer reports
+// no_candles_supplied for symbols whose 1D cache is missing.
+// When null, behaviour falls back to the cached 1D-only path.
+let _candleFetcherFn = null;
 let _webhookEnvKey = 'missing';
 let _tickHandle = null;
 let _initialised = false;
@@ -2882,20 +2891,79 @@ function _historyReaderLazy() {
   return _historyReaderFn;
 }
 
+// Async helper — pulls a single timeframe via the injected live
+// candle fetcher (index.js safeOHLC) and normalises rows to the
+// shape Spidey expects: { time, open, high, low, close, volume? }.
+// Returns null on any failure so the caller can degrade honestly
+// timeframe-by-timeframe rather than failing the whole bundle.
+async function _fetchSpideyTimeframe(symbol, resolution, count) {
+  if (typeof _candleFetcherFn !== 'function') return null;
+  try {
+    const rows = await _candleFetcherFn(symbol, resolution, count);
+    if (!Array.isArray(rows) || !rows.length) return null;
+    return rows.map(r => ({
+      time:   r.time != null ? r.time : (r.open_time_ms != null ? r.open_time_ms : (r.timestamp != null ? r.timestamp : null)),
+      open:   Number(r.open),
+      high:   Number(r.high),
+      low:    Number(r.low),
+      close:  Number(r.close),
+      volume: r.volume != null ? Number(r.volume) : undefined,
+    })).filter(c => Number.isFinite(c.open) && Number.isFinite(c.high) && Number.isFinite(c.low) && Number.isFinite(c.close));
+  } catch (_e) { return null; }
+}
+
 async function _fetchSpidey(featuredEvent) {
   const spideyFn = _spideyLazy();
   if (!spideyFn) { log('[SPIDEY] tick=skipped reason=engine_unavailable'); return null; }
   const leadSymbol = _leadSymbolForCcy(featuredEvent && featuredEvent.currency);
   const readerFn = _historyReaderLazy();
-  let candles = null;
-  if (readerFn) {
+  const htf = {};
+  const ltf = {};
+  const sourcesUsed = [];
+
+  // Operator brief 2026-05-18 — populate HTF + LTF from the live
+  // candle fetcher when wired. Falls back to cached 1D rows when
+  // the live fetcher is absent or a specific timeframe fails.
+  // Spidey gets the union of what's available; it degrades
+  // honestly per-timeframe rather than refusing the whole bundle.
+  if (typeof _candleFetcherFn === 'function') {
+    const htfPlan = [
+      ['1week', '1W', 80],
+      ['1day',  '1D', 220],
+      ['4h',    '4H', 200],
+      ['1h',    '1H', 200],
+    ];
+    const ltfPlan = [
+      ['15min', '15M', 200],
+      ['5min',  '5M',  200],
+    ];
+    for (const [resolution, slot, count] of htfPlan) {
+      const rows = await _fetchSpideyTimeframe(leadSymbol, resolution, count);
+      if (rows) { htf[slot] = rows; sourcesUsed.push('live:' + slot); }
+    }
+    for (const [resolution, slot, count] of ltfPlan) {
+      const rows = await _fetchSpideyTimeframe(leadSymbol, resolution, count);
+      if (rows) { ltf[slot] = rows; sourcesUsed.push('live:' + slot); }
+    }
+  }
+
+  // Cache fallback — the 1D path is preserved exactly as before so
+  // existing behaviour is unchanged when the fetcher is not wired
+  // or the live 1D fetch failed.
+  if (!htf['1D'] && readerFn) {
     try {
       const read = readerFn(leadSymbol);
       if (read && read.ok && Array.isArray(read.rows)) {
-        candles = { htf: { '1D': read.rows.map(r => ({ time: r.open_time_ms, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume })) }, ltf: {} };
+        htf['1D'] = read.rows.map(r => ({ time: r.open_time_ms, open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume }));
+        sourcesUsed.push('cache:1D');
       }
     } catch (_e) { /* swallow */ }
   }
+
+  const hasAnyCandles = Object.keys(htf).length > 0 || Object.keys(ltf).length > 0;
+  const candles = hasAnyCandles ? { htf, ltf } : null;
+  log(`[SPIDEY-ADAPTER] symbol=${leadSymbol} htf=${Object.keys(htf).join('|') || 'none'} ltf=${Object.keys(ltf).join('|') || 'none'} sources=${sourcesUsed.join(',') || 'none'}`);
+
   try {
     const packet = await spideyFn(leadSymbol, { candles });
     log(`[SPIDEY] tick=ok symbol=${leadSymbol} status=${packet.status} structureConfidence=${packet.structureConfidence} bias=${packet.structureBias}${packet.degradedReason ? ` degraded=${packet.degradedReason}` : ''}`);
@@ -3107,8 +3175,17 @@ function init(opts) {
     catch (e) { logErr(`[COREY-MARKET-INTEL] corey_live_require_failed reason=${e.message}`); _coreyLiveModule = null; }
   }
 
+  // Optional async candle fetcher — wired by index.js so Spidey
+  // receives HTF/LTF candles from the live provider chain when the
+  // cached 1D file is missing or thin. Pure additive — when not
+  // wired, _fetchSpidey falls back to the existing cached path.
+  if (typeof opts.candleFetcher === 'function') {
+    _candleFetcherFn = opts.candleFetcher;
+  }
+
   log(`[COREY-MARKET-INTEL] init webhook_config=${_webhookUrl ? 'present' : 'missing'} env_key=${_webhookEnvKey} ` +
-      `calendar=${_calendarModule ? 'wired' : 'unavailable'} corey_live=${_coreyLiveModule ? 'wired' : 'unavailable'}`);
+      `calendar=${_calendarModule ? 'wired' : 'unavailable'} corey_live=${_coreyLiveModule ? 'wired' : 'unavailable'} ` +
+      `candle_fetcher=${_candleFetcherFn ? 'wired' : 'unavailable'}`);
 }
 
 function start() {
@@ -3147,6 +3224,15 @@ module.exports = {
   CCY_TO_SYMBOLS, HIGH_RELEVANCE_PATTERNS,
   TRADER_NOTE_DEFAULT, BIAS_CONDITIONAL_DISCLAIMER,
   SCHEDULER_TICK_MS, PRE_EVENT_WINDOWS_MIN, DAILY_BULLETIN_UTC_HOUR,
+
+  // Test seams (operator brief 2026-05-18 Spidey candle ingestion).
+  // _fetchSpidey is the candle adapter that wires the live OHLC
+  // fetcher (when init({ candleFetcher }) is wired) into Spidey
+  // and falls back to cached 1D rows otherwise. Exported for the
+  // tests/spideyCandleIngestion.test.js fixture set; not part of
+  // the public API.
+  _fetchSpidey,
+  _fetchSpideyTimeframe,
 
   // analysis
   analyseEvent,
