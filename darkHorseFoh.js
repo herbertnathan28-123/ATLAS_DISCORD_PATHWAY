@@ -462,12 +462,12 @@ function _renderChartCardSvg(spec) {
   if (Number.isFinite(spec.caution)) {
     const y = yFor(spec.caution);
     zones += '<line x1="' + PADL + '" y1="' + y + '" x2="' + (PADL + innerW) + '" y2="' + y + '" stroke="#E67E22" stroke-width="2.25" stroke-dasharray="6 5"/>';
-    zones += '<text x="' + (PADL + 8) + '" y="' + (y + 16) + '" fill="#E67E22" font-family="Consolas, monospace" font-size="14" font-weight="700">CAUTION ZONE</text>';
+    zones += '<text x="' + (PADL + 190) + '" y="' + (y + 16) + '" fill="#E67E22" font-family="Consolas, monospace" font-size="14" font-weight="700">CAUTION ZONE</text>';
   }
   if (Number.isFinite(spec.invalidation)) {
     const y = yFor(spec.invalidation);
     zones += '<line x1="' + PADL + '" y1="' + y + '" x2="' + (PADL + innerW) + '" y2="' + y + '" stroke="#ED4245" stroke-width="2.5" stroke-dasharray="9 6"/>';
-    zones += '<text x="' + (PADL + 8) + '" y="' + (y + 18) + '" fill="#ED4245" font-family="Consolas, monospace" font-size="14" font-weight="700">INVALIDATION</text>';
+    zones += '<text x="' + (PADL + 8) + '" y="' + (y - 8) + '" fill="#ED4245" font-family="Consolas, monospace" font-size="14" font-weight="700">INVALIDATION</text>';
   }
   const candleW = Math.max(8, Math.floor((innerW / Math.max(1, candles.length)) * 0.56));
   let candlesSvg = '';
@@ -572,9 +572,9 @@ const ANSI_CYAN   = ESC + '[36;1m';
 const ANSI_MAGENTA = ESC + '[35;1m';
 const ANSI_GREY   = ESC + '[30;1m';
 
-const BAR_HEAVY   = '?'.repeat(50);
-const BAR_LIGHT   = '?'.repeat(50);
-const BAR_DOTTED  = '? '.repeat(25).trimEnd();
+const BAR_HEAVY   = '='.repeat(50);
+const BAR_LIGHT   = '-'.repeat(50);
+const BAR_DOTTED  = '\u00B7 '.repeat(25).trimEnd();
 
 // ── Terminology table (visible-bracket hyperlinks) ──────────
 const TERMINOLOGY = Object.freeze({
@@ -1181,24 +1181,24 @@ function _boxedHeading(text, marker, accent) {
   const close = code ? ANSI_RESET : '';
   return [
     code ? '```ansi' : '```',
-    open + '?' + '?'.repeat(width) + '?' + close,
-    open + '? ' + inner + ' ?' + close,
-    open + '?' + '?'.repeat(width) + '?' + close,
+    open + '+' + '='.repeat(width) + '+' + close,
+    open + '| ' + inner + ' |' + close,
+    open + '+' + '='.repeat(width) + '+' + close,
     '```',
   ].join('\n');
 }
 
 function _sectionBanner(text, accent) {
-  const marker = accent === 'cyan' ? '??'
-               : accent === 'magenta' ? '??'
+  const marker = accent === 'cyan' ? '\u{1F535}'
+               : accent === 'magenta' ? '\u{1F7EA}'
                : DH_PROTO_MARKER.yellow;
   return _boxedHeading(text, marker + marker, accent);
 }
 
 // ── Discord-native subheading ("▸  …") ──────────────────────
 function _subheading(text, accent) {
-  const marker = accent === 'cyan' ? '??' : DH_PROTO_MARKER.yellow;
-  return _boxedHeading('?  ' + text, marker, accent);
+  const marker = accent === 'cyan' ? '\u{1F535}' : DH_PROTO_MARKER.yellow;
+  return _boxedHeading('>  ' + text, marker, accent);
 }
 
 // ── Terminology row — visible-bracket hyperlinks ────────────

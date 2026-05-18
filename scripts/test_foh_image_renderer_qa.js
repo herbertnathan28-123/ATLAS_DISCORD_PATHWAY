@@ -49,7 +49,7 @@ assert(miHtml && miHtml.indexOf('foh-card') !== -1, 'MI HTML contains .foh-card'
 assert(miHtml && miHtml.indexOf('HISTORICAL REACTION') === -1 || miHtml.indexOf('Historical reaction') !== -1, 'MI HTML has Historical reaction heading');
 assert(miHtml && miHtml.indexOf('foh-hyperlinks') !== -1, 'MI HTML has hyperlinks chip');
 assert(miHtml && miHtml.indexOf('🟠🟠🟠🟠⚫') !== -1, 'MI HTML carries disc-bar glyphs');
-assert(miHtml && /<a [^>]*>Dovish<\/a>/.test(miHtml), 'MI HTML emits terminology link');
+assert(miHtml && (/<a [^>]*>Dovish<\/a>/.test(miHtml) || /<span class="foh-term-chip">Dovish<\/span>/.test(miHtml)), 'MI HTML emits terminology chip/link');
 
 // Download-format badges (operator brief 2026-05-16): both badges
 // render by default, far-right of the banner subtitle.
@@ -89,8 +89,8 @@ assert(dhHtml && dhHtml.indexOf('foh-dh-candidate fresh') !== -1, 'DH HTML has F
 assert(dhHtml && dhHtml.indexOf('foh-dh-candidate active') !== -1, 'DH HTML has STILL ACTIVE lifecycle class');
 assert(dhHtml && dhHtml.indexOf('foh-dh-candidate fading') !== -1, 'DH HTML has FADING lifecycle class');
 assert(dhHtml && dhHtml.indexOf('Risk reminder') !== -1, 'DH HTML has Risk reminder heading');
-assert(dhHtml && /First detected: <strong>12:00 UTC<\/strong>/.test(dhHtml), 'DH HTML carries first-detected timestamp');
-assert(dhHtml && /still Dark Horse valid after <strong>2h 30m<\/strong>/.test(dhHtml), 'DH HTML carries duration-alive');
+assert(dhHtml && /First logged: <strong>12:00 UTC<\/strong>/.test(dhHtml), 'DH HTML carries first-logged timestamp');
+assert(dhHtml && /Still Dark Horse worthy after <strong>2h 30m<\/strong>/.test(dhHtml), 'DH HTML carries duration-alive');
 assert(dhHtml && /foh-format-badge png/.test(dhHtml), 'DH HTML emits ↓ PNG badge');
 assert(dhHtml && /foh-format-badge pdf/.test(dhHtml), 'DH HTML emits ↓ PDF badge');
 

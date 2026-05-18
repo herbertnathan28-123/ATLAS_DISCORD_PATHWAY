@@ -49,6 +49,7 @@ const ANSI_FG = {
   93: '#FFD600', 96: '#00B0FF',
 };
 function renderAnsiBlock(raw) {
+  raw = String(raw || '').replace(/\x1b/g, '');
   const segments = raw.split('[');
   let html = '';
   let openSpan = false;
@@ -326,13 +327,13 @@ function renderChartCardSvg(spec) {
   if (Number.isFinite(spec.caution)) {
     const y = yFor(spec.caution);
     zones += `<line x1="${PADL}" y1="${y}" x2="${PADL + innerW}" y2="${y}" stroke="#E67E22" stroke-width="1.3" stroke-dasharray="5 4"/>`;
-    zones += `<text x="${PADL + 6}" y="${y + 12}" fill="#E67E22" font-family="Consolas, monospace" font-size="11">CAUTION ZONE</text>`;
+    zones += `<text x="${PADL + 160}" y="${y + 12}" fill="#E67E22" font-family="Consolas, monospace" font-size="11">CAUTION ZONE</text>`;
   }
   // Invalidation — red dashed line
   if (Number.isFinite(spec.invalidation)) {
     const y = yFor(spec.invalidation);
     zones += `<line x1="${PADL}" y1="${y}" x2="${PADL + innerW}" y2="${y}" stroke="#ED4245" stroke-width="1.5" stroke-dasharray="6 4"/>`;
-    zones += `<text x="${PADL + 6}" y="${y + 13}" fill="#ED4245" font-family="Consolas, monospace" font-size="11">INVALIDATION</text>`;
+    zones += `<text x="${PADL + 6}" y="${y - 7}" fill="#ED4245" font-family="Consolas, monospace" font-size="11">INVALIDATION</text>`;
   }
 
   // ATLAS price-label boxes (right side)
