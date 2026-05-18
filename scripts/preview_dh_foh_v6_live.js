@@ -202,13 +202,13 @@ const checks = [
   ['Where to Act does NOT use v1.2.1 single-line "🛑 RISK-OFF"',
     !/^🛑 RISK-OFF /m.test(e2WhereToAct)],
 
-  // Dollar Risk — lifecycle-aware
-  ['M2 (FRESH) Dollar Risk header — "half size for FRESH"',
-    /half size for FRESH/.test(e2.fields.find(f => /Dollar Risk/.test(f.name)).name)],
-  ['M3 (STILL ACTIVE) Dollar Risk header — "full size allowed (STILL ACTIVE)"',
-    /full size allowed \(STILL ACTIVE\)/.test(e3.fields.find(f => /Dollar Risk/.test(f.name)).name)],
-  ['M4 (FADING) Dollar Risk header explains reduced late-stage size',
-    /quarter-size only because this is a FADING card/.test(e4.fields.find(f => /Dollar Risk/.test(f.name)).name)],
+  // Account Risk — lifecycle-aware
+  ['M2 (FRESH) Account Risk header names fresh cap',
+    /fresh-card account-risk cap/.test(e2.fields.find(f => /Account Risk/.test(f.name)).name)],
+  ['M3 (STILL ACTIVE) Account Risk header names standard cap',
+    /standard account-risk cap \(STILL ACTIVE\)/.test(e3.fields.find(f => /Account Risk/.test(f.name)).name)],
+  ['M4 (FADING) Account Risk header explains late-stage cap',
+    /late-stage account-risk cap/.test(e4.fields.find(f => /Account Risk/.test(f.name)).name)],
   ['M4 FADING execution state is reduced-size/not primary below 2R',
     /REDUCED SIZE ONLY \/ NOT PRIMARY/.test(e4.fields.find(f => f.name === 'ATLAS execution state').value)
     && /below the 2R minimum/.test(e4.fields.find(f => f.name === 'ATLAS execution state').value)],
