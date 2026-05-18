@@ -14,6 +14,8 @@
 // ============================================================
 
 function _crypto() { try { return require('crypto'); } catch (_) { return null; } }
+const { buildPlanFromEvidence } = require('./darkHorsePricePoints');
+
 function _reportId() {
   const c = _crypto();
   if (c && c.randomBytes) return 'dh-' + c.randomBytes(4).toString('hex');
@@ -74,9 +76,14 @@ function _standoutOutcome(s) {
   const sym = s.symbol || 'symbol';
   const dir = String(s.direction || '').toLowerCase();
   const lc  = String(s.lifecycle || 'STILL ACTIVE').toUpperCase();
-  const sizeNote = /FRESH/.test(lc) ? 'half size for FRESH' : /FADING/.test(lc) ? 'quarter size only — FADING' : 'full size × current mood multiplier';
+  const sizeNote = /FRESH/.test(lc) ? 'fresh-card account-risk cap' : /FADING/.test(lc) ? 'late-stage account-risk cap' : 'standard account-risk cap after confirmation';
   const trigger = s.decisionLevel || 'entry zone on chart card';
   const invalid = s.invalidation || 'next opposite 1H close';
+  const plan = s.pricePointPlan || null;
+  const entryReference = plan ? plan.entryReferencePrice : trigger;
+  const invalidationExit = plan ? plan.invalidationExitPrice : invalid;
+  const confirmation = plan ? plan.confirmationCondition : ('confirmed close in the ' + (dir || 'directional') + ' direction through ' + trigger);
+  const accountRisk = plan ? plan.riskBasis : 'Account-percentage risk only; size so loss at invalidation remains inside the card risk cap.';
   const directionWord = /bear|short|down/.test(dir) ? 'downside' : 'upside';
   const oppositeWord = directionWord === 'downside' ? 'upside' : 'downside';
   return {
@@ -84,21 +91,22 @@ function _standoutOutcome(s) {
     affectedMarkets: [sym].concat(s.crossAsset || []),
     traderAction: _anchoredAction({
       instrument: sym,
-      priceLevel: trigger + ' (' + sizeNote + ')',
-      behavioralExplanation: 'Enter ' + sym + ' ' + directionWord + ' ONLY on a confirmed close through ' + trigger + '. ' + (s.reason || 'The structural read holds while price respects the trigger zone; the read is off the moment price closes through ' + invalid + '.'),
+      priceLevel: 'Entry reference ' + entryReference + ' · invalidation / exit ' + invalidationExit + ' (' + sizeNote + ')',
+      behavioralExplanation: sym + ' ' + directionWord + ' participation is considered only after this confirmation condition: ' + confirmation + ' ' + accountRisk,
       confirmsContinuation: [
-        'confirmed close in the ' + directionWord + ' direction through ' + trigger,
+        confirmation,
         'next candle holds the trigger as new support/resistance without retracing back inside',
-        'volume expansion in the ' + directionWord + ' direction on the confirmation candle',
+        'momentum expands in the ' + directionWord + ' direction on the confirmation candle',
       ],
       invalidatesContinuation: [
-        'price closes through ' + invalid + ' on the trigger timeframe',
+        'price closes through invalidation / exit ' + invalidationExit + ' on the trigger timeframe',
         'candle bodies shrinking after the initial confirmation — momentum exhausting',
         'cross-asset (DXY / VIX / lead pair) loses confirmation alignment',
       ],
       probableNextPath: [
-        'price extends ' + directionWord + ' toward the next liquidity zone after ' + trigger,
+        'price extends ' + directionWord + ' toward the next liquidity zone after entry reference ' + entryReference,
         'standout stays valid through the next 15-min scan window if structure holds',
+        plan ? 'technical distance: ' + plan.technicalDistance + ' · Minimum ATLAS Buffer: ' + plan.minimumAtlasBuffer : 'technical distance and Minimum ATLAS Buffer shown on card when anchors are available',
       ],
       probableFailurePath: [
         'confirmation candle gets faded inside the next 15 minutes',
@@ -106,7 +114,9 @@ function _standoutOutcome(s) {
         'standout drops to ' + oppositeWord + ' watch on the next ATLAS scan — re-entry only after a fresh structural test',
       ],
     }),
-    dollarImpact: s.dollarRisk ? ('planned risk ' + s.dollarRisk + (s.rewardR ? ' · target ' + s.rewardR : '')) : 'planned risk ~$150 per scan window',
+    dollarImpact: plan
+      ? 'Account-risk cap: ' + plan.riskCap.text + ' · technical distance ' + plan.technicalDistance + ' · unit type ' + plan.unitType + ' · buffer reason: ' + plan.bufferReason
+      : 'Account-risk cap applies only after entry, confirmation, and invalidation / exit are published.',
   };
 }
 
@@ -119,20 +129,25 @@ function buildDarkHorsePacket(opts) {
   const standouts = top
     .filter(c => Number.isFinite(c && c.score) && c.score >= 7)
     .slice(0, 4)
-    .map(c => ({
-      symbol:        c.symbol,
-      lifecycle:     _phaseToLifecycle(c.movePhase),
-      direction:     c.direction || 'unspecified',
-      score:         c.score,
-      firstDetected: c.firstDetectedAt || null,
-      durationAlive: c.durationAliveLabel || null,
-      reason:        c.summary || (Array.isArray(c.reasons) ? c.reasons.join(' · ') : null),
-      decisionLevel: c.decisionLevel || null,
-      invalidation:  c.invalidation || null,
-      dollarRisk:    c.dollarRiskLabel || null,
-      rewardR:       c.rewardRLabel || null,
-      sizeLabel:     c.sizeLabel || null,
-    }));
+    .map(c => {
+      const lifecycle = _phaseToLifecycle(c.movePhase);
+      const pricePointPlan = buildPlanFromEvidence(c, volatility, { stage: lifecycle });
+      return {
+        symbol:        c.symbol,
+        lifecycle,
+        direction:     c.direction || 'unspecified',
+        score:         c.score,
+        firstDetected: c.firstDetectedAt || null,
+        durationAlive: c.durationAliveLabel || null,
+        reason:        c.summary || (Array.isArray(c.reasons) ? c.reasons.join(' · ') : null),
+        decisionLevel: pricePointPlan ? pricePointPlan.entryReferencePrice : (c.decisionLevel || null),
+        invalidation:  pricePointPlan ? pricePointPlan.invalidationExitPrice : (c.invalidation || null),
+        dollarRisk:    c.dollarRiskLabel || null,
+        rewardR:       c.rewardRLabel || null,
+        sizeLabel:     c.sizeLabel || null,
+        pricePointPlan,
+      };
+    });
 
   const sev = _volSeverity(volatility && volatility.level);
   const moodLabel = ({ HIGH: 'Storm — broad market moving fast', ELEV: 'Elevated — broad market moving fast', MED: 'Active — moderate volatility', LOW: 'Calm — driver-led tape' }[sev]);
@@ -204,7 +219,7 @@ function buildDarkHorsePacket(opts) {
       affectedMarkets: standouts.map(s => s.symbol),
       traderAction: _anchoredAction({
         instrument: lead ? lead.symbol : 'any standout that invalidates intraday',
-        priceLevel: lead ? (lead.invalidation || 'invalidation level on the chart card') + ' (re-entry only on a fresh structural test)' : 'invalidation level on the chart card',
+        priceLevel: lead ? ((lead.pricePointPlan ? lead.pricePointPlan.invalidationExitPrice : lead.invalidation) || 'invalidation / exit level on the chart card') + ' (re-entry only on a fresh structural test)' : 'invalidation / exit level on the chart card',
         behavioralExplanation: 'When a standout closes through its invalidation level, the original read is OFF. Re-entry is only valid AFTER price returns to and respects the level on a FRESH 15-min close — not on a wick, not on the same scan.',
         confirmsContinuation: [
           '15-min candle closes back through the invalidation level in the original direction',
@@ -217,7 +232,7 @@ function buildDarkHorsePacket(opts) {
           'opposite-direction standout appears on the next scan',
         ],
         probableNextPath: [
-          're-entry sizing always starts at HALF the original planned risk',
+          're-entry sizing always starts at half the original account-risk cap',
           'standout re-rates back into FRESH on the next clean structural test',
         ],
         probableFailurePath: [
@@ -226,17 +241,17 @@ function buildDarkHorsePacket(opts) {
           'taking the same trade three times in one session before ATLAS publishes a fresh read',
         ],
       }),
-      dollarImpact: 'Re-entry sizing always starts at half of the original planned risk.',
+      dollarImpact: 'Re-entry sizing always starts at half of the original account-risk cap.',
     },
   };
   const marketImpact = {
     mechanism: lead
       ? 'Standout setups derive from structural ' + (lead.direction || 'directional') + ' alignment + Corey live macro confirmation + Dark Horse rank score ≥ 7/10.'
       : 'No standout this cycle — macro tape drives direction; structural reads return on next 15-min scan.',
-    priceReactionPath: 'Trigger close → entry zone → watch level → caution zone → invalidation; each level annotated with dollar consequence on the rendered card.',
+    priceReactionPath: 'Confirmation close → entry reference → watch level → caution zone → invalidation / exit; each card separates account-risk cap from technical distance.',
     liquidityEffect: 'Standouts are filtered against current spreads; FRESH cards require live confirmation that the trigger zone has held under the current quote depth.',
     volatilityEffect: sev === 'HIGH' ? 'Storm regime: every standout gets a half-size reduction on top of its lifecycle multiplier' : sev === 'ELEV' ? 'Elevated regime: standout sizing already adjusted via lifecycle tag' : 'Normal regime: standard sizing per the lifecycle pill',
-    traderConsequence: 'Hitting the planned-risk line is the cost of the read being wrong; chasing past invalidation turns a $150 loss into a $400+ loss with no upside symmetry.',
+    traderConsequence: 'Hitting the account-percentage planned-risk line is the cost of the read being wrong; chasing past invalidation breaks the account-risk cap and removes upside symmetry.',
   };
   const riskEscalation = {
     healthy:      'PRE-TRIGGER: scan is fresh; structural read in place; sizing per the FRESH / STILL ACTIVE / FADING pill.',
@@ -247,15 +262,17 @@ function buildDarkHorsePacket(opts) {
   const whatToDoNow = standouts.length
     ? standouts.slice(0, 3).map((s, i) => ({
         step: i + 1,
-        action: (i === 0 ? 'Primary standout — ' : i === 1 ? 'Secondary — ' : 'Tertiary — ') + s.symbol + ' (' + s.lifecycle + ' ' + (s.direction || '') + '): enter on confirmed close into ' + (s.decisionLevel || 'entry zone on chart card'),
+        action: (i === 0 ? 'Primary standout — ' : i === 1 ? 'Secondary — ' : 'Tertiary — ') + s.symbol + ' (' + s.lifecycle + ' ' + (s.direction || '') + '): entry reference ' + (s.pricePointPlan ? s.pricePointPlan.entryReferencePrice : (s.decisionLevel || 'pending')) + '; confirmation condition ' + (s.pricePointPlan ? s.pricePointPlan.confirmationCondition : 'pending until price anchors are published') + '; invalidation / exit ' + (s.pricePointPlan ? s.pricePointPlan.invalidationExitPrice : (s.invalidation || 'pending')),
         reason: s.reason || 'Structural alignment with current macro tape',
-        dollarConsequence: (s.dollarRisk || 'planned risk ~$150') + (s.rewardR ? ' · reward ' + s.rewardR : '') + (s.sizeLabel ? ' · ' + s.sizeLabel : ''),
+        dollarConsequence: s.pricePointPlan
+          ? s.pricePointPlan.riskBasis + ' Technical distance: ' + s.pricePointPlan.technicalDistance + '. Minimum ATLAS Buffer: ' + s.pricePointPlan.minimumAtlasBuffer + ' (' + s.pricePointPlan.unitType + '). Buffer reason: ' + s.pricePointPlan.bufferReason
+          : 'Account-percentage risk cap applies only after entry reference, confirmation, and invalidation / exit are published.',
       }))
     : [{ step: 1, action: 'No standouts this scan — stand aside; re-read at next 15-min scan.', reason: 'Driver-led tape; no structural priority.', dollarConsequence: 'Zero — no exposure recommended.' }];
   const confirmationCancellation = {
-    confirmsWhen: lead ? ('Confirmed close above ' + (lead.decisionLevel || 'entry zone') + ' on the trigger timeframe.') : 'N/A this cycle.',
-    cancelsWhen:  lead ? ('Close below ' + (lead.invalidation || 'invalidation level') + ' on the trigger timeframe.') : 'N/A this cycle.',
-    dangerIf:     'A standout invalidates while you are positioned: exit at the next 1-min close. Do not average. Do not re-enter without a fresh structural test on a later scan.',
+    confirmsWhen: lead ? (lead.pricePointPlan ? lead.pricePointPlan.confirmationCondition : ('Confirmed close through ' + (lead.decisionLevel || 'entry zone') + ' on the trigger timeframe.')) : 'N/A this cycle.',
+    cancelsWhen:  lead ? (lead.pricePointPlan ? lead.pricePointPlan.invalidationCondition : ('Close through ' + (lead.invalidation || 'invalidation / exit level') + ' on the trigger timeframe.')) : 'N/A this cycle.',
+    dangerIf:     'A standout invalidates while you are positioned: flatten by the published invalidation / exit price. Do not average. Do not re-enter without a fresh structural test on a later scan.',
   };
   const provenance = {
     sources: ['ATLAS Dark Horse scanner', 'Corey live macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y)'],

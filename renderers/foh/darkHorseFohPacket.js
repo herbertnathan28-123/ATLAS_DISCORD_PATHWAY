@@ -1,6 +1,8 @@
 'use strict';
 
 // ============================================================
+
+const { buildPlanFromEvidence } = require('../../foh/darkHorsePricePoints');
 // renderers/foh/darkHorseFohPacket.js
 //
 // Builds the FOH product-depth packet for Dark Horse — mirror
@@ -113,6 +115,7 @@ function _marketStateFrom(liveCtx) {
 function _enrichStandout(c, nowMs) {
   const lifecycle = _movePhaseToLifecycle(c.movePhase);
   const moveAge = Number.isFinite(c.moveAge) ? c.moveAge : null;
+  const pricePointPlan = buildPlanFromEvidence(c, null, { stage: lifecycle });
   return {
     symbol:        c.symbol,
     lifecycle,
@@ -121,8 +124,8 @@ function _enrichStandout(c, nowMs) {
     sectionLabel:  c.sectionLabel || 'Other',
     firstDetected: _firstDetectedLabel(moveAge, nowMs),
     durationAlive: _humanDuration(moveAge),
-    decisionLevel: c.promotionTrigger || null,
-    invalidation:  c.invalidationTrigger || null,
+    decisionLevel: pricePointPlan ? pricePointPlan.entryReferencePrice : (c.promotionTrigger || null),
+    invalidation:  pricePointPlan ? pricePointPlan.invalidationExitPrice : (c.invalidationTrigger || null),
     dollarRisk:    c.dollarRiskLabel || null,
     rewardR:       c.rewardRLabel || null,
     sizeLabel:     c.sizeLabel || null,
@@ -132,6 +135,7 @@ function _enrichStandout(c, nowMs) {
     structureState: c.structureState || null,
     confirmation:  c.confirmationRequirement || null,
     atlasState:    c.atlasState || null,
+    pricePointPlan,
     reasons:       Array.isArray(c.scoreBreakdown) ? c.scoreBreakdown : (Array.isArray(c.reasons) ? c.reasons : []),
   };
 }
@@ -246,7 +250,7 @@ function buildDarkHorseFohPacket(ranking, volatility, liveCtx, opts) {
     },
     glossaryTerms: {
       available: true,
-      terms: ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Dollar Risk','Reward-to-Risk','Fresh Setup','Still Active Setup','Fading Setup','Late-Stage Move'],
+      terms: ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Account Risk','Reward-to-Risk','Fresh Setup','Still Active Setup','Fading Setup','Late-Stage Move'],
     },
     formats: ['png', 'pdf'],
   };

@@ -60,13 +60,28 @@ function lifecycleSeverityLabel(lc) {
   const v = String(lc || '').toUpperCase();
   if (/FRESH/.test(v))   return '🆕 FRESH — just appeared on this scan';
   if (/FADING/.test(v))  return '🟥 FADING — late-stage move, quarter-size only';
-  return '🟧 STILL ACTIVE — continuation watch, full size allowed';
+  return '🟧 STILL ACTIVE — continuation watch, standard account-risk cap after confirmation';
+}
+
+function renderPricePointPlan(plan) {
+  if (!plan) return '';
+  return `
+    <div class="foh-dh-price-grid">
+      <div><span>Entry reference price</span><strong>${esc(plan.entryReferencePrice)}</strong></div>
+      <div><span>Confirmation condition</span><strong>${esc(plan.confirmationCondition)}</strong></div>
+      <div><span>Invalidation / exit price</span><strong>${esc(plan.invalidationExitPrice)}</strong></div>
+      <div><span>Minimum ATLAS Buffer</span><strong>${esc(plan.minimumAtlasBuffer)}</strong></div>
+      <div><span>Technical distance</span><strong>${esc(plan.technicalDistance)}</strong></div>
+      <div><span>Unit type</span><strong>${esc(plan.unitType)}</strong></div>
+      <div class="wide"><span>Buffer reason</span><strong>${esc(plan.bufferReason)}</strong></div>
+      <div class="wide"><span>Risk basis</span><strong>${esc(plan.riskBasis)}</strong></div>
+    </div>`;
 }
 
 function renderTerminologyChip(payload) {
   const terms = Array.isArray(payload.terminology) && payload.terminology.length
     ? payload.terminology
-    : ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Dollar Risk','Reward-to-Risk'];
+    : ['Decision Level','Entry Zone','Watch Level','Caution Zone','Invalidation','Confirmed Candle Close','Account Risk','Reward-to-Risk'];
   const chips = terms.map(t => `<span class="foh-term-chip">${esc(t)}</span>`).join('');
   return `<div class="foh-hyperlinks">
     <span class="foh-hyperlinks-label">📘 Expanded Terminology</span>
@@ -82,7 +97,7 @@ function renderStandout(s, idx, total) {
   const reason = s.reason ? `<div class="foh-dh-candidate-meta">${esc(s.reason)}</div>` : '';
   const decisionLevel = s.decisionLevel ? `<div class="foh-dh-candidate-meta">🎯 Decision level: <strong>${esc(s.decisionLevel)}</strong></div>` : '';
   const invalidation = s.invalidation ? `<div class="foh-dh-candidate-meta">❌ Invalidation: <strong>${esc(s.invalidation)}</strong></div>` : '';
-  const risk = s.dollarRisk ? `<div class="foh-dh-candidate-meta">💲 Model risk: <strong>${esc(s.dollarRisk)}</strong>${s.rewardR ? ' · target <strong>' + esc(s.rewardR) + '</strong>' : ''}${s.sizeLabel ? ' · ' + esc(s.sizeLabel) : ''}</div>` : '';
+  const risk = s.pricePointPlan ? `<div class="foh-dh-candidate-meta">💲 Account risk: <strong>${esc(s.pricePointPlan.riskCap.text)}</strong>${s.rewardR ? ' · target <strong>' + esc(s.rewardR) + '</strong>' : ''}</div>` : (s.dollarRisk ? `<div class="foh-dh-candidate-meta">💲 Account risk: <strong>size by account percentage at invalidation</strong>${s.rewardR ? ' · target <strong>' + esc(s.rewardR) + '</strong>' : ''}</div>` : '');
   return `
   <div class="foh-dh-candidate ${lcClass}">
     <div class="foh-dh-candidate-head">
@@ -97,6 +112,7 @@ function renderStandout(s, idx, total) {
     ${reason}
     ${decisionLevel}
     ${invalidation}
+    ${renderPricePointPlan(s.pricePointPlan)}
     ${risk}
   </div>`;
 }
@@ -135,10 +151,12 @@ function _renderDhRichStandout(s, idx, total) {
   if (s.decisionLevel)  lines.push(`<div class="foh-dh-candidate-meta">🎯 Decision level: <strong>${esc(s.decisionLevel)}</strong></div>`);
   if (s.confirmation)   lines.push(`<div class="foh-dh-candidate-meta">✅ Confirms: ${esc(s.confirmation)}</div>`);
   if (s.invalidation)   lines.push(`<div class="foh-dh-candidate-meta">❌ Invalidation: <strong>${esc(s.invalidation)}</strong></div>`);
+  if (s.pricePointPlan) lines.push(renderPricePointPlan(s.pricePointPlan));
   if (s.continuationWindow) lines.push(`<div class="foh-dh-candidate-meta">⏱️ Window: ${esc(s.continuationWindow)}</div>`);
   if (s.lateEntryRisk)  lines.push(`<div class="foh-dh-candidate-meta">⚠️ Late-entry risk: <strong>${esc(s.lateEntryRisk)}</strong></div>`);
   if (s.atlasState)     lines.push(`<div class="foh-dh-candidate-meta">🛰️ ATLAS state: ${esc(s.atlasState)}</div>`);
-  if (s.dollarRisk)     lines.push(`<div class="foh-dh-candidate-meta">💲 Model risk: <strong>${esc(s.dollarRisk)}</strong>${s.rewardR ? ' · target <strong>' + esc(s.rewardR) + '</strong>' : ''}${s.sizeLabel ? ' · ' + esc(s.sizeLabel) : ''}</div>`);
+  if (s.pricePointPlan) lines.push(`<div class="foh-dh-candidate-meta">💲 Account risk: <strong>${esc(s.pricePointPlan.riskCap.text)}</strong>${s.rewardR ? ' · target <strong>' + esc(s.rewardR) + '</strong>' : ''}</div>`);
+  else if (s.dollarRisk) lines.push(`<div class="foh-dh-candidate-meta">💲 Account risk: <strong>size by account percentage at invalidation</strong>${s.rewardR ? ' · target <strong>' + esc(s.rewardR) + '</strong>' : ''}</div>`);
   return `
   <div class="foh-dh-candidate ${lcClass}">
     <div class="foh-dh-candidate-head">

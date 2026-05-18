@@ -573,9 +573,9 @@ console.log('\n[T17] Terminology hyperlinks — visible-bracket [[Label]](url) f
 }
 
 // ============================================================
-// T18 — Dollar Risk field — lifecycle-aware header + dollar figure
+// T18 — Account Risk field — lifecycle-aware percentage cap
 // ============================================================
-console.log('\n[T18] Dollar Risk — lifecycle-aware header + dollar amounts');
+console.log('\n[T18] Account Risk — lifecycle-aware percentage caps');
 {
   const top10 = [
     mkRanked('EURUSD', 9, 'Bullish', rank.SECTIONS.FX_MAJORS,    1.10, 'early'),
@@ -583,18 +583,17 @@ console.log('\n[T18] Dollar Risk — lifecycle-aware header + dollar amounts');
     mkRanked('NVDA',   7, 'Bullish', rank.SECTIONS.EQUITIES,     900,  'late'),
   ];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, { level: 'elevated' }, { now: Date.parse('2026-05-13T12:00:00Z') });
-  const dr0 = out.messages[1].embeds[0].fields.find(f => /Dollar Risk/.test(f.name));
-  const dr1 = out.messages[2].embeds[0].fields.find(f => /Dollar Risk/.test(f.name));
-  const dr2 = out.messages[3].embeds[0].fields.find(f => /Dollar Risk/.test(f.name));
-  ok('FRESH dollar-risk header — "half size for FRESH"',    /half size for FRESH/.test(dr0.name));
-  ok('STILL ACTIVE dollar-risk header — "full size allowed (STILL ACTIVE)"', /full size allowed \(STILL ACTIVE\)/.test(dr1.name));
-  ok('FADING dollar-risk header explains reduced late-stage size', /quarter-size only because this is a FADING card/.test(dr2.name));
-  // Body contains dollar figures
-  ok('FRESH dollar-risk body contains "$" amount',        /\$\d+/.test(dr0.value));
-  ok('STILL ACTIVE dollar-risk body contains "$" amount', /\$\d+/.test(dr1.value));
-  ok('FADING dollar-risk body contains "$" amount',       /\$\d+/.test(dr2.value));
-  ok('dollar-risk examples are labelled model/example, not personalised advice',
-     /Model example/.test(dr0.value) && /Model example/.test(dr1.value) && /Model example/.test(dr2.value));
+  const dr0 = out.messages[1].embeds[0].fields.find(f => /Account Risk/.test(f.name));
+  const dr1 = out.messages[2].embeds[0].fields.find(f => /Account Risk/.test(f.name));
+  const dr2 = out.messages[3].embeds[0].fields.find(f => /Account Risk/.test(f.name));
+  ok('FRESH account-risk header names fresh cap', /fresh-card account-risk cap/.test(dr0.name));
+  ok('STILL ACTIVE account-risk header names standard cap', /standard account-risk cap \(STILL ACTIVE\)/.test(dr1.name));
+  ok('FADING account-risk header explains late-stage cap', /late-stage account-risk cap/.test(dr2.name));
+  ok('FRESH account-risk body contains percentage cap', /0\.5% account equity/.test(dr0.value));
+  ok('STILL ACTIVE account-risk body contains percentage cap', /0\.7% account equity/.test(dr1.value));
+  ok('FADING account-risk body contains percentage cap', /0\.25% account equity/.test(dr2.value));
+  ok('account-risk body includes price-point logic',
+     /Minimum ATLAS Buffer/.test(dr0.value) && /Technical distance/.test(dr1.value) && /Unit type/.test(dr2.value));
   const fadingState = out.messages[3].embeds[0].fields.find(f => f.name === 'ATLAS execution state').value;
   ok('FADING below-2R card is not presented as normal execution',
      /REDUCED SIZE ONLY \/ NOT PRIMARY/.test(fadingState)
@@ -625,21 +624,26 @@ console.log('\n[T20] Price precision audit — minimum buffer proof rows');
     mkRanked('GBPCAD', 5, 'Bearish', rank.SECTIONS.FX_CROSSES,  1.74, 'late'),
     mkRanked('US500',  5, 'Bullish', rank.SECTIONS.INDICES,     5200, 'mid'),
     mkRanked('GOOGL',  5, 'Bullish', rank.SECTIONS.EQUITIES,    170,  'early'),
+    mkRanked('XAUUSD', 5, 'Bearish', rank.SECTIONS.COMMODITIES,  2400, 'mid'),
   ];
   const rows = foh.buildPricePrecisionAuditRows({ top10, allCount: 4 }, { level: 'elevated' }, {
     now: Date.parse('2026-05-14T23:50:00Z'),
     universeSize: 35,
   });
-  ok('price precision audit returns one PASS row per candidate', rows.length === 4 && rows.every(r => r.status === 'PASS'), rows);
-  ok('FX rows use tight 0.0003 elevated buffer, not broad percentage range',
-     rows.filter(r => /GBP/.test(r.symbol)).every(r => r.bufferUsed === '0.0003' && /^1\.\d{4}–1\.\d{4}$/.test(r.entryZone)),
+  ok('price precision audit returns one PASS row per candidate', rows.length === 5 && rows.every(r => r.status === 'PASS'), rows);
+  ok('FX rows use pips/pipettes elevated buffer, not broad percentage range',
+     rows.filter(r => /GBP/.test(r.symbol)).every(r => /pips \/ \d+ pipettes/.test(r.bufferUsed) && /^1\.\d{5}–1\.\d{5}$/.test(r.entryZone)),
      rows);
   ok('non-FX rows carry asset-specific buffer explanations',
-     /Index: tick-aware/.test(rows.find(r => r.symbol === 'US500').whyThisBuffer)
-     && /Equity: tick-aware/.test(rows.find(r => r.symbol === 'GOOGL').whyThisBuffer),
+     /Indices use index-point distance/.test(rows.find(r => r.symbol === 'US500').whyThisBuffer)
+     && /Equities use dollars and cents/.test(rows.find(r => r.symbol === 'GOOGL').whyThisBuffer),
      rows);
-  ok('audit rows include dollar risk and R:R generated from exact bands',
-     rows.every(r => /^\$\d+/.test(r.dollarRisk) && /\d\.\dR/.test(r.rewardToRisk)),
+  ok('XAUUSD uses metal points/ticks, not FX pips',
+     /metal points/.test(rows.find(r => r.symbol === 'XAUUSD').bufferUsed)
+     && !/pip/.test(rows.find(r => r.symbol === 'XAUUSD').bufferUsed),
+     rows);
+  ok('audit rows include account risk, technical distance, and R:R generated from exact bands',
+     rows.every(r => /% account equity/.test(r.accountRisk) && r.technicalDistance && /\d\.\dR/.test(r.rewardToRisk)),
      rows);
 }
 
