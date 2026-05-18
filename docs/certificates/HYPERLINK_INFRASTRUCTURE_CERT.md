@@ -1,10 +1,10 @@
 # Hyperlink Infrastructure Certificate
 
-**Date / time (UTC):** 2026-05-18T08:15:00Z
-**Repo SHA:** `4ae3739` + this PR's commits
-**Operator brief:** ATLAS FX Full Foundation + FOH Recovery (P2 — Hyperlink infrastructure recovery)
+**Date / time (UTC):** 2026-05-18T09:43:00Z
+**Repo SHA:** `6858a90b51de38f0a6633d52d22133d89b0daf90` + Cursor addendum commits
+**Operator brief:** ATLAS FX Full Foundation + FOH Recovery addendum (P2 — Hyperlink infrastructure recovery)
 
-**Status:** SCOPE DEFERRED. Audit-only cert. Production hyperlink infrastructure work is captured here as a follow-up PR scope; the production-safe minimum is enumerated below.
+**Status:** SCOPE DEFERRED / NOT COMPLETE. Audit-only cert. Production hyperlink infrastructure work is captured here as a follow-up PR scope; the production-safe minimum is enumerated below. This must not be considered complete in the work board.
 
 ---
 
@@ -27,6 +27,56 @@ This cert records the audit finding and proposes the production-shaped scope. Th
 | No-dead-link policy enforcement | LIVE | `tests/fohNoPrivateLinks.test.js` (34 PASS) — blocks any private URL leak |
 
 The hyperlink-related primitives **already exist in this repo**. What's missing is a single registry + the per-term URL routing for Expanded Terminology + per-event Full Brief routing.
+
+## Cursor addendum audit result
+
+The addendum was run in the correct repository:
+
+```text
+herbertnathan28-123/ATLAS_DISCORD_PATHWAY
+```
+
+No code was copied from `/workspace/discord-relay`. That checkout remains the wrong source for production. The current production repo has fallback controls, private-link scrubbers, and plain-English DXY/VIX expansion, but **does not yet have** the central hyperlink registry/helper requested by the addendum.
+
+### Required item status
+
+| Required addendum item | Current status | Evidence / next action |
+|---|---|---|
+| central FOH hyperlink registry/helper | NOT IMPLEMENTED | Required follow-up: `foh/linkRegistry.js` or equivalent |
+| safe URL validation | PARTIAL | `_discordPost.js containsPrivateBackendUrl`, `_miSafeBriefStatus`, `macro/glossary.js`, `macro/roadmapLink.js` reject private/unsafe URLs |
+| no-dead-link validation | PARTIAL | `tests/fohNoPrivateLinks.test.js` blocks private links; no positive registry resolution test exists yet |
+| Expanded Terminology Hyperlinks | FALLBACK ONLY | DH terminology row exists; real URL routing not wired |
+| calendar event links | FALLBACK ONLY | MI rows show bracketed event names and `Brief Pending`; real event URLs require registry |
+| Full Brief / Brief Pending resolver | PARTIAL | `_miSafeBriefStatus` and `_miBriefUrl` handle safe `Brief Pending`; registry source missing |
+| Full Calendar resolver | FALLBACK ONLY | control strip can show `Available`; real URL target not centralised |
+| PNG/PDF/Dashboard fallback states | LIVE | `foh/headerStrip.js controlStrip` |
+| DXY → US Dollar Strength (DXY) | LIVE | `foh/foh-format.js expandMacroLabels`; `coreyMarketIntel.js _miExpandMacroLabels` |
+| VIX → Market Volatility (VIX) | LIVE | same |
+
+## Follow-up implementation contract
+
+Open a focused follow-up PR after foundation merge with these exact tasks:
+
+1. Add `foh/linkRegistry.js` with pure helpers:
+   - `isSafePublicUrl(url)`
+   - `resolveTerminologyLink(term)`
+   - `resolveCalendarEventLink(event)`
+   - `resolveFullBriefLink(eventOrSlug)`
+   - `resolveFullCalendarLink()`
+   - `resolveDashboardLink(context)`
+   - `formatLinkOrPending(label, resolution, pendingLabel)`
+2. Add a registry data source that can be fed by environment / config without hardcoding private Notion URLs.
+3. Wire `coreyMarketIntel.js` calendar rows through the registry:
+   - real safe URL → `[Event](url)`
+   - missing / unsafe URL → `[Event]` + `Full Brief: Brief Pending`
+4. Wire `darkHorseFohFormatter.js` and `darkHorseFoh.js` Expanded Terminology rows through the registry:
+   - real safe URL → visible hyperlink
+   - missing / unsafe URL → plain visible chip, not fake link
+5. Extend `tests/fohNoPrivateLinks.test.js` with positive registry tests:
+   - safe URLs accepted
+   - Notion/private/local URLs rejected
+   - missing links degrade to approved Pending labels
+   - DXY/VIX labels remain plain-English first.
 
 ## Production-safe scope (next PR)
 
@@ -68,6 +118,7 @@ The hyperlink-related primitives **already exist in this repo**. What's missing 
 - ✅ Tests already prove no dead links surface in this PR's state (`tests/fohNoPrivateLinks.test.js`)
 - ✅ Missing links already degrade safely (control-strip resolver + brief-URL safety guard already in place)
 - ✅ PR #140 helpers are reused, not duplicated (this cert lists which helpers the next PR must extend rather than re-implement)
+- ✅ Follow-up implementation contract now enumerates exact helper names, wiring points, and validation requirements
 
 ## Cannot do without (out of scope here)
 
@@ -77,4 +128,4 @@ The hyperlink-related primitives **already exist in this repo**. What's missing 
 
 ## Recommendation
 
-Ship a focused follow-up PR titled "Hyperlink registry + Expanded Terminology routing" once the operator confirms the three URL targets above. This cert is the design + acceptance contract for that next PR.
+Ship a focused follow-up PR titled "Hyperlink registry + Expanded Terminology routing" once the operator confirms the three URL targets above. This cert is the design + acceptance contract for that next PR. Until then, hyperlink infrastructure must remain marked **blocked / not complete**, even though safe fallbacks are working.
