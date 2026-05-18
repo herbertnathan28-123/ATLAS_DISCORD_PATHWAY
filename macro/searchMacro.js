@@ -4,7 +4,8 @@
 // ATLAS FX - user macro search path
 //
 // Handles operator/user searches such as:
-//   EURUSD macro, NFP impact, today's major events, next 72 hours macro
+//   EURUSD macro, AMD macro, NFP impact, today's major events,
+//   next 72 hours macro
 // and routes them through the live calendar interpreter plus Corey,
 // Corey Clone, Spidey (where relevant), Jane, and FOH validation.
 // ============================================================
@@ -38,6 +39,16 @@ const SYMBOL_ALIASES = Object.freeze({
   XAG: 'XAGUSD',
 });
 
+// Operator fix 2026-05-19: macro search must be symbol-first. A query
+// like `!AMD macro` must resolve AMD before global calendar ranking and
+// must not be hijacked by an unrelated top-ranked JPY event.
+const EQUITY_SYMBOLS = Object.freeze(new Set([
+  'AMD','NVDA','MU','ASML','AAPL','MSFT','META','GOOGL','GOOG','AMZN','TSLA','NFLX','AVGO','INTC','SMCI','ORCL','CRM','QCOM','AMAT','TSM',
+]));
+const INDEX_SYMBOLS = Object.freeze(new Set(['NAS100','US500','US30','GER40','UK100','JPN225']));
+const COMMODITY_SYMBOLS = Object.freeze(new Set(['XAUUSD','XAGUSD','USOIL','UKOIL','BCOUSD','WTI','BRENT']));
+const SEMI_SYMBOLS = Object.freeze(new Set(['AMD','NVDA','MU','ASML','AVGO','INTC','SMCI','QCOM','AMAT','TSM']));
+
 const EVENT_FAMILIES = Object.freeze([
   { target: 'NFP', eventType: 'employment', currency: 'USD', strictCurrency: true, patterns: [/\bnfp\b/i, /nonfarm/i, /payroll/i] },
   { target: 'CPI', eventType: 'inflation', currency: 'USD', patterns: [/\bcpi\b/i, /inflation/i, /\bpce\b/i] },
@@ -68,6 +79,19 @@ function resolveSymbolToken(token) {
   return SYMBOL_ALIASES[up] || up;
 }
 
+function isSupportedMacroSymbol(symbol) {
+  const s = String(symbol || '').toUpperCase();
+  if (!s) return false;
+  if (s === 'DXY') return true;
+  if (/^[A-Z]{6}$/.test(s)) return true;
+  if (INDEX_SYMBOLS.has(s) || COMMODITY_SYMBOLS.has(s) || EQUITY_SYMBOLS.has(s)) return true;
+  return false;
+}
+
+function isEquitySymbol(symbol) { return EQUITY_SYMBOLS.has(String(symbol || '').toUpperCase()); }
+function isIndexSymbol(symbol) { return INDEX_SYMBOLS.has(String(symbol || '').toUpperCase()); }
+function isCommoditySymbol(symbol) { return COMMODITY_SYMBOLS.has(String(symbol || '').toUpperCase()); }
+
 function resolveMacroSearch(query) {
   const raw = normaliseQuery(query);
   const lower = raw.toLowerCase();
@@ -83,7 +107,7 @@ function resolveMacroSearch(query) {
     }
   }
   const first = resolveSymbolToken(raw.split(/\s+/)[0]);
-  if (/^(DXY|[A-Z]{6}|NAS100|US500|US30|GER40|UK100|JPN225|XAUUSD|XAGUSD)$/.test(first)) {
+  if (isSupportedMacroSymbol(first)) {
     return { resolved_type: 'symbol', resolved_target: first, displayTarget: first };
   }
   return { resolved_type: 'unknown', resolved_target: raw || 'unknown', displayTarget: raw || 'unknown' };
@@ -91,6 +115,7 @@ function resolveMacroSearch(query) {
 
 function leadSymbolForTarget(target, type, focus) {
   const t = String(target || '').toUpperCase();
+  if (type === 'symbol' && isSupportedMacroSymbol(t) && t !== 'DXY') return t;
   if (/^[A-Z]{6}$/.test(t)) return t;
   if (t === 'DXY') return 'EURUSD';
   const ccy = String((focus && focus.currency) || '').toUpperCase();
@@ -119,15 +144,80 @@ function fallbackAffectedMarketsForEvent(resolution) {
   return ['DXY', 'EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US500', 'NAS100'];
 }
 
+function fallbackAffectedMarketsForSymbol(symbol) {
+  const s = String(symbol || '').toUpperCase();
+  if (isEquitySymbol(s)) {
+    const peers = SEMI_SYMBOLS.has(s) ? ['NVDA','MU','ASML'] : ['AAPL','MSFT','AMZN'];
+    return Array.from(new Set([s, 'NAS100', 'US500', 'DXY', 'VIX'].concat(peers.filter(p => p !== s)))).slice(0, 9);
+  }
+  if (isIndexSymbol(s)) return [s, 'DXY', 'VIX', 'XAUUSD', 'USDJPY', 'NAS100', 'US500'].filter((v, i, a) => a.indexOf(v) === i);
+  if (isCommoditySymbol(s)) return [s, 'DXY', 'VIX', 'US500', 'USDJPY'];
+  if (/^[A-Z]{6}$/.test(s)) return [s, 'DXY', 'VIX', 'XAUUSD', 'US500'];
+  if (s === 'DXY') return ['DXY', 'EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US500', 'NAS100'];
+  return [s, 'DXY', 'VIX', 'US500', 'NAS100'].filter(Boolean);
+}
+
 function symbolAffectedByEvent(symbol, ev) {
   if (!symbol || !ev) return false;
-  if (Array.isArray(ev.affectedMarkets) && ev.affectedMarkets.includes(symbol)) return true;
-  if (Array.isArray(ev.affectedInstruments) && ev.affectedInstruments.includes(symbol)) return true;
-  if (/^[A-Z]{6}$/.test(symbol)) {
-    return symbol.slice(0, 3) === ev.currency || symbol.slice(3) === ev.currency || ev.currency === 'USD';
+  const s = String(symbol || '').toUpperCase();
+  if (Array.isArray(ev.affectedMarkets) && ev.affectedMarkets.includes(s)) return true;
+  if (Array.isArray(ev.affectedInstruments) && ev.affectedInstruments.includes(s)) return true;
+  if (/^[A-Z]{6}$/.test(s)) {
+    return s.slice(0, 3) === ev.currency || s.slice(3) === ev.currency || ev.currency === 'USD';
   }
-  if (symbol === 'DXY') return ev.currency === 'USD' || /inflation|employment|central_bank|rate_decision|gdp/.test(ev.eventType || '');
+  if (s === 'DXY') return ev.currency === 'USD' || /inflation|employment|central_bank|rate_decision|gdp/.test(ev.eventType || '');
+  if (isEquitySymbol(s) || isIndexSymbol(s)) {
+    if (ev.currency === 'USD') return true;
+    const hay = [ev.title, ev.eventType, ev.currency].filter(Boolean).join(' ');
+    return /fomc|fed|rate|yield|cpi|inflation|pce|nfp|payroll|jobs|retail|gdp|pmi|ism|tariff|sanction|geopolit|risk/i.test(hay);
+  }
+  if (isCommoditySymbol(s)) {
+    const hay = [ev.title, ev.eventType, ev.currency].filter(Boolean).join(' ');
+    return ev.currency === 'USD' || /inflation|rate|yield|gdp|pmi|geopolit|oil|inventory|risk/i.test(hay);
+  }
   return false;
+}
+
+function buildSymbolFocus(packet, resolution) {
+  const symbol = resolution.resolved_target;
+  const allEvents = []
+    .concat(packet.todayAnnouncements || [])
+    .concat(packet.next72Hours || []);
+  const match = allEvents.find(e => symbolAffectedByEvent(symbol, e));
+  const affected = fallbackAffectedMarketsForSymbol(symbol);
+  if (match) return Object.assign({}, packet.primaryEventFocus, {
+    title: symbol + ' macro exposure — ' + match.title,
+    currency: isEquitySymbol(symbol) || isIndexSymbol(symbol) ? 'USD' : (match.currency || 'multi'),
+    eventType: 'selected_symbol_macro',
+    timeUTC: match.scheduledTimeUTC || match.timeUTC,
+    session: match.session,
+    expectedImpact: match.severity,
+    whyPrimary: symbol + ' was selected first. This read prioritises ' + symbol + ' exposure, then maps the relevant live catalyst through USD, yields, equity risk appetite, volatility, and peer/sector beta.',
+    affectedMarkets: affected,
+    volatilityWindow: match.volatilityWindow || 'Read first reaction from T-15 to T+30 minutes, then require the first confirmed close before treating direction as reliable.',
+    strongerThanExpectedPath: symbol + ' strengthens only if the catalyst improves risk appetite / sector beta and US Dollar Strength (DXY), yields, and Market Volatility (VIX) do not contradict the move.',
+    weakerThanExpectedPath: symbol + ' weakens if the catalyst tightens financial conditions, lifts yields/DXY against equities, or volatility confirms risk-off flow.',
+    inLinePath: 'In-line result keeps ' + symbol + ' dependent on live price structure, NAS100/US500 flow, and sector confirmation.',
+    reversalRisk: 'Equity-symbol macro reads are fragile until NAS100/US500, US Dollar Strength (DXY), yields, and Market Volatility (VIX) confirm the first move.',
+    confidenceBasis: 'Selected by macro-search symbol resolver for ' + symbol + '; symbol-first routing overrides unrelated global calendar leaders.',
+  });
+  return Object.assign({}, packet.primaryEventFocus, {
+    title: symbol + ' macro exposure — symbol-first read',
+    currency: isEquitySymbol(symbol) || isIndexSymbol(symbol) ? 'USD' : 'multi',
+    eventType: 'selected_symbol_macro',
+    timeUTC: null,
+    session: 'symbol-first live context',
+    expectedImpact: 'SYMBOL_CONTEXT',
+    whyPrimary: symbol + ' was requested directly. No matching high-confidence live event row was found, so ATLAS keeps the read anchored to ' + symbol + ' and maps broader cross-asset drivers as context only.',
+    affectedMarkets: affected,
+    volatilityWindow: 'No selected-symbol release window. Read live price structure, NAS100/US500, US Dollar Strength (DXY), yields, and Market Volatility (VIX).',
+    strongerThanExpectedPath: symbol + ' strengthens if price structure confirms while NAS100/US500 and sector peers support the move.',
+    weakerThanExpectedPath: symbol + ' weakens if yields/DXY/volatility reject equity risk or price fails the first confirmed close.',
+    inLinePath: 'No direct catalyst means direction remains structure-led.',
+    reversalRisk: 'High until live structure confirms because no selected-symbol catalyst is active.',
+    confidenceBasis: 'Symbol-first macro-search degraded to selected-symbol context; no unrelated calendar event may become primary focus.',
+    noLiveMatch: true,
+  });
 }
 
 function selectFocus(packet, resolution) {
@@ -166,18 +256,7 @@ function selectFocus(packet, resolution) {
     });
   }
   if (resolution.resolved_type === 'symbol') {
-    const match = allEvents.find(e => symbolAffectedByEvent(resolution.resolved_target, e));
-    if (match) return Object.assign({}, packet.primaryEventFocus, {
-      title: match.title,
-      currency: match.currency,
-      eventType: match.eventType,
-      timeUTC: match.scheduledTimeUTC || match.timeUTC,
-      session: match.session,
-      expectedImpact: match.severity,
-      whyPrimary: (resolution.resolved_target + ' is exposed to ' + match.title + ' through ' + (match.currency || 'macro') + ' transmission.'),
-      affectedMarkets: match.affectedMarkets || packet.primaryEventFocus.affectedMarkets,
-      confidenceBasis: 'Selected by macro-search symbol resolver for ' + resolution.resolved_target,
-    });
+    return buildSymbolFocus(packet, resolution);
   }
   return packet.primaryEventFocus;
 }
@@ -400,6 +479,7 @@ function logProof(ctx) {
   logs.push('[MACRO-SEARCH] query=' + ctx.query);
   logs.push('[MACRO-SEARCH] resolved_type=' + ctx.resolution.resolved_type);
   logs.push('[MACRO-SEARCH] resolved_target=' + ctx.resolution.resolved_target);
+  logs.push('[MACRO-SEARCH] lead_symbol=' + ctx.leadSymbol);
   logs.push('[MACRO] calendar_source=' + calendarSource);
   logs.push('[MACRO] source_used=' + sourceUsed);
   logs.push('[COREY] status=' + ctx.coreyStatus);
@@ -517,6 +597,7 @@ async function runMacroSearch(query, opts) {
   const ctx = {
     query: cleanQuery,
     resolution,
+    leadSymbol,
     macroPacket,
     coreyStatus: publicStatus(sourceStatus.corey),
     cloneSummary,
