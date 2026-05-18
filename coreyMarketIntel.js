@@ -257,6 +257,32 @@ function _miMacroSourceLine(macroPacket, health) {
   return source + ' ' + mode + degraded;
 }
 
+// Last-line-of-defence expander for narrative fields that arrive
+// from the upstream macro packet (mechanism, whyThisRating,
+// confirmationCondition, etc). User-facing terminology doctrine
+// requires plain-English first — "Market Volatility (VIX)" not
+// bare "VIX", "US Dollar Strength (DXY)" not bare "DXY". The
+// formatter already swaps bucket / symbol labels via macroLabel;
+// this expander catches the leaks in free-form narrative copy.
+// MACRO_LABELS is defined later in the file; we read it lazily so
+// hoisting order doesn't matter.
+function _miExpandMacroLabels(text) {
+  if (typeof text !== 'string' || !text) return text;
+  const labels = (typeof MACRO_LABELS === 'object' && MACRO_LABELS) || {};
+  let out = text;
+  for (const abbr of Object.keys(labels)) {
+    const expanded = labels[abbr];
+    if (!expanded || expanded === abbr) continue;
+    // Skip when the abbreviation is already inside its bracketed
+    // expansion (e.g. "US Dollar Strength (DXY)") — match a bare
+    // token boundary that is NOT preceded by '(' and NOT followed
+    // by ')'.
+    const re = new RegExp('(^|[^A-Za-z0-9(])' + abbr + '(?![A-Za-z0-9)])', 'g');
+    out = out.replace(re, (_m, lead) => lead + expanded);
+  }
+  return out;
+}
+
 function _miRankedEventRows(macroPacket, opts) {
   opts = opts || {};
   const rows = [];
@@ -322,24 +348,48 @@ function _miImpactGlyph(row) {
   return '🟡';
 }
 
+// Decides whether the row's `fullBrief` field is a real route or
+// the 'Brief Pending' fallback. Real routes (matched by
+// _miSafeBriefStatus upstream) are rendered as Discord
+// `[Event Name](url)` markdown links — Discord paints those cyan.
+// Pending rows fall back to bracketed plain text so the event name
+// still visually distinguishes from the surrounding columns.
+function _miBriefUrl(value) {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  if (!v || v === 'Brief Pending') return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^\/market-intel\/brief\//.test(v)) return v;
+  return null;
+}
+
 function _miRankedCalendarBlock(macroPacket, opts) {
   const rows = _miRankedEventRows(macroPacket, opts);
   if (!rows.length) {
     return [
-      '⚪ pending | multi | LOW | Broader market calendar pending',
+      '⚪ pending | multi | LOW | [Broader market calendar pending]',
       'Affected: Affected markets pending',
       'Full Brief: Brief Pending',
     ].join('\n');
   }
   return rows.map(r => {
     const markets = r.affectedMarkets && r.affectedMarkets.length
-      ? r.affectedMarkets.slice(0, 6).map(symbolDisplay).join(' · ')
+      ? r.affectedMarkets.slice(0, 4).map(symbolDisplay).join(' · ')
       : 'Affected markets pending';
     const glyph = _miImpactGlyph(r);
+    const cleanTitle = _miShort(humanizeTitle(r.title), 60);
+    const briefUrl = _miBriefUrl(r.fullBrief);
+    // Event name renders as a cyan Discord link when the Full
+    // Brief route is real; falls back to bracketed plain text
+    // (still visually distinguished from the surrounding columns)
+    // when the Brief is pending.
+    const eventCell = briefUrl
+      ? '[' + cleanTitle + '](' + briefUrl + ')'
+      : '[' + cleanTitle + ']';
     const line1 = glyph + ' ' + _miShort(r.timeUTC || 'pending', 10)
       + ' | ' + _miShort(r.currency || 'multi', 6)
       + ' | ' + _miShort(r.impact || 'MED', 8)
-      + ' | ' + _miShort(humanizeTitle(r.title), 40);
+      + ' | ' + eventCell;
     const line2 = 'Affected: ' + _miShort(markets, 80);
     const line3 = 'Full Brief: ' + _miShort(r.fullBrief || 'Brief Pending', 60);
     return [line1, line2, line3].join('\n');
@@ -363,9 +413,9 @@ function _miAffectedSymbolsFrom(macroPacket, fallbackSymbols) {
 function _miRiskWindows(macroPacket) {
   const sessionRisk = macroPacket && macroPacket.sessionRisk;
   const windows = sessionRisk && Array.isArray(sessionRisk.namedWindows) ? sessionRisk.namedWindows.filter(Boolean) : [];
-  if (windows.length) return windows.slice(0, 4).map(w => '• ' + w);
+  if (windows.length) return windows.slice(0, 3).map(w => '• ' + w);
   const clusters = macroPacket && Array.isArray(macroPacket.eventClusters) ? macroPacket.eventClusters : [];
-  const out = clusters.slice(0, 4).map(c => {
+  const out = clusters.slice(0, 3).map(c => {
     const start = c.startUTC || c.startTimeUTC || c.windowStartUTC || (c.events && c.events[0] && (c.events[0].timeUTC || c.events[0].time));
     const end = c.endUTC || c.endTimeUTC || c.windowEndUTC || '';
     const label = [c.session, start && end ? (start + '-' + end + ' UTC') : start, c.currency, c.clusterImpact || c.severity].filter(Boolean).join(' · ');
@@ -468,67 +518,86 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
   const affectedSymbols = _miAffectedSymbolsFrom(macroPacket, opts.affectedSymbols || []);
   const rankedRows = _miRankedEventRows(macroPacket, { now: NOW, limit: 8 });
   const sourceLine = _miMacroSourceLine(macroPacket, health);
-  const sourceNote = 'Source note: ' + sourceLine + ' · calendar_raw_count=' + (macroPacket.calendarEventsRawCount != null ? macroPacket.calendarEventsRawCount : events.length) +
-    ' · next_24h_count=' + next24Count +
-    ' · next72_count=' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) +
+  const sourceNote = 'Source note: ' + sourceLine + ' · cal=' + (macroPacket.calendarEventsRawCount != null ? macroPacket.calendarEventsRawCount : events.length) +
+    ' · 24h=' + next24Count +
+    ' · 72h=' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) +
     ' · clusters=' + (Array.isArray(macroPacket.eventClusters) ? macroPacket.eventClusters.length : 0);
 
   // Control strip sits under the top boxed heading per the FOH
   // download-controls spec. PNG / PDF are flagged Brief Pending
   // because the 3-message daily_brief dispatch path does not yet
   // thread the imagePayload through to a multipart attachment;
-  // the Full Briefs row defers to live brief routing.
+  // Full Calendar + Terminology are wired (the calendar feed
+  // backing the roadmap is the live TradingView source, and the
+  // Expanded Terminology block exists upstream); Full Briefs
+  // defers to live brief routing.
   const controlStrip = _miControlStrip({
     png: 'pending',
     pdf: 'pending',
-    dashboard: 'pending',
-    dashboardLabel: 'Full Briefs',
+    calendar: 'available',
     glossary: 'available',
+    dashboard: 'pending',
+    rows: ['png', 'pdf', 'calendar', 'glossary', 'dashboard'],
+    labels: {
+      png:       '🖼️ PNG',
+      pdf:       '📄 PDF',
+      calendar:  '📅 Full Calendar',
+      glossary:  '📘 Terminology',
+      dashboard: '🔗 Full Briefs',
+    },
   });
 
+  // Risk-state colour follows the operator spec:
+  //   EXTREME → red, HIGH → orange, MEDIUM → yellow, LOW → grey.
+  const riskLabelRaw = String((r.label || '')).toUpperCase();
+  const riskColor = /EXTREME/.test(riskLabelRaw) ? 'red'
+    : /HIGH|ACTIVE|STRESS/.test(riskLabelRaw) ? 'orange'
+    : /MED|MODERATE/.test(riskLabelRaw) ? 'yellow'
+    : /LOW|CALM|QUIET/.test(riskLabelRaw) ? 'grey'
+    : 'grey';
+
   const msg1 = [
-    _miBoxHeader('📡 MARKET INTEL · DAILY ROADMAP'),
+    _miBoxHeader('📡 MARKET INTEL · DAILY ROADMAP', { color: 'cyan' }),
     controlStrip,
     '',
-    _miBoxHeader('🔥 THE CALL'),
+    _miBoxHeader('🔥 THE CALL', { color: 'red' }),
     'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
     'Current read: MONITORING — calendar risk leads until Jane / structure confirms a tradable path.',
-    'Next confirmation point: ' + (p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
+    'Next confirmation point: ' + _miExpandMacroLabels(p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
     '',
-    _miBoxHeader("📅 TODAY'S RANKED EVENT CALENDAR"),
-    'TIME | CCY | IMPACT | EVENT | AFFECTED MARKETS | FULL BRIEF',
-    _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 5 }),
+    _miBoxHeader("📅 TODAY'S RANKED EVENT CALENDAR", { color: 'yellow' }),
+    _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 4 }),
     '',
-    _miBoxHeader('⚠️ RISK STATE'),
-    'Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + (r.whyThisRating || 'risk basis unavailable'),
+    _miBoxHeader('⚠️ RISK STATE', { color: riskColor }),
+    'Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + _miExpandMacroLabels(r.whyThisRating || 'risk basis unavailable'),
     'Key windows:',
-    _miRiskWindows(macroPacket).join('\n'),
+    _miRiskWindows(macroPacket).map(_miExpandMacroLabels).join('\n'),
     '',
     sourceNote,
   ].join('\n');
 
   const msg2 = [
-    _miBoxHeader('🌍 MARKET IMPACT'),
-    _miMarketImpactCards(macroPacket).join('\n'),
+    _miBoxHeader('🌍 MARKET IMPACT', { color: 'blue' }),
+    _miMarketImpactCards(macroPacket).map(_miExpandMacroLabels).join('\n'),
     '',
-    _miBoxHeader('🎯 AFFECTED MARKETS'),
-    _miAffectedMarketCards(macroPacket, affectedSymbols).join('\n'),
+    _miBoxHeader('🎯 AFFECTED MARKETS', { color: 'cyan' }),
+    _miAffectedMarketCards(macroPacket, affectedSymbols).map(_miExpandMacroLabels).join('\n'),
     '',
-    _miBoxHeader('✅ CONFIRMATION / DEGRADATION'),
-    'Confirmation: ' + (p.confidenceBasis || 'first 5M / 15M close agrees with the lead market and live macro drivers.'),
-    'Degradation: ' + (macroPacket.degradedReason || 'none from calendar packet') + '. Downgrade if US Dollar Strength (DXY), Market Volatility (VIX), yields, Corey Clone, or Spidey contradict the primary path.',
+    _miBoxHeader('✅ CONFIRMATION / DEGRADATION', { color: 'green' }),
+    'Confirmation: ' + _miExpandMacroLabels(p.confidenceBasis || 'first 5M / 15M close agrees with the lead market and live macro drivers.'),
+    'Degradation: ' + _miExpandMacroLabels(macroPacket.degradedReason || 'none from calendar packet') + '. Downgrade if US Dollar Strength (DXY), Market Volatility (VIX), yields, Corey Clone, or Spidey contradict the primary path.',
     '',
     sourceNote,
   ].join('\n');
 
   const msg3 = [
-    _miBoxHeader('🗓️ FORWARD PLANNING'),
+    _miBoxHeader('🗓️ FORWARD PLANNING', { color: 'yellow' }),
     'Next 24h: ' + next24Count + ' scheduled event(s). Next 72h: ' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) + ' ranked relevant event(s).',
     'Primary event: ' + humanizeTitle(p.title || 'none') + '. Prepare around named windows; outside them, read live US Dollar Strength (DXY), Market Volatility (VIX), yields, and liquidity.',
     'Ranked coverage: ' + (rankedRows.length ? rankedRows.map(e => humanizeTitle(e.title)).slice(0, 4).join(' | ') : 'Brief Pending until the next live packet resolves ranked events.'),
     '',
-    _miBoxHeader('🔗 FULL BRIEF / BRIEF PENDING'),
-    _miBriefRows(macroPacket).join('\n'),
+    _miBoxHeader('🔗 FULL BRIEF / BRIEF PENDING', { color: 'cyan' }),
+    _miBriefRows(macroPacket).map(_miExpandMacroLabels).join('\n'),
     '',
     sourceNote,
   ].join('\n');
