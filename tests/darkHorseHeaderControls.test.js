@@ -52,7 +52,7 @@ console.log('\nT2 — DH Movement Digest leads with the boxed report heading + c
 const payload = rank.buildRankedMovementDigestPayload(ranking, { level: 'elevated', vixLevel: 'Elevated' }, { now: Date.parse('2026-05-18T05:00:00Z') });
 const content = payload && payload.content || '';
 
-if (/^╔═+╗\n║ 🐎 ATLAS · DARK HORSE · MOVEMENT DIGEST\s+║\n╚═+╝/.test(content)) ok('content opens with the boxed ATLAS DARK HORSE MOVEMENT DIGEST heading');
+if (/^```ansi\n[\s\S]*ATLAS · DARK HORSE · MOVEMENT DIGEST[\s\S]*\n```/.test(content)) ok('content opens with the coloured boxed ATLAS DARK HORSE MOVEMENT DIGEST heading');
 else fail('content does not open with the boxed report heading', content.slice(0, 200));
 
 const dhStrip = content.match(/🖼️ Download PNG: ([^\n]+)\n📄 Download PDF: ([^\n]+)\n🔗 Open Dashboard: ([^\n]+)\n📘 Expanded Terminology: ([^\n]+)/);
@@ -70,9 +70,10 @@ else fail('Expanded Terminology strip line not Available');
 
 const boxIdx = content.indexOf('║ 🐎 ATLAS · DARK HORSE · MOVEMENT DIGEST');
 const stripIdx = content.indexOf('🖼️ Download PNG:');
+const scanIdx = content.indexOf('NEW DARK HORSE SCAN');
 const surfaceIdx = content.indexOf('🐎 **ATLAS · DARK HORSE · FOH OPERATOR SURFACE**');
-if (boxIdx >= 0 && stripIdx > boxIdx && surfaceIdx > stripIdx) ok('order: boxed report heading → control strip → existing OPERATOR SURFACE banner');
-else fail('top-of-report ordering drifted', { boxIdx, stripIdx, surfaceIdx });
+if (boxIdx >= 0 && stripIdx > boxIdx && scanIdx > stripIdx && surfaceIdx > scanIdx) ok('order: boxed report heading → control strip → new scan alert → existing OPERATOR SURFACE banner');
+else fail('top-of-report ordering drifted', { boxIdx, stripIdx, scanIdx, surfaceIdx });
 
 if (/🐎 \*\*ATLAS · DARK HORSE · FOH OPERATOR SURFACE\*\*/.test(content)) ok('legacy OPERATOR SURFACE banner preserved for downstream regressions');
 else fail('OPERATOR SURFACE banner removed — would break chunker / education QA');

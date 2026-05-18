@@ -359,10 +359,10 @@ console.log('\n[T10] Learning Links row — position, content, plain-term defaul
   const payloadPlain = rank.buildRankedMovementDigestPayload(ranking, { level: 'elevated', vixLevel: 'Elevated' }, { now: Date.parse('2026-05-12T04:00:00Z') });
   const c = payloadPlain.content;
   // FOH terminology row is plain text, no Markdown links by default.
-  ok('FOH terminology row present', /🟦 \*\*Expanded Terminology\*\* ·/.test(c), c.slice(0, 400));
+  ok('FOH terminology row present', /🟦 \*\*EXPANDED TERMINOLOGY HYPERLINKS\*\* ·/.test(c), c.slice(0, 400));
   const idxHeader     = c.indexOf('🐎 **ATLAS · DARK HORSE · FOH OPERATOR SURFACE**');
   const idxGlobalRead = c.indexOf('### 🌐 Market atmosphere');
-  const idxTerminology = c.indexOf('🟦 **Expanded Terminology**');
+  const idxTerminology = c.indexOf('🟦 **EXPANDED TERMINOLOGY HYPERLINKS**');
   const idxSepSection = c.indexOf('📡 SECTION RADAR');
   ok('FOH header found',       idxHeader      >= 0);
   ok('global-read found',      idxGlobalRead  >  idxHeader);
@@ -712,7 +712,7 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
   });
   ok('chunker produces at least 1 chunk', chunks.length >= 1);
   ok('Part 1 starts with the FOH transport label, then the boxed report heading + control strip + OPERATOR SURFACE banner',
-     /^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part 1\/\d+\n\n╔═{20,}╗\n║[^\n]+║\n╚═{20,}╝\n🖼️ Download PNG: [^\n]+\n📄 Download PDF: [^\n]+\n🔗 [^\n]+\n📘 Expanded Terminology: [^\n]+\n\n🐎 \*\*ATLAS · DARK HORSE · FOH OPERATOR SURFACE\*\*/.test(chunks[0]),
+     /^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part 1\/\d+\n\n(?:```ansi\n)?[\s\S]{0,260}🖼️ Download PNG: [^\n]+\n📄 Download PDF: [^\n]+\n🔗 [^\n]+\n📘 Expanded Terminology: [^\n]+\n\n```diff\n[\s\S]*NEW DARK HORSE SCAN[\s\S]*\n```\n\n🐎 \*\*ATLAS · DARK HORSE · FOH OPERATOR SURFACE\*\*/.test(chunks[0]),
      { head: chunks[0].slice(0, 400) });
   for (let i = 1; i < chunks.length; i++) {
     ok(`Part ${i + 1}/${chunks.length} does NOT carry the OPERATOR SURFACE banner`,
@@ -793,7 +793,7 @@ console.log('\n[T15] Learning-link routing status — plain text default; Markdo
   // the live formatter emits the plain FOH terminology row instead
   // of the legacy Learning Links row. No Markdown links should be
   // present anywhere in that row.
-  const termIdx = payloadPlain.content.indexOf('🟦 **Expanded Terminology**');
+  const termIdx = payloadPlain.content.indexOf('🟦 **EXPANDED TERMINOLOGY HYPERLINKS**');
   ok('no urlMap → FOH terminology row present (plain text)',
      termIdx >= 0);
   ok('no urlMap → row carries NO Markdown [text](url) patterns',

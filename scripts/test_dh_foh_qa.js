@@ -449,14 +449,14 @@ console.log('\n[T14] Lifecycle badges — FRESH/STILL ACTIVE/FADING — no dashe
   ];
   const out = foh.buildDarkHorseFohPayload({ top10, allCount: 33 }, null, { now: Date.parse('2026-05-13T12:00:00Z') });
   // FRESH / initial standout = yellow boxed separator
-  ok('initial standout separator uses yellow boxed code block', /^```\n┌[\s\S]*🟨🟨 INITIAL STANDOUT/m.test(out.messages[1].content));
+  ok('initial standout separator uses yellow boxed code block', /^```ansi\n[\s\S]*INITIAL STANDOUT/m.test(out.messages[1].content));
   ok('initial standout separator explains first active on this scan', /First active on this scan/.test(out.messages[1].content));
   // STILL ACTIVE = Discord-native amber/orange boxed code block
-  ok('STILL ACTIVE separator uses amber boxed code block', /^```\n┌[\s\S]*🟧🟧 STILL ACTIVE/m.test(out.messages[2].content));
+  ok('STILL ACTIVE separator uses amber boxed code block', /^```ansi\n[\s\S]*STILL ACTIVE/m.test(out.messages[2].content));
   ok('STILL ACTIVE separator contains "STILL ACTIVE" label', /STILL ACTIVE/.test(out.messages[2].content));
-  ok('STILL ACTIVE separator shows first-logged validity age', /First logged \d{2}\/\d{2}\/\d{2} \d{2}:\d{2} UTC · still Dark Horse worthy after/.test(out.messages[2].content));
+  ok('STILL ACTIVE separator shows first-logged / first-active validity age', /First logged: \d{2}\/\d{2}\/\d{2} \d{2}:\d{2} UTC · First active: \d{2}\/\d{2}\/\d{2} \d{2}:\d{2} UTC · Still Dark Horse worthy after/.test(out.messages[2].content));
   // FADING = Discord-native muted red/orange boxed code block
-  ok('FADING separator uses red-orange boxed code block', /^```\n┌[\s\S]*🟥🟧 FADING/m.test(out.messages[3].content));
+  ok('FADING separator uses red-orange boxed code block', /^```ansi\n[\s\S]*FADING/m.test(out.messages[3].content));
   ok('FADING separator contains "FADING" label',         /FADING/.test(out.messages[3].content));
   // No dashed text fallback anywhere
   const allText = out.messages.map(m => (m.content || '') + JSON.stringify(m.embeds || '')).join('\n');

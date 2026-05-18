@@ -63,7 +63,7 @@ console.log('\nT2 — lifecycle colour and validity treatment:');
 ok('initial standout separator is yellow', /🟨🟨 INITIAL STANDOUT • STANDOUT #1 of 3/.test(fresh));
 ok('initial standout states it first became active on this scan', /First active on this scan/.test(fresh));
 ok('still-active separator is orange and ranked', /🟧🟧 STILL ACTIVE • STANDOUT #2 of 3/.test(active));
-ok('still-active separator carries first logged timestamp plus elapsed validity', /First logged 15\/05\/26 14:00 UTC · still Dark Horse worthy after 2 days 4 hrs 20 mins/.test(active));
+ok('still-active separator carries first logged / first active timestamp plus elapsed validity', /First logged: 15\/05\/26 14:00 UTC · First active: 15\/05\/26 14:00 UTC · Still Dark Horse worthy after 2d 4h 20m/.test(active));
 ok('fading separator remains distinct from initial and still-active colours', /🟥🟧 FADING • STANDOUT #3 of 3/.test(fading));
 
 console.log('\nT3 — supporting prototype sections remain visible:');

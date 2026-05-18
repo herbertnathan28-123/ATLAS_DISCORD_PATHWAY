@@ -1,10 +1,48 @@
-# ATL-6 — Dark Horse FOH v6 prototype parity proof
+# ATL-6 — Dark Horse FOH v6 Cursor-rewrite visual parity proof
 
-**Endpoint:** PROTOTYPE PARITY PASS
+**Endpoint:** CURSOR REWRITE VISUAL PARITY PASS
 
-Source of truth: `docs/screenshots/dh-foh-v6-*.png` generated from `scripts/render_dh_foh_v6_preview.js::SAMPLE_MESSAGES`.
+Source of truth for this proof: `darkHorseFoh.buildDarkHorseFohPayload()` rendered through the live-path fixture and chart-card PNG attachment renderer.
 
-Current staged output: `darkHorseFoh.buildDarkHorseFohPayload()` rendered through the live-path fixture and chart-card PNG attachment renderer.
+Hard boundary observed: this proof run does not touch scoring, thresholds, scanner logic, Corey, Jane, Spidey, scheduler, transport, market selection, candidate promotion rules, macro engine, structural engine, decision engine, or Discord send/chunking/cooldown logic.
+
+## iPad-readable proof gate
+
+### 1. Full-width Discord output screenshot
+
+<img src="dh-foh-v6-live-current.png" width="720" />
+
+### 2. Zoomed crop — NEW DARK HORSE SCAN
+
+<img src="dh-foh-v6-live-current-detail-new-dark-horse-scan.png" width="720" />
+
+### 3. Zoomed crop — STANDOUTS — TODAY'S STRONGEST MOVERS
+
+<img src="dh-foh-v6-live-current-detail-standouts-strongest-movers.png" width="720" />
+
+### 4. Zoomed crop — EXPANDED TERMINOLOGY HYPERLINKS
+
+<img src="dh-foh-v6-live-current-detail-expanded-terminology-hyperlinks.png" width="720" />
+
+### 5. Zoomed crop — STILL ACTIVE heading
+
+<img src="dh-foh-v6-live-current-detail-still-active-heading.png" width="720" />
+
+### 6. Zoomed crop — first logged / first active timestamp + active duration
+
+<img src="dh-foh-v6-live-current-detail-still-active-first-logged-duration.png" width="720" />
+
+### 7. Zoomed crop — Entry / Watch / Caution / Invalidation zones
+
+<img src="dh-foh-v6-live-current-detail-still-active-entry-watch-caution-invalidation-zones-1.png" width="720" />
+
+<img src="dh-foh-v6-live-current-detail-still-active-entry-watch-caution-invalidation-zones-2.png" width="720" />
+
+<img src="dh-foh-v6-live-current-detail-still-active-entry-watch-caution-invalidation-zones-3.png" width="720" />
+
+### 8. Zoomed crop — matching heading / text / rendered chart colours
+
+<img src="dh-foh-v6-live-current-detail-matching-heading-text-rendering-colours.png" width="720" />
 
 ## Side-by-side proof
 
@@ -20,7 +58,13 @@ Current staged output: `darkHorseFoh.buildDarkHorseFohPayload()` rendered throug
 
 | Required surface / check | Status | Exact delta |
 |---|---|---|
-| Banner | PASS | Visual hierarchy preserved. Candidate starts in M2 to stay under Discord content cap. |
+| NEW DARK HORSE SCAN alert | PASS | Red diff alert is visually stronger than plain ASCII and sits at the top of the Discord output. |
+| STANDOUTS — TODAY'S STRONGEST MOVERS | PASS | Gold/yellow section identity preserved. |
+| FRESH / initial standout | PASS | Yellow/gold lifecycle treatment. |
+| STILL ACTIVE standout | PASS | Orange/amber lifecycle treatment with first logged, first active, and active duration. |
+| FADING standout | PASS | Red-orange lifecycle treatment explains weakening / cancellation / restoration. |
+| Entry / Watch / Caution / Invalidation | PASS | Green / yellow / orange / red text zones and matching chart-card markers. |
+| EXPANDED TERMINOLOGY HYPERLINKS | PASS | Exact heading text retained and rendered blue/cyan. |
 | FRESH card | PASS | Full v6 field set restored. |
 | STILL ACTIVE card | PASS | Full v6 field set restored. |
 | FADING card | PASS | Full v6 field set restored, including late-stage caveat. |
@@ -35,7 +79,7 @@ Current staged output: `darkHorseFoh.buildDarkHorseFohPayload()` rendered throug
 | Dollar-first action language visible | PASS | Dollar amounts visible in Market Mood, Dollar Risk, Where to Act, and WHAT TO DO NOW. |
 | Lifecycle storytelling visible | PASS | FRESH / STILL ACTIVE / FADING separators and card copy present. |
 | 5-disc severity bars visible | PASS | Market Mood and Conviction use 5-disc bars with inactive `⚫`. |
-| Colour hierarchy preserved as Discord allows | PASS | diff/ansi fences, embed colors, emoji zones, bold price tokens, and chart PNG colors preserve hierarchy. Inline text color remains a Discord platform limitation. |
+| Colour hierarchy preserved as Discord allows | PASS | diff/ansi fences, embed colors, emoji zones, bold price tokens, and chart PNG colors preserve hierarchy. Colour-critical sections do not rely on plain grey/white ASCII alone. |
 | No placeholder chart fallback as standard | PASS | Live transport renders and posts PNG files via `attachment://...`; no pending/text chart substitute. |
 | No text-mode chart substitution | PASS | Chart-card PNG files generated for 3 candidates + reference card. |
 | No banned wording | PASS | FOH QA banned-word sweep is green. |
@@ -59,10 +103,22 @@ Current staged output: `darkHorseFoh.buildDarkHorseFohPayload()` rendered throug
 - `dh-foh-v6-live-current-section-5-reference-card.png`
 - `dh-foh-v6-live-current-section-6-briefing-summary.png`
 - `dh-foh-v6-live-current-detail-banner.png`
+- `dh-foh-v6-live-current-detail-new-dark-horse-scan.png`
+- `dh-foh-v6-live-current-detail-standouts-strongest-movers.png`
+- `dh-foh-v6-live-current-detail-expanded-terminology-hyperlinks.png`
 - `dh-foh-v6-live-current-detail-fresh-candidate-embed.png`
+- `dh-foh-v6-live-current-detail-fresh-entry-watch-caution-invalidation-zones-1.png`
+- `dh-foh-v6-live-current-detail-fresh-entry-watch-caution-invalidation-zones-2.png`
+- `dh-foh-v6-live-current-detail-fresh-entry-watch-caution-invalidation-zones-3.png`
 - `dh-foh-v6-live-current-detail-still-active-candidate-embed.png`
+- `dh-foh-v6-live-current-detail-still-active-heading.png`
+- `dh-foh-v6-live-current-detail-still-active-first-logged-duration.png`
+- `dh-foh-v6-live-current-detail-still-active-entry-watch-caution-invalidation-zones-1.png`
+- `dh-foh-v6-live-current-detail-still-active-entry-watch-caution-invalidation-zones-2.png`
+- `dh-foh-v6-live-current-detail-still-active-entry-watch-caution-invalidation-zones-3.png`
+- `dh-foh-v6-live-current-detail-matching-heading-text-rendering-colours.png`
 - `dh-foh-v6-live-current-detail-fading-candidate-embed.png`
 - `dh-foh-v6-live-current-detail-reference-card-embed.png`
 - `attachments/` chart-card PNG files
 
-**Final verdict:** PROTOTYPE PARITY PASS
+**Final verdict:** CURSOR REWRITE VISUAL PARITY PASS

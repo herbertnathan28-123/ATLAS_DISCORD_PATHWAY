@@ -178,7 +178,7 @@ const UNIVERSE_SIZE = 33;
 const chartEURUSD = {
   symbol: 'EURUSD · 1H',
   currentPrice: 1.0942, highPrice: 1.0975, lowPrice: 1.0890,
-  entryHigh: 1.0928, entryLow: 1.0924, watch: 1.0900, invalidation: 1.0875,
+  entryHigh: 1.0928, entryLow: 1.0924, watch: 1.0900, caution: 1.0880, invalidation: 1.0875,
   direction: 'Bullish',
   caption: 'ATLAS chart card · EURUSD 1H · entry band 1.0924–1.0928 · watch 1.0900 · invalidation 1.0875',
   candles: [
@@ -192,7 +192,7 @@ const chartEURUSD = {
 const chartXAUUSD = {
   symbol: 'XAUUSD · 1H',
   currentPrice: 2405, highPrice: 2418, lowPrice: 2393,
-  entryHigh: 2401, entryLow: 2398, watch: 2406, invalidation: 2415,
+  entryHigh: 2401, entryLow: 2398, watch: 2406, caution: 2412, invalidation: 2415,
   direction: 'Bearish',
   caption: 'ATLAS chart card · XAUUSD 1H · short on rally into 2398–2401 · invalidation 2415 (red dashed)',
   candles: [
@@ -206,7 +206,7 @@ const chartXAUUSD = {
 const chartNVDA = {
   symbol: 'NVDA · 1H',
   currentPrice: 922, highPrice: 940, lowPrice: 908,
-  entryHigh: 921, entryLow: 919, watch: 912.80, invalidation: 902.50,
+  entryHigh: 921, entryLow: 919, watch: 912.80, caution: 906.00, invalidation: 902.50,
   direction: 'Bullish',
   caption: 'ATLAS chart card · NVDA 1H · late-stage band 919–921 (tight) · invalidation 902.50',
   candles: [
@@ -284,7 +284,7 @@ const SAMPLE_MESSAGES = [
 
   // ── Message 2: STILL ACTIVE candidate (XAUUSD) ──
   {
-    content: `[[NEW_BADGE:STILL ACTIVE|active]]  ·  STANDOUT #2 of 3  ·  XAUUSD (cycle 2 — trending 1+ day)`,
+    content: `[[NEW_BADGE:STILL ACTIVE|active]]  ·  STANDOUT #2 of 3  ·  XAUUSD (cycle 2 — trending 1+ day)\n🟧 First logged: 15/05/26 14:00 UTC · First active: 15/05/26 14:00 UTC · Still Dark Horse worthy after 2d 4h 20m`,
     embeds: [{
       color: 0xE74C3C,
       title: '🐎  XAUUSD  ·  STRONG BEARISH',
@@ -401,7 +401,7 @@ const SAMPLE_MESSAGES = [
       chartCard: {
         symbol: 'REFERENCE · pattern',
         currentPrice: 100, highPrice: 110, lowPrice: 88,
-        entryHigh: 100, entryLow: 96, watch: 92, invalidation: 88,
+        entryHigh: 100, entryLow: 96, watch: 92, caution: 90, invalidation: 88,
         direction: 'Bullish',
         caption: 'ATLAS chart-card · reference pattern (not a live symbol)',
         candles: [
