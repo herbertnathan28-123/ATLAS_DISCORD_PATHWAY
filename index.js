@@ -2428,8 +2428,21 @@ client.on('messageCreate', async (msg) => {
   // logs webhook_config=missing and skips posting. Never throws.
   try {
     const coreyMarketIntel = require('./coreyMarketIntel');
+    // Operator brief 2026-05-18 (Spidey candle ingestion) — inject
+    // the live OHLC fetcher so _fetchSpidey can populate HTF + LTF
+    // candles from the same provider chain the symbol command and
+    // dashboard use. Without this hook, Spidey only sees cached 1D
+    // rows and degrades to PARTIAL no_candles_supplied on every
+    // symbol whose 1D cache is missing.
+    coreyMarketIntel.init({
+      candleFetcher: async (symbol, resolution, count) => {
+        try {
+          return await safeOHLC(symbol, resolution, count || 200, null);
+        } catch (_e) { return null; }
+      },
+    });
     coreyMarketIntel.start();
-    log('INFO', '[BOOT] Corey Market Intel scheduler active — daily bulletin + pre-event/release alerts');
+    log('INFO', '[BOOT] Corey Market Intel scheduler active — daily bulletin + pre-event/release alerts; spidey candle fetcher wired via safeOHLC');
   } catch (e) {
     log('ERROR', `[BOOT] Corey Market Intel start failed: ${e.message}`);
   }

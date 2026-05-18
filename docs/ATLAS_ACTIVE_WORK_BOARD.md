@@ -1,6 +1,6 @@
 # ATLAS FX — Active Work Board
 
-Last updated: 17 May 2026 AWST
+Last updated: 18 May 2026 UTC
 
 ---
 
@@ -20,6 +20,25 @@ Every required item carries one inline marker:
 ## Current Production Position
 
 Macro engine production chain is accepted through Cursor PR #126.
+
+Foundation recovery addendum status (Cursor stack PR #142 on top of draft PR #141):
+
+- [x] Current-state certificate updated before addendum edits (`docs/certificates/ATLAS_CURRENT_STATE_CERT.md`, PR #142, 18 May)
+- [x] Macro/Corey role separation strengthened with source-weight proof and macro-verbosity test (`MACRO_COREY_ROLE_SEPARATION_CERT.md`, `tests/janeEvidenceWeighting.test.js`, PR #142, 18 May)
+- [x] Macro search command proof run against live TradingView calendar data (`node scripts/test_macro_search.js`, 10/10 required commands PASS, PR #142, 18 May)
+- [x] PR #140 FOH acceptance re-verified by live-path fixtures (`marketIntelDailyRoadmap`, `darkHorseCurrentAdvice`, `darkHorseHeaderControls`, `fohLiveDispatchText`, PR #142, 18 May)
+- [!] Hyperlink infrastructure remains **not complete** — safe fallbacks exist, but central registry/helper and public URL targets are deferred to a focused follow-up (`HYPERLINK_INFRASTRUCTURE_CERT.md`, PR #142, 18 May)
+- [!] Render/deploy proof remains **blocked** — Render MCP has no selected workspace, `list_workspaces` is unauthorized, and Render CLI is unavailable (`DEPLOY_RENDER_PROOF_CERT.md`, PR #142, 18 May)
+
+Safe-to-merge scope:
+
+- [x] PR #141/#142 foundation cert/test additions are safe to review/merge as a controlled recovery stack once regression tests pass.
+
+Must **not** be considered complete:
+
+- [!] Live Render deploy proof / live Discord send proof
+- [!] Hyperlink registry / Expanded Terminology URL routing / event-link routing
+- [!] Provider-backed Corey Clone cache population on Render
 
 Confirmed live chain:
 
@@ -274,6 +293,8 @@ No further design drift until this is operational.
 
 Short log of finished work so historical context isn't lost when items move from `[ ]` to `[x]` above. Most recent first.
 
+- **18 May 2026** — ATLAS FX Full Foundation + FOH Recovery (P0/P1/P2) (branch `claude/atlas-implementation-support-RCXhO`) — additive Spidey candle-ingestion fix (`coreyMarketIntel.init({ candleFetcher })` accepts async OHLC fetcher; `_fetchSpidey` now populates HTF 1W/1D/4H/1H + LTF 15M/5M from the live provider chain via `index.js safeOHLC`; cached 1D rows still fill the 1D slot when live fetch fails — no engine semantics changed); Corey Clone cache-coverage reporter (`node scripts/cache_coverage_report.js [--json|--markdown]`) enumerates Annex A 37 priority symbols (FX majors / crosses / metals / indices / equities), reports per-symbol cache path / rows / first+last timestamp / freshness / usable-for-decision / status / action needed; Jane evidence-weighting authority audit + fixture-locked proof (`tests/janeEvidenceWeighting.test.js` 14 PASS — verbose Corey + weak Spidey ≠ VALID; Spidey owns final bias; Clone BLOCKED caps to MARGINAL; Spidey PARTIAL withholds execution authority; conflicting engines degrade; text volume contributes zero weight). 10 certificates added under `docs/certificates/` (ATLAS_CURRENT_STATE / SPIDEY_CANDLE_INGESTION / COREY_CLONE_CACHE_COVERAGE / JANE_EVIDENCE_WEIGHTING / JANE_ONLY_SURFACE_CONSUMPTION / MACRO_COREY_ROLE_SEPARATION / DARK_HORSE_IMAGE_CONTRACT / PR140_LIVE_FOH_ACCEPTANCE / HYPERLINK_INFRASTRUCTURE / MACRO_SEARCH_LIVE_COMMAND). Live Discord proof + hyperlink registry implementation deferred to follow-up PR with exact blockers stated. 22 test suites green.
+- **18 May 2026** — Dark Horse FOH image render contract fix (branch `claude/atlas-implementation-support-RCXhO`) — scope the FOH contract by `meta.module` so the Dark Horse packet stops failing `foh_contract_validation_failed` against the Market-Intel-shaped required-field list. New `DARK_HORSE_REQUIRED_PACKET_FIELDS` / `DARK_HORSE_REQUIRED_VIEW_MODEL_ANCHORS` / `DARK_HORSE_REQUIRED_ARRAYS` / `DARK_HORSE_MINIMUM_DEPTH_RULES` cover only the 10 fields buildDarkHorsePacket actually emits + the anchors the MI-shared view-model adapter can fill from those fields. Backward compat preserved (callers without `meta.module` default to MI semantics). DH `whatToDoNow` items now emit the full 7-field shape (step / action / why / ifIgnored / confirmation / actionChangesWhen / dollarConsequence) so action-block validation passes. User-facing leaks scrubbed at the FOH output boundary: `Promotion criteria:` label renamed to `Entry Validation:` (darkHorseRanking.js:1122), HH/HL and LH/LL chart shorthand translated to plain English via the now-exported `_translateChartJargon` helper called from `foh/buildDarkHorsePacket.js`. Banned-terms list now flags `promotion_trigger` + `Promotion criteria:` so future regressions are caught at the contract gate.
 - **18 May 2026** — FOH refinement (Market Intel polish + Dark Horse CURRENT ADVICE — AT RELEASE) (branch `claude/atlas-implementation-support-RCXhO`) — Market Intel ranked-calendar row format collapsed from `🟠 11:45 | EUR | HIGH | [Event]` to `🟠 11:45 EUR · [Event]` (drop redundant impact column — glyph carries it); Red/Amber-only default filter, Medium rows fall back in only when no Red/Amber in next 24h; heading rename TODAY'S RANKED EVENT CALENDAR → HIGH-IMPACT CALENDAR EVENTS; importance-based box-header colour doctrine — THE CALL + CALENDAR boxes go red when a Tier-1 row is in scope, amber when HIGH, yellow on a standard day, grey on a quiet one; new shared `foh/foh-format.js` (`expandMacroLabels` + `accountRiskPanel` + dollars-first `formatPriceDistance` with instrument-aware brackets covering FX major / JPY pair / gold / silver / index / equity). Dark Horse now opens every standout card with a 15-field boxed CURRENT ADVICE — AT RELEASE block (Advice State / Direction / Entry Zone / Entry Window / Entry Validation / Stop / Extended Stop / First Target / Risk Cap / Minimum ATLAS Buffer / Technical Distance / Next Review / Do Not Enter If / Visual Example / Instant Advice), pulling Entry Zone and Stop from evidenceAnchors when published and emitting honest `Pending` placeholders otherwise; account-relative risk panel replaces legacy oversized $72,125 figures; INSTANT ADVICE softens BUY/SELL command wording (Conditional / Wait / Observation / Do not enter yet). DH radar QA banned-phrase list trimmed so the approved defensive `Do not enter yet` / `Do Not Enter If:` wording from the operator brief no longer trips the older signal-service guard.
 - **18 May 2026** — Market Intel FOH colour + link refinement pass (branch `claude/atlas-implementation-support-RCXhO`) — boxed section headers now wrap in Discord `ansi` code blocks for per-section colour (THE CALL = red, calendar / forward planning = yellow, MARKET INTEL · DAILY ROADMAP / AFFECTED MARKETS / FULL BRIEF = cyan, MARKET IMPACT = blue, CONFIRMATION = green, RISK STATE = red/orange/yellow/grey by label); event names render as bracketed cyan hyperlinks (`[Event Name](brief-url)` when the Full Brief route is real, `[Event Name]` when Brief Pending); control strip refreshed to PNG / PDF / Full Calendar / Terminology / Full Briefs (Full Calendar = Available — TradingView feed is live); narrative-text expander (`_miExpandMacroLabels`) scrubs bare DXY / VIX leaks from upstream packet fields (mechanism / whyThisRating / confirmation / invalidation); box padding switched to NBSP (U+00A0) so the dispatch sanitiser's `[ \t]{2,}` space-collapser doesn't crush the box right edge; ranked rows trimmed to 4 + 4-symbol affected lists + 3 risk windows so stress fixtures stay under the 1900-char Discord safe cap.
 - **18 May 2026** — FOH download-control strip at top of Dark Horse + Market Intel (branch `claude/atlas-implementation-support-RCXhO`) — new shared `foh/headerStrip.js` (`boxHeader` + `controlStrip`); Dark Horse Movement Digest now opens with boxed `🐎 ATLAS · DARK HORSE · MOVEMENT DIGEST` heading + `🖼️ Download PNG / 📄 Download PDF / 🔗 Open Dashboard / 📘 Expanded Terminology` strip; Market Intel Daily Roadmap msg 1 opens with boxed `📡 MARKET INTEL · DAILY ROADMAP` heading + same strip (Full Briefs label, PNG/PDF honestly Brief Pending until daily_brief threads imagePayload); legacy `FOH OPERATOR SURFACE` subtitle preserved for chunker/education-QA backward compat.

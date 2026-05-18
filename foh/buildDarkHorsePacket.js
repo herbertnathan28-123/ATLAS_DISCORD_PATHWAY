@@ -15,6 +15,15 @@
 
 function _crypto() { try { return require('crypto'); } catch (_) { return null; } }
 const { buildPlanFromEvidence } = require('./darkHorsePricePoints');
+// Plain-English jargon scrubber — keeps HH/HL / LH/LL / HTF / LTF
+// out of user-facing FOH copy (operator brief 2026-05-18). The
+// upstream scoring engine legitimately uses the chart-shorthand in
+// `r.reason` / `r.reasons`, so we translate at the FOH output
+// boundary rather than touching scoring logic.
+const { _translateChartJargon } = require('../darkHorseRanking');
+function _scrubJargon(text) {
+  return typeof _translateChartJargon === 'function' ? _translateChartJargon(text) : text;
+}
 
 function _reportId() {
   const c = _crypto();
@@ -87,7 +96,7 @@ function _standoutOutcome(s) {
   const directionWord = /bear|short|down/.test(dir) ? 'downside' : 'upside';
   const oppositeWord = directionWord === 'downside' ? 'upside' : 'downside';
   return {
-    behaviour: sym + ' carries a ' + lc + ' ' + (dir || 'directional') + ' read. ' + (s.reason || 'Structural alignment with current macro tape.'),
+    behaviour: sym + ' carries a ' + lc + ' ' + (dir || 'directional') + ' read. ' + _scrubJargon(s.reason || 'Structural alignment with current macro tape.'),
     affectedMarkets: [sym].concat(s.crossAsset || []),
     traderAction: _anchoredAction({
       instrument: sym,
@@ -139,7 +148,7 @@ function buildDarkHorsePacket(opts) {
         score:         c.score,
         firstDetected: c.firstDetectedAt || null,
         durationAlive: c.durationAliveLabel || null,
-        reason:        c.summary || (Array.isArray(c.reasons) ? c.reasons.join(' · ') : null),
+        reason:        _scrubJargon(c.summary || (Array.isArray(c.reasons) ? c.reasons.join(' · ') : null)),
         decisionLevel: pricePointPlan ? pricePointPlan.entryReferencePrice : (c.decisionLevel || null),
         invalidation:  pricePointPlan ? pricePointPlan.invalidationExitPrice : (c.invalidation || null),
         dollarRisk:    c.dollarRiskLabel || null,
@@ -259,16 +268,42 @@ function buildDarkHorsePacket(opts) {
     danger:       'POST-TRIGGER WICK: if price returns inside the entry band within 5 min on a wick, the trigger close is not yet confirmed; wait the next 5-min close.',
     invalidation: 'STAND-ASIDE: invalidation level is the cost of the read being wrong. No averaging, no re-entry without a fresh structural re-test on the next scan.',
   };
+  // Per-item required fields are locked by foh/config/fohOutputContract.js
+  // (ACTION_BLOCK_RULES + REQUIRED_ARRAYS.whatToDoNow). Each Dark Horse
+  // standout fills the same 7-field shape Market Intel uses: step, action,
+  // why, ifIgnored, confirmation, actionChangesWhen, dollarConsequence.
+  // Honest "pending" content surfaces where price-point planning has not
+  // yet emitted the anchored level; the field is never omitted silently
+  // per the operator brief.
   const whatToDoNow = standouts.length
-    ? standouts.slice(0, 3).map((s, i) => ({
-        step: i + 1,
-        action: (i === 0 ? 'Primary standout — ' : i === 1 ? 'Secondary — ' : 'Tertiary — ') + s.symbol + ' (' + s.lifecycle + ' ' + (s.direction || '') + '): entry reference ' + (s.pricePointPlan ? s.pricePointPlan.entryReferencePrice : (s.decisionLevel || 'pending')) + '; confirmation condition ' + (s.pricePointPlan ? s.pricePointPlan.confirmationCondition : 'pending until price anchors are published') + '; invalidation / exit ' + (s.pricePointPlan ? s.pricePointPlan.invalidationExitPrice : (s.invalidation || 'pending')),
-        reason: s.reason || 'Structural alignment with current macro tape',
-        dollarConsequence: s.pricePointPlan
-          ? s.pricePointPlan.riskBasis + ' Technical distance: ' + s.pricePointPlan.technicalDistance + '. Minimum ATLAS Buffer: ' + s.pricePointPlan.minimumAtlasBuffer + ' (' + s.pricePointPlan.unitType + '). Buffer reason: ' + s.pricePointPlan.bufferReason
-          : 'Account-percentage risk cap applies only after entry reference, confirmation, and invalidation / exit are published.',
-      }))
-    : [{ step: 1, action: 'No standouts this scan — stand aside; re-read at next 15-min scan.', reason: 'Driver-led tape; no structural priority.', dollarConsequence: 'Zero — no exposure recommended.' }];
+    ? standouts.slice(0, 3).map((s, i) => {
+        const rank = i === 0 ? 'Primary standout — ' : i === 1 ? 'Secondary — ' : 'Tertiary — ';
+        const lifecycle = s.lifecycle || 'tracked';
+        const dir = s.direction || 'directional';
+        const entryRef = s.pricePointPlan ? s.pricePointPlan.entryReferencePrice : (s.decisionLevel || 'pending');
+        const confirmCond = s.pricePointPlan ? s.pricePointPlan.confirmationCondition : 'pending until price anchors are published';
+        const invalidation = s.pricePointPlan ? s.pricePointPlan.invalidationExitPrice : (s.invalidation || 'pending');
+        return {
+          step: i + 1,
+          action: rank + s.symbol + ' (' + lifecycle + ' ' + dir + '): entry reference ' + entryRef + '; confirmation condition ' + confirmCond + '; invalidation / exit ' + invalidation,
+          why: _scrubJargon(s.reason || 'Structural alignment with current macro tape — Dark Horse surfaced this standout because the price action carries momentum + structure in the same direction on the trigger timeframe.'),
+          ifIgnored: 'Acting on the wick or chasing into the standout without waiting for the listed confirmation condition typically catches the false break — the same setup post-confirmation pays in the agreement direction.',
+          confirmation: confirmCond + (s.pricePointPlan ? '' : ' (price anchors will publish on a later scan once structure clarifies)'),
+          actionChangesWhen: 'Lifecycle moves from ' + lifecycle + ' to a stronger or weaker phase, OR price closes through the invalidation / exit level on the trigger timeframe.',
+          dollarConsequence: s.pricePointPlan
+            ? s.pricePointPlan.riskBasis + ' Technical distance: ' + s.pricePointPlan.technicalDistance + '. Minimum ATLAS Buffer: ' + s.pricePointPlan.minimumAtlasBuffer + ' (' + s.pricePointPlan.unitType + '). Buffer reason: ' + s.pricePointPlan.bufferReason
+            : 'Account-percentage risk cap applies only after entry reference, confirmation, and invalidation / exit are published. Until then dollar exposure is zero by design.',
+        };
+      })
+    : [{
+        step: 1,
+        action: 'No standouts this scan — stand aside; re-read at next 15-min scan.',
+        why: 'Driver-led tape; no structural priority. The scanner did not surface any candidate above the publication threshold.',
+        ifIgnored: 'Forcing exposure into a driver-led tape without a structural standout typically lands on a marginal setup that gets stopped on the next regime shift.',
+        confirmation: 'A future 15-min scan publishes at least one candidate at the publication-grade threshold.',
+        actionChangesWhen: 'Next 15-min Dark Horse scan completes and at least one candidate clears the publication threshold.',
+        dollarConsequence: 'Zero — no exposure recommended this cycle.',
+      }];
   const confirmationCancellation = {
     confirmsWhen: lead ? (lead.pricePointPlan ? lead.pricePointPlan.confirmationCondition : ('Confirmed close through ' + (lead.decisionLevel || 'entry zone') + ' on the trigger timeframe.')) : 'N/A this cycle.',
     cancelsWhen:  lead ? (lead.pricePointPlan ? lead.pricePointPlan.invalidationCondition : ('Close through ' + (lead.invalidation || 'invalidation / exit level') + ' on the trigger timeframe.')) : 'N/A this cycle.',

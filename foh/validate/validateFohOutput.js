@@ -29,17 +29,47 @@ function _scanForBanned(text) {
   return hits;
 }
 
-function _validatePacketShape(packet) {
+// Scope the contract by `meta.module`. Market Intel and Dark Horse
+// share the pipeline but emit different packet shapes — DH is a
+// movement scanner, not an economic-event surface. Before this
+// scope was added, the validator ran the MI field list against every
+// DH packet and rejected every DH image-render with multiple
+// `packet_missing_field:` failures; live log was
+//   `[DH-FOH-IMAGE] image render path returned not-ok
+//     reason=foh_contract_validation_failed, falling through to text`
+// Callers that don't set `meta.module` default to MI semantics to
+// preserve backward compatibility.
+function _contractFor(packet) {
+  const moduleId = (packet && packet.meta && packet.meta.module) || 'market_intel';
+  if (moduleId === 'dark_horse') {
+    return {
+      moduleId,
+      requiredFields:  C.DARK_HORSE_REQUIRED_PACKET_FIELDS,
+      requiredAnchors: C.DARK_HORSE_REQUIRED_VIEW_MODEL_ANCHORS,
+      requiredArrays:  C.DARK_HORSE_REQUIRED_ARRAYS,
+      minimumDepth:    C.DARK_HORSE_MINIMUM_DEPTH_RULES,
+    };
+  }
+  return {
+    moduleId,
+    requiredFields:  C.MARKET_INTEL_REQUIRED_PACKET_FIELDS,
+    requiredAnchors: C.MARKET_INTEL_REQUIRED_VIEW_MODEL_ANCHORS,
+    requiredArrays:  C.MARKET_INTEL_REQUIRED_ARRAYS,
+    minimumDepth:    C.MARKET_INTEL_MINIMUM_DEPTH_RULES,
+  };
+}
+
+function _validatePacketShape(packet, contract) {
   const failures = [];
   if (!packet || typeof packet !== 'object') {
     failures.push('packet_missing_or_not_object');
     return failures;
   }
-  for (const k of C.REQUIRED_PACKET_FIELDS) {
+  for (const k of contract.requiredFields) {
     if (!(k in packet) || packet[k] == null) failures.push('packet_missing_field:' + k);
   }
   // Required arrays + per-item required sub-fields.
-  for (const [field, spec] of Object.entries(C.REQUIRED_ARRAYS)) {
+  for (const [field, spec] of Object.entries(contract.requiredArrays)) {
     const arr = packet[field];
     if (!Array.isArray(arr)) {
       failures.push('packet_field_not_array:' + field);
@@ -58,17 +88,17 @@ function _validatePacketShape(packet) {
   return failures;
 }
 
-function _validateViewModelAnchors(viewModel) {
+function _validateViewModelAnchors(viewModel, contract) {
   const failures = [];
   if (!viewModel || typeof viewModel !== 'object') {
     failures.push('view_model_missing_or_not_object');
     return failures;
   }
-  for (const a of C.REQUIRED_VIEW_MODEL_ANCHORS) {
+  for (const a of contract.requiredAnchors) {
     if (!(a in viewModel) || _len(viewModel[a]) === 0) failures.push('view_model_anchor_missing:' + a);
   }
   // Minimum-depth rule per anchor.
-  for (const [anchor, minLen] of Object.entries(C.MINIMUM_DEPTH_RULES)) {
+  for (const [anchor, minLen] of Object.entries(contract.minimumDepth)) {
     if (anchor in viewModel && _len(viewModel[anchor]) < minLen) {
       failures.push('view_model_anchor_too_thin:' + anchor + ' (need ≥ ' + minLen + ' chars, got ' + _len(viewModel[anchor]) + ')');
     }
@@ -134,15 +164,18 @@ function _validateActionBlocks(packet) {
 }
 
 function validateFohOutput({ packet, viewModel, discordText, attachments }) {
+  const contract = _contractFor(packet);
   const failures = []
-    .concat(_validatePacketShape(packet))
-    .concat(_validateViewModelAnchors(viewModel))
+    .concat(_validatePacketShape(packet, contract))
+    .concat(_validateViewModelAnchors(viewModel, contract))
     .concat(_validateNoBannedContent(viewModel, discordText))
     .concat(_validateActionBlocks(packet));
-  const warnings = _validatePriceMap(packet);
+  // Price-map role warnings only apply to Market Intel — the DH
+  // packet doesn't carry a priceMap.
+  const warnings = contract.moduleId === 'market_intel' ? _validatePriceMap(packet) : [];
   // Attachments are optional here — dispatcher decides when to enforce.
   if (attachments) failures.push(..._validateAttachments(attachments));
-  return { ok: failures.length === 0, failures, warnings };
+  return { ok: failures.length === 0, moduleId: contract.moduleId, failures, warnings };
 }
 
 module.exports = { validateFohOutput };
