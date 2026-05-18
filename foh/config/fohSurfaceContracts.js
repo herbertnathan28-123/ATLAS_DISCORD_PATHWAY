@@ -13,7 +13,7 @@ const CONTRACTS = Object.freeze({
   market_intel: {
     route: 'surface=market_intel',
     packetAdapter: 'foh/buildMarketIntelPacket -> foh/adapters/marketIntelViewModel',
-    discordRenderer: 'renderers/foh/marketIntelV3Shell.buildDiscordTextSummary(surface=market_intel)',
+    discordRenderer: 'foh/surfaceRouter.renderSurfaceOutput(surface=market_intel) -> foh/surfaces/marketIntelText',
     fallback: 'coreyMarketIntel._marketIntelDegradedNotice',
     allowedSections: [
       'NEW MARKET INTEL REPORT',
@@ -31,6 +31,8 @@ const CONTRACTS = Object.freeze({
       /\bpre-radar\b/i,
       /\bwhere to act\b/i,
       /\bDark Horse scanner\b/i,
+      /\bnext Dark Horse scan\b/i,
+      /\bno Dark Horse entry priority\b/i,
     ],
     requiredPatterns: [
       /\bNEW MARKET INTEL REPORT\b/,
@@ -42,7 +44,7 @@ const CONTRACTS = Object.freeze({
   dark_horse: {
     route: 'surface=dark_horse',
     packetAdapter: 'foh/buildDarkHorsePacket -> foh/adapters/darkHorseViewModel',
-    discordRenderer: 'renderers/foh/darkHorseV6Shell / darkHorse control text',
+    discordRenderer: 'foh/surfaceRouter.renderSurfaceOutput(surface=dark_horse) -> foh/surfaces/darkHorseText',
     fallback: 'darkHorseEngine.buildDarkHorseDegradedSummary',
     allowedSections: [
       'NEW DARK HORSE SCAN',
@@ -65,8 +67,6 @@ const CONTRACTS = Object.freeze({
       /\bBrief Pending\b/i,
       /\bMarket Intel Daily Roadmap\b/i,
       /\bHigh-impact calendar events\b/i,
-      /\bDark Horse scanner\b/i,
-      /\bWHERE TO ACT\b/i,
     ],
     requiredPatterns: [
       /\bNEW DARK HORSE SCAN\b/,
@@ -78,7 +78,7 @@ const CONTRACTS = Object.freeze({
   macro_command: {
     route: 'surface=macro_command',
     packetAdapter: 'macro/searchMacro context packet',
-    discordRenderer: 'macro/searchMacro.formatSearchResponse',
+    discordRenderer: 'macro/searchMacro.formatSearchResponse -> foh/surfaceRouter.renderSurfaceOutput(surface=macro_command)',
     fallback: 'macro/searchMacro source/degradation note',
     allowedSections: [
       'NEW MACRO COMMAND REPORT',

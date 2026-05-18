@@ -42,6 +42,7 @@
 const { buildMarketIntelPacket } = require('../buildMarketIntelPacket');
 const miViewModel = require('../adapters/marketIntelViewModel');
 const miShell = require('../../renderers/foh/marketIntelV3Shell');
+const { renderSurfaceOutput } = require('../surfaceRouter');
 const { postFohDeliverable, containsPrivateBackendUrl } = require('./_discordPost');
 const { validateFohOutput } = require('../validate/validateFohOutput');
 
@@ -74,7 +75,11 @@ async function sendMarketIntelFoh({ engine, legacyPacket, coreyClone, spidey, we
   const v = miViewModel.validate(viewModel);
   // Always build the Discord text — the runtime needs it for the
   // text-only fallback if the renderer fails.
-  const discordText = miShell.buildDiscordTextSummary(viewModel || {}, Object.assign({}, opts, { surface: 'market_intel' }));
+  const discordText = renderSurfaceOutput({
+    surface: 'market_intel',
+    packet: viewModel || {},
+    opts: Object.assign({}, opts, { surface: 'market_intel' }),
+  });
   if (!v.ok) return { ok: false, reason: 'view_model_missing_anchors', missing: v.missing, discordText };
 
   // 3. VIEW MODEL → PROTOTYPE SHELL render

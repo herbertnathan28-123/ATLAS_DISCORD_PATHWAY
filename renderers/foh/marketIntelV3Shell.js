@@ -26,7 +26,7 @@
 const protoShell = require('./protoShell');
 const miAdapter = require('./marketIntelV3Adapter');
 const { renderHtmlsToPngs, renderHtmlToPdf } = require('./pngRenderer');
-const { validateSurfaceText } = require('../../foh/config/fohSurfaceContracts');
+const { renderSurfaceOutput } = require('../../foh/surfaceRouter');
 
 const RENDER_PARAMETERS = Object.freeze({
   format: ['discord_text', 'png_cards', 'pdf'],
@@ -406,21 +406,9 @@ function _buildDarkHorseZeroStandoutSurface(viewModel, opts) {
 
 function buildDiscordTextSummary(viewModel, opts) {
   opts = opts || {};
-  const maxChars = Number.isFinite(opts.maxDiscordChunkChars) ? opts.maxDiscordChunkChars : RENDER_PARAMETERS.maxDiscordChunkChars;
   const surface = String(opts.surface || '').trim();
-  let text;
-  if (surface === 'market_intel') {
-    text = _truncateSurfaceText(_buildMarketIntelControlSurface(viewModel || {}, opts), maxChars, '🔵 SOURCE NOTE');
-  } else if (surface === 'dark_horse') {
-    text = _truncateSurfaceText(_buildDarkHorseControlSurface(viewModel || {}, opts), maxChars, /0 standouts/i.test(String(viewModel && viewModel.HEADER_SUBTITLE || '')) ? '🔵 Source / engine status' : '🔵 SOURCE NOTE');
-  } else {
-    throw new Error('explicit_foh_surface_required: expected market_intel or dark_horse');
-  }
-  const validation = validateSurfaceText(surface, text);
-  if (!validation.ok) {
-    throw new Error('foh_surface_contract_failed:' + validation.failures.join('|'));
-  }
-  return text;
+  if (!surface) throw new Error('explicit_foh_surface_required');
+  return renderSurfaceOutput({ surface, packet: viewModel || {}, opts: Object.assign({ maxDiscordChunkChars: RENDER_PARAMETERS.maxDiscordChunkChars }, opts) });
 }
 
 async function render({ packet, viewModel, opts }) {

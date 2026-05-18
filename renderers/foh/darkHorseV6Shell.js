@@ -11,7 +11,8 @@
 const protoShell = require('./protoShell');
 const dhAdapter = require('./darkHorseV6Adapter');
 const { renderHtmlsToPngs, renderHtmlToPdf } = require('./pngRenderer');
-const { RENDER_PARAMETERS, buildDiscordTextSummary } = require('./marketIntelV3Shell');
+const { RENDER_PARAMETERS } = require('./marketIntelV3Shell');
+const { renderSurfaceOutput } = require('../../foh/surfaceRouter');
 
 function _scrubExternalLinks(html) {
   if (typeof html !== 'string' || !html.length) return html;
@@ -33,7 +34,11 @@ async function render({ packet, viewModel, opts }) {
     renderHtmlToPdf(html),
   ]);
   const pngs = (pngBatch && pngBatch.pngs ? pngBatch.pngs : []).map((p, i) => Object.assign({ label: cards[i] && cards[i].label }, p));
-  const discordText = buildDiscordTextSummary(viewModel || {}, Object.assign({}, opts, { surface: 'dark_horse' }));
+  const discordText = renderSurfaceOutput({
+    surface: 'dark_horse',
+    packet: viewModel || {},
+    opts: Object.assign({}, opts, { surface: 'dark_horse' }),
+  });
 
   return {
     discordText,

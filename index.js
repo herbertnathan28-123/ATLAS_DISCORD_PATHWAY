@@ -1773,7 +1773,7 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane, re
     // packet's cloneStatus field.
     let coreyCloneStatus = 'active: engine wired (per-tick invocation via MI scheduler)';
     try {
-      const cloneOut = opts && opts.coreyClone;
+      const cloneOut = renderMeta && renderMeta.coreyClone;
       if (cloneOut) {
         const { validateCoreyClone } = require('./engine/validate/validateEngineIntelligence');
         const v = validateCoreyClone(cloneOut.packet || cloneOut);

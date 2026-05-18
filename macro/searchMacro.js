@@ -17,10 +17,7 @@ const { runJane } = require('../jane');
 const { validatePacket, statusFromValidation } = require('../contracts');
 const { validateCoreyClone } = require('../engine/validate/validateEngineIntelligence');
 const { interpretCalendarEvents, _private: macroInterpreterPrivate } = require('./interpretCalendarEvents');
-const { buildMarketIntelPacket } = require('../foh/buildMarketIntelPacket');
-const miViewModel = require('../foh/adapters/marketIntelViewModel');
-const miShell = require('../renderers/foh/marketIntelV3Shell');
-const { validateFohOutput } = require('../foh/validate/validateFohOutput');
+const { renderSurfaceOutput } = require('../foh/surfaceRouter');
 
 let coreyLive = null;
 try { coreyLive = require('../corey_live_data'); } catch (_e) { coreyLive = null; }
@@ -343,16 +340,18 @@ function macroAffectedBlock(affected) {
 
 function cloneStatusLine(summary) {
   if (summary && summary.usableForDecision) {
-    return 'Historical comparison: decision-grade historical analogue evidence is available.';
+    return 'Historical Analogue (Corey Clone): Corey Clone status: OK — decision-grade historical analogue evidence is available.';
   }
-  return 'Historical comparison: unavailable for this symbol right now; Jane will not use analogue confidence.';
+  const status = summary && summary.status ? summary.status : 'NOT_INVOKED';
+  const reason = summary && summary.degradedReason ? summary.degradedReason : 'historical analogue read not supplied to this packet';
+  return 'Historical Analogue (Corey Clone): Corey Clone status: ' + status + ' — degraded historical read; not decision-grade for independent historical confirmation (' + userFacingText(reason) + ').';
 }
 
 function structureStatusLine(status, spideyOut) {
-  if (status === 'ACTIVE') return 'Structure: ACTIVE — Spidey has a usable structure packet.';
-  if (status === 'NOT_APPLICABLE') return 'Structure: Not applicable to this calendar-wide query.';
+  if (status === 'ACTIVE') return 'Structure (Spidey Phase D): Status: ACTIVE — Spidey has a usable structure packet.';
+  if (status === 'NOT_APPLICABLE') return 'Structure (Spidey Phase D): Status: NOT_INVOKED — structure read not supplied for this calendar-wide query.';
   const reason = spideyOut && (spideyOut.degradedReason || spideyOut.reason);
-  return 'Structure: ' + status + ' — missing live structure confirmation' + (reason ? ' (' + userFacingText(reason) + ')' : '') + '.';
+  return 'Structure (Spidey Phase D): Status: ' + status + ' — structure read degraded; wait for confirmed structure before treating the move as validated' + (reason ? ' (' + userFacingText(reason) + ')' : '') + '.';
 }
 
 function formatSearchResponse(ctx) {
@@ -523,31 +522,14 @@ async function runMacroSearch(query, opts) {
     janeOut = { actionState: 'MONITORING', tradeViability: 'PARTIAL', degradedReason: e.message, sourceStatus };
   }
   const cloneSummary = summariseClone(cloneOut, cloneValidation);
-  const engineInput = buildEngineInput(macroPacket);
   let fohRendered = false;
   let fohReason = null;
-  try {
-    const fohPacket = buildMarketIntelPacket({
-      engine: engineInput,
-      coreyClone: { packet: cloneOut, validation: Object.assign({}, cloneValidation || {}, cloneSummary) },
-      spidey: spideyApplicable ? { packet: spideyOut, leadSymbol } : null,
-      now: opts.now,
-    });
-    const viewModel = miViewModel.toViewModel(fohPacket);
-    const discordText = miShell.buildDiscordTextSummary(viewModel, { surface: 'market_intel', maxDiscordChunkChars: 2600 });
-    const validation = validateFohOutput({ packet: fohPacket, viewModel, discordText });
-    fohRendered = !!validation.ok;
-    if (!validation.ok) fohReason = validation.failures && validation.failures[0] || 'foh validation failed';
-  } catch (e) {
-    fohReason = e.message;
-  }
   const degradation = [];
   if (macroPacket.degradedReason) degradation.push(macroPacket.degradedReason);
   if (focus && focus.noLiveMatch) degradation.push('No matching live TradingView event for ' + resolution.displayTarget + '; scenario read only');
   if (!cloneSummary.usableForDecision) degradation.push('Corey Clone ' + cloneSummary.status + ': ' + (cloneSummary.degradedReason || 'not decision-grade'));
   const spideyStatus = spideyPublicStatus(spideyOut, spideyApplicable);
   if (spideyStatus === 'PARTIAL' || spideyStatus === 'BLOCKED') degradation.push('Spidey ' + spideyStatus + (spideyOut && spideyOut.degradedReason ? ': ' + spideyOut.degradedReason : ''));
-  if (!fohRendered) degradation.push('FOH validation/render: ' + (fohReason || 'not rendered'));
   if (resolution.resolved_type === 'unknown') degradation.push('query could not be resolved to a symbol, event, or calendar scope');
   const reportId = 'MC-' + Date.now().toString(36);
   const ctx = {
@@ -560,9 +542,23 @@ async function runMacroSearch(query, opts) {
     spidey: spideyOut,
     spideyStatus,
     janeFinalState: deriveJaneFinalState(janeOut),
-    fohRendered,
     degradationReason: degradation.length ? degradation.join('; ') : 'none',
   };
+  let content = formatSearchResponse(ctx);
+  try {
+    content = renderSurfaceOutput({
+      surface: 'macro_command',
+      packet: { content },
+      opts: { maxDiscordChunkChars: opts.maxDiscordChunkChars || 100000 },
+    });
+    fohRendered = true;
+  } catch (e) {
+    fohReason = e.message;
+    degradation.push('Macro command surface validation: ' + fohReason);
+    ctx.degradationReason = degradation.join('; ');
+    content = formatSearchResponse(ctx);
+  }
+  ctx.fohRendered = fohRendered;
   const proofLogs = logProof(ctx);
   proofLogs.push('[LIVE-OUTPUT] renderer_attempted=true renderer_result=' + (fohRendered ? 'ok' : 'failed') + ' fallback_used=' + (fohRendered ? 'false' : 'true') + ' fallback_reason=' + (fohRendered ? 'none' : (fohReason || 'foh_validation_failed')) + ' surface=macro_command report_id=' + reportId + ' part=1/1');
   console.log(proofLogs[proofLogs.length - 1]);
@@ -580,7 +576,7 @@ async function runMacroSearch(query, opts) {
     fohRendered,
     degradationReason: ctx.degradationReason,
     proofLogs,
-    content: formatSearchResponse(ctx),
+    content,
   };
 }
 
