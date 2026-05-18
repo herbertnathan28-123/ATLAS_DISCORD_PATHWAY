@@ -138,6 +138,34 @@ async function run() {
     else fail('tradeViability differs under volume change', { thin: a.tradeViability, fat: b.tradeViability });
   }
 
+  console.log('\nT7 — Macro verbosity proof: macro narrative size does not increase decision authority:');
+  {
+    // Same lane status + same scores/confidence. The second macro
+    // packet carries repeated event summaries, transmission maps, and
+    // verbose narrative fields for the same CPI/FOMC evidence. Jane
+    // must still count it as one Macro lane vote.
+    const thin = mkInput({
+      sourceStatus: { spidey: 'PARTIAL', corey: 'ACTIVE', coreyClone: 'ACTIVE', macro: 'ACTIVE' },
+      macro: {
+        score: 0.6,
+        confidence: 0.6,
+        evidence: [{ type: 'macro_intelligence_packet', primaryEvent: 'CPI' }],
+        macroIntelligencePacket: { confidenceBasis: 'single macro packet', dominantMacroTheme: 'USD CPI risk' },
+      },
+    });
+    const fat = JSON.parse(JSON.stringify(thin));
+    fat.macro.evidence = Array.from({ length: 75 }, (_, i) => ({ type: 'repeated_macro_event', primaryEvent: 'CPI', n: i }));
+    fat.macro.macroIntelligencePacket.eventClusters = Array.from({ length: 25 }, (_, i) => ({ title: 'CPI', repeatedEvidence: i }));
+    fat.macro.macroIntelligencePacket.expandedSummary = 'CPI / FOMC mechanism chain '.repeat(1000);
+    fat.macro.macroIntelligencePacket.transmissionMap = 'US Dollar Strength (DXY) / Market Volatility (VIX) transmission '.repeat(800);
+    const a = await jane.runJane(thin);
+    const b = await jane.runJane(fat);
+    if (a.marketConfidence === b.marketConfidence && a.setupQuality === b.setupQuality) ok('marketConfidence + setupQuality are identical across thin vs fat Macro packet');
+    else fail('Jane weighting drifted with macro text volume', { thin: { mc: a.marketConfidence, sq: a.setupQuality }, fat: { mc: b.marketConfidence, sq: b.setupQuality } });
+    if (a.tradeViability === b.tradeViability && a.actionState === b.actionState) ok('tradeViability + actionState are identical across thin vs fat Macro packet');
+    else fail('macro verbosity changed decision authority', { thin: { tv: a.tradeViability, as: a.actionState }, fat: { tv: b.tradeViability, as: b.actionState } });
+  }
+
   console.log('\n==========================');
   console.log('Passed: ' + passed + '   Failed: ' + failed);
   if (failed) { console.error('[JANE-EVIDENCE-WEIGHTING] FAIL'); process.exit(1); }
