@@ -2926,16 +2926,25 @@ async function _fetchSpidey(featuredEvent) {
   // the live fetcher is absent or a specific timeframe fails.
   // Spidey gets the union of what's available; it degrades
   // honestly per-timeframe rather than refusing the whole bundle.
+  //
+  // Resolution keys MUST match the runtime TD_INTERVAL_MAP /
+  // FMP_INTERVAL_MAP keys in index.js (TradingView-style
+  // shorthand: '1W' / '1D' / '240' / '60' / '15' / '5'). Any
+  // other string silently falls back to TwelveData '1day' via
+  // the `TD_INTERVAL_MAP[resolution]||'1day'` guard at
+  // index.js:2722 — that would feed 6× identical daily candles
+  // into the HTF + LTF stack and produce materially wrong
+  // structure evidence.
   if (typeof _candleFetcherFn === 'function') {
     const htfPlan = [
-      ['1week', '1W', 80],
-      ['1day',  '1D', 220],
-      ['4h',    '4H', 200],
-      ['1h',    '1H', 200],
+      ['1W',  '1W',  80],
+      ['1D',  '1D',  220],
+      ['240', '4H',  200],
+      ['60',  '1H',  200],
     ];
     const ltfPlan = [
-      ['15min', '15M', 200],
-      ['5min',  '5M',  200],
+      ['15', '15M', 200],
+      ['5',  '5M',  200],
     ];
     for (const [resolution, slot, count] of htfPlan) {
       const rows = await _fetchSpideyTimeframe(leadSymbol, resolution, count);

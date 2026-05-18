@@ -43,16 +43,24 @@ init({ candleFetcher: async (symbol, resolution, count?) => candles[] | null })
 
 When `candleFetcher` is wired:
 
-| Slot | Resolution requested | Count |
+| Slot | Resolution key passed to `safeOHLC` | Count |
 |---|---|---|
-| HTF `1W` | `1week` | 80 |
-| HTF `1D` | `1day` | 220 |
-| HTF `4H` | `4h` | 200 |
-| HTF `1H` | `1h` | 200 |
-| LTF `15M` | `15min` | 200 |
-| LTF `5M` | `5min` | 200 |
+| HTF `1W` | `1W` | 80 |
+| HTF `1D` | `1D` | 220 |
+| HTF `4H` | `240` | 200 |
+| HTF `1H` | `60` | 200 |
+| LTF `15M` | `15` | 200 |
+| LTF `5M` | `5` | 200 |
 
 Each timeframe is fetched independently. A missing timeframe is omitted from the bundle (never invented). Cached 1D rows still fill the `1D` slot when the live fetcher fails or is not wired — backward compat preserved exactly.
+
+**Critical:** resolution keys MUST match the runtime `TD_INTERVAL_MAP` / `FMP_INTERVAL_MAP` keys defined at `index.js:2629` and `index.js:2657`. The TwelveData-style fallback at `index.js:2722` reads:
+
+```js
+interval=${TD_INTERVAL_MAP[resolution]||'1day'}
+```
+
+— any unmapped resolution string silently collapses to `'1day'`, which would feed 6× identical daily candles into the HTF + LTF stack and produce materially wrong structure evidence. The TradingView-style long-form keys (`1week` / `4h` / `1h` / `15min` / `5min`) are **NOT** valid here — they all silently fall through to daily. `tests/spideyCandleIngestion.test.js` T3 contains a regression guard that asserts only `TD_INTERVAL_MAP`-compatible short-form keys reach the fetcher. (Bug caught by Codex PR review on PR #141.)
 
 New observability log per tick:
 

@@ -87,9 +87,20 @@ async function run() {
     });
     await mi._fetchSpidey({ currency: 'CHF' });
     const tfs = fetcherCalls.map(c => c.resolution);
-    const expected = ['1week', '1day', '4h', '1h', '15min', '5min'];
-    if (expected.every(t => tfs.indexOf(t) !== -1)) ok('fetcher called for every HTF + LTF timeframe (1week / 1day / 4h / 1h / 15min / 5min)');
-    else fail('fetcher timeframe coverage drifted', tfs);
+    // CRITICAL — resolution keys MUST be the TD_INTERVAL_MAP keys
+    // (index.js TradingView-style shorthand: '1W' / '1D' / '240' /
+    // '60' / '15' / '5'). Any drift to '1week' / '4h' / '1h' /
+    // '15min' / '5min' silently falls back to daily via
+    // `TD_INTERVAL_MAP[resolution]||'1day'` at index.js:2722 and
+    // feeds 6× identical daily candles into the HTF+LTF stack —
+    // materially wrong structure evidence. Regression-guard for
+    // Codex review on PR #141.
+    const expected = ['1W', '1D', '240', '60', '15', '5'];
+    if (expected.every(t => tfs.indexOf(t) !== -1)) ok('fetcher called with TD_INTERVAL_MAP-compatible keys (1W / 1D / 240 / 60 / 15 / 5) — no silent 1day fallback');
+    else fail('fetcher key drift — values that miss TD_INTERVAL_MAP silently fall back to 1day', tfs);
+    const stale = ['1week', '4h', '1h', '15min', '5min'];
+    if (stale.every(s => tfs.indexOf(s) === -1)) ok('no stale TradingView-long-form keys (1week / 4h / 1h / 15min / 5min) reach the fetcher');
+    else fail('stale long-form resolution key leaked', tfs.filter(t => stale.indexOf(t) !== -1));
     const candles = spideyCalls[0] && spideyCalls[0].opts && spideyCalls[0].opts.candles;
     if (candles && candles.htf && candles.htf['1W'] && candles.htf['1D'] && candles.htf['4H'] && candles.htf['1H']) ok('Spidey received the full HTF stack (1W / 1D / 4H / 1H) from the live fetcher');
     else fail('Spidey did not receive a full HTF stack', candles && candles.htf);
@@ -127,8 +138,9 @@ async function run() {
     const mi = loadMI();
     mi.init({
       candleFetcher: async (symbol, resolution) => {
-        // Simulate: only 1day + 1h available, the rest fail.
-        if (resolution === '1day' || resolution === '1h') return [sampleRow(1, 100), sampleRow(2, 101)];
+        // Simulate: only 1D + 1H available (TD_INTERVAL_MAP keys),
+        // the rest fail.
+        if (resolution === '1D' || resolution === '60') return [sampleRow(1, 100), sampleRow(2, 101)];
         return null;
       },
     });
