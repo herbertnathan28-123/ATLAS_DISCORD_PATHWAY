@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const sharp = require('sharp');
+const { execFileSync } = require('child_process');
 
 const rank = require(path.join(__dirname, '..', 'darkHorseRanking'));
 const { buildDarkHorsePacket } = require(path.join(__dirname, '..', 'foh', 'buildDarkHorsePacket'));
@@ -17,6 +17,13 @@ function escapeXml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function dailyCandles(n, base) {
@@ -88,6 +95,8 @@ async function main() {
   const proofDir = path.join(__dirname, '..', 'docs', 'proof', 'dark-horse-prototype-parity');
   fs.mkdirSync(proofDir, { recursive: true });
   const textPath = path.join(proofDir, 'dark-horse-live-output-proof.txt');
+  const htmlPath = path.join(proofDir, 'dark-horse-live-output-proof.html');
+  const svgPath = path.join(proofDir, 'dark-horse-live-output-proof.svg');
   const pngPath = path.join(proofDir, 'dark-horse-live-output-proof.png');
   fs.writeFileSync(textPath, discordText + '\n', 'utf8');
 
@@ -114,9 +123,54 @@ async function main() {
     '</svg>',
   ].join('');
 
-  await sharp(Buffer.from(svg, 'utf8')).png().toFile(pngPath);
+  fs.writeFileSync(svgPath, svg, 'utf8');
+  fs.writeFileSync(htmlPath, [
+    '<!doctype html>',
+    '<html><head><meta charset="utf-8">',
+    '<style>',
+    'body{margin:0;background:#1e1f22;color:#dbdee1;font-family:Arial,sans-serif;}',
+    '.frame{margin:18px;padding:22px;border:2px solid #5865f2;border-radius:18px;background:#2b2d31;}',
+    'h1{margin:0 0 18px;font-size:22px;color:#f2f3f5;}',
+    'pre{margin:0;white-space:pre-wrap;font:18px/1.35 "DejaVu Sans Mono","Noto Color Emoji",monospace;}',
+    '</style></head><body><div class="frame">',
+    '<h1>Dark Horse visible Discord output proof</h1>',
+    '<pre>' + escapeHtml(discordText) + '</pre>',
+    '</div></body></html>',
+  ].join(''), 'utf8');
+
+  let screenshotPath = pngPath;
+  const chromeProfile = fs.mkdtempSync(path.join('/tmp', 'dh-proof-chrome-'));
+  try {
+    execFileSync('/usr/bin/timeout', [
+      '10s',
+      '/usr/local/bin/google-chrome',
+      '--headless',
+      '--disable-gpu',
+      '--disable-dev-shm-usage',
+      '--no-sandbox',
+      '--user-data-dir=' + chromeProfile,
+      '--hide-scrollbars',
+      '--run-all-compositor-stages-before-draw',
+      '--virtual-time-budget=1000',
+      '--window-size=1500,' + height,
+      '--screenshot=' + pngPath,
+      'file://' + htmlPath,
+    ], { stdio: 'ignore', timeout: 15000 });
+  } catch (err) {
+    if (fs.existsSync(pngPath) && fs.statSync(pngPath).size > 0) {
+      screenshotPath = pngPath;
+      console.log('[DARK-HORSE-PROOF] png_status=written_before_chrome_timeout');
+    } else {
+      screenshotPath = svgPath;
+      console.log('[DARK-HORSE-PROOF] png_fallback=chrome_unavailable_or_timeout');
+    }
+  } finally {
+    try { fs.rmSync(chromeProfile, { recursive: true, force: true }); } catch (_) {}
+  }
   console.log('[DARK-HORSE-PROOF] text=' + path.relative(path.join(__dirname, '..'), textPath));
-  console.log('[DARK-HORSE-PROOF] screenshot=' + path.relative(path.join(__dirname, '..'), pngPath));
+  console.log('[DARK-HORSE-PROOF] screenshot=' + path.relative(path.join(__dirname, '..'), screenshotPath));
+  console.log('[DARK-HORSE-PROOF] html=' + path.relative(path.join(__dirname, '..'), htmlPath));
+  console.log('[DARK-HORSE-PROOF] svg=' + path.relative(path.join(__dirname, '..'), svgPath));
   console.log('[DARK-HORSE-PROOF] chars=' + discordText.length);
 }
 

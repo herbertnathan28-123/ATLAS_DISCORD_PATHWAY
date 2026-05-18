@@ -89,7 +89,8 @@ for (const re of requiredMarkers) {
 }
 
 assert(/Symbol: EURUSD/.test(text), 'lead standout symbol should be visible');
-assert(/Score: 8\/10|Score: 9\/10/.test(text), 'score row should be visible');
+assert(/Direction: Long/.test(text), 'lead standout direction should be visible');
+assert(/Score: publication-grade \(>=7\/10\)/.test(text), 'score row should be visible without inventing an exact score');
 assert(!/__Market Impact__/.test(text), 'Dark Horse surface should not use shared MI markdown section wrappers');
 assert(!/__Primary Event Focus__/.test(text), 'Dark Horse surface should not show Market Intel primary-event wrapper');
 assert(!/TODAY'S RANKED EVENT CALENDAR/.test(text), 'Dark Horse surface should not show Market Intel calendar');

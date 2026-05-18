@@ -1,0 +1,87 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🐎 NEW DARK HORSE SCAN
+╔══════════════════════════════════════╗
+║ ATLAS · DARK HORSE · MOVEMENT DIGEST ║
+╚══════════════════════════════════════╝
+Report ID: DH-PROTOTYPE-PARITY-PROOF
+Generated: 2026-05-18 17:28 UTC
+Part: 1/1
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╔══════════════════════════════════╗
+║           MARKET MOOD            ║
+╚══════════════════════════════════╝
+🟠🟠🟠🟠⚫ 4/5 — Elevated
+
+🟢 STANDOUTS
+Standouts on this scan: 3
+Symbol: EURUSD
+Direction: Long
+Score: publication-grade (>=7/10)
+Move phase: watch
+Entry Validation: Wait for the entry/watch zone to confirm before action.
+🟡 LIFECYCLE SUMMARY
+Primary read: 3 standouts (1 FRESH · 1 STILL ACTIVE · 1 FADING). Lead: EURUSD FRE…
+Operational meaning: Standouts are listed in priority order; each carries a confi…
+Market impact: Standout setups derive from structural Bullish alignment + Corey live macro confirmation…
+↳ Expanded Terminology: available from dashboard controls
+
+╔══════════════════════════════════╗
+║   CURRENT ADVICE — AT RELEASE    ║
+╚══════════════════════════════════╝
+CURRENT ADVICE / WHAT TO DO NOW:
+1. Primary standout — EURUSD (FRESH Bullish): entry reference 1.10618 - 1.10668; confirmation condition 5m candle ope…
+CONFIRMATION: 5m candle opens inside 1.10618 - 1.10668 and closes above 1.10618; next candle must hold…
+$$: Account-percentage risk only: size so loss at 1.10563 is no more than 0.5% account equity (fresh-ca…
+
+🟠 ENTRY / WATCH ZONE
+🟠 WHERE TO ACT
+ENTRY: Watch EURUSD: trigger 1.10618 - 1.10668; invalidation 1.10563.
+WATCH: 5m candle opens inside 1.10618 - 1.10668 and closes above 1.10618; next candle must hold ab…
+CAUTION: AT TRIGGER: confirmed close required — do NOT pre-position above the trigger.
+INVALIDATION: 1H close below 1.10563 invalidates the long idea; exposure is flattened at the published in…
+
+💵 DOLLAR RISK / RISK CAP
+Account-percentage risk only: size so loss at 1.10563 is no more than 0.5% account equity (fresh-ca…
+
+🔵 WHAT THIS MEANS
+Market impact: Standout setups derive from structural Bullish alignment + Corey live macro confirmation…
+Standout setups derive from structural Bullish alignment + Corey live macro confirmation…
+
+🔵 WHAT TO DO NOW
+1. Treat the candidate as watch-listed until the entry/watch zone confirms.
+2. Size only from the published risk cap and invalidation reference.
+3. Stand down if confirmation fails before the next scan.
+
+✅ WHAT CONFIRMS
+5m candle opens inside 1.10618 - 1.10668 and closes above 1.10618; next candle must hold above 1.10…
+
+🟨 WHAT WOULD PROMOTE A CANDIDATE NEXT
+5m candle opens inside 1.10618 - 1.10668 and closes above 1.10618; next candle must hold above 1.10643.
+
+⛔ WHAT CANCELS
+1H close below 1.10563 invalidates the long idea; exposure is flattened at the published invalidati…
+
+╔══════════════════════════════════╗
+║       BUILDING / PRE-RADAR       ║
+╚══════════════════════════════════╝
+Market impact: Standout setups derive from structural Bullish alignment + Corey live macro confirmation…
+
+╔══════════════════════════════════╗
+║         CHART REFERENCE          ║
+╚══════════════════════════════════╝
+1H structural map + 5M / 15M execution; PNG attached when render succeeds.
+
+🧾 BRIEFING SUMMARY
+Primary read: 3 standouts (1 FRESH · 1 STILL ACTIVE · 1 FADING). Lead: EURUSD FRE…
+Operational meaning: Standouts are listed in priority order; each carries a confi…
+
+🟪 NEXT REVIEW
+2026-05-18 17:43 UTC
+
+🔵 SOURCE / ENGINE STATUS
+Source: ATLAS Dark Horse scanner · freshness: LIVE
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ END OF DARK HORSE SCAN
+Report ID: DH-PROTOTYPE-PARITY-PROOF
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -111,6 +111,20 @@ function _leadSymbol(viewModel, opts) {
   return 'EURUSD';
 }
 
+function _leadDirection(viewModel) {
+  const event = String(viewModel.EVENT_DAY_REFERENCE || '');
+  if (/\bBearish\b/i.test(event)) return 'Short';
+  if (/\bBullish\b/i.test(event)) return 'Long';
+  const action = String(viewModel.WHAT_TO_DO_NOW || viewModel.FOUR_WAY_HIGHER || '');
+  if (/\bShort\b|\bbearish\b|\bdownside\b/i.test(action)) return 'Short';
+  if (/\bLong\b|\bbullish\b|\bupside\b/i.test(action)) return 'Long';
+  return 'Watch';
+}
+
+function _stripLeadingLabel(s, label) {
+  return String(s || '').replace(new RegExp('^\\s*' + label + ':\\s*', 'i'), '');
+}
+
 function _renderWhereToAct(viewModel) {
   const entry = _fieldFromBlock(viewModel.EVENT_DAY_REFERENCE, 'What to watch') || 'Entry only after the published entry/watch zone confirms.';
   const watch = _safeLine(viewModel.CONFIRMS_WHEN, 'Watch for confirmation through the published trigger.');
@@ -127,16 +141,13 @@ function _renderWhereToAct(viewModel) {
 
 function _cardFieldBlock(viewModel, opts) {
   const symbol = _leadSymbol(viewModel, opts);
-  const directionText = String(viewModel.FOUR_WAY_HIGHER || viewModel.BRIEFING_SUMMARY || '');
-  const direction = /short|bearish|downside/i.test(directionText) ? 'Short'
-    : /long|bullish|upside/i.test(directionText) ? 'Long'
-    : 'Watch';
-  const score = Number.isFinite(opts && opts.score) ? opts.score : 8;
+  const direction = _leadDirection(viewModel);
+  const score = Number.isFinite(opts && opts.score) ? (opts.score + '/10') : 'publication-grade (>=7/10)';
   const phase = _safeLine(opts && opts.movePhase, 'watch');
   return [
     'Symbol: ' + symbol,
     'Direction: ' + direction,
-    'Score: ' + score + '/10',
+    'Score: ' + score,
     'Move phase: ' + phase,
     'Entry Validation: Wait for the entry/watch zone to confirm before action.',
   ].join('\n');
@@ -155,6 +166,7 @@ function renderDarkHorseSurface(viewModel, opts) {
   const riskCap = (String(viewModel.WHAT_TO_DO_NOW || '').split('\n').find(line => /\$\$:/i.test(line)) || '').replace(/^\s*\$\$:\s*/i, '').trim();
   const chartReference = _fieldFromBlock(viewModel.EVENT_DAY_REFERENCE, 'Chart study') || _sectionLines(viewModel.EVENT_DAY_REFERENCE, 1, 96) || 'Chart reference pending.';
   const building = _sectionLines(viewModel.MARKET_IMPACT, 1, 105) || 'Building read pending.';
+  const buildingImpact = _stripLeadingLabel(building, 'Market impact');
   const nextReview = opts.nextReviewUTC || 'Next scheduled Dark Horse scan.';
   const lines = [
     HARD_BOUNDARY,
@@ -172,7 +184,7 @@ function renderDarkHorseSurface(viewModel, opts) {
     _cardFieldBlock(viewModel, opts),
     '🟡 LIFECYCLE SUMMARY',
     lifecycle,
-    'Market impact: ' + _truncate(building, 120),
+    'Market impact: ' + _truncate(buildingImpact, 120),
     '↳ Expanded Terminology: available from dashboard controls',
     '',
     _boxHeading('CURRENT ADVICE — AT RELEASE'),
@@ -186,8 +198,8 @@ function renderDarkHorseSurface(viewModel, opts) {
     _truncate(riskCap || 'Account-percentage risk cap only after entry reference, confirmation, and invalidation are published.', 100),
     '',
     '🔵 WHAT THIS MEANS',
-    'Market impact: ' + _truncate(building, 140),
-    _truncate(building, 160),
+    'Market impact: ' + _truncate(buildingImpact, 140),
+    _truncate(buildingImpact, 160),
     '',
     '🔵 WHAT TO DO NOW',
     '1. Treat the candidate as watch-listed until the entry/watch zone confirms.',
@@ -204,7 +216,7 @@ function renderDarkHorseSurface(viewModel, opts) {
     _truncate(_safeLine(viewModel.CANCELS_WHEN, 'Pending'), 100),
     '',
     _boxHeading('BUILDING / PRE-RADAR'),
-    building,
+    'Market impact: ' + buildingImpact,
     '',
     _boxHeading('CHART REFERENCE'),
     chartReference + '; PNG attached when render succeeds.',
