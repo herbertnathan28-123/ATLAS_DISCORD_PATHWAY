@@ -38,6 +38,7 @@
 
 function _rank() { return require('./darkHorseRanking'); }
 function _foh()  { return require('./darkHorseFohSemanticTranslator'); }
+const { boxHeader: _atlasBoxHeader, controlStrip: _atlasControlStrip } = require('./foh/headerStrip');
 
 // ── Timestamp helpers ────────────────────────────────────────
 function _pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -240,11 +241,24 @@ function buildAtmosphereBanner(ctx) {
   const pubCondition = (ctx.atThresholdCount | 0) > 0
     ? (ctx.atThresholdCount + ' at publication-grade')
     : 'Not promoted this cycle';
+  // Download-control strip sits directly under the boxed report
+  // heading. Dark Horse always emits PNG + PDF attachments through
+  // the FOH dispatch path (foh/dispatch/sendDarkHorseFoh.js →
+  // postFohDeliverable); Expanded Terminology is wired via
+  // buildTerminologyRow below. The public dashboard route is not
+  // yet exposed to users — shown as Brief Pending until it lands.
+  const controlStrip = _atlasControlStrip({
+    png: 'available',
+    pdf: 'available',
+    dashboard: 'pending',
+    glossary: 'available',
+  });
   return [
-    HR,
+    _atlasBoxHeader('🐎 ATLAS · DARK HORSE · MOVEMENT DIGEST'),
+    controlStrip,
+    '',
     '🐎 **ATLAS · DARK HORSE · FOH OPERATOR SURFACE**',
     '*v1.3 — operator edition*',
-    HR,
     '',
     '📍 **Scan time:** ' + fmtUtcStamp(nowMs) + ' · ' + fmtAwstStamp(nowMs),
     '🌐 **Atmosphere:** ' + lvl,

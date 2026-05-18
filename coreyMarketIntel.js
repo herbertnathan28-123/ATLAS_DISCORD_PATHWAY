@@ -29,6 +29,7 @@
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl'); // reuse banned-phrase sanitiser
 const { interpretCalendarEvents, logMacroIntelligencePacket } = require('./macro/interpretCalendarEvents');
+const { boxHeader: _miBoxHeader, controlStrip: _miControlStrip } = require('./foh/headerStrip');
 
 // ── ENUMS ────────────────────────────────────────────────────
 const RELEVANCE = { HIGH: 'High', MODERATE: 'Moderate', LOW: 'Low' };
@@ -307,23 +308,6 @@ function _miRankedEventRows(macroPacket, opts) {
   }).slice(0, Number.isFinite(opts.limit) ? opts.limit : 5);
 }
 
-// Box-drawing header treatment for major Market Intel sections.
-// Width matches the operator spec (44 ═ chars between the corners).
-// Variation-selector codepoints (U+FE0F) add to JS .length but render
-// zero visual cells, so strip them before measuring pad width.
-function _miBoxHeader(label) {
-  const W = 44;
-  const inner = W - 2;
-  const text = String(label || '').trim();
-  const visualLen = text.replace(/️/g, '').length;
-  const pad = visualLen >= inner ? '' : ' '.repeat(inner - visualLen);
-  return [
-    '╔' + '═'.repeat(W) + '╗',
-    '║ ' + text + pad + ' ║',
-    '╚' + '═'.repeat(W) + '╝',
-  ].join('\n');
-}
-
 // Tier-1 / EXTREME catalysts (rate decisions, NFP, CPI, FOMC press)
 // surface as 🔴; HIGH calendar reads as 🟠; MEDIUM 🟡; LOW ⚪.
 function _miImpactGlyph(row) {
@@ -489,7 +473,23 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     ' · next72_count=' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) +
     ' · clusters=' + (Array.isArray(macroPacket.eventClusters) ? macroPacket.eventClusters.length : 0);
 
+  // Control strip sits under the top boxed heading per the FOH
+  // download-controls spec. PNG / PDF are flagged Brief Pending
+  // because the 3-message daily_brief dispatch path does not yet
+  // thread the imagePayload through to a multipart attachment;
+  // the Full Briefs row defers to live brief routing.
+  const controlStrip = _miControlStrip({
+    png: 'pending',
+    pdf: 'pending',
+    dashboard: 'pending',
+    dashboardLabel: 'Full Briefs',
+    glossary: 'available',
+  });
+
   const msg1 = [
+    _miBoxHeader('📡 MARKET INTEL · DAILY ROADMAP'),
+    controlStrip,
+    '',
     _miBoxHeader('🔥 THE CALL'),
     'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
     'Current read: MONITORING — calendar risk leads until Jane / structure confirms a tradable path.',

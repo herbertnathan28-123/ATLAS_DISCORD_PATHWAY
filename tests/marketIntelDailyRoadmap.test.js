@@ -62,7 +62,15 @@ const msg2 = messages[1] && messages[1].content || '';
 const msg3 = messages[2] && messages[2].content || '';
 const all = [msg1, msg2, msg3].join('\n---\n');
 
-console.log('\nT2 — message 1 leads with boxed THE CALL and ranked calendar:');
+console.log('\nT2 — message 1 leads with boxed report heading + download control strip:');
+if (/^╔═+╗\n║\s+📡 MARKET INTEL · DAILY ROADMAP\s+║\n╚═+╝/.test(msg1)) ok('message 1 opens with the boxed MARKET INTEL · DAILY ROADMAP report heading'); else fail('message 1 missing boxed MARKET INTEL · DAILY ROADMAP heading');
+const stripMatch = msg1.match(/🖼️ Download PNG: ([^\n]+)\n📄 Download PDF: ([^\n]+)\n🔗 Full Briefs: ([^\n]+)\n📘 Expanded Terminology: ([^\n]+)/);
+if (stripMatch) ok('message 1 includes the four-line download control strip directly under the report heading'); else fail('message 1 missing the download control strip');
+if (stripMatch && /Brief Pending/.test(stripMatch[1])) ok('PNG strip line declares Brief Pending until daily_brief carries the imagePayload'); else fail('PNG strip line not Brief Pending');
+if (stripMatch && /Brief Pending|Not generated/.test(stripMatch[2])) ok('PDF strip line declares Brief Pending / Not generated honestly'); else fail('PDF strip line not Brief Pending / Not generated');
+if (stripMatch && /Available/.test(stripMatch[4])) ok('Expanded Terminology strip line reports Available'); else fail('Expanded Terminology strip line not Available');
+if (msg1.indexOf('📡 MARKET INTEL · DAILY ROADMAP') < msg1.indexOf('🖼️ Download PNG') && msg1.indexOf('🖼️ Download PNG') < msg1.indexOf('🔥 THE CALL')) ok('control strip sits between the report heading and THE CALL block'); else fail('control strip not positioned between report heading and THE CALL');
+
 if (/╔═+╗\n║\s+🔥 THE CALL\s+║\n╚═+╝/.test(msg1) && msg1.indexOf('🔥 THE CALL') < msg1.indexOf('TODAY')) ok('message 1 leads with boxed 🔥 THE CALL header'); else fail('message 1 missing boxed THE CALL header');
 if (/╔═+╗\n║\s+📅 TODAY'S RANKED EVENT CALENDAR\s+║\n╚═+╝/.test(msg1) && /TIME \| CCY \| IMPACT \| EVENT \| AFFECTED MARKETS \| FULL BRIEF/.test(msg1)) ok('message 1 includes boxed calendar header and release table header'); else fail('message 1 missing boxed calendar header');
 if (/╔═+╗\n║\s+⚠️ RISK STATE\s+║\n╚═+╝/.test(msg1)) ok('message 1 includes boxed RISK STATE block'); else fail('message 1 missing boxed RISK STATE block');

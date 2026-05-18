@@ -711,9 +711,9 @@ console.log('\n[T13] New-scan boundary — Part 1 only, with UTC + AWST timestam
     firstChunkPrefix: payload.firstChunkPrefix,
   });
   ok('chunker produces at least 1 chunk', chunks.length >= 1);
-  ok('Part 1 starts with the FOH transport label, then the OPERATOR SURFACE banner',
-     /^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part 1\/\d+\n\n━{20,}\n🐎 \*\*ATLAS · DARK HORSE · FOH OPERATOR SURFACE\*\*/.test(chunks[0]),
-     { head: chunks[0].slice(0, 200) });
+  ok('Part 1 starts with the FOH transport label, then the boxed report heading + control strip + OPERATOR SURFACE banner',
+     /^\*\*🐎 ATLAS · DARK HORSE FOH\*\* — Part 1\/\d+\n\n╔═{20,}╗\n║[^\n]+║\n╚═{20,}╝\n🖼️ Download PNG: [^\n]+\n📄 Download PDF: [^\n]+\n🔗 [^\n]+\n📘 Expanded Terminology: [^\n]+\n\n🐎 \*\*ATLAS · DARK HORSE · FOH OPERATOR SURFACE\*\*/.test(chunks[0]),
+     { head: chunks[0].slice(0, 400) });
   for (let i = 1; i < chunks.length; i++) {
     ok(`Part ${i + 1}/${chunks.length} does NOT carry the OPERATOR SURFACE banner`,
        !/FOH OPERATOR SURFACE/.test(chunks[i]),
