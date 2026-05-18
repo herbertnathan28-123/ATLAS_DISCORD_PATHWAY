@@ -307,22 +307,59 @@ function _miRankedEventRows(macroPacket, opts) {
   }).slice(0, Number.isFinite(opts.limit) ? opts.limit : 5);
 }
 
+// Box-drawing header treatment for major Market Intel sections.
+// Width matches the operator spec (44 ═ chars between the corners).
+// Variation-selector codepoints (U+FE0F) add to JS .length but render
+// zero visual cells, so strip them before measuring pad width.
+function _miBoxHeader(label) {
+  const W = 44;
+  const inner = W - 2;
+  const text = String(label || '').trim();
+  const visualLen = text.replace(/️/g, '').length;
+  const pad = visualLen >= inner ? '' : ' '.repeat(inner - visualLen);
+  return [
+    '╔' + '═'.repeat(W) + '╗',
+    '║ ' + text + pad + ' ║',
+    '╚' + '═'.repeat(W) + '╝',
+  ].join('\n');
+}
+
+// Tier-1 / EXTREME catalysts (rate decisions, NFP, CPI, FOMC press)
+// surface as 🔴; HIGH calendar reads as 🟠; MEDIUM 🟡; LOW ⚪.
+function _miImpactGlyph(row) {
+  const impact = String(row && row.impact || '').toUpperCase();
+  const title = String(row && row.title || '').toLowerCase();
+  const tier1Title = /(rate decision|policy decision|interest rate decision|press conference|cpi\b|inflation rate|non[- ]?farm|nfp\b)/.test(title);
+  if (/EXTREME|TIER\s*1/.test(impact) || tier1Title) return '🔴';
+  if (/HIGH|ELEV/.test(impact)) return '🟠';
+  if (/(gdp|retail sales|unemployment|inflation|minutes|speech|payrolls)/.test(title)) return '🟠';
+  if (/MED|MEDIUM/.test(impact)) return '🟡';
+  if (/LOW/.test(impact)) return '⚪';
+  return '🟡';
+}
+
 function _miRankedCalendarBlock(macroPacket, opts) {
   const rows = _miRankedEventRows(macroPacket, opts);
-  if (!rows.length) return 'No selected-symbol release | multi | LOW | Broader market calendar pending | Affected markets pending | Brief Pending';
+  if (!rows.length) {
+    return [
+      '⚪ pending | multi | LOW | Broader market calendar pending',
+      'Affected: Affected markets pending',
+      'Full Brief: Brief Pending',
+    ].join('\n');
+  }
   return rows.map(r => {
     const markets = r.affectedMarkets && r.affectedMarkets.length
-      ? r.affectedMarkets.slice(0, 4).map(symbolDisplay).join(', ')
+      ? r.affectedMarkets.slice(0, 6).map(symbolDisplay).join(' · ')
       : 'Affected markets pending';
-    return [
-      _miShort(r.timeUTC || 'pending', 10),
-      _miShort(r.currency || 'multi', 5),
-      _miShort(r.impact || 'MED', 8),
-      _miShort(humanizeTitle(r.title), 30),
-      _miShort(markets, 54),
-      _miShort(r.fullBrief || 'Brief Pending', 24),
-    ].join(' | ');
-  }).join('\n');
+    const glyph = _miImpactGlyph(r);
+    const line1 = glyph + ' ' + _miShort(r.timeUTC || 'pending', 10)
+      + ' | ' + _miShort(r.currency || 'multi', 6)
+      + ' | ' + _miShort(r.impact || 'MED', 8)
+      + ' | ' + _miShort(humanizeTitle(r.title), 40);
+    const line2 = 'Affected: ' + _miShort(markets, 80);
+    const line3 = 'Full Brief: ' + _miShort(r.fullBrief || 'Brief Pending', 60);
+    return [line1, line2, line3].join('\n');
+  }).join('\n\n');
 }
 
 function _miAffectedSymbolsFrom(macroPacket, fallbackSymbols) {
@@ -357,29 +394,70 @@ function _miRiskWindows(macroPacket) {
     : ['• No named release window; monitor live US Dollar Strength (DXY), Market Volatility (VIX), and yields.'];
 }
 
+// Five-card MARKET IMPACT layout. Each card is colour-prefixed and
+// reads in plain English — what is happening, why it matters, what
+// moves first, what confirms it, what weakens it. Pulls from the
+// macro transmission map first; falls back to the primary focus when
+// the transmission path is not yet resolved.
 function _miMarketImpactCards(macroPacket) {
-  const paths = macroPacket && Array.isArray(macroPacket.macroTransmissionMap) ? macroPacket.macroTransmissionMap : [];
-  if (!paths.length) {
-    const p = macroPacket && macroPacket.primaryEventFocus || {};
-    return ['• Market Impact card 1 — ' + (p.title || 'Broader market calendar') + ': transmission pending; confirm against live US Dollar Strength (DXY), Market Volatility (VIX), yields, and first 5M / 15M close.'];
-  }
-  return paths.slice(0, 3).map((p, idx) => {
-    const affected = Array.isArray(p.affectedSymbols) && p.affectedSymbols.length
-      ? p.affectedSymbols.slice(0, 5).map(symbolDisplay).join(', ')
-      : 'affected markets pending';
-    return '• Market Impact card ' + (idx + 1) + ' — ' + (p.driver || 'Macro driver') + ': ' +
-      (p.mechanism || 'macro repricing') + ' Affected markets: ' + affected + '. ' +
-      'Confirms if ' + (p.whatStrengthensThis || 'lead markets confirm') + '; degrades if ' + (p.whatWeakensThis || 'live drivers fade the first move') + '.';
-  });
+  const packet = macroPacket || {};
+  const focus = packet.primaryEventFocus || {};
+  const paths = Array.isArray(packet.macroTransmissionMap) ? packet.macroTransmissionMap : [];
+  const path = paths[0] || null;
+  const expanded = Array.isArray(packet.affectedMarketsExpanded) ? packet.affectedMarketsExpanded : [];
+  const firstExpanded = expanded[0] || {};
+
+  const happeningTitle = focus.title || (path && path.driver) || 'Broader market calendar';
+  const happening = humanizeTitle(happeningTitle) + ' is the primary scheduled release.';
+
+  const why = (path && path.mechanism)
+    || (path && path.firstOrderEffect)
+    || focus.whyPrimary
+    || 'Surprise vs forecast reprices short-term rate expectations and risk appetite.';
+
+  const moverSyms = (path && Array.isArray(path.affectedSymbols) && path.affectedSymbols.length)
+    ? path.affectedSymbols
+    : (Array.isArray(focus.affectedMarkets) ? focus.affectedMarkets : []);
+  const moversText = moverSyms.length
+    ? moverSyms.slice(0, 6).map(symbolDisplay).join(', ') + '.'
+    : 'US Dollar Strength (DXY), EURUSD, GBPUSD, USDJPY, gold, and US500.';
+
+  const confirms = (path && path.whatStrengthensThis)
+    || firstExpanded.confirmationCondition
+    || focus.confidenceBasis
+    || 'First 15-minute close after release, supported by US Dollar Strength (DXY), yields, and Market Volatility (VIX).';
+
+  const weakens = (path && path.whatWeakensThis)
+    || firstExpanded.invalidationCondition
+    || focus.reversalRisk
+    || 'If the first move fades back inside the pre-release range.';
+
+  return [
+    '🟦 What is happening',
+    happening,
+    '',
+    '🟨 Why this matters',
+    why,
+    '',
+    '🟧 What moves first',
+    moversText,
+    '',
+    '🟩 What confirms it',
+    confirms,
+    '',
+    '🟥 What weakens it',
+    weakens,
+  ];
 }
 
 function _miAffectedMarketCards(macroPacket, fallbackSymbols) {
   const expanded = macroPacket && Array.isArray(macroPacket.affectedMarketsExpanded) ? macroPacket.affectedMarketsExpanded : [];
+  const trim = (s) => String(s || '').replace(/\.+$/, '').trim();
   if (expanded.length) {
     return expanded.slice(0, 6).map(m => {
       const symbol = symbolDisplay(m.symbol || m.instrument || 'Market');
-      const how = m.transmissionMechanism || m.howAffected || 'affected through the primary macro driver';
-      const confirm = m.confirmationCondition || m.confirmation || 'lead-market confirmation required';
+      const how = trim(m.transmissionMechanism || m.howAffected || 'affected through the primary macro driver');
+      const confirm = trim(m.confirmationCondition || m.confirmation || 'lead-market confirmation required');
       return '• ' + symbol + ' — ' + how + '; confirmation: ' + confirm + '.';
     });
   }
@@ -412,30 +490,31 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     ' · clusters=' + (Array.isArray(macroPacket.eventClusters) ? macroPacket.eventClusters.length : 0);
 
   const msg1 = [
-    '🔥 **THE CALL**',
-    'Primary focus: ' + (p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
-    'Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + (r.whyThisRating || 'risk basis unavailable'),
+    _miBoxHeader('🔥 THE CALL'),
+    'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
     'Current read: MONITORING — calendar risk leads until Jane / structure confirms a tradable path.',
     'Next confirmation point: ' + (p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
     '',
-    "**TODAY'S RANKED EVENT CALENDAR**",
+    _miBoxHeader("📅 TODAY'S RANKED EVENT CALENDAR"),
     'TIME | CCY | IMPACT | EVENT | AFFECTED MARKETS | FULL BRIEF',
-    _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 6 }),
+    _miRankedCalendarBlock(macroPacket, { now: NOW, limit: 5 }),
     '',
-    '**KEY RISK WINDOWS**',
+    _miBoxHeader('⚠️ RISK STATE'),
+    'Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + (r.whyThisRating || 'risk basis unavailable'),
+    'Key windows:',
     _miRiskWindows(macroPacket).join('\n'),
     '',
     sourceNote,
   ].join('\n');
 
   const msg2 = [
-    '**MARKET IMPACT**',
+    _miBoxHeader('🌍 MARKET IMPACT'),
     _miMarketImpactCards(macroPacket).join('\n'),
     '',
-    '**AFFECTED MARKETS**',
+    _miBoxHeader('🎯 AFFECTED MARKETS'),
     _miAffectedMarketCards(macroPacket, affectedSymbols).join('\n'),
     '',
-    '**CONFIRMATION / DEGRADATION**',
+    _miBoxHeader('✅ CONFIRMATION / DEGRADATION'),
     'Confirmation: ' + (p.confidenceBasis || 'first 5M / 15M close agrees with the lead market and live macro drivers.'),
     'Degradation: ' + (macroPacket.degradedReason || 'none from calendar packet') + '. Downgrade if US Dollar Strength (DXY), Market Volatility (VIX), yields, Corey Clone, or Spidey contradict the primary path.',
     '',
@@ -443,12 +522,12 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
   ].join('\n');
 
   const msg3 = [
-    '**FORWARD PLANNING**',
+    _miBoxHeader('🗓️ FORWARD PLANNING'),
     'Next 24h: ' + next24Count + ' scheduled event(s). Next 72h: ' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) + ' ranked relevant event(s).',
-    'Primary event: ' + (p.title || 'none') + '. Prepare around named windows; outside them, read live US Dollar Strength (DXY), Market Volatility (VIX), yields, and liquidity.',
+    'Primary event: ' + humanizeTitle(p.title || 'none') + '. Prepare around named windows; outside them, read live US Dollar Strength (DXY), Market Volatility (VIX), yields, and liquidity.',
     'Ranked coverage: ' + (rankedRows.length ? rankedRows.map(e => humanizeTitle(e.title)).slice(0, 4).join(' | ') : 'Brief Pending until the next live packet resolves ranked events.'),
     '',
-    '**FULL BRIEF LINKS / BRIEF PENDING**',
+    _miBoxHeader('🔗 FULL BRIEF / BRIEF PENDING'),
     _miBriefRows(macroPacket).join('\n'),
     '',
     sourceNote,

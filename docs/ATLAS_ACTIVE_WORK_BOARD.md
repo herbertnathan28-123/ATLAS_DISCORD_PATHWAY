@@ -274,6 +274,7 @@ No further design drift until this is operational.
 
 Short log of finished work so historical context isn't lost when items move from `[ ]` to `[x]` above. Most recent first.
 
+- **18 May 2026** — Market Intel Daily Roadmap FOH visual upgrade (branch `claude/atlas-implementation-support-RCXhO`) — boxed ATLAS headers (`╔══╗ ║ … ║ ╚══╝`) on THE CALL, TODAY'S RANKED EVENT CALENDAR, RISK STATE, MARKET IMPACT, AFFECTED MARKETS, CONFIRMATION / DEGRADATION, FORWARD PLANNING, FULL BRIEF / BRIEF PENDING; impact-coloured calendar rows (🔴 Tier 1 / 🟠 HIGH / 🟡 MED / ⚪ LOW); five-card MARKET IMPACT layout (🟦 What is happening · 🟨 Why this matters · 🟧 What moves first · 🟩 What confirms it · 🟥 What weakens it); bare DXY/VIX leak guard on the daily roadmap surface. All three Daily Brief messages stay under the 2000-char Discord cap.
 - **17 May 2026** — Macro search output tightened for Sydney open blocker (PR #132) — THE CALL leads; MONITORING wording; live event resolver; US Dollar Strength (DXY) / Market Volatility (VIX) user-facing terminology; Brief Pending fallback.
 - **17 May 2026** — Dashboard Source Status / Audit reconciled with chart, price, and OHLC data layers (PR #134) — market-data LIVE no longer collapses macro/Jane pending states; Mechanism Chain label replaced with Market Impact.
 - **17 May 2026** — Wire AI agents to check Active Work Board at session start (PR #128) — CLAUDE.md + AGENTS.md READ FIRST blocks.
