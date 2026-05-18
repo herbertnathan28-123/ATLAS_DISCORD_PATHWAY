@@ -39,6 +39,7 @@
 function _rank() { return require('./darkHorseRanking'); }
 function _foh()  { return require('./darkHorseFohSemanticTranslator'); }
 const { boxHeader: _atlasBoxHeader, controlStrip: _atlasControlStrip } = require('./foh/headerStrip');
+const { accountRiskPanel: _atlasRiskPanel, expandMacroLabels: _atlasExpand, formatPriceDistance: _atlasFmtDistance } = require('./foh/foh-format');
 
 // ── Timestamp helpers ────────────────────────────────────────
 function _pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -347,6 +348,123 @@ function buildSectionRadar(sectionKey, rows, sectionAvg) {
 }
 
 // ── Candidate card (premium visual hierarchy) ────────────────
+// CURRENT ADVICE — AT RELEASE (operator brief 2026-05-18).
+// First actionable block on every Dark Horse standout — answers
+// "what do I do with this right now?" before the trader reads
+// any setup theory. Most price-level fields render 'Pending'
+// today because the engine does not yet emit explicit entry /
+// validation / target prices; the placeholder strings are the
+// honest fallback per the operator spec ("If a field is not
+// available, do not omit it silently"). When engine wiring lands
+// these fields fill in without changing the block layout.
+function _dhAdviceStateFor(status) {
+  // status.tag comes from cardStatusTag and uses the v1.3 vocab:
+  //   'DANGER · stretched move'           → REDUCED SIZE ONLY
+  //   'CAUTION · late-stage move'         → REDUCED SIZE ONLY
+  //   'HEALTHY · publication-grade …'     → CONDITIONAL WATCH
+  //   'BUILDING · pressure visible'       → WAIT FOR VALIDATION
+  //   'CONTEXT · informational only'      → OBSERVATION ONLY
+  const t = String(status && status.tag || '').toUpperCase();
+  if (/DANGER|EXHAUSTION|FADING|STRETCHED/.test(t)) return 'REDUCED SIZE ONLY';
+  if (/CAUTION|LATE-STAGE/.test(t)) return 'REDUCED SIZE ONLY';
+  if (/HEALTHY|PUBLICATION-GRADE|STANDOUT|STILL TRENDING/.test(t)) return 'CONDITIONAL WATCH';
+  if (/BUILDING|DEVELOPING|FRESH/.test(t)) return 'WAIT FOR VALIDATION';
+  return 'OBSERVATION ONLY';
+}
+
+function _dhRiskCapFor(phase) {
+  const p = String(phase || '').toLowerCase();
+  if (/late|exhaustion|fading/.test(p)) return '0.25% of account equity (late-stage card)';
+  if (/developing|breakout|fresh/.test(p)) return '0.50% of account equity';
+  return '0.25% of account equity';
+}
+
+function _dhDirectionLabel(dir) {
+  const d = String(dir || '').toLowerCase();
+  if (d === 'bullish') return 'Long';
+  if (d === 'bearish') return 'Short';
+  if (d === 'neutral') return 'Neutral';
+  return 'Pending';
+}
+
+function buildCurrentAdviceBlock(record, ctx) {
+  const status = cardStatusTag(record);
+  const adviceState = _dhAdviceStateFor(status);
+  const direction = _dhDirectionLabel(record && record.direction);
+  const phase = String((record && record.movePhase) || '').toLowerCase();
+  const stretched = /late|exhaustion|fading/.test(phase);
+
+  const ev = (record && record.evidenceAnchors) || {};
+  const hi = ev.recentHigh && ev.recentHigh.priceText;
+  const lo = ev.recentLow  && ev.recentLow.priceText;
+  const inv = ev.invalidation && ev.invalidation.priceText;
+
+  const entryZone = (hi && lo) ? lo + ' – ' + hi : 'Pending — entry band not yet published';
+  const stopPrice = inv || 'Pending — invalidation level not yet published';
+  const extendedStop = stretched ? 'Not used — late-stage card (single-stop discipline)' : 'Pending';
+
+  const nextReview = (ctx && ctx.nextReview) || 'Pending';
+  const riskCap = _dhRiskCapFor(phase);
+  const doNotEnter = inv
+    ? 'Price closes ' + (String((record && record.direction) || '').toLowerCase() === 'bullish' ? 'below' : 'above') + ' ' + inv + ' on the 1D timeframe before entry validation.'
+    : 'Invalidation level pending — do not enter until the structure level is published.';
+
+  const instantAdvice = stretched
+    ? 'Do not enter yet. This card is late-stage — wait for the listed validation rule and keep risk capped.'
+    : direction === 'Pending'
+    ? 'Observation only — direction is not yet resolved by the engine.'
+    : 'Conditional ' + direction.toLowerCase() + ' only after the candle-close validation rule below. Risk remains capped until structure confirms.';
+
+  return [
+    _atlasBoxHeader('⚡ CURRENT ADVICE — AT RELEASE', { color: 'orange' }),
+    '🟧 **Advice State:**',
+    adviceState,
+    '',
+    '🟩 **Direction:**',
+    direction,
+    '',
+    '🟩 **Entry Zone:**',
+    entryZone,
+    '',
+    '🟨 **Entry Window:**',
+    'Pending — recheck at next scan (' + nextReview + '). No entry until the validation rule below is met.',
+    '',
+    '🟨 **Entry Validation:**',
+    'Pending — exact 5M / 15M candle-close requirement not yet emitted by the engine. Until then, treat as observation only.',
+    '',
+    '🟥 **Stop / Invalidation:**',
+    stopPrice,
+    '',
+    '🟧 **Extended Stop:**',
+    extendedStop,
+    '',
+    '🎯 **First Target:**',
+    'Pending validation',
+    '',
+    '🟧 **Risk Cap:**',
+    riskCap,
+    '',
+    _atlasRiskPanel(),
+    '',
+    '🟦 **Minimum ATLAS Buffer:**',
+    'Pending — instrument-aware buffer wiring in progress (dollars first per FOH spec, technical unit in brackets).',
+    '',
+    '🟦 **Technical Distance:**',
+    _atlasFmtDistance(null, record && record.symbol),
+    '',
+    '🟪 **Next Review:**',
+    nextReview,
+    '',
+    '⛔ **Do Not Enter If:**',
+    doNotEnter,
+    '',
+    '📷 **Visual Example:**',
+    'See attached PNG card for entry-zone / invalidation visual.',
+    '',
+    '**INSTANT ADVICE:** ' + instantAdvice,
+  ].join('\n');
+}
+
 function buildCandidateCard(r, idx, isStandout, ctx) {
   const foh = _foh();
   const arrow = foh.arrowFor(r.direction);
@@ -362,13 +480,15 @@ function buildCandidateCard(r, idx, isStandout, ctx) {
     status.glyph + ' **STATUS** · ' + status.tag,
     buildLifecycleBadge(r.movePhase),
     '',
+    buildCurrentAdviceBlock(r, ctx),
+    '',
     buildLongShortExplanation(r.direction),
     '',
     '🧬 **Phase** · ' + narration.phase.plain,
     '⚡ **Movement quality** · ' + narration.speed + '; ' + narration.relativeStrength + '.',
     '',
     '📍 **WHAT HAPPENED**',
-    narration.whatHappened,
+    _atlasExpand(narration.whatHappened),
     '',
     '🎯 **WHERE IT MATTERS**',
     narration.whereItMatters,
