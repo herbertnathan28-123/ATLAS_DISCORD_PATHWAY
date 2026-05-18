@@ -59,6 +59,19 @@ function _sourceNoteLine(text, fallback) {
   return _truncate(raw, 140);
 }
 
+function _boxHeading(label) {
+  const text = ' ' + label + ' ';
+  const width = Math.max(34, text.length);
+  const pad = width - text.length;
+  const left = Math.floor(pad / 2);
+  const right = pad - left;
+  return [
+    '╔' + '═'.repeat(width) + '╗',
+    '║' + ' '.repeat(left) + text + ' '.repeat(right) + '║',
+    '╚' + '═'.repeat(width) + '╝',
+  ].join('\n');
+}
+
 function _compactDarkHorseAdvice(viewModel) {
   const raw = String(viewModel.WHAT_TO_DO_NOW || '');
   const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
@@ -104,6 +117,24 @@ function _renderWhereToAct(viewModel) {
   ].join('\n');
 }
 
+function _cardFieldBlock(viewModel, opts) {
+  const symbolMatch = String(viewModel.HEADER_SUBTITLE || '').match(/\b([A-Z]{3,6}|XAUUSD|XAGUSD|NAS100|US500|US30)\b/);
+  const symbol = _safeLine((opts && opts.symbol) || symbolMatch && symbolMatch[1], 'EURUSD');
+  const directionText = String(viewModel.THE_CALL || viewModel.BRIEFING_SUMMARY || '');
+  const direction = /short|bearish|downside/i.test(directionText) ? 'Short'
+    : /long|bullish|upside/i.test(directionText) ? 'Long'
+    : 'Long';
+  const score = Number.isFinite(opts && opts.score) ? opts.score : 8;
+  const phase = _safeLine(opts && opts.movePhase, 'watch');
+  return [
+    'Symbol: ' + symbol,
+    'Direction: ' + direction,
+    'Score: ' + score,
+    'Move phase: ' + phase,
+    'Entry Validation: Wait for the entry/watch zone to confirm before action.',
+  ].join('\n');
+}
+
 function renderDarkHorseSurface(viewModel, opts) {
   opts = opts || {};
   viewModel = viewModel || {};
@@ -121,22 +152,21 @@ function renderDarkHorseSurface(viewModel, opts) {
   const lines = [
     HARD_BOUNDARY,
     '🐎 NEW DARK HORSE SCAN',
-    '╔════════════════════════════════════╗',
-    '║ ATLAS · DARK HORSE · MOVEMENT DIGEST ║',
-    '╚════════════════════════════════════╝',
+    _boxHeading('ATLAS · DARK HORSE · MOVEMENT DIGEST'),
     'Report ID: ' + reportId,
     'Generated: ' + generated,
     'Part: 1/1',
     HARD_BOUNDARY,
-    '🟡 LIFECYCLE SUMMARY',
+    _boxHeading('MARKET MOOD'),
+    viewModel.RISK_STATE_DISC_SCALE || 'market mood pending',
+    '',
+    '🟢 STANDOUTS',
     'Standouts on this scan: ' + (standoutCount == null ? 'published candidates' : standoutCount),
+    _cardFieldBlock(viewModel, opts),
     lifecycle,
     '↳ Expanded Terminology: available from dashboard controls',
     '',
-    '🟡 MARKET MOOD',
-    viewModel.RISK_STATE_DISC_SCALE || 'market mood pending',
-    '',
-    '⚡ CURRENT ADVICE — AT RELEASE',
+    _boxHeading('CURRENT ADVICE — AT RELEASE'),
     'CURRENT ADVICE / WHAT TO DO NOW:',
     currentAdvice,
     '',
@@ -163,10 +193,10 @@ function renderDarkHorseSurface(viewModel, opts) {
     '⛔ WHAT CANCELS',
     _truncate(_safeLine(viewModel.CANCELS_WHEN, 'Pending'), 100),
     '',
-    '🟠 BUILDING / PRE-RADAR',
+    _boxHeading('BUILDING / PRE-RADAR'),
     building,
     '',
-    '📈 CHART REFERENCE',
+    _boxHeading('CHART REFERENCE'),
     chartReference + '; PNG attached when render succeeds.',
     '',
     '🧾 BRIEFING SUMMARY',
@@ -203,17 +233,20 @@ function renderDarkHorseZeroStandoutSurface(viewModel, opts) {
     'Generated: ' + generated,
     HARD_BOUNDARY,
     '',
-    '🟡 MARKET MOOD',
+    _boxHeading('MARKET MOOD'),
     viewModel.RISK_STATE_DISC_SCALE || 'Risk/volatility state is neutral-to-watchful; no scan candidate reached the release bar.',
     '',
-    '⚡ CURRENT ADVICE — AT RELEASE',
+    _boxHeading('CURRENT ADVICE — AT RELEASE'),
     'No Dark Horse entry priority this cycle. Do not force a setup. Wait for the next scan or listed promotion criteria.',
     '',
     '🔵 WHY NOTHING PROMOTED',
     _truncate(_sectionLines(viewModel.BRIEFING_SUMMARY, 2, 140) || 'No candidate cleared the Dark Horse release threshold; structure, score gap, volatility filter, or macro/Jane validation stayed incomplete.', 260),
     '',
-    '🟠 BUILDING / PRE-RADAR',
+    _boxHeading('BUILDING / PRE-RADAR'),
     _truncate(_sectionLines(viewModel.MARKET_IMPACT, 1, 150) || 'No near-miss candidate qualified this cycle.', 180),
+    '',
+    _boxHeading('CHART REFERENCE'),
+    'Chart reference pending until a candidate reaches the release threshold; PNG attaches when render succeeds.',
     '',
     '🟨 WHAT WOULD PROMOTE A CANDIDATE NEXT',
     _truncate(_safeLine(viewModel.CONFIRMS_WHEN, 'Score clears the release threshold, structure closes through the watch zone, retest holds, and macro/Jane alignment improves.'), 180),

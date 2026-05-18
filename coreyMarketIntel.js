@@ -316,6 +316,8 @@ function _miRankedEventRows(macroPacket, opts) {
       title,
       affectedMarkets: markets,
       fullBrief: _miSafeBriefStatus(e),
+      forecast: e.forecast != null ? e.forecast : e.expected != null ? e.expected : fallback.forecast,
+      previous: e.previous != null ? e.previous : fallback.previous,
       score: Number.isFinite(e.importanceScore) ? e.importanceScore : Number.isFinite(e.score) ? e.score : 0,
       sortMs: Number.isFinite(e.timeMs) ? e.timeMs : (e.scheduledTimeUTC ? Date.parse(e.scheduledTimeUTC) : Number.MAX_SAFE_INTEGER),
       isNext24h: Number.isFinite(e.timeMs)
@@ -458,8 +460,9 @@ function _miRankedCalendarBlock(macroPacket, opts) {
       + ' ' + _miShort(r.currency || 'multi', 6)
       + ' · ' + eventCell;
     const line2 = 'Affected: ' + _miShort(markets, 80);
-    const line3 = 'Full Brief: ' + _miShort(r.fullBrief || 'Brief Pending', 60);
-    return [line1, line2, line3].join('\n');
+    const line3 = 'Forecast: ' + _miShort(r.forecast != null ? r.forecast : 'Pending', 36) + ' · Previous: ' + _miShort(r.previous != null ? r.previous : 'Pending', 36);
+    const line4 = 'Full Brief: ' + _miShort(r.fullBrief || 'Brief Pending', 60);
+    return [line1, line2, line3, line4].join('\n');
   }).join('\n\n');
 }
 
@@ -719,12 +722,12 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
   const roadmapSequence = _miRoadmapSequenceBlock(macroPacket, NOW);
   const janePosture = _miJanePostureBlock(macroPacket, opts);
   const fullBrief = _miBriefRows(macroPacket).slice(0, 2).map(_miExpandMacroLabels).join('\n');
-  const content = [
+  const msg1 = [
     MI_HARD_BOUNDARY,
     '🟨 NEW MARKET INTEL REPORT',
     'Report ID: ' + reportId,
     'Generated: ' + generated,
-    'Part: 1/1',
+    'Part: 1/7',
     MI_HARD_BOUNDARY,
     _miControlsPendingBlock(),
     '',
@@ -732,7 +735,70 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
     'Current read: MONITORING — calendar risk leads until Jane / structure confirms a tradable path.',
     'Next confirmation point: ' + _miExpandMacroLabels(p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
+  ].join('\n');
+  const msg2 = [
+    MI_HARD_BOUNDARY,
+    '🟠 HIGH-IMPACT CALENDAR EVENTS',
+    'Part: 2/7 · Report ID: ' + reportId,
+    calendarRows,
     '',
+    '🟡 RISK STATE',
+    'Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + _miExpandMacroLabels(r.whyThisRating || 'risk basis unavailable'),
+    'Key windows: ' + _miRiskWindows(macroPacket).map(_miExpandMacroLabels).slice(0, 2).join(' | '),
+  ].join('\n');
+  const msg3 = [
+    MI_HARD_BOUNDARY,
+    '🔵 MARKET IMPACT / SCENARIO PATHS',
+    'Part: 3/7 · Report ID: ' + reportId,
+    marketImpact,
+    '',
+    roadmapSequence,
+  ].join('\n');
+  const msg4 = [
+    MI_HARD_BOUNDARY,
+    _miAffectedMarketsCompressed(macroPacket, affectedSymbols),
+    'Part: 4/7 · Report ID: ' + reportId,
+    '',
+    janePosture,
+  ].join('\n');
+  const msg5 = [
+    MI_HARD_BOUNDARY,
+    '🔗 FULL BRIEF / BRIEF PENDING',
+    'Part: 5/7 · Report ID: ' + reportId,
+    fullBrief,
+  ].join('\n');
+  const msg6 = [
+    MI_HARD_BOUNDARY,
+    '🔵 SOURCE / DEGRADATION',
+    'Part: 6/7 · Report ID: ' + reportId,
+    'Source: ' + sourceLine,
+    'Degradation: ' + (macroPacket.degradedReason || 'none reported'),
+    'Counts: cal=' + (macroPacket.calendarEventsRawCount != null ? macroPacket.calendarEventsRawCount : events.length) +
+      ' · 24h=' + next24Count +
+      ' · 72h=' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) +
+      ' · clusters=' + (Array.isArray(macroPacket.eventClusters) ? macroPacket.eventClusters.length : 0),
+  ].join('\n');
+  const msg7 = [
+    MI_HARD_BOUNDARY,
+    '🧾 BRIEFING SUMMARY',
+    'Part: 7/7 · Report ID: ' + reportId,
+    'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
+    'Catalyst summary: calendar-first control surface; use Full Brief rows where available and Brief Pending where not yet published.',
+    'Next scheduled refresh: ' + _miNextDailyRefreshUtc(NOW),
+    MI_HARD_BOUNDARY,
+  ].join('\n');
+
+  const messages = [msg1, msg2, msg3, msg4, msg5, msg6, msg7];
+  return messages.map((content, idx) => ({
+    content,
+    index: idx + 1,
+    total: 7,
+    reportId,
+    rankedEventCount: rankedRows.length,
+    affectedSymbols,
+    sourceLine,
+  }));
+  /*
     '🟠 HIGH-IMPACT CALENDAR EVENTS',
     calendarRows,
     '',
@@ -770,6 +836,7 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     affectedSymbols,
     sourceLine,
   }));
+  */
 }
 
 function _spideyStatusLabel(spideyRes) {
