@@ -91,9 +91,9 @@ const next72MacroPacket = {
 const miNext72 = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { severity: 'MED' }, eventClusters: [], macroIntelligencePacket: next72MacroPacket } });
 const miNext72Text = buildDiscordTextSummary(miViewModel.toViewModel(miNext72), { maxDiscordChunkChars: 100000 });
 if (/^🔥 \*\*CURRENT MARKET READ\*\*/.test(miNext72Text)) ok('MI next72 text leads with CURRENT MARKET READ'); else fail('MI next72 text does not lead with CURRENT MARKET READ');
-if (/TODAY'S RANKED EVENT CALENDAR/.test(miNext72Text) && /TIME \| CCY \| IMPACT \| EVENT \| AFFECTED MARKETS \| FULL BRIEF/.test(miNext72Text)) ok('MI next72 text includes ranked calendar table header'); else fail('MI next72 text missing ranked calendar header');
+if (/TODAY'S RANKED EVENT CALENDAR/.test(miNext72Text) && /08:00 UTC \/ 16:00 AWST · EUR · GDP Growth Rate QoQ Prel · HIGH/.test(miNext72Text) && !/TIME \| CCY \| IMPACT/.test(miNext72Text)) ok('MI next72 text includes mobile ranked calendar bullets without pipe table header'); else fail('MI next72 text missing mobile ranked calendar rows or still has table header');
 if (/GDP Growth Rate QoQ Prel/.test(miNext72Text) && /FOMC Member Speech/.test(miNext72Text)) ok('MI next72 text includes next72 events'); else fail('MI next72 text missing next72 event rows');
-if (/Brief Pending/.test(miNext72Text)) ok('MI next72 text shows Brief Pending fallback'); else fail('MI next72 text missing Brief Pending');
+if (!/Brief Pending/.test(miNext72Text) && /Full Brief blocked: missing forecast\/previous/.test(miNext72Text)) ok('MI next72 text shows specific Full Brief blocker, not generic Brief Pending'); else fail('MI next72 text missing specific Full Brief blocker or leaked Brief Pending');
 if (/Source: TradingView calendar .* freshness: LIVE/.test(miNext72Text)) ok('MI next72 text shows TradingView LIVE source'); else fail('MI next72 text missing TradingView LIVE source');
 if (/Market impact: GDP Growth Rate QoQ Prel/.test(miNext72Text)) ok('MI next72 text populates Market Impact from macro transmission path'); else fail('MI next72 text missing macro transmission Market Impact');
 

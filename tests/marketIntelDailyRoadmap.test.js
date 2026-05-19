@@ -4,6 +4,7 @@
 
 const path = require('path');
 const fs = require('fs');
+process.env.ATLAS_FULL_BRIEF_BASE_URL = 'https://atlas-fx-dashboard.onrender.com';
 const { buildDailyBulletinPayload } = require(path.join(__dirname, '..', 'coreyMarketIntel'));
 
 let passed = 0, failed = 0;
@@ -30,10 +31,11 @@ const macroPacket = {
   sourceUsed: ['TradingView calendar', 'corey_live'],
   dataFreshness: { calendar: { mode: 'LIVE', source: 'TradingView calendar', available: true } },
   calendarEventsRawCount: 86,
+  generatedAtUTC: '2026-05-17T06:00:00.000Z',
   todayAnnouncements: [],
   next72Hours: [
-    { title: 'ECB Rate Decision', currency: 'EUR', timeUTC: '11:45', scheduledTimeUTC: '2026-05-18T11:45:00.000Z', severity: 'HIGH', importanceScore: 95, affectedMarkets: ['EURUSD', 'DXY', 'GER40'] },
-    { title: 'GDP Growth Rate QoQ Prel', currency: 'EUR', timeUTC: '08:00', scheduledTimeUTC: '2026-05-18T08:00:00.000Z', severity: 'HIGH', importanceScore: 82, affectedMarkets: ['EURUSD', 'DXY', 'GER40'] },
+    { title: 'ECB Rate Decision', currency: 'EUR', timeUTC: '11:45', scheduledTimeUTC: '2026-05-18T11:45:00.000Z', severity: 'HIGH', importanceScore: 95, forecast: '2.00%', previous: '2.25%', affectedMarkets: ['EURUSD', 'DXY', 'GER40'] },
+    { title: 'GDP Growth Rate QoQ Prel', currency: 'EUR', timeUTC: '08:00', scheduledTimeUTC: '2026-05-18T08:00:00.000Z', severity: 'HIGH', importanceScore: 82, forecast: '0.3%', previous: '0.2%', affectedMarkets: ['EURUSD', 'DXY', 'GER40'] },
     { title: 'FOMC Member Speech', currency: 'USD', timeUTC: '14:00', scheduledTimeUTC: '2026-05-18T14:00:00.000Z', severity: 'ELEV', importanceScore: 68, affectedMarkets: ['DXY', 'EURUSD', 'US500'] },
   ],
   eventClusters: [
@@ -95,17 +97,21 @@ const calPrefix = msg1.slice(Math.max(0, calBoxIdx - 30), calBoxIdx);
 if (/\[1;31m/.test(callPrefix)) ok('CURRENT MARKET READ box renders red because primary focus is a Tier-1 ECB Rate Decision'); else fail('CURRENT MARKET READ box not red despite Tier-1 primary focus', callPrefix);
 if (/\[1;31m/.test(calPrefix)) ok('HIGH-IMPACT CALENDAR EVENTS box renders red because a Tier-1 row is in scope'); else fail('CALENDAR box not red despite Tier-1 row', calPrefix);
 if (/GDP Growth Rate QoQ Prel/.test(msg1) && /ECB Rate Decision/.test(msg1)) ok('ranked calendar surfaces Red + Amber rows from the next72 packet'); else fail('ranked calendar missing red/amber rows');
-if (/Brief Pending/.test(msg1)) ok('Full Brief column shows Brief Pending fallback'); else fail('message 1 missing Brief Pending');
+if (!/FULL BRIEF \/ BRIEF PENDING/.test(all) && !/Full Brief: Brief Pending/.test(all) && !/— Brief Pending/.test(all)) ok('Daily Roadmap does not render generic Full Brief pending filler'); else fail('generic Full Brief pending filler leaked');
+if (/Full Brief: https:\/\/atlas-fx-dashboard\.onrender\.com\/brief\?eventId=2026-05-18-1145-eur-ecb-rate-decision/.test(msg1)) ok('ECB row carries deterministic generated Full Brief link'); else fail('ECB row missing deterministic Full Brief link');
+if (/Full Brief blocked: missing forecast\/previous/.test(msg1)) ok('FOMC row carries specific Full Brief blocker'); else fail('blocked row missing specific forecast/previous reason');
+if (/Event ID: 2026-05-18-1145-eur-ecb-rate-decision/.test(msg1)) ok('ranked event carries deterministic event ID'); else fail('ECB deterministic event ID missing');
+if (/11:45 UTC \/ 19:45 AWST/.test(msg1) && /08:00 UTC \/ 16:00 AWST/.test(msg1)) ok('ranked rows show UTC and AWST together'); else fail('UTC/AWST pair missing');
 if (/Source note: TradingView LIVE/.test(msg1)) ok('message 1 source note shows TradingView LIVE'); else fail('message 1 missing TradingView LIVE source note');
 // Event names render bracketed (cyan hyperlinks when the Full
 // Brief route is real; bracketed plain text when Brief Pending).
 // Row format dropped the middle `| HIGH |` column per the
 // operator brief 2026-05-18 — the impact glyph already conveys
 // impact, so each row leads `glyph time CCY · [Event Name]`.
-if (/🔴 11:45 EUR · \[ECB Rate Decision\]/.test(msg1)) ok('ECB Rate Decision row carries 🔴 Tier-1 glyph + new compact format (no | HIGH | pipe)'); else fail('ECB Rate Decision row missing 🔴 glyph or has stale | HIGH | column');
-if (/🟠 08:00 EUR · \[GDP Growth Rate QoQ Prel\]/.test(msg1)) ok('GDP Growth Rate row carries 🟠 HIGH glyph + new compact format'); else fail('GDP Growth Rate row missing 🟠 glyph or stale format');
-if (/🟠 14:00 USD · \[FOMC Member Speech\]/.test(msg1)) ok('FOMC Member Speech row carries 🟠 HIGH glyph + new compact format'); else fail('FOMC Member Speech row missing 🟠 glyph or stale format');
-if (/Affected: [^\n]+\nFull Brief: /.test(msg1)) ok('calendar rows render Affected + Full Brief on dedicated lines'); else fail('calendar rows missing Affected/Full Brief lines');
+if (/11:45 UTC \/ 19:45 AWST · EUR · HIGH · \[ECB Rate Decision\]\(https:\/\/atlas-fx-dashboard\.onrender\.com\/brief\?eventId=2026-05-18-1145-eur-ecb-rate-decision\)/.test(msg1)) ok('ECB Rate Decision row carries Tier-1 glyph + UTC/AWST + clickable Full Brief link'); else fail('ECB Rate Decision row missing link/glyph/time format');
+if (/08:00 UTC \/ 16:00 AWST · EUR · HIGH · \[GDP Growth Rate QoQ Prel\]\(https:\/\/atlas-fx-dashboard\.onrender\.com\/brief\?eventId=2026-05-18-0800-eur-gdp-growth-rate-qoq-prel\)/.test(msg1)) ok('GDP Growth Rate row carries HIGH glyph + clickable Full Brief link'); else fail('GDP Growth Rate row missing link/glyph/time format');
+if (/14:00 UTC \/ 22:00 AWST · USD · ELEV · \[FOMC Member Speech\]/.test(msg1)) ok('FOMC Member Speech row carries HIGH glyph + blocker format'); else fail('FOMC Member Speech row missing glyph or stale format');
+if (/Affected: [^\n]+\nFull Brief: /.test(msg1) && /Affected: [^\n]+\nFull Brief blocked: /.test(msg1)) ok('calendar rows render Affected + Full Brief link/blocker on dedicated lines'); else fail('calendar rows missing Affected/Full Brief link/blocker lines');
 
 console.log('\nT3 — messages 2/3 include coloured boxed sections:');
 if (_boxRegex('🌍 MARKET IMPACT').test(msg2)) ok('message 2 leads with coloured boxed 🌍 MARKET IMPACT header'); else fail('message 2 missing boxed MARKET IMPACT header');
@@ -118,7 +124,7 @@ for (const c of cardOrder) {
 }
 if (cardsOk) ok('message 2 emits all five coloured Market Impact cards in order'); else fail('message 2 missing or mis-ordered coloured Market Impact cards');
 if (_boxRegex('🎯 AFFECTED MARKETS').test(msg2) && _boxRegex('✅ CONFIRMATION / DEGRADATION', '✅ CONFIRMATION \\/ DEGRADATION').test(msg2)) ok('message 2 includes coloured boxed AFFECTED MARKETS and CONFIRMATION/DEGRADATION'); else fail('message 2 missing boxed AFFECTED MARKETS or CONFIRMATION/DEGRADATION');
-if (_boxRegex('🗓️ FORWARD PLANNING').test(msg3) && _boxRegex('🔗 FULL BRIEF / BRIEF PENDING', '🔗 FULL BRIEF \\/ BRIEF PENDING').test(msg3)) ok('message 3 includes coloured boxed FORWARD PLANNING and FULL BRIEF headers'); else fail('message 3 missing boxed FORWARD PLANNING or FULL BRIEF headers');
+if (_boxRegex('🗓️ FORWARD PLANNING').test(msg3) && _boxRegex('🔗 FULL BRIEFS').test(msg3)) ok('message 3 includes coloured boxed FORWARD PLANNING and FULL BRIEFS headers'); else fail('message 3 missing boxed FORWARD PLANNING or FULL BRIEFS headers');
 
 console.log('\nT4 — user-facing terminology is plain-English first:');
 if (/US Dollar Strength \(DXY\)/.test(all)) ok('US Dollar Strength (DXY) appears'); else fail('US Dollar Strength (DXY) missing');

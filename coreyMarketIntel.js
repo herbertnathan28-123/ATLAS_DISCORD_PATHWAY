@@ -241,14 +241,103 @@ function _applyMacroPacketToImagePayload(base, macroPacket) {
   return base;
 }
 
-function _miSafeBriefStatus(e) {
+function _miSlug(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'event';
+}
+
+function _miEventTimeParts(e, fallback, now) {
+  e = e || {};
+  fallback = fallback || {};
+  const scheduled = e.scheduledTimeUTC || e.scheduled_time || e.datetime || e.dateTimeUTC || fallback.scheduledTimeUTC || fallback.scheduled_time || fallback.datetime || fallback.dateTimeUTC;
+  const parsed = scheduled ? Date.parse(scheduled) : NaN;
+  const d = Number.isFinite(parsed) ? new Date(parsed) : null;
+  const date = (d ? d.toISOString().slice(0, 10) : (e.dateUTC || e.date || fallback.dateUTC || fallback.date || new Date(now || Date.now()).toISOString().slice(0, 10)));
+  let time = d ? d.toISOString().slice(11, 16) : String(e.timeUTC || e.time || fallback.timeUTC || fallback.time || 'pending').replace(/\s*UTC$/i, '').trim();
+  const hm = time.match(/(\d{1,2}):?(\d{2})/);
+  time = hm ? hm[1].padStart(2, '0') + ':' + hm[2] : 'pending';
+  return { date, time, iso: d ? d.toISOString() : null };
+}
+
+function _miDeterministicEventId(e, fallback, now) {
+  e = e || {};
+  fallback = fallback || {};
+  const tp = _miEventTimeParts(e, fallback, now);
+  const timeCompact = tp.time === 'pending' ? 'pending' : tp.time.replace(':', '');
+  const currency = _miSlug(e.currency || fallback.currency || 'multi');
+  const title = _miSlug(e.title || e.eventName || fallback.title || fallback.eventName || 'unnamed-event');
+  const country = e.country || e.countryCode || fallback.country || fallback.countryCode || '';
+  return [tp.date, timeCompact, currency, title, country ? _miSlug(country) : null].filter(Boolean).join('-');
+}
+
+function _miFullBriefRouteBase() {
+  const explicit = process.env.ATLAS_FULL_BRIEF_BASE_URL || process.env.MARKET_INTEL_FULL_BRIEF_BASE_URL || '';
+  if (explicit && /^https?:\/\//i.test(explicit) && !/notion\.(so|com|site)/i.test(explicit)) return explicit.replace(/\/$/, '');
+  return '';
+}
+
+function _miExistingBriefUrl(e) {
   const raw = e && (e.fullBriefUrl || e.briefUrl || e.fullBrief || e.brief);
-  if (typeof raw !== 'string' || !raw.trim()) return 'Brief Pending';
+  if (typeof raw !== 'string' || !raw.trim()) return null;
   const v = raw.trim();
-  if (/notion\.(so|com|site)/i.test(v)) return 'Brief Pending';
-  if (/^\/market-intel\/brief\/[A-Za-z0-9._~/-]+$/.test(v)) return v;
-  if (/^https?:\/\/[A-Za-z0-9.-]+\/market-intel\/brief\/[A-Za-z0-9._~/?=&%-]+$/i.test(v)) return v;
-  return 'Brief Pending';
+  if (/notion\.(so|com|site)/i.test(v)) return null;
+  if (/^https?:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._~/?=&%#:-]+$/i.test(v)) return v;
+  if (/^\/market-intel\/brief\/[A-Za-z0-9._~/?=&%-]+$/i.test(v)) return v;
+  return null;
+}
+
+function _miFullBriefBlockers(e, fallback, macroPacket, now) {
+  e = e || {};
+  fallback = fallback || {};
+  const sameFallbackEvent = _miSlug(e.title || e.eventName) === _miSlug(fallback.title || fallback.eventName)
+    && String(e.currency || '').toUpperCase() === String(fallback.currency || '').toUpperCase();
+  const tp = _miEventTimeParts(e, fallback, now);
+  const missing = [];
+  if (tp.time === 'pending' || !tp.date) missing.push('event date/time');
+  if (!(e.currency || fallback.currency)) missing.push('currency');
+  if (!(e.title || e.eventName || fallback.title || fallback.eventName)) missing.push('event title');
+  if (!(e.impact || e.expectedImpact || e.severity || fallback.impact || fallback.expectedImpact || fallback.severity)) missing.push('impact');
+  if (e.forecast == null && e.expected == null && (!sameFallbackEvent || (fallback.forecast == null && fallback.expected == null))) missing.push('forecast');
+  if (e.previous == null && (!sameFallbackEvent || fallback.previous == null)) missing.push('previous');
+  const hasSource = !!(macroPacket && (macroPacket.generatedAtUTC || macroPacket.dataFreshness || macroPacket.sourceUsed || macroPacket.calendarEventsRawCount != null));
+  if (!hasSource) missing.push('source packet');
+  return missing;
+}
+
+function _miBuildFullBriefMeta(e, fallback, macroPacket, now) {
+  e = e || {};
+  fallback = fallback || {};
+  const eventId = _miDeterministicEventId(e, fallback, now);
+  const existing = _miExistingBriefUrl(e);
+  const blockers = _miFullBriefBlockers(e, fallback, macroPacket, now);
+  const routeBase = _miFullBriefRouteBase();
+  const canGenerate = blockers.length === 0;
+  const generated = canGenerate && routeBase ? routeBase + '/brief?eventId=' + encodeURIComponent(eventId) : null;
+  const url = existing || generated;
+  return {
+    eventId,
+    url,
+    status: url ? 'linked' : 'blocked',
+    blockedReason: url ? null : (blockers.length ? 'missing ' + blockers.join('/') : 'missing full-brief route'),
+    source: existing ? 'event-provided-url' : generated ? 'generated-dashboard-route' : 'blocked',
+    provenance: {
+      eventId,
+      sourcePacket: macroPacket && macroPacket.generatedAtUTC ? macroPacket.generatedAtUTC : 'market-intel-packet',
+      sourceUsed: Array.isArray(macroPacket && macroPacket.sourceUsed) ? macroPacket.sourceUsed.slice() : [],
+      calendarMode: macroPacket && macroPacket.dataFreshness && macroPacket.dataFreshness.calendar && macroPacket.dataFreshness.calendar.mode || null,
+      requiredFields: ['event date', 'UTC time', 'currency', 'event title', 'impact', 'forecast', 'previous', 'source packet'],
+      missingFields: blockers.slice()
+    }
+  };
+}
+
+function _miSafeBriefStatus(e, fallback, macroPacket, now) {
+  const meta = _miBuildFullBriefMeta(e, fallback, macroPacket, now);
+  return meta.url || ('Full Brief blocked: ' + meta.blockedReason);
 }
 
 function _miShort(text, max) {
@@ -305,17 +394,28 @@ function _miRankedEventRows(macroPacket, opts) {
     const key = [e.timeUTC || e.scheduledTimeUTC || 'pending', e.currency || fallback.currency || 'multi', title].join('|').toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
+    const timeParts = _miEventTimeParts(e, fallback, now);
+    const briefMeta = _miBuildFullBriefMeta(e, fallback, macroPacket, now);
     const markets = Array.isArray(e.affectedMarkets) ? e.affectedMarkets
       : Array.isArray(e.affectedInstruments) ? e.affectedInstruments
       : Array.isArray(fallback.affectedMarkets) ? fallback.affectedMarkets
       : [];
     rows.push({
-      timeUTC: e.timeUTC || e.scheduledTimeUTC || fallback.timeUTC || 'pending',
+      timeUTC: timeParts.time,
+      dateUTC: timeParts.date,
+      scheduledTimeUTC: timeParts.iso || e.scheduledTimeUTC || fallback.scheduledTimeUTC || null,
       currency: e.currency || fallback.currency || 'multi',
       impact: String(e.impact || e.expectedImpact || e.severity || fallback.expectedImpact || fallback.severity || 'MED').toUpperCase(),
       title,
+      country: e.country || e.countryCode || fallback.country || fallback.countryCode || null,
+      forecast: e.forecast != null ? e.forecast : e.expected != null ? e.expected : fallback.forecast != null ? fallback.forecast : fallback.expected,
+      previous: e.previous != null ? e.previous : fallback.previous,
       affectedMarkets: markets,
-      fullBrief: _miSafeBriefStatus(e),
+      eventId: briefMeta.eventId,
+      fullBrief: briefMeta.url || null,
+      fullBriefStatus: briefMeta.status,
+      fullBriefBlockedReason: briefMeta.blockedReason,
+      fullBriefProvenance: briefMeta.provenance,
       score: Number.isFinite(e.importanceScore) ? e.importanceScore : Number.isFinite(e.score) ? e.score : 0,
       sortMs: Number.isFinite(e.timeMs) ? e.timeMs : (e.scheduledTimeUTC ? Date.parse(e.scheduledTimeUTC) : Number.MAX_SAFE_INTEGER),
       isNext24h: Number.isFinite(e.timeMs)
@@ -366,10 +466,31 @@ function _miImpactGlyph(row) {
 function _miBriefUrl(value) {
   if (typeof value !== 'string') return null;
   const v = value.trim();
-  if (!v || v === 'Brief Pending') return null;
+  if (!v || /^Full Brief blocked:/i.test(v)) return null;
   if (/^https?:\/\//i.test(v)) return v;
   if (/^\/market-intel\/brief\//.test(v)) return v;
   return null;
+}
+
+function _miAwstFromRow(row) {
+  const iso = row && row.scheduledTimeUTC;
+  let d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) {
+    const date = row && row.dateUTC;
+    const time = row && row.timeUTC;
+    if (date && time && /^\d{2}:\d{2}$/.test(String(time))) d = new Date(date + 'T' + time + ':00.000Z');
+  }
+  if (!d || Number.isNaN(d.getTime())) return 'AWST pending';
+  const awst = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+  const hh = String(awst.getUTCHours()).padStart(2, '0');
+  const mm = String(awst.getUTCMinutes()).padStart(2, '0');
+  return hh + ':' + mm + ' AWST';
+}
+
+function _miFullBriefDisplay(row) {
+  const url = _miBriefUrl(row && row.fullBrief);
+  if (url) return 'Full Brief: ' + url;
+  return 'Full Brief blocked: ' + ((row && row.fullBriefBlockedReason) || 'missing full-brief route');
 }
 
 // Default Discord filter (operator brief 2026-05-18) — show only
@@ -435,7 +556,7 @@ function _miRankedCalendarBlock(macroPacket, opts) {
     return [
       '⚪ pending · multi · [Broader market calendar pending]',
       'Affected: Affected markets pending',
-      'Full Brief: Brief Pending',
+      'Full Brief blocked: missing ranked event/source packet',
     ].join('\n');
   }
   return filtered.map(r => {
@@ -454,12 +575,14 @@ function _miRankedCalendarBlock(macroPacket, opts) {
     const eventCell = briefUrl
       ? '[' + cleanTitle + '](' + briefUrl + ')'
       : '[' + cleanTitle + ']';
-    const line1 = glyph + ' ' + _miShort(r.timeUTC || 'pending', 10)
-      + ' ' + _miShort(r.currency || 'multi', 6)
+    const line1 = glyph + ' ' + _miShort((r.timeUTC || 'pending') + ' UTC / ' + _miAwstFromRow(r), 28)
+      + ' · ' + _miShort(r.currency || 'multi', 6)
+      + ' · ' + _miShort(r.impact || 'MED', 8)
       + ' · ' + eventCell;
     const line2 = 'Affected: ' + _miShort(markets, 80);
-    const line3 = 'Full Brief: ' + _miShort(r.fullBrief || 'Brief Pending', 60);
-    return [line1, line2, line3].join('\n');
+    const line3 = _miShort(_miFullBriefDisplay(r), 120);
+    const line4 = 'Event ID: ' + r.eventId;
+    return [line1, line2, line3, line4].join('\n');
   }).join('\n\n');
 }
 
@@ -568,8 +691,16 @@ function _miAffectedMarketCards(macroPacket, fallbackSymbols) {
 
 function _miBriefRows(macroPacket) {
   const rows = _miRankedEventRows(macroPacket, { limit: 8 });
-  if (!rows.length) return ['• Broader market calendar — Brief Pending'];
-  return rows.map(r => '• ' + (r.timeUTC || 'pending') + ' UTC · ' + (r.currency || 'multi') + ' · ' + humanizeTitle(r.title) + ' — ' + (r.fullBrief || 'Brief Pending'));
+  if (!rows.length) return ['• Broader market calendar — Full Brief blocked: missing ranked event/source packet'];
+  return rows.map(r => {
+    const detail = _miFullBriefDisplay(r);
+    return '• ' + (r.timeUTC || 'pending') + ' UTC / ' + _miAwstFromRow(r)
+      + ' · ' + (r.currency || 'multi')
+      + ' · ' + humanizeTitle(r.title)
+      + ' · ' + (r.impact || 'MED')
+      + ' — ' + detail
+      + ' · Event ID: ' + r.eventId;
+  });
 }
 
 function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
@@ -603,7 +734,7 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     pdf: 'pending',
     calendar: 'available',
     glossary: 'available',
-    dashboard: 'pending',
+    dashboard: 'Per-event links / blockers below',
     rows: ['png', 'pdf', 'calendar', 'glossary', 'dashboard'],
     labels: {
       png:       '🖼️ PNG',
@@ -680,9 +811,9 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     _miBoxHeader('🗓️ FORWARD PLANNING', { color: 'yellow' }),
     'Next 24h: ' + next24Count + ' scheduled event(s). Next 72h: ' + (Array.isArray(macroPacket.next72Hours) ? macroPacket.next72Hours.length : 0) + ' ranked relevant event(s).',
     'Primary event: ' + humanizeTitle(p.title || 'none') + '. Prepare around named windows; outside them, read live US Dollar Strength (DXY), Market Volatility (VIX), yields, and liquidity.',
-    'Ranked coverage: ' + (rankedRows.length ? rankedRows.map(e => humanizeTitle(e.title)).slice(0, 4).join(' | ') : 'Brief Pending until the next live packet resolves ranked events.'),
+    'Ranked coverage: ' + (rankedRows.length ? rankedRows.map(e => humanizeTitle(e.title)).slice(0, 4).join(' | ') : 'No ranked events in the live packet yet; Full Brief blocked until ranked event/source packet arrives.'),
     '',
-    _miBoxHeader('🔗 FULL BRIEF / BRIEF PENDING', { color: 'cyan' }),
+    _miBoxHeader('🔗 FULL BRIEFS', { color: 'cyan' }),
     _miBriefRows(macroPacket).map(_miExpandMacroLabels).join('\n'),
     '',
     sourceNote,
@@ -2265,7 +2396,6 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now, opts) {
     lines.push('Source/degradation: ' + _miMacroSourceLine(macroIntelligencePacket, health));
     lines.push('');
     lines.push("**TODAY'S RANKED EVENT CALENDAR**");
-    lines.push('TIME | CCY | IMPACT | EVENT | AFFECTED MARKETS | FULL BRIEF');
     lines.push(_miRankedCalendarBlock(macroIntelligencePacket));
     lines.push('');
   }

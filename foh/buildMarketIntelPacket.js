@@ -280,14 +280,71 @@ function _displayInstrument(sym) {
   return sym || '—';
 }
 
-function _safeBriefStatus(e) {
+function _slug(text) {
+  return String(text || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'event';
+}
+function _eventTimeParts(e, fallback, now) {
+  e = e || {}; fallback = fallback || {};
+  const scheduled = e.scheduledTimeUTC || e.scheduled_time || e.datetime || fallback.scheduledTimeUTC || fallback.scheduled_time || fallback.datetime;
+  const parsed = scheduled ? Date.parse(scheduled) : NaN;
+  const d = Number.isFinite(parsed) ? new Date(parsed) : null;
+  const date = d ? d.toISOString().slice(0, 10) : (e.dateUTC || e.date || fallback.dateUTC || fallback.date || new Date(now || Date.now()).toISOString().slice(0, 10));
+  let time = d ? d.toISOString().slice(11, 16) : String(e.timeUTC || e.time || fallback.timeUTC || fallback.time || 'pending').replace(/\s*UTC$/i, '').trim();
+  const hm = time.match(/(\d{1,2}):?(\d{2})/);
+  time = hm ? hm[1].padStart(2, '0') + ':' + hm[2] : 'pending';
+  return { date, time, iso: d ? d.toISOString() : null };
+}
+function _deterministicEventId(e, fallback, now) {
+  e = e || {}; fallback = fallback || {};
+  const tp = _eventTimeParts(e, fallback, now);
+  return [tp.date, tp.time === 'pending' ? 'pending' : tp.time.replace(':', ''), _slug(e.currency || fallback.currency || 'multi'), _slug(e.title || e.eventName || fallback.title || fallback.eventName || 'unnamed-event'), e.country || e.countryCode || fallback.country || fallback.countryCode ? _slug(e.country || e.countryCode || fallback.country || fallback.countryCode) : null].filter(Boolean).join('-');
+}
+function _briefRouteBase() {
+  const explicit = process.env.ATLAS_FULL_BRIEF_BASE_URL || process.env.MARKET_INTEL_FULL_BRIEF_BASE_URL || '';
+  return explicit && /^https?:\/\//i.test(explicit) && !/notion\.(so|com|site)/i.test(explicit) ? explicit.replace(/\/$/, '') : '';
+}
+function _existingBriefUrl(e) {
   const raw = e && (e.fullBriefUrl || e.briefUrl || e.fullBrief || e.brief);
-  if (typeof raw !== 'string' || !raw.trim()) return 'Brief Pending';
+  if (typeof raw !== 'string' || !raw.trim()) return null;
   const v = raw.trim();
-  if (/notion\.(so|com|site)/i.test(v)) return 'Brief Pending';
-  if (/^\/market-intel\/brief\/[A-Za-z0-9._~/-]+$/.test(v)) return v;
-  if (/^https?:\/\/[A-Za-z0-9.-]+\/market-intel\/brief\/[A-Za-z0-9._~/?=&%-]+$/i.test(v)) return v;
-  return 'Brief Pending';
+  if (/notion\.(so|com|site)/i.test(v)) return null;
+  if (/^https?:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._~/?=&%#:-]+$/i.test(v)) return v;
+  if (/^\/market-intel\/brief\/[A-Za-z0-9._~/?=&%-]+$/i.test(v)) return v;
+  return null;
+}
+function _fullBriefMeta(e, fallback, macroPacket, now) {
+  e = e || {}; fallback = fallback || {};
+  const eventId = _deterministicEventId(e, fallback, now);
+  const missing = [];
+  const tp = _eventTimeParts(e, fallback, now);
+  const sameFallbackEvent = _slug(e.title || e.eventName) === _slug(fallback.title || fallback.eventName)
+    && String(e.currency || '').toUpperCase() === String(fallback.currency || '').toUpperCase();
+  if (tp.time === 'pending' || !tp.date) missing.push('event date/time');
+  if (!(e.currency || fallback.currency)) missing.push('currency');
+  if (!(e.title || e.eventName || fallback.title || fallback.eventName)) missing.push('event title');
+  if (!(e.impact || e.expectedImpact || e.severity || fallback.impact || fallback.expectedImpact || fallback.severity)) missing.push('impact');
+  if (e.forecast == null && e.expected == null && (!sameFallbackEvent || (fallback.forecast == null && fallback.expected == null))) missing.push('forecast');
+  if (e.previous == null && (!sameFallbackEvent || fallback.previous == null)) missing.push('previous');
+  if (!(macroPacket && (macroPacket.generatedAtUTC || macroPacket.dataFreshness || macroPacket.sourceUsed || macroPacket.calendarEventsRawCount != null))) missing.push('source packet');
+  const existing = _existingBriefUrl(e);
+  const generated = !missing.length && _briefRouteBase() ? _briefRouteBase() + '/brief?eventId=' + encodeURIComponent(eventId) : null;
+  const url = existing || generated;
+  return {
+    eventId,
+    url,
+    status: url ? 'linked' : 'blocked',
+    blockedReason: url ? null : (missing.length ? 'missing ' + missing.join('/') : 'missing full-brief route'),
+    provenance: {
+      eventId,
+      sourcePacket: macroPacket && macroPacket.generatedAtUTC ? macroPacket.generatedAtUTC : 'market-intel-packet',
+      sourceUsed: Array.isArray(macroPacket && macroPacket.sourceUsed) ? macroPacket.sourceUsed.slice() : [],
+      missingFields: missing
+    }
+  };
+}
+function _safeBriefStatus(e, fallback, macroPacket, now) {
+  const meta = _fullBriefMeta(e, fallback, macroPacket, now);
+  return meta.url || ('Full Brief blocked: ' + meta.blockedReason);
 }
 
 function _eventSortMs(e) {
@@ -308,10 +365,12 @@ function _cleanImpact(e, fallback) {
   return v.slice(0, 18) || 'MED';
 }
 
-function _normaliseCalendarEvent(e, fallback) {
+function _normaliseCalendarEvent(e, fallback, macroPacket, now) {
   e = e || {};
   fallback = fallback || {};
   const title = e.title || e.eventName || fallback.title || fallback.eventName || 'Unnamed event';
+  const timeParts = _eventTimeParts(e, fallback, now);
+  const briefMeta = _fullBriefMeta(e, fallback, macroPacket, now);
   const affected = Array.isArray(e.affectedMarkets) ? e.affectedMarkets
     : Array.isArray(e.affectedInstruments) ? e.affectedInstruments
     : Array.isArray(e.affectedSymbols) ? e.affectedSymbols
@@ -319,12 +378,18 @@ function _normaliseCalendarEvent(e, fallback) {
     : Array.isArray(fallback.affectedSymbols) ? fallback.affectedSymbols
     : _instrumentsForCcy(e.currency || fallback.currency);
   return {
-    timeUTC: e.timeUTC || e.time || e.scheduledTimeUTC || fallback.timeUTC || fallback.scheduledTimeUTC || 'pending',
+    timeUTC: timeParts.time,
+    dateUTC: timeParts.date,
+    scheduledTimeUTC: timeParts.iso || e.scheduledTimeUTC || fallback.scheduledTimeUTC || null,
     currency: e.currency || fallback.currency || 'multi',
     impact: _cleanImpact(e, fallback.impact || fallback.expectedImpact || fallback.severity),
     title,
     affectedMarkets: Array.from(new Set((affected || []).filter(Boolean))).slice(0, 8),
-    fullBrief: _safeBriefStatus(e),
+    eventId: briefMeta.eventId,
+    fullBrief: briefMeta.url,
+    fullBriefStatus: briefMeta.status,
+    fullBriefBlockedReason: briefMeta.blockedReason,
+    fullBriefProvenance: briefMeta.provenance,
     eventImpact: e.expectedSensitivity || e.whyItMatters || e.whyMatters || fallback.whyPrimary || fallback.expectedSensitivity || 'Market sensitivity pending; use macro transmission paths for confirmation.',
     importanceScore: Number.isFinite(e.importanceScore) ? e.importanceScore : Number.isFinite(e.score) ? e.score : Number.isFinite(fallback.importanceScore) ? fallback.importanceScore : 0,
     sortMs: _eventSortMs(e),
@@ -335,7 +400,7 @@ function _rankedCalendarRows(engine, macroPacket, primaryFocus) {
   const rows = [];
   const seen = new Set();
   function add(e, fallback) {
-    const row = _normaliseCalendarEvent(e, fallback || primaryFocus || {});
+    const row = _normaliseCalendarEvent(e, fallback || primaryFocus || {}, macroPacket, Date.now());
     const key = [row.timeUTC, row.currency, row.title].join('|').toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
@@ -380,6 +445,12 @@ function _rankedCalendarRows(engine, macroPacket, primaryFocus) {
     title: r.title,
     affectedMarkets: r.affectedMarkets,
     fullBrief: r.fullBrief,
+    fullBriefStatus: r.fullBriefStatus,
+    fullBriefBlockedReason: r.fullBriefBlockedReason,
+    fullBriefProvenance: r.fullBriefProvenance,
+    eventId: r.eventId,
+    dateUTC: r.dateUTC,
+    scheduledTimeUTC: r.scheduledTimeUTC,
     eventImpact: r.eventImpact,
     importanceScore: r.importanceScore,
   }));
@@ -861,7 +932,7 @@ function buildMarketIntelPacket(opts) {
     severity:     String(e.severity || 'MED').toUpperCase(),
     severityDiscs: _discScale(String(e.severity || 'MED').toUpperCase()),
     affectedMarkets: Array.isArray(e.affectedMarkets) ? e.affectedMarkets : Array.isArray(e.affectedInstruments) ? e.affectedInstruments : _instrumentsForCcy(e.currency),
-    fullBrief: _safeBriefStatus(e),
+    fullBrief: _safeBriefStatus(e, primaryEvent, macroPacket, now),
     expectedSensitivity: e.expectedSensitivity || (String(e.severity || 'MED').toUpperCase() === 'HIGH' ? 'HIGH sensitivity — clustered-catalyst preparation required' : 'MODERATE sensitivity — monitor for cross-asset confirmation'),
     preparationGuidance: e.preparationGuidance || 'Pre-position size at 60% of normal in the 6 hours leading in; widen exits ~30% inside the announcement candle.',
   }));
@@ -876,7 +947,7 @@ function buildMarketIntelPacket(opts) {
       severity,
       severityDiscs,
       affectedMarkets: keyMarkets,
-      fullBrief: 'Brief Pending',
+      fullBrief: _safeBriefStatus(primaryEvent || { title: eventName, currency: eventCcy, timeUTC: eventTimeUTC, severity }, primaryEvent, macroPacket, now),
       expectedSensitivity: 'Lead catalyst this cycle — directional gate for the next 6–24 hours.',
       preparationGuidance: 'Position size at 60% of normal in the 6 hours leading in; widen exits ~30% inside the announcement candle.',
     });
