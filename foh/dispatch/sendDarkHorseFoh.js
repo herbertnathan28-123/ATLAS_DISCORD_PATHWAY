@@ -62,6 +62,8 @@ async function sendDarkHorseFoh({ ranking, volatility, legacyPayload, webhookUrl
   // Dark Horse standout objects. The prototype shell needs them so live
   // zero-standout scans suppress the static EURUSD/XAUUSD/NVDA sample cards
   // and live non-zero scans keep only real candidates.
+  const _internalArr = (opts && Array.isArray(opts.internal)) ? opts.internal : [];
+  const _ignoredArr  = (opts && Array.isArray(opts.ignored))  ? opts.ignored  : [];
   const liveViewModel = Object.assign({}, viewModel, {
     now: opts && opts.now,
     marketsScanned: (opts && Number.isFinite(opts.universeSize)) ? opts.universeSize : (ranking && Number.isFinite(ranking.allCount) ? ranking.allCount : 0),
@@ -70,6 +72,18 @@ async function sendDarkHorseFoh({ ranking, volatility, legacyPayload, webhookUrl
       label: packet && packet.header && packet.header.riskState,
     },
     standouts: _liveStandoutsFromRanking(ranking || {}),
+    // Issue #159: surface WATCH / INTERNAL / IGNORED evidence on
+    // the Dark Horse Discord text so the 0-standout case carries
+    // concrete what/why/evidence/changes-if. The engine threads
+    // opts.internal / opts.ignored; honest empty arrays when the
+    // caller hasn't wired them yet.
+    internalCandidates: _internalArr.slice(0, 6).map(c => ({
+      symbol: c && c.symbol,
+      score: Number.isFinite(c && c.score) ? c.score : null,
+      section: c && c.section,
+    })),
+    internalCount: _internalArr.length,
+    ignoredCount: _ignoredArr.length,
   });
 
   // 3. VIEW MODEL → PROTOTYPE SHELL render

@@ -188,10 +188,10 @@ function buildDarkHorsePacket(opts) {
   const briefingSummary = {
     primaryRead: standouts.length
       ? (standouts.length + ' standout' + (standouts.length === 1 ? '' : 's') + ' (' + fresh + ' FRESH · ' + stillActive + ' STILL ACTIVE · ' + fading + ' FADING). Lead: ' + (lead ? lead.symbol + ' ' + lead.lifecycle : '—') + '.')
-      : 'No standouts on this scan window — driver-led tape; re-read at next cycle.',
+      : 'No standouts on this scan window — no symbol cleared publication threshold; re-read at the next 15-min scan.',
     operationalMeaning: standouts.length
       ? 'Standouts are listed in priority order; each carries a confirmed-close trigger and an explicit invalidation level. Position size per the lifecycle tag (FRESH half-size, FADING quarter-size).'
-      : 'No execution priority this cycle. Read macro / Market Intel for direction and wait for the next 15-min scan.',
+      : 'No live standout this cycle. Why: no symbol cleared the WATCH / publication threshold (score ≥ 8/10); strongest candidates remain watch-band only. Changes if: a candidate clears the WATCH threshold on the next 15-min scan, or volatility / session conditions change.',
     keyMarkets: standouts.map(s => s.symbol),
     currentRisk: severityDiscs + ' — ' + (sev === 'HIGH' ? 'storm regime, every chase risk is amplified' : sev === 'ELEV' ? 'elevated reactivity, size down per standout lifecycle' : 'normal cadence, standard sizing'),
   };
@@ -256,9 +256,11 @@ function buildDarkHorsePacket(opts) {
   const marketImpact = {
     mechanism: lead
       ? 'Standout setups derive from structural ' + (lead.direction || 'directional') + ' alignment + Corey live macro confirmation + Dark Horse rank score ≥ 7/10.'
-      : 'No standout this cycle — macro tape drives direction; structural reads return on next 15-min scan.',
+      : 'No live standout cleared the publication threshold this cycle. Internal candidates exist but remain below the publication grade (score < 8/10). Volatility / risk state may be elevated; the next 15-min scan re-checks the candidate set.',
     priceReactionPath: 'Confirmation close → entry reference → watch level → caution zone → invalidation / exit; each card separates account-risk cap from technical distance.',
-    liquidityEffect: 'Standouts are filtered against current spreads; FRESH cards require live confirmation that the trigger zone has held under the current quote depth.',
+    liquidityEffect: standouts.length
+      ? 'Standouts are filtered against current spreads; newly-promoted standouts require live confirmation that the trigger zone has held under current quote depth.'
+      : 'No standouts to filter against current spreads this cycle.',
     volatilityEffect: sev === 'HIGH' ? 'Storm regime: every standout gets a half-size reduction on top of its lifecycle multiplier' : sev === 'ELEV' ? 'Elevated regime: standout sizing already adjusted via lifecycle tag' : 'Normal regime: standard sizing per the lifecycle pill',
     traderConsequence: 'Hitting the account-percentage planned-risk line is the cost of the read being wrong; chasing past invalidation breaks the account-risk cap and removes upside symmetry.',
   };

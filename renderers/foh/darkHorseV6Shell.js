@@ -6,18 +6,205 @@
 // Operator directive 2026-05-17 — FIXED-CONTRACT FOH PIPELINE.
 // Prototype shell renderer for Dark Horse v6. Same contract as
 // the Market Intel shell. Owns LAYOUT ONLY.
+//
+// Issue #159 (2026-05-19): Dark Horse Discord text no longer
+// inherits the Market Intel shell's summary (which forced a
+// "🔥 THE CALL" header onto a non-calendar surface). The text
+// is built by buildDarkHorseDiscordText below, which leads with
+// the operator-spec CURRENT MARKET SNAPSHOT / CONDITIONS / READ
+// NOW sections and replaces the banned generic phrases with
+// concrete what/why/evidence/changes-if copy.
 // ============================================================
 
 const protoShell = require('./protoShell');
 const dhAdapter = require('./darkHorseV6Adapter');
 const { renderHtmlsToPngs, renderHtmlToPdf } = require('./pngRenderer');
-const { RENDER_PARAMETERS, buildDiscordTextSummary } = require('./marketIntelV3Shell');
+const { RENDER_PARAMETERS } = require('./marketIntelV3Shell');
 
 function _scrubExternalLinks(html) {
   if (typeof html !== 'string' || !html.length) return html;
   return html
     .replace(/https?:\/\/(www\.)?notion\.(so|com|site)\/[^\s)"'\]]*/gi, '#')
     .replace(/<a\s+([^>]*?)href=["']#["']([^>]*)>(.*?)<\/a>/gi, '$3');
+}
+
+// ============================================================
+// ISSUE #159 — Dark Horse Discord text terminology cleanup
+// (operator brief 2026-05-19). Replaces the inherited Market
+// Intel buildDiscordTextSummary call for Dark Horse so the
+// surface never carries "THE CALL", "risk basis unavailable",
+// "FRESH cards", "freshness: LIVE", "macro tape drives
+// direction", or "No execution priority this cycle".
+// ============================================================
+
+const DH_BANNED_PHRASES_USERFACING = Object.freeze([
+  /🔥 \*\*THE CALL\*\*/g,
+  /\bTHE CALL\b/g,
+  /risk basis unavailable/gi,
+  /\bFRESH cards\b/g,
+  /freshness: LIVE/gi,
+  /macro tape drives direction/gi,
+  /No execution priority this cycle/gi,
+]);
+
+function _scrubDarkHorseGenericAdvice(text) {
+  let out = String(text || '');
+  for (const re of DH_BANNED_PHRASES_USERFACING) out = out.replace(re, '');
+  return out
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function _readAgeLabel(generatedAtUTC, nowMs) {
+  if (!generatedAtUTC) return 'read age unknown';
+  const stamp = Date.parse(String(generatedAtUTC).replace(' UTC', 'Z').replace(' ', 'T'));
+  if (!Number.isFinite(stamp)) return 'read age unknown';
+  const ageMin = Math.max(0, Math.round(((nowMs || Date.now()) - stamp) / 60000));
+  if (ageMin <= 1)  return ageMin + ' minute old · live';
+  if (ageMin <= 5)  return ageMin + ' minutes old · usable';
+  if (ageMin <= 15) return ageMin + ' minutes old · ageing';
+  return ageMin + ' minutes old · stale — wait for the next 15-min scan';
+}
+
+function _summariseInternalCandidates(viewModel) {
+  // sendDarkHorseFoh attaches `standouts: _liveStandoutsFromRanking(ranking)` —
+  // for 0-standout the live array is empty. Internal candidates (score 5–7)
+  // live on the ranking object, not the VM. Caller threads them through
+  // viewModel.internalCandidates when available; honest-pending otherwise.
+  const arr = Array.isArray(viewModel && viewModel.internalCandidates) ? viewModel.internalCandidates : [];
+  if (!arr.length) return 'no internal candidates surfaced; entire scan universe below WATCH threshold';
+  const sample = arr.slice(0, 4).map(c => (c.symbol || 'unknown') + ' ' + (c.score != null ? c.score + '/10' : '?')).join(', ');
+  const gap = arr[0] && Number.isFinite(arr[0].score) ? ' · top internal sits ' + (8 - arr[0].score) + ' point' + (8 - arr[0].score === 1 ? '' : 's') + ' below the WATCH threshold (8/10)' : '';
+  return sample + gap;
+}
+
+function _conditionsWhy(severityLabel, volatility) {
+  const sev = String((severityLabel || (volatility && volatility.level) || '')).toUpperCase();
+  if (sev.indexOf('EXTREME') >= 0 || sev.indexOf('STORM') >= 0) return 'storm regime — broad market is moving fast; every chase is amplified.';
+  if (sev.indexOf('HIGH') >= 0)  return 'storm regime — broad market is moving fast; every chase is amplified.';
+  if (sev.indexOf('ELEV') >= 0)  return 'elevated reactivity — size down per any future standout lifecycle.';
+  if (sev.indexOf('MED') >= 0)   return 'normal-to-medium volatility — standard sizing if a standout prints.';
+  if (sev.indexOf('LOW') >= 0 || sev.indexOf('CALM') >= 0) return 'calm tape — driver-led; lower probability of a structural break this scan.';
+  return 'risk state pending; scanner has not surfaced a regime label this cycle.';
+}
+
+function _sourceProvenanceLine(provenance, generatedAtUTC, nowMs) {
+  const srcs = Array.isArray(provenance && provenance.sources)
+    ? provenance.sources.join(' · ')
+    : 'ATLAS Dark Horse scanner';
+  return [
+    'LAST UPDATED: ' + (generatedAtUTC || 'unknown'),
+    'READ AGE: '     + _readAgeLabel(generatedAtUTC, nowMs),
+    'STILL VALID: '  + 'until next 15-min Dark Horse scan or manual re-read',
+    'NEXT RE-CHECK: ' + 'next Dark Horse scan',
+    'source: '       + srcs,
+  ].join(' · ');
+}
+
+function _truncate(s, n) {
+  if (typeof s !== 'string') return '';
+  if (s.length <= n) return s;
+  return s.slice(0, Math.max(0, n - 1)).trimEnd() + '…';
+}
+
+function buildDarkHorseDiscordText(packet, viewModel, opts) {
+  opts = opts || {};
+  packet = packet || {};
+  viewModel = viewModel || {};
+  const standouts = Array.isArray(viewModel.standouts) ? viewModel.standouts : [];
+  const isZero = standouts.length === 0;
+  const header = packet.header || {};
+  const bs = packet.briefingSummary || {};
+  const mi = packet.marketImpact || {};
+  const cc = packet.confirmationCancellation || {};
+  const prov = packet.provenance || {};
+  const generatedAtUTC = header.generatedAtUTC || (packet.meta && packet.meta.generatedAtUTC) || viewModel.GENERATED_AT_UTC;
+  const nowMs = (viewModel.now || opts.now || Date.now());
+  const universeSize = Number.isFinite(viewModel.marketsScanned) ? viewModel.marketsScanned : 0;
+  const internalCount = Number.isFinite(viewModel.internalCount)
+    ? viewModel.internalCount
+    : (Array.isArray(viewModel.internalCandidates) ? viewModel.internalCandidates.length : 0);
+  const ignoredCount = Number.isFinite(viewModel.ignoredCount) ? viewModel.ignoredCount : Math.max(0, universeSize - internalCount - standouts.length);
+  const vixState = (viewModel.marketMood && viewModel.marketMood.label) || header.riskState || 'pending';
+  const severity = header.severityDiscs || viewModel.RISK_STATE_DISC_SCALE || 'risk state pending';
+
+  const sectionSnapshot = [
+    '📊 **CURRENT MARKET SNAPSHOT**',
+    'Dark Horse scan complete · ' + standouts.length + ' live standout' + (standouts.length === 1 ? '' : 's') + ' · ' + universeSize + ' market' + (universeSize === 1 ? '' : 's') + ' scanned',
+    'LAST UPDATED: '   + (generatedAtUTC || 'unknown'),
+    'READ AGE: '       + _readAgeLabel(generatedAtUTC, nowMs),
+    'STILL VALID?: '   + 'valid until next 15-minute scan or manual re-read',
+    'NEXT RE-CHECK: '  + 'next Dark Horse scan',
+  ].join('\n');
+
+  const sectionConditions = [
+    '🌐 **CURRENT MARKET CONDITIONS**',
+    'Risk state: '     + severity,
+    'Why: '            + _conditionsWhy(header.riskState, opts.volatility),
+    'Evidence: WATCH=' + standouts.length + ', INTERNAL=' + internalCount + ', IGNORED=' + ignoredCount + ', VIX=' + vixState + ', source=ATLAS Dark Horse scanner',
+  ].join('\n');
+
+  const sectionReadNow = isZero
+    ? [
+        '🎯 **MARKET READ NOW**',
+        'Action state: '   + 'No live standout this cycle',
+        'Why: '            + 'no symbol cleared the WATCH / publication threshold (score ≥ 8/10); the highest internal candidates remain below the publication threshold.',
+        'Evidence: '       + _summariseInternalCandidates(viewModel),
+        'Changes if: '     + 'a candidate clears the WATCH threshold on the next scan, or volatility / session conditions change.',
+      ].join('\n')
+    : [
+        '🎯 **MARKET READ NOW**',
+        'Action state: '   + standouts.length + ' live standout' + (standouts.length === 1 ? '' : 's') + ' tracked',
+        'Why: '            + (bs.primaryRead || 'standout(s) cleared the publication threshold this cycle.'),
+        'Evidence: '       + standouts.slice(0, 4).map(s => (s.symbol || 'unknown') + ' ' + (s.lifecycle || 'tracked') + ' ' + (s.direction || 'directional')).join(', '),
+        'Changes if: '     + (cc.cancelsWhen || 'a standout closes through its published invalidation / exit on the trigger timeframe.'),
+      ].join('\n');
+
+  const sectionMarketImpact = isZero
+    ? [
+        '🌍 **MARKET IMPACT**',
+        mi.mechanism || 'mechanism pending',
+      ].join('\n')
+    : [
+        '🌍 **MARKET IMPACT**',
+        mi.mechanism || 'mechanism pending',
+        mi.priceReactionPath || '',
+        mi.liquidityEffect || '',
+        mi.volatilityEffect || '',
+        mi.traderConsequence || '',
+      ].filter(Boolean).join('\n');
+
+  const sectionSourceProvenance = [
+    '🔗 **SOURCE / PROVENANCE**',
+    _sourceProvenanceLine(prov, generatedAtUTC, nowMs),
+  ].join('\n');
+
+  const sectionStandoutCards = isZero ? null : [
+    '⭐ **STANDOUTS**',
+    standouts.slice(0, 4).map((s, i) => '  ' + (i + 1) + '. ' + (s.symbol || 'unknown') + ' · ' + (s.lifecycle || 'tracked') + ' · ' + (s.direction || 'directional') + ' · score ' + (s.score != null ? s.score + '/10' : '?')).join('\n'),
+  ].join('\n');
+
+  const lines = [
+    '**' + (header.title || 'ATLAS · Dark Horse') + ' · ' + (header.subtitle || 'no subtitle') + '**',
+    'Generated: ' + (generatedAtUTC || 'unknown'),
+    '',
+    sectionSnapshot,
+    '',
+    sectionConditions,
+    '',
+    sectionReadNow,
+    '',
+    sectionMarketImpact,
+    '',
+    sectionSourceProvenance,
+  ];
+  if (sectionStandoutCards) {
+    lines.splice(lines.indexOf(sectionReadNow) + 1, 0, '', sectionStandoutCards);
+  }
+
+  const maxChars = Number.isFinite(opts.maxDiscordChunkChars) ? opts.maxDiscordChunkChars : RENDER_PARAMETERS.maxDiscordChunkChars;
+  return _truncate(_scrubDarkHorseGenericAdvice(lines.join('\n')), maxChars);
 }
 
 async function render({ packet, viewModel, opts }) {
@@ -38,7 +225,7 @@ async function render({ packet, viewModel, opts }) {
     renderHtmlToPdf(html),
   ]);
   const pngs = (pngBatch && pngBatch.pngs ? pngBatch.pngs : []).map((p, i) => Object.assign({ label: cards[i] && cards[i].label }, p));
-  const discordText = buildDiscordTextSummary(viewModel || {}, opts);
+  const discordText = buildDarkHorseDiscordText(packet, viewModel, opts);
 
   return {
     discordText,
@@ -51,4 +238,16 @@ async function render({ packet, viewModel, opts }) {
   };
 }
 
-module.exports = { render, RENDER_PARAMETERS };
+module.exports = {
+  render,
+  buildDarkHorseDiscordText,
+  RENDER_PARAMETERS,
+  _private: {
+    DH_BANNED_PHRASES_USERFACING,
+    _scrubDarkHorseGenericAdvice,
+    _readAgeLabel,
+    _conditionsWhy,
+    _sourceProvenanceLine,
+    _summariseInternalCandidates,
+  },
+};
