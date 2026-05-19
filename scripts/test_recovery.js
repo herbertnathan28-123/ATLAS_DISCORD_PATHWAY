@@ -47,12 +47,12 @@ function ok(name, cond, info) {
 
   const line = formatDataSourceLine('US500', cov, {
     quote: 'twelvedata-quote', fundamentals: 'unavailable', calendar: 'tradingview',
-    historical: '15Y-cache', corey: 'OK', coreyClone: 'unavailable: not implemented',
+    historical: '15Y-cache', corey: 'OK', coreyClone: 'secondary macro model — pending',
     spidey: 'PARTIAL:missing=240,30,15', jane: 'final'
   });
   ok('(C) DATA-SOURCE line is single-line', !line.includes('\n'));
   ok('(C) DATA-SOURCE line tags spidey=PARTIAL', /spidey=PARTIAL/.test(line), line);
-  ok('(C) DATA-SOURCE line tags clone explicit', /coreyClone=unavailable: not implemented/.test(line), line);
+  ok('(C) DATA-SOURCE line tags clone explicit', /coreyClone=secondary macro model — pending/.test(line), line);
 }
 
 // ─── (D) Spidey state from coverage ─────────────────────────────────────
@@ -78,7 +78,7 @@ function ok(name, cond, info) {
 {
   const cases = [
     ['WAIT — NO TRADE',                    'HOLD — BIAS STILL FORMING'],
-    ['No entry authorised',                'No active trade signal yet'],
+    ['No entry authorised',                'Entry not probable for this validity window'],
     ['Trade permit is BLOCKED',            'Trade is on HOLD'],
     ['Not authorised',                     'Not yet defined'],
     ['live order permitted',               'live entry condition supported'],
@@ -130,14 +130,14 @@ function ok(name, cond, info) {
   ok('(G) INCOREGO has IN/CO/RE/GO buckets', block.incorego.IN && block.incorego.CO && block.incorego.RE && block.incorego.GO, JSON.stringify(block.incorego));
   ok('(G) coreyStatus is OK or PARTIAL when corey present', block.coreyStatus !== 'UNAVAILABLE', block.coreyStatus);
   ok('(G) coreyEffectOnJaneProbability is supports/weakens/caps/neutral', /^(supports|weakens|caps|neutral)$/.test(block.coreyEffectOnJaneProbability));
-  ok('(G) coreyClone defaults to UNAVAILABLE / not implemented', block.coreyClone.status === 'UNAVAILABLE' && /not implemented/i.test(block.coreyClone.note));
+  ok('(G) coreyClone defaults to pending secondary model', block.coreyClone.status === 'UNAVAILABLE' && /secondary macro model — pending/i.test(block.coreyClone.note));
 
   const text = renderIncoregoForDiscord({ symbol: 'US500', incoregoBlock: block, jane, tradeProbability: 4 });
   ok('(G) INCOREGO render contains COREY READ heading',  /COREY READ — US500/.test(text), text.slice(0,160));
   ok('(G) INCOREGO render contains COREY IMPACT ON JANE', /COREY IMPACT ON JANE/.test(text));
   ok('(G) INCOREGO render contains COREY CLONE',          /COREY CLONE/.test(text));
   ok('(G) INCOREGO render mentions IN/CO/RE/GO',          /\*\*IN\*\*/.test(text) && /\*\*CO\*\*/.test(text) && /\*\*RE\*\*/.test(text) && /\*\*GO\*\*/.test(text));
-  ok('(G) INCOREGO render contains "no contribution implied"', /no contribution implied/i.test(text), text);
+  ok('(G) INCOREGO render contains "no contribution implied"', /no contribution (?:is )?implied/i.test(text), text);
 
   // Cosmetic-OK guard: corey present but no contribution / no macro fields
   const block2 = buildIncorego({ symbol: 'NVDA', corey: { combinedBias: 'Bullish' }, jane: { finalBias: 'Bullish', conviction: 0.5 } });

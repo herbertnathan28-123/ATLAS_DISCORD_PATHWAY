@@ -68,7 +68,7 @@ function pickKeyLevels(htf, ltf) {
     if (swingHi) out.push({ name: 'Recent swing HIGH', price: swingHi.level, source: '1H/1D' });
     if (swingLo) out.push({ name: 'Recent swing LOW',  price: swingLo.level, source: '1H/1D' });
     if (ref.breakLevel != null && ref.lastBreak !== 'None') {
-      out.push({ name: ref.lastBreak === 'BOS' ? 'Last [Structure Break] level' : 'Last CHoCH level', price: ref.breakLevel, source: '1H/1D · ' + (ref.breakDirection || '') });
+      out.push({ name: ref.lastBreak === 'BOS' ? 'Last [Structure Break] level' : 'Last [Trend Shift] level', price: ref.breakLevel, source: '1H/1D · ' + (ref.breakDirection || '') });
     }
   }
   const ltfRef = ltf?.timeframes && (ltf.timeframes['15'] || ltf.timeframes['5'] || null);

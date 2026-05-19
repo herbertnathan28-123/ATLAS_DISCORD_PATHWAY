@@ -244,7 +244,7 @@ function targetStatus(action, hasEntry) {
 }
 function executionConfidence(action, jane) {
   if (/ENTRY CONDITIONS NOT MET|TRADE INVALID|HOLD — NO ACTIVE/.test(action.state))
-    return 'Insufficient — entry conditions not met; monitor for confirmation until conditions stack.';
+    return 'Insufficient — entry conditions not met; monitor for confirmation through a full candle close or [Structure Break] before conditions stack.';
   const a = Math.abs(jane.composite);
   if (a >= 0.55) return 'High — institutional-grade';
   if (a >= 0.35) return 'Medium — actionable with discipline';

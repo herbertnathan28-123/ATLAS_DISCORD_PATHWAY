@@ -190,7 +190,11 @@ function assertFinalAssessmentInsideTradeStatus(t) {
     throw new Error('Final Assessment must live inside Trade Status block');
 }
 function assertSourcesFooter(t) {
-  if (!/\*sources:.*market data=/.test(t)) throw new Error('sources footer missing or malformed');
+  if (process.env.ATLAS_DEBUG_AUX === '1') {
+    if (!/\*sources:.*market data=/.test(t)) throw new Error('sources footer missing or malformed');
+  } else if (/\*sources:/.test(t)) {
+    throw new Error('sources footer should stay off the default user-facing surface');
+  }
 }
 
 main().catch(e => { console.error('FAIL:', e.message); process.exit(1); });
