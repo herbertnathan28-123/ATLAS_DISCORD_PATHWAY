@@ -112,7 +112,21 @@ function buildDarkHorseDiscordText(packet, viewModel, opts) {
   opts = opts || {};
   packet = packet || {};
   viewModel = viewModel || {};
-  const standouts = Array.isArray(viewModel.standouts) ? viewModel.standouts : [];
+  // Codex review P1 (PR #160): `_liveStandoutsFromRanking` widens
+  // viewModel.standouts to score ≥ 7 so the prototype shell cards
+  // can preview near-WATCH candidates. The Discord copy must use
+  // the engine's actual WATCH / publication threshold (score ≥ 8)
+  // — anything weaker is internal-only and must not be rendered as
+  // a live standout. Filter here before deciding `isZero` so a
+  // score-7 INTERNAL candidate cannot mis-render as `1 live
+  // standout` / `WATCH=1`.
+  const WATCH_PUBLICATION_THRESHOLD = 8;
+  const rawStandouts = Array.isArray(viewModel.standouts) ? viewModel.standouts : [];
+  const standouts = rawStandouts.filter(s => Number.isFinite(s && s.score) && s.score >= WATCH_PUBLICATION_THRESHOLD);
+  // Any near-WATCH (score 7) entries that came in through standouts
+  // belong in the internal-candidate evidence — fold them in so the
+  // 0-standout case still surfaces them under WATCH=0.
+  const nearWatch = rawStandouts.filter(s => Number.isFinite(s && s.score) && s.score === WATCH_PUBLICATION_THRESHOLD - 1);
   const isZero = standouts.length === 0;
   const header = packet.header || {};
   const bs = packet.briefingSummary || {};
@@ -122,10 +136,27 @@ function buildDarkHorseDiscordText(packet, viewModel, opts) {
   const generatedAtUTC = header.generatedAtUTC || (packet.meta && packet.meta.generatedAtUTC) || viewModel.GENERATED_AT_UTC;
   const nowMs = (viewModel.now || opts.now || Date.now());
   const universeSize = Number.isFinite(viewModel.marketsScanned) ? viewModel.marketsScanned : 0;
-  const internalCount = Number.isFinite(viewModel.internalCount)
+  // Codex review P1: near-WATCH (score 7) entries that came in
+  // through viewModel.standouts must be counted under INTERNAL,
+  // not WATCH. Add them to the wired internal count if the engine
+  // hasn't already accounted for them.
+  const wiredInternalCount = Number.isFinite(viewModel.internalCount)
     ? viewModel.internalCount
     : (Array.isArray(viewModel.internalCandidates) ? viewModel.internalCandidates.length : 0);
+  const wiredInternalSyms = new Set((viewModel.internalCandidates || []).map(c => c && c.symbol).filter(Boolean));
+  const nearWatchAddl = nearWatch.filter(s => s && s.symbol && !wiredInternalSyms.has(s.symbol));
+  const internalCount = wiredInternalCount + nearWatchAddl.length;
   const ignoredCount = Number.isFinite(viewModel.ignoredCount) ? viewModel.ignoredCount : Math.max(0, universeSize - internalCount - standouts.length);
+  // Fold near-WATCH symbols into the evidence-list view-model used
+  // by _summariseInternalCandidates so they appear with their score.
+  const effectiveVm = nearWatchAddl.length
+    ? Object.assign({}, viewModel, {
+        internalCandidates: [].concat(
+          viewModel.internalCandidates || [],
+          nearWatchAddl.map(s => ({ symbol: s.symbol, score: s.score })),
+        ),
+      })
+    : viewModel;
   const vixState = (viewModel.marketMood && viewModel.marketMood.label) || header.riskState || 'pending';
   const severity = header.severityDiscs || viewModel.RISK_STATE_DISC_SCALE || 'risk state pending';
 
@@ -150,7 +181,7 @@ function buildDarkHorseDiscordText(packet, viewModel, opts) {
         '🎯 **MARKET READ NOW**',
         'Action state: '   + 'No live standout this cycle',
         'Why: '            + 'no symbol cleared the WATCH / publication threshold (score ≥ 8/10); the highest internal candidates remain below the publication threshold.',
-        'Evidence: '       + _summariseInternalCandidates(viewModel),
+        'Evidence: '       + _summariseInternalCandidates(effectiveVm),
         'Changes if: '     + 'a candidate clears the WATCH threshold on the next scan, or volatility / session conditions change.',
       ].join('\n')
     : [
@@ -161,10 +192,16 @@ function buildDarkHorseDiscordText(packet, viewModel, opts) {
         'Changes if: '     + (cc.cancelsWhen || 'a standout closes through its published invalidation / exit on the trigger timeframe.'),
       ].join('\n');
 
+  // Codex review P1 (PR #160): when a score-7 entry slips through
+  // viewModel.standouts, buildDarkHorsePacket still computes a
+  // `lead` and emits the live-standout mechanism string. Override
+  // here when the publication-grade count is zero so the text
+  // matches the WATCH=0 reality.
+  const mechanismForZero = 'No live standout cleared the publication threshold this cycle. Internal candidates exist but remain below the publication grade (score < 8/10). Volatility / risk state may be elevated; the next 15-min scan re-checks the candidate set.';
   const sectionMarketImpact = isZero
     ? [
         '🌍 **MARKET IMPACT**',
-        mi.mechanism || 'mechanism pending',
+        mechanismForZero,
       ].join('\n')
     : [
         '🌍 **MARKET IMPACT**',
@@ -185,8 +222,11 @@ function buildDarkHorseDiscordText(packet, viewModel, opts) {
     standouts.slice(0, 4).map((s, i) => '  ' + (i + 1) + '. ' + (s.symbol || 'unknown') + ' · ' + (s.lifecycle || 'tracked') + ' · ' + (s.direction || 'directional') + ' · score ' + (s.score != null ? s.score + '/10' : '?')).join('\n'),
   ].join('\n');
 
+  // Codex review P1: rebuild the top-line subtitle from the
+  // publication-grade count so it never drifts from the SNAPSHOT.
+  const topSubtitle = standouts.length + ' standout' + (standouts.length === 1 ? '' : 's') + ' on this scan · ' + universeSize + ' market' + (universeSize === 1 ? '' : 's') + ' scanned';
   const lines = [
-    '**' + (header.title || 'ATLAS · Dark Horse') + ' · ' + (header.subtitle || 'no subtitle') + '**',
+    '**' + (header.title || 'ATLAS · Dark Horse') + ' · ' + topSubtitle + '**',
     'Generated: ' + (generatedAtUTC || 'unknown'),
     '',
     sectionSnapshot,

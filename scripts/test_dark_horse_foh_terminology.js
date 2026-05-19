@@ -204,18 +204,76 @@ function proofTwoStandouts() {
   return text;
 }
 
+function proofScoreSevenIsInternal() {
+  // Codex review P1 on PR #160 — when the movement digest has no
+  // score-≥8 candidates but a score-7 entry rides through on the
+  // viewModel.standouts list (because _liveStandoutsFromRanking
+  // widens to score ≥ 7 for the prototype shell card preview), the
+  // Discord builder MUST still render the scan as 0-standout /
+  // WATCH=0 / NOT promoted. The score-7 candidate belongs in the
+  // INTERNAL evidence line.
+  const label = 'score-7 internal';
+  const ranking = makeRanking([
+    { symbol: 'EURJPY', score: 7, section: 'FX', direction: 'long' },
+  ]);
+  const internal = []; // engine hasn't wired internal[] in this fixture
+  const ignored = [];
+  const volatility = makeVolatility('medium');
+  const packet = buildDarkHorsePacket({
+    ranking,
+    volatility,
+    universeSize: 47,
+    now: Date.parse('2026-05-19T13:30:00Z'),
+  });
+  const viewModel = buildLiveViewModel(packet, ranking, {
+    universeSize: 47,
+    now: Date.parse('2026-05-19T13:32:00Z'),
+    internal,
+    ignored,
+  });
+  // Sanity check the fixture: this is exactly the shape Codex
+  // flagged — viewModel.standouts has the score-7 entry, but it is
+  // NOT a WATCH-grade candidate.
+  assert.strictEqual(viewModel.standouts.length, 1, '[' + label + '] fixture sanity: viewModel.standouts carries the score-7 entry');
+  assert.strictEqual(viewModel.standouts[0].score, 7, '[' + label + '] fixture sanity: that entry is score 7');
+  const text = buildDarkHorseDiscordText(packet, viewModel, {
+    now: Date.parse('2026-05-19T13:32:00Z'),
+    volatility,
+  });
+  assertNoBanned(text, label);
+  // 1. Snapshot must read 0 live standouts.
+  assert(text.includes('Dark Horse scan complete · 0 live standouts · 47 markets scanned'), '[' + label + '] score-7 entry mis-rendered as live standout in SNAPSHOT');
+  // 2. Conditions evidence must read WATCH=0 with the score-7 entry under INTERNAL.
+  assert(/Evidence: WATCH=0, INTERNAL=1, IGNORED=0/.test(text), '[' + label + '] WATCH/INTERNAL/IGNORED mis-counted; expected WATCH=0, INTERNAL=1');
+  // 3. Read-now must be the no-live-standout block (not the live-tracked block).
+  assert(/Action state: No live standout this cycle/.test(text), '[' + label + '] expected "No live standout this cycle" action state for score-7-only scan');
+  // 4. Evidence line under MARKET READ NOW must surface the score-7 symbol.
+  assert(/Evidence: EURJPY 7\/10/.test(text), '[' + label + '] score-7 EURJPY missing from internal-candidate evidence');
+  // 5. No STANDOUTS section — that block only renders when standouts.length > 0.
+  assert(!text.includes('⭐ **STANDOUTS**'), '[' + label + '] STANDOUTS section emitted for non-WATCH-grade candidate');
+  // 6. Top subtitle must agree with the SNAPSHOT — must NOT say "1 standout".
+  assert(/ATLAS · Dark Horse · 0 standouts on this scan/.test(text), '[' + label + '] top subtitle drifted from publication-grade SNAPSHOT');
+  // 7. MARKET IMPACT must use the no-live-standout mechanism copy,
+  // not the score-≥7 "Standout setups derive from..." string.
+  assert(/MARKET IMPACT\*\*\nNo live standout cleared the publication threshold this cycle\./.test(text), '[' + label + '] MARKET IMPACT must show the no-live-standout mechanism for WATCH=0');
+  return text;
+}
+
 function main() {
   const args = process.argv.slice(2);
   const print = args.includes('--print');
   const zero = proofZeroStandout();
   const two = proofTwoStandouts();
+  const seven = proofScoreSevenIsInternal();
   if (print) {
     console.log('========== 0-standout ==========');
     console.log(zero);
     console.log('\n========== 2-standout ==========');
     console.log(two);
+    console.log('\n========== score-7 internal ==========');
+    console.log(seven);
   }
-  console.log('OK — Dark Horse FOH terminology cleanup proven for 0-standout + 2-standout cases');
+  console.log('OK — Dark Horse FOH terminology cleanup proven for 0-standout + 2-standout + score-7-internal cases');
 }
 
 if (require.main === module) {
@@ -223,4 +281,4 @@ if (require.main === module) {
   catch (e) { console.error('FAIL ' + e.message); if (e.stack) console.error(e.stack); process.exit(1); }
 }
 
-module.exports = { proofZeroStandout, proofTwoStandouts, BANNED_PHRASES };
+module.exports = { proofZeroStandout, proofTwoStandouts, proofScoreSevenIsInternal, BANNED_PHRASES };
