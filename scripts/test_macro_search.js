@@ -252,17 +252,43 @@ function assertFohFormat(out, label) {
     '🔗 SOURCE / PROVENANCE',
   ], label + '/section-order');
 
-  // THE CALL must be gone (replaced by the three new sections).
-  assert(!out.includes('🔥 THE CALL'), '[' + label + '] removed-section "🔥 THE CALL" still present');
+  // Operator work-order 2026-05-19 item 8: tests must fail if
+  // either THE CALL or user-facing Freshness wording sneaks back
+  // onto the macro-search surface. THE CALL is replaced by the
+  // three new sections; Freshness is replaced by the SNAPSHOT
+  // validity strip (LAST UPDATED / READ AGE / STILL VALID? /
+  // VALID UNTIL / NEXT RE-CHECK).
+  assert(!out.includes('THE CALL'), '[' + label + '] banned section name "THE CALL" still present');
+  assert(!out.includes('🔥 THE CALL'), '[' + label + '] banned boxed header "🔥 THE CALL" still present');
+  assert(!/\bFreshness\b/.test(out), '[' + label + '] banned user-facing label "Freshness" still present');
+  assert(!/\bfreshness:\s*LIVE\b/i.test(out), '[' + label + '] banned wording "freshness: LIVE" still present');
 
-  // Every one of the 16 execution-read field labels must appear.
+  // SNAPSHOT validity strip (operator item 4) — every one of the
+  // five fields must surface in the SNAPSHOT block.
   for (const field of [
-    'Action state:', 'Freshness:', 'Bias:', 'Bias timeframe:',
-    'Valid until:', 'Holding window:', 'Entry / trigger:',
-    'Current vs trigger:', 'Invalidation / stop:', 'Target / next draw:',
-    'R:R now:', 'Viability:', 'Event risk:', 'Spread / liquidity:',
+    'LAST UPDATED:',
+    'READ AGE:',
+    'STILL VALID?:',
+    'VALID UNTIL:',
+    'NEXT RE-CHECK:',
+  ]) assert(out.includes(field), '[' + label + '] SNAPSHOT validity strip missing: ' + field);
+
+  // EXECUTION READ — exactly the 14 operator-spec fields (item 5).
+  // Freshness and Valid until are dropped (they live on SNAPSHOT
+  // now); Current vs trigger is renamed to Current price vs trigger.
+  for (const field of [
+    'Action state:', 'Bias:', 'Bias timeframe:',
+    'Holding window:', 'Entry / trigger:',
+    'Current price vs trigger:', 'Invalidation / stop:',
+    'Target / next draw:', 'R:R now:', 'Viability:',
+    'Event risk:', 'Spread / liquidity:',
     'Decision rule:', 'Cancels if:',
   ]) assert(out.includes(field), '[' + label + '] execution-read field missing: ' + field);
+  // Banned execution-read rows (Freshness and Valid until live on
+  // SNAPSHOT now, not EXECUTION READ).
+  assert(!/\bFreshness:/.test(out), '[' + label + '] EXECUTION READ must not carry a "Freshness:" row');
+  assert(!/⚡[\s\S]*\bValid until:/.test(out), '[' + label + '] "Valid until:" must live on SNAPSHOT (VALID UNTIL), not EXECUTION READ');
+  assert(!/Current vs trigger:/.test(out), '[' + label + '] use renamed label "Current price vs trigger" — bare "Current vs trigger" is the pre-item-5 label');
 
   // No-generic-advice banlist (work-order 2026-05-19, item 5).
   for (const re of [
@@ -470,6 +496,39 @@ function proofEurusdArmedOnFire() {
   assert(/Action state: ARMED/.test(out), '[EURUSD ARMED] action state must read ARMED');
   // ON FIRE renders must NOT carry the not-a-live-candidate copy.
   assert(!/NOT A LIVE CANDIDATE/.test(out), '[EURUSD ARMED] must not show NOT A LIVE CANDIDATE');
+  // Operator item 7: ON FIRE verdict must cite Jane AND show the
+  // candidate-evidence pillar count (e.g. "Jane ARMED/VALID and
+  // 5/5 candidate-evidence pillars confirmed").
+  assert(/🔥 ON FIRE — Jane ARMED\/VALID and \d\/5 candidate-evidence pillars confirmed\./.test(out), '[EURUSD ARMED] ON FIRE verdict must cite both Jane state + evidence pillar count');
+  return out;
+}
+
+function proofArmedWithoutEvidenceStaysOff() {
+  // Operator item 7: ON FIRE requires Jane ARMED/VALID **AND**
+  // above-average candidate evidence (≥3 of 5 pillars). Jane
+  // alone cannot flip the verdict — a bare ARMED state with no
+  // Spidey/Corey ACTIVE + no entry/stop/target prices must
+  // render as NOT A LIVE CANDIDATE with a specific reason for
+  // the held gate.
+  const packet = fxPacket('EURUSD');
+  const resolution = { resolved_type: 'symbol', resolved_target: 'EURUSD', displayTarget: 'EURUSD' };
+  const ctx = buildCtx(packet, resolution, {
+    janeFinalState: 'ARMED',           // Jane says ARMED…
+    spideyStatus: 'PARTIAL',           // …but Spidey is not ACTIVE
+    janeOut: { actionState: 'ARMED' }, // …no entry/stop/target/rr/viability
+    spideyOut: null,
+  });
+  const out = formatMacroSearchFoh(ctx);
+  assertFohFormat(out, 'EURUSD ARMED-no-evidence');
+  assert(out.includes('⚡ EXECUTION READ — NOT A LIVE CANDIDATE'), '[EURUSD ARMED-no-evidence] EXECUTION READ must NOT flip ON FIRE without candidate evidence');
+  assert(out.includes('🧊 NOT A LIVE CANDIDATE'), '[EURUSD ARMED-no-evidence] READ NOW verdict must show NOT A LIVE CANDIDATE');
+  // The held-gate reason must enumerate the specific missing
+  // pillars (Spidey not ACTIVE, prices missing, R:R pending,
+  // viability not VALID) — generic copy is not allowed (item 6).
+  assert(/gate held: .*Spidey not ACTIVE/.test(out), '[EURUSD ARMED-no-evidence] held-gate reason must cite Spidey not ACTIVE');
+  assert(/Jane is missing entry \/ stop \/ target prices/.test(out), '[EURUSD ARMED-no-evidence] held-gate reason must cite missing prices');
+  assert(/R:R below 1 or pending/.test(out), '[EURUSD ARMED-no-evidence] held-gate reason must cite R:R pending');
+  assert(/Jane viability not VALID/.test(out), '[EURUSD ARMED-no-evidence] held-gate reason must cite viability');
   return out;
 }
 
@@ -481,12 +540,22 @@ function proofAmdNotALiveCandidate() {
   assertFohFormat(out, 'AMD NOT A LIVE CANDIDATE');
   assert(out.includes('⚡ EXECUTION READ — NOT A LIVE CANDIDATE'), '[AMD non-fire] NOT A LIVE CANDIDATE banner missing');
   assert(out.includes('🧊 NOT A LIVE CANDIDATE'), '[AMD non-fire] NOT A LIVE CANDIDATE verdict missing from READ NOW');
-  // Each execution-read field must carry an honest pending value.
+  // Operator item 6: each pending field must state WHY (which
+  // engine has not committed which value), never a bare "pending"
+  // or generic "not a live candidate" copy.
   assert(/Action state: NOT A LIVE CANDIDATE/.test(out), '[AMD non-fire] action state must read NOT A LIVE CANDIDATE');
-  assert(/Entry \/ trigger: no entry — not a live candidate/.test(out), '[AMD non-fire] entry must honest-pending');
-  assert(/Invalidation \/ stop: no invalidation level — not a live candidate/.test(out), '[AMD non-fire] stop must honest-pending');
-  assert(/Target \/ next draw: no target proposed — not a live candidate/.test(out), '[AMD non-fire] target must honest-pending');
-  assert(/Decision rule: no decision rule — not a live candidate/.test(out), '[AMD non-fire] decision rule must honest-pending');
+  assert(/Entry \/ trigger: no entry — Spidey has not built a trigger zone/.test(out), '[AMD non-fire] entry must state Spidey is missing the trigger zone');
+  assert(/Invalidation \/ stop: no invalidation level — Spidey has not built a structural invalidation/.test(out), '[AMD non-fire] stop must state Spidey is missing the invalidation');
+  assert(/Target \/ next draw: no target proposed — Jane has not validated a tradable read/.test(out), '[AMD non-fire] target must state Jane has not validated');
+  assert(/Decision rule: no decision rule — Jane has not validated a tradable read/.test(out), '[AMD non-fire] decision rule must state Jane has not validated');
+  assert(/R:R now: no R:R — trigger and stop are both still pending/.test(out), '[AMD non-fire] R:R pending reason must be specific');
+  assert(/Viability: no committed viability — Jane has not finalised a tradable read/.test(out), '[AMD non-fire] viability pending reason must be specific');
+  // SNAPSHOT validity strip must say STILL VALID? = YES (read is
+  // ~0 min old) but VALID UNTIL must explain Jane has not validated.
+  assert(/STILL VALID\?: YES — within the 15-minute read window/.test(out), '[AMD non-fire] SNAPSHOT must report STILL VALID? = YES while inside the read window');
+  assert(/VALID UNTIL: no validity window yet — Jane has not validated a tradable read/.test(out), '[AMD non-fire] SNAPSHOT VALID UNTIL must state why');
+  // ON FIRE gate must also explain WHY it held (item 7).
+  assert(/gate held: .*Jane state is MONITORING/.test(out), '[AMD non-fire] ON FIRE gate verdict must state Jane state held the gate');
   return out;
 }
 
@@ -539,8 +608,9 @@ const PROOFS = [
   ['FOMC Minutes impact',                    proofFomcMinutesImpact],
   ["today's major events",                   proofTodaysMajorEvents],
   ['next 72 hours macro',                    proofNext72HoursMacro],
-  ['EURUSD macro (Jane ARMED · ON FIRE)',    proofEurusdArmedOnFire],
-  ['AMD macro (Jane MONITORING · non-fire)', proofAmdNotALiveCandidate],
+  ['EURUSD macro (Jane ARMED · ON FIRE)',                  proofEurusdArmedOnFire],
+  ['EURUSD macro (Jane ARMED · no evidence · non-fire)',   proofArmedWithoutEvidenceStaysOff],
+  ['AMD macro (Jane MONITORING · non-fire)',               proofAmdNotALiveCandidate],
 ];
 
 async function main() {
@@ -584,5 +654,5 @@ module.exports = {
   proofEurusdMacro, proofUsdjpyMacro, proofDxyMacro,
   proofNfpImpact, proofCpiImpact, proofFomcMinutesImpact,
   proofTodaysMajorEvents, proofNext72HoursMacro,
-  proofEurusdArmedOnFire, proofAmdNotALiveCandidate,
+  proofEurusdArmedOnFire, proofArmedWithoutEvidenceStaysOff, proofAmdNotALiveCandidate,
 };

@@ -325,8 +325,11 @@ function sourceProvenanceLine(packet) {
 // ============================================================
 // SECTION 1 — CURRENT MARKET SNAPSHOT
 // What the symbol / event looks like right now: target, asset
-// class, last price, intraday delta, generation timestamp,
-// freshness dot.
+// class, last price, then the explicit five-field validity
+// strip — LAST UPDATED / READ AGE / STILL VALID? / VALID UNTIL
+// / NEXT RE-CHECK (operator brief 2026-05-19 item 4). Replaces
+// the previous "Clock" + "Generated" lines and removes the
+// user-facing "freshness" wording (item 2).
 // ============================================================
 
 function inferAssetClass(symbol) {
@@ -341,25 +344,70 @@ function inferAssetClass(symbol) {
 }
 
 function formatPriceLine(price, deltaPct) {
-  if (!Number.isFinite(price)) return 'Last price: pending';
+  if (!Number.isFinite(price)) return 'Last price: pending — no live quote wired through ctx.currentPrice yet';
   const deltaTxt = Number.isFinite(deltaPct)
     ? ' (' + (deltaPct >= 0 ? '+' : '') + deltaPct.toFixed(2) + '%)'
     : '';
   return 'Last price: ' + price + deltaTxt;
 }
 
+// READ AGE — operator-spec replacement for the user-facing
+// "freshness" copy (item 2). Returns a colour-dot + plain age
+// label; the caller still drops the dot through the same
+// per-row strip used by EXECUTION READ.
+function readAgeFromMs(generatedMs, nowMs) {
+  if (!Number.isFinite(generatedMs) || !Number.isFinite(nowMs) || generatedMs <= 0) {
+    return { ageMin: null, glyph: '⚪', label: 'read age unknown — generated-at timestamp missing from macro packet' };
+  }
+  const ageMin = Math.max(0, Math.round((nowMs - generatedMs) / 60000));
+  if (ageMin <= 1)  return { ageMin, glyph: '🟢', label: ageMin + ' minute old · live' };
+  if (ageMin <= 5)  return { ageMin, glyph: '🟢', label: ageMin + ' minutes old · usable' };
+  if (ageMin <= 15) return { ageMin, glyph: '🟡', label: ageMin + ' minutes old · ageing' };
+  return { ageMin, glyph: '🔴', label: ageMin + ' minutes old · stale — re-run the macro search' };
+}
+
+function stillValidLine(readAge, onFire) {
+  if (readAge.ageMin == null) return 'STILL VALID?: unknown — no read-age anchor';
+  if (readAge.ageMin > 15) return 'STILL VALID?: NO — read is stale (>15 minutes old); re-run the macro search';
+  return 'STILL VALID?: YES — within the 15-minute read window' + (onFire ? ' and Jane has not invalidated' : '');
+}
+
+function validUntilLine(ctx, onFire) {
+  const j = ctx.janeOut || {};
+  if (j.validityWindow) return 'VALID UNTIL: ' + String(j.validityWindow);
+  if (j.validityCondition) return 'VALID UNTIL: ' + String(j.validityCondition);
+  if (j.validUntilUTC) return 'VALID UNTIL: ' + String(j.validUntilUTC);
+  return 'VALID UNTIL: ' + (onFire
+    ? 'next 15M close on the lead market or until Jane invalidates'
+    : 'no validity window yet — Jane has not validated a tradable read');
+}
+
+function nextRecheckLine(ctx, packet) {
+  const focus = packet.primaryEventFocus || {};
+  if (focus.nextReviewUTC) return 'NEXT RE-CHECK: ' + String(focus.nextReviewUTC);
+  if (focus.volatilityWindow) return 'NEXT RE-CHECK: ' + userFacingText(focus.volatilityWindow);
+  const next = Array.isArray(packet.todayAnnouncements) ? packet.todayAnnouncements[0] : null;
+  if (next && next.timeUTC) {
+    return 'NEXT RE-CHECK: next ranked release window — ' + String(next.title || 'release') + ' at ' + String(next.timeUTC);
+  }
+  return 'NEXT RE-CHECK: re-run the macro search after live drivers commit (no named release inside the active window)';
+}
+
 function snapshotBlock(ctx, packet, resolution) {
   const nowMs = Number.isFinite(ctx.nowMs) ? ctx.nowMs : Date.now();
   const generatedMs = packet.generatedAtUTC ? Date.parse(packet.generatedAtUTC) : null;
-  const freshness = freshnessFromMs(generatedMs, nowMs);
+  const readAge = readAgeFromMs(generatedMs, nowMs);
   const sym = resolution.resolved_target || resolution.displayTarget || 'unknown';
   const assetClass = resolution.assetClass || inferAssetClass(sym);
-  const nowIso = new Date(nowMs).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const onFire = onFireGate(ctx).onFire;
   return [
     'Target: ' + (resolution.displayTarget || sym) + ' · Asset class: ' + assetClass,
-    'Clock: ' + nowIso + '  ' + freshness.glyph + ' ' + freshness.label,
     formatPriceLine(ctx.currentPrice, ctx.currentDeltaPct),
-    'Generated: ' + (packet.generatedAtUTC || '—'),
+    'LAST UPDATED: ' + (packet.generatedAtUTC || 'unknown — macro packet missing generatedAtUTC'),
+    readAge.glyph + ' READ AGE: ' + readAge.label,
+    stillValidLine(readAge, onFire),
+    validUntilLine(ctx, onFire),
+    nextRecheckLine(ctx, packet),
   ].join('\n');
 }
 
@@ -396,16 +444,54 @@ function conditionsBlock(packet, liveCtx) {
 // one-liner read for this symbol/event right now.
 // ============================================================
 
+// ON FIRE GATE — operator brief 2026-05-19 item 7. Jane is
+// necessary but no longer sufficient: the surface must also
+// see above-average candidate evidence so a bare ARMED state
+// without engine-derived price anchors / structure cannot flip
+// the verdict. We require at least 3 of the 5 evidence pillars:
+//   • Spidey status ACTIVE
+//   • Corey status ACTIVE
+//   • Jane has all three of entry + stop + target wired
+//   • Jane R:R ≥ 1
+//   • Jane viability VALID
+// Returns { onFire, jane, evidenceCount, missing } so callers
+// can surface the specific reason the gate is open or closed.
 function onFireGate(ctx) {
   const state = String(ctx.janeFinalState || '').toUpperCase();
-  return state === 'ARMED' || state === 'VALID';
+  const janePass = state === 'ARMED' || state === 'VALID';
+  const j = ctx.janeOut || {};
+  const sp = ctx.spideyOut || {};
+  const hasEntry = !!(j.entry || j.entryPrice || (sp.executionTrigger && sp.executionTrigger.confirmRule) || sp.entry);
+  const hasStop = !!(j.stopLoss || j.stop || sp.invalidation || (sp.invalidation && sp.invalidation.level));
+  const hasTarget = !!(j.target || sp.target || (Array.isArray(sp.targets) && sp.targets[0]));
+  const rr = Number.isFinite(j.rr) ? j.rr : (Number.isFinite(sp.rr) ? sp.rr : null);
+  const pillars = {
+    spideyActive: String(ctx.spideyStatus || '').toUpperCase() === 'ACTIVE',
+    coreyActive:  String(ctx.coreyStatus  || '').toUpperCase() === 'ACTIVE',
+    pricesWired:  hasEntry && hasStop && hasTarget,
+    rrOk:         Number.isFinite(rr) && rr >= 1,
+    viabilityOk:  String(j.tradeViability || j.actionState || '').toUpperCase() === 'VALID',
+  };
+  const evidenceCount = Object.values(pillars).filter(Boolean).length;
+  const evidencePass = evidenceCount >= 3;
+  const missing = [];
+  if (!janePass) missing.push('Jane state is ' + (ctx.janeFinalState || 'UNKNOWN') + ' (need ARMED or VALID)');
+  if (!evidencePass) {
+    if (!pillars.spideyActive) missing.push('Spidey not ACTIVE');
+    if (!pillars.coreyActive)  missing.push('Corey not ACTIVE');
+    if (!pillars.pricesWired)  missing.push('Jane is missing entry / stop / target prices');
+    if (!pillars.rrOk)         missing.push('R:R below 1 or pending');
+    if (!pillars.viabilityOk)  missing.push('Jane viability not VALID');
+  }
+  return { onFire: janePass && evidencePass, jane: janePass, evidenceCount, missing };
 }
 
 function readNowBlock(ctx, packet, resolution) {
-  const onFire = onFireGate(ctx);
+  const gate = onFireGate(ctx);
+  const onFire = gate.onFire;
   const verdict = onFire
-    ? '🔥 ON FIRE — Jane has validated a stronger state; execution read below is live.'
-    : '🧊 NOT A LIVE CANDIDATE — Jane has not validated a tradable read; execution fields below render honest pending values.';
+    ? '🔥 ON FIRE — Jane ARMED/VALID and ' + gate.evidenceCount + '/5 candidate-evidence pillars confirmed.'
+    : '🧊 NOT A LIVE CANDIDATE — gate held: ' + (gate.missing.length ? gate.missing.join('; ') : 'no committed read.');
   const focus = packet.primaryEventFocus || {};
   const align = [
     'Corey=' + (ctx.coreyStatus || 'UNKNOWN'),
@@ -422,66 +508,69 @@ function readNowBlock(ctx, packet, resolution) {
 }
 
 // ============================================================
-// SECTION 4 — EXECUTION READ (16 time-sensitive fields)
+// SECTION 4 — EXECUTION READ (14 time-sensitive fields)
+// Operator brief 2026-05-19 items 5 + 6:
+//   • exactly 14 rows (Freshness + Valid until removed — they
+//     live on the SNAPSHOT validity strip now)
+//   • Current vs trigger → Current price vs trigger
+//   • every pending fallback states WHY (which engine has not
+//     committed which value), never a bare "pending"
 // ON FIRE: pulls live values from janeOut / spideyOut.
-// NOT A LIVE CANDIDATE: each field renders an honest pending /
-// not-built value with a grey dot so the trader sees the
-// missing pieces explicitly.
+// NOT A LIVE CANDIDATE: each row carries a specific honest-
+// pending reason so the operator sees the missing pieces.
 // ============================================================
 
 function _v(value, fallback) {
-  if (value == null) return fallback;
+  if (value == null || value === false) return fallback;
   if (typeof value === 'string' && !value.trim()) return fallback;
   return value;
 }
 
 function executionReadBlock(ctx) {
-  const onFire = onFireGate(ctx);
+  const onFire = onFireGate(ctx).onFire;
   const j = ctx.janeOut || {};
   const sp = ctx.spideyOut || {};
-  const nowMs = Number.isFinite(ctx.nowMs) ? ctx.nowMs : Date.now();
-  const generatedMs = j.timestamp ? Date.parse(j.timestamp) : (sp.timestamp ? Date.parse(sp.timestamp) : nowMs);
-  const freshness = freshnessFromMs(generatedMs, nowMs);
 
   const actionState = onFire ? (ctx.janeFinalState || 'ARMED') : 'NOT A LIVE CANDIDATE';
-  const biasDir = _v(sp.bias || j.bias || sp.structureBias, onFire ? 'neutral' : 'no committed direction');
-  const biasTf = _v(sp.biasTimeframe || sp.timeframe || (sp.htfBias && sp.ltfBias ? 'HTF/LTF' : null), onFire ? '15M / 1H' : 'no committed bias timeframe');
-  const validUntil = _v(j.validityWindow || j.validityCondition || (j.validUntilUTC ? j.validUntilUTC + ' UTC' : null), onFire ? 'next 15M close' : 'no validity window — no live trigger');
-  const holding = _v(j.holdingWindow || sp.holdingWindow, onFire ? '15M – 1H if confirmed' : 'no holding window proposed');
-  const entry = onFire ? _v(j.entry || sp.entry || (sp.executionTrigger && sp.executionTrigger.confirmRule), 'pending — trigger forming') : 'no entry — not a live candidate';
+  const biasDir = _v(sp.bias || j.bias || sp.structureBias, 'no committed direction — Spidey has not aligned HTF + LTF bias');
+  const biasTf = _v(sp.biasTimeframe || sp.timeframe || (sp.htfBias && sp.ltfBias ? 'HTF/LTF' : null), 'no committed bias timeframe — Spidey has not anchored a trigger TF');
+  const holding = _v(j.holdingWindow || sp.holdingWindow, 'no holding window proposed — Jane has not validated a tradable read');
+  const entry = _v(j.entry || sp.entry || (sp.executionTrigger && sp.executionTrigger.confirmRule), 'no entry — Spidey has not built a trigger zone and Jane has not validated a read');
   const currentPrice = Number.isFinite(ctx.currentPrice) ? ctx.currentPrice : null;
   const entryPrice = Number.isFinite(j.entryPrice) ? j.entryPrice : (Number.isFinite(sp.entryPrice) ? sp.entryPrice : null);
   const vsTrigger = (currentPrice != null && entryPrice != null)
     ? (currentPrice - entryPrice >= 0 ? '+' : '') + (currentPrice - entryPrice).toFixed(4) + ' from trigger'
-    : (onFire ? 'price vs trigger pending' : 'no trigger to compare against');
-  const stop = onFire ? _v(j.stopLoss || sp.invalidation || (sp.invalidation && sp.invalidation.level), 'invalidation pending') : 'no invalidation level — not a live candidate';
-  const target = onFire ? _v(j.target || sp.target || (Array.isArray(sp.targets) && sp.targets[0]), 'target not built') : 'no target proposed — not a live candidate';
+    : (currentPrice == null && entryPrice == null
+        ? 'no comparison — neither live price nor Spidey trigger price is wired'
+        : (currentPrice == null
+            ? 'no comparison — live price not wired through ctx.currentPrice'
+            : 'no comparison — Spidey has not published a trigger price'));
+  const stop = _v(j.stopLoss || sp.invalidation || (sp.invalidation && sp.invalidation.level), 'no invalidation level — Spidey has not built a structural invalidation');
+  const target = _v(j.target || sp.target || (Array.isArray(sp.targets) ? sp.targets[0] : null), 'no target proposed — Jane has not validated a tradable read');
   const rr = Number.isFinite(j.rr) ? j.rr : (Number.isFinite(sp.rr) ? sp.rr : null);
-  const rrTxt = rr != null ? rr.toFixed(2) + ' : 1' : (onFire ? 'R:R pending' : 'no R:R until trigger and stop exist');
-  const viability = _v(j.tradeViability || j.actionState, onFire ? 'VALID' : 'no committed viability');
+  const rrTxt = rr != null ? rr.toFixed(2) + ' : 1' : 'no R:R — trigger and stop are both still pending';
+  const viability = _v(j.tradeViability || j.actionState, 'no committed viability — Jane has not finalised a tradable read');
   const eventRiskMin = Number.isFinite(j.nextEventMinutes) ? j.nextEventMinutes : (Number.isFinite(ctx.nextEventMinutes) ? ctx.nextEventMinutes : null);
-  const eventRiskTxt = _v(j.eventRisk, eventRiskMin != null ? eventRiskMin + ' min to next named release' : 'no named release inside the active window');
-  const spreadLiq = _v(j.spreadLiquidity || (sp.liquidity && sp.liquidity.label), onFire ? 'normal' : 'spread / liquidity not assessed for non-candidate read');
-  const decisionRule = _v(j.decisionRule || (sp.executionTrigger && sp.executionTrigger.confirmRule), onFire ? 'first confirmed 15M close inside the trigger zone' : 'no decision rule — not a live candidate');
-  const cancelsIf = _v(j.cancelsIf || j.cancellationTrigger || (sp.invalidation && sp.invalidation.reason), onFire ? 'invalidation level breached' : 'no cancellation rule — not a live candidate');
+  const eventRiskTxt = _v(j.eventRisk, eventRiskMin != null ? eventRiskMin + ' min to next named release' : 'no named release inside the active window — calendar shows nothing in scope');
+  const spreadLiq = _v(j.spreadLiquidity || (sp.liquidity && sp.liquidity.label), 'spread / liquidity not assessed — no live trigger to validate against');
+  const decisionRule = _v(j.decisionRule || (sp.executionTrigger && sp.executionTrigger.confirmRule), 'no decision rule — Jane has not validated a tradable read');
+  const cancelsIf = _v(j.cancelsIf || j.cancellationTrigger || (sp.invalidation && sp.invalidation.reason), 'no cancellation rule — Jane has not validated a tradable read');
 
   const rows = [
-    ['Action state',          actionState,                    actionStateGlyph(actionState)],
-    ['Freshness',             freshness.label,                freshness.glyph],
-    ['Bias',                  biasDir,                        biasGlyph(biasDir)],
-    ['Bias timeframe',        biasTf,                         onFire ? '🟢' : '⚪'],
-    ['Valid until',           validUntil,                     onFire ? '🟢' : '⚪'],
-    ['Holding window',        holding,                        onFire ? '🟢' : '⚪'],
-    ['Entry / trigger',       entry,                          onFire ? '🟢' : '⚪'],
-    ['Current vs trigger',    vsTrigger,                      onFire ? '🟡' : '⚪'],
-    ['Invalidation / stop',   stop,                           onFire ? '🟢' : '🔴'],
-    ['Target / next draw',    target,                         onFire ? '🟢' : '⚪'],
-    ['R:R now',               rrTxt,                          rrGlyph(rr)],
-    ['Viability',             viability,                      viabilityGlyph(viability)],
-    ['Event risk',            eventRiskTxt,                   eventRiskGlyph(eventRiskMin)],
-    ['Spread / liquidity',    spreadLiq,                      onFire ? '🟢' : '⚪'],
-    ['Decision rule',         decisionRule,                   onFire ? '🟢' : '⚪'],
-    ['Cancels if',            cancelsIf,                      onFire ? '🟢' : '⚪'],
+    ['Action state',                actionState,    actionStateGlyph(actionState)],
+    ['Bias',                        biasDir,        biasGlyph(biasDir)],
+    ['Bias timeframe',              biasTf,         onFire ? '🟢' : '⚪'],
+    ['Holding window',              holding,        onFire ? '🟢' : '⚪'],
+    ['Entry / trigger',             entry,          onFire ? '🟢' : '⚪'],
+    ['Current price vs trigger',    vsTrigger,      onFire ? '🟡' : '⚪'],
+    ['Invalidation / stop',         stop,           onFire ? '🟢' : '🔴'],
+    ['Target / next draw',          target,         onFire ? '🟢' : '⚪'],
+    ['R:R now',                     rrTxt,          rrGlyph(rr)],
+    ['Viability',                   viability,      viabilityGlyph(viability)],
+    ['Event risk',                  eventRiskTxt,   eventRiskGlyph(eventRiskMin)],
+    ['Spread / liquidity',          spreadLiq,      onFire ? '🟢' : '⚪'],
+    ['Decision rule',               decisionRule,   onFire ? '🟢' : '⚪'],
+    ['Cancels if',                  cancelsIf,      onFire ? '🟢' : '⚪'],
   ];
   return rows.map(([label, value, glyph]) => glyph + ' ' + label + ': ' + userFacingText(String(value))).join('\n');
 }
@@ -521,7 +610,7 @@ function formatMacroSearchFoh(ctx) {
   const events = Array.isArray(ctx.events) ? ctx.events : [];
   const resolution = ctx.resolution || { displayTarget: 'macro search' };
   const liveCtx = ctx.liveCtx || null;
-  const onFire = onFireGate(ctx);
+  const onFire = onFireGate(ctx).onFire;
 
   // Heading colour doctrine — READ NOW adopts the worst of
   // (risk-state tier, calendar tier). Calendar header adopts
