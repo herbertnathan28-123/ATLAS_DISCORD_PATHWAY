@@ -138,7 +138,8 @@ function calendarPacket(label) {
   });
 }
 
-function buildCtx(packet, resolution) {
+function buildCtx(packet, resolution, opts) {
+  opts = opts || {};
   const focus = packet.primaryEventFocus || {};
   const ctx = {
     query: resolution.displayTarget + ' macro',
@@ -147,12 +148,62 @@ function buildCtx(packet, resolution) {
     macroPacket: packet,
     coreyStatus: 'ACTIVE',
     cloneSummary: { status: 'PARTIAL', usableForDecision: false, sampleSize: 0, denominator: 0, confidenceBasis: '', degradedReason: 'fixture' },
-    spideyStatus: 'PARTIAL',
-    janeFinalState: 'MONITORING',
+    spideyStatus: opts.spideyStatus || 'PARTIAL',
+    janeFinalState: opts.janeFinalState || 'MONITORING',
+    janeOut: opts.janeOut || null,
+    spideyOut: opts.spideyOut || null,
+    liveCtx: opts.liveCtx || { dxy: { bias: 'soft' }, vix: { level: 'normal' }, yield: { regime: 'steady' }, regime: 'risk-on lean' },
+    nowMs: opts.nowMs || Date.parse('2026-05-18T23:30:30Z'),
+    currentPrice: opts.currentPrice != null ? opts.currentPrice : null,
+    currentDeltaPct: opts.currentDeltaPct != null ? opts.currentDeltaPct : null,
     fohRendered: true,
     degradationReason: 'none',
   };
   ctx.events = smPrivate.eventRowsForResponse(packet, resolution, focus);
+  return ctx;
+}
+
+function armedCtx(packet, resolution, opts) {
+  // Build a ctx that satisfies the ON FIRE candidate gate
+  // (Jane.actionState === 'ARMED') with a full execution-read
+  // engine snapshot so the 16 fields render live values.
+  opts = opts || {};
+  const ctx = buildCtx(packet, resolution, Object.assign({
+    janeFinalState: 'ARMED',
+    spideyStatus: 'ACTIVE',
+    janeOut: Object.assign({
+      actionState: 'ARMED',
+      tradeViability: 'VALID',
+      bias: 'long',
+      biasTimeframe: '15M / 1H',
+      validityWindow: 'next 15M close · 23:45 UTC (in 14m)',
+      holdingWindow: '15M – 1H if confirmed',
+      entry: '1.07900',
+      entryPrice: 1.07900,
+      stopLoss: '1.07550',
+      target: '1.08600',
+      rr: 2.0,
+      eventRisk: 'NFP in 36h',
+      spreadLiquidity: 'normal · 0.8 pip spread',
+      decisionRule: 'first 15M close above 1.07900 with retained demand',
+      cancelsIf: '15M close back below 1.07780 inside 2 candles',
+      nextEventMinutes: 36 * 60,
+      timestamp: '2026-05-18T23:30:15Z',
+    }, opts.janeOut || {}),
+    spideyOut: Object.assign({
+      status: 'ACTIVE',
+      bias: 'long',
+      htfBias: 'BULLISH',
+      ltfBias: 'BULLISH',
+      structureBias: 'BULLISH',
+      invalidation: { level: 1.07550, reason: 'demand retention breach' },
+      executionTrigger: { confirmRule: '15M close above 1.07900', direction: 'long' },
+      liquidity: { label: 'normal' },
+      timestamp: '2026-05-18T23:30:15Z',
+    }, opts.spideyOut || {}),
+    currentPrice: opts.currentPrice != null ? opts.currentPrice : 1.07820,
+    currentDeltaPct: opts.currentDeltaPct != null ? opts.currentDeltaPct : 0.18,
+  }, opts));
   return ctx;
 }
 
@@ -185,17 +236,42 @@ function assertFohFormat(out, label) {
     '🔗 Full Brief: Pending',
   ]) assert(out.includes(part), '[' + label + '] control strip missing: ' + part);
 
-  // Required section order — THE CALL first.
+  // Required section order — THE CALL is removed; SNAPSHOT /
+  // CONDITIONS / READ NOW / EXECUTION READ now lead.
   assertOrder(out, [
-    '🔥 THE CALL',
+    '📊 CURRENT MARKET SNAPSHOT',
+    '🌐 CURRENT MARKET CONDITIONS',
+    '🎯 MARKET READ NOW',
+    '⚡ EXECUTION READ',
     '📅 RANKED CALENDAR EVENTS',
     '⚠️ RISK STATE',
     '🌍 MARKET IMPACT',
-    '🎯 AFFECTED MARKETS',
+    '🧭 AFFECTED MARKETS',
     '✅ CONFIRMATION / DEGRADATION',
     '🗓️ FORWARD PLANNING',
     '🔗 SOURCE / PROVENANCE',
   ], label + '/section-order');
+
+  // THE CALL must be gone (replaced by the three new sections).
+  assert(!out.includes('🔥 THE CALL'), '[' + label + '] removed-section "🔥 THE CALL" still present');
+
+  // Every one of the 16 execution-read field labels must appear.
+  for (const field of [
+    'Action state:', 'Freshness:', 'Bias:', 'Bias timeframe:',
+    'Valid until:', 'Holding window:', 'Entry / trigger:',
+    'Current vs trigger:', 'Invalidation / stop:', 'Target / next draw:',
+    'R:R now:', 'Viability:', 'Event risk:', 'Spread / liquidity:',
+    'Decision rule:', 'Cancels if:',
+  ]) assert(out.includes(field), '[' + label + '] execution-read field missing: ' + field);
+
+  // No-generic-advice banlist (work-order 2026-05-19, item 5).
+  for (const re of [
+    /wait for confirmation before treating direction as reliable/i,
+    /monitor live drivers\.?$/im,
+    /structure-led\b/i,
+    /see the briefing surface/i,
+    /broader macro driver/i,
+  ]) assert(!re.test(out), '[' + label + '] generic-advice phrase leaked: ' + re);
 
   // Jane final-gate line closes the report.
   assert(out.includes('Jane remains final gate'), '[' + label + '] Jane final-gate line missing');
@@ -372,6 +448,49 @@ function proofNext72HoursMacro() {
 }
 
 // ============================================================
+// ON FIRE candidate gate proofs — when Jane validates a
+// stronger state, the EXECUTION READ block renders ON FIRE
+// with live values for all 16 fields. When she does not, it
+// renders NOT A LIVE CANDIDATE with honest pending values.
+// ============================================================
+
+function proofEurusdArmedOnFire() {
+  const packet = fxPacket('EURUSD');
+  const resolution = { resolved_type: 'symbol', resolved_target: 'EURUSD', displayTarget: 'EURUSD' };
+  const ctx = armedCtx(packet, resolution);
+  const out = formatMacroSearchFoh(ctx);
+  assertFohFormat(out, 'EURUSD ARMED');
+  assert(out.includes('⚡ EXECUTION READ — ON FIRE'), '[EURUSD ARMED] ON FIRE banner missing');
+  assert(out.includes('🔥 ON FIRE'), '[EURUSD ARMED] ON FIRE verdict missing from READ NOW');
+  // Live engine values must surface in the execution-read fields.
+  assert(/Entry \/ trigger: .*1\.07900/.test(out), '[EURUSD ARMED] entry price missing');
+  assert(/Invalidation \/ stop: .*1\.07550/.test(out), '[EURUSD ARMED] invalidation level missing');
+  assert(/Target \/ next draw: .*1\.08600/.test(out), '[EURUSD ARMED] target level missing');
+  assert(/R:R now: .*2\.00 : 1/.test(out), '[EURUSD ARMED] R:R 2:1 missing');
+  assert(/Action state: ARMED/.test(out), '[EURUSD ARMED] action state must read ARMED');
+  // ON FIRE renders must NOT carry the not-a-live-candidate copy.
+  assert(!/NOT A LIVE CANDIDATE/.test(out), '[EURUSD ARMED] must not show NOT A LIVE CANDIDATE');
+  return out;
+}
+
+function proofAmdNotALiveCandidate() {
+  const packet = equityPacket('AMD');
+  const resolution = { resolved_type: 'symbol', resolved_target: 'AMD', displayTarget: 'AMD' };
+  const ctx = buildCtx(packet, resolution); // Jane = MONITORING (default)
+  const out = formatMacroSearchFoh(ctx);
+  assertFohFormat(out, 'AMD NOT A LIVE CANDIDATE');
+  assert(out.includes('⚡ EXECUTION READ — NOT A LIVE CANDIDATE'), '[AMD non-fire] NOT A LIVE CANDIDATE banner missing');
+  assert(out.includes('🧊 NOT A LIVE CANDIDATE'), '[AMD non-fire] NOT A LIVE CANDIDATE verdict missing from READ NOW');
+  // Each execution-read field must carry an honest pending value.
+  assert(/Action state: NOT A LIVE CANDIDATE/.test(out), '[AMD non-fire] action state must read NOT A LIVE CANDIDATE');
+  assert(/Entry \/ trigger: no entry — not a live candidate/.test(out), '[AMD non-fire] entry must honest-pending');
+  assert(/Invalidation \/ stop: no invalidation level — not a live candidate/.test(out), '[AMD non-fire] stop must honest-pending');
+  assert(/Target \/ next draw: no target proposed — not a live candidate/.test(out), '[AMD non-fire] target must honest-pending');
+  assert(/Decision rule: no decision rule — not a live candidate/.test(out), '[AMD non-fire] decision rule must honest-pending');
+  return out;
+}
+
+// ============================================================
 // LIVE INTEGRATION (optional, --live flag)
 // ============================================================
 
@@ -409,17 +528,19 @@ async function runLiveIntegration() {
 // ============================================================
 
 const PROOFS = [
-  ['AMD macro',             proofAmdMacro],
-  ['NVDA macro',            proofNvdaMacro],
-  ['MU macro',              proofMuMacro],
-  ['EURUSD macro',          proofEurusdMacro],
-  ['USDJPY macro',          proofUsdjpyMacro],
-  ['DXY macro',             proofDxyMacro],
-  ['NFP impact',            proofNfpImpact],
-  ['CPI impact',            proofCpiImpact],
-  ['FOMC Minutes impact',   proofFomcMinutesImpact],
-  ["today's major events",  proofTodaysMajorEvents],
-  ['next 72 hours macro',   proofNext72HoursMacro],
+  ['AMD macro',                              proofAmdMacro],
+  ['NVDA macro',                             proofNvdaMacro],
+  ['MU macro',                               proofMuMacro],
+  ['EURUSD macro',                           proofEurusdMacro],
+  ['USDJPY macro',                           proofUsdjpyMacro],
+  ['DXY macro',                              proofDxyMacro],
+  ['NFP impact',                             proofNfpImpact],
+  ['CPI impact',                             proofCpiImpact],
+  ['FOMC Minutes impact',                    proofFomcMinutesImpact],
+  ["today's major events",                   proofTodaysMajorEvents],
+  ['next 72 hours macro',                    proofNext72HoursMacro],
+  ['EURUSD macro (Jane ARMED · ON FIRE)',    proofEurusdArmedOnFire],
+  ['AMD macro (Jane MONITORING · non-fire)', proofAmdNotALiveCandidate],
 ];
 
 async function main() {
@@ -463,4 +584,5 @@ module.exports = {
   proofEurusdMacro, proofUsdjpyMacro, proofDxyMacro,
   proofNfpImpact, proofCpiImpact, proofFomcMinutesImpact,
   proofTodaysMajorEvents, proofNext72HoursMacro,
+  proofEurusdArmedOnFire, proofAmdNotALiveCandidate,
 };

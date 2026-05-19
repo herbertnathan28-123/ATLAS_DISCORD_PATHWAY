@@ -482,6 +482,12 @@ async function runMacroSearch(query, opts) {
     cloneSummary,
     spideyStatus,
     janeFinalState: deriveJaneFinalState(janeOut),
+    janeOut,
+    spideyOut,
+    liveCtx,
+    nowMs: opts.now || Date.now(),
+    currentPrice: opts.currentPrice != null ? opts.currentPrice : (liveCtx && liveCtx.lastPrice) || null,
+    currentDeltaPct: opts.currentDeltaPct != null ? opts.currentDeltaPct : (liveCtx && liveCtx.deltaPct) || null,
     fohRendered,
     degradationReason: degradation.length ? degradation.join('; ') : 'none',
   };
