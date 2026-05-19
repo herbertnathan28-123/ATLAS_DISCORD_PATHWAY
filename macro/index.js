@@ -70,7 +70,7 @@ async function buildMacroV3(input) {
   const qa = contradictionCheck.check(text, {
     symbol:           input.symbol,
     assetClass:       struct.assetClass || inferClass(input.symbol),
-    blocked:          /STAND DOWN|TRADE INVALID|ENTRY NOT AVAILABLE|HOLD — NO ACTIVE TRADE|NO VALID BUY OR SELL TARGET/i.test(text),
+    blocked:          /ENTRY CONDITIONS NOT MET|TRADE INVALID|ENTRY NOT AVAILABLE|HOLD — NO ACTIVE TRADE|NO VALID BUY OR SELL TARGET/i.test(text),
     readiness:        struct.readiness != null ? struct.readiness : null,
     vol:              input.ctx && input.ctx.vix && input.ctx.vix.level,
     entryZone:        struct.entry,

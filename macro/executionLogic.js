@@ -12,67 +12,69 @@ function build(input) {
 
   const lines = ['## EXECUTION LOGIC — ' + (symbol || '')];
   lines.push('');
-  lines.push('| Condition | Action |');
-  lines.push('|---|---|');
+  // Strict IF / THEN rule list. Bold-label lines instead of a pipe table
+  // so the output stays readable on mobile Discord (pipe tables wrap badly
+  // on small screens and lose alignment).
+  const rule = (cond, action) => lines.push(`**IF** ${cond}\n  **THEN** ${action}`);
 
   // Buyer / Seller / Price confirmation rows (folded from TRIGGER MAP).
   const tf = (structure && structure.confirmTimeframe) || '15M';
   if (structure?.buyerConfirm || structure?.confirmHigh || structure?.entry) {
     const lvl = structure.buyerConfirm || structure.confirmHigh || structure.entry;
-    lines.push(`| Buyer confirmation: full ${tf} candle body closes above ${lvl} | THEN buyers have broken the latest short-term high; treat as buyer confirmation |`);
+    rule(`Buyer confirmation: full ${tf} candle body closes above ${lvl}`, 'buyers have broken the latest short-term high; treat as buyer confirmation');
   }
   if (structure?.sellerConfirm || structure?.confirmLow) {
     const lvl = structure.sellerConfirm || structure.confirmLow;
-    lines.push(`| Seller confirmation: full ${tf} candle body closes below ${lvl} | THEN sellers have broken the latest short-term low; treat as seller confirmation |`);
+    rule(`Seller confirmation: full ${tf} candle body closes below ${lvl}`, 'sellers have broken the latest short-term low; treat as seller confirmation');
   }
   if (structure?.priceConfirm) {
-    lines.push(`| Price confirmation: ${structure.priceConfirm} | THEN treat the directional read as confirmed by the next bar's hold |`);
+    rule(`Price confirmation: ${structure.priceConfirm}`, "treat the directional read as confirmed by the next bar's hold");
   }
   if (structure?.confirmedBuyerControl) {
-    lines.push(`| Confirmed buyer control: ${structure.confirmedBuyerControl} | THEN buyers are in clean control on the primary timeframe; bias entries up |`);
+    rule(`Confirmed buyer control: ${structure.confirmedBuyerControl}`, 'buyers are in clean control on the primary timeframe; bias entries up');
   }
   if (structure?.confirmedSellerControl) {
-    lines.push(`| Confirmed seller control: ${structure.confirmedSellerControl} | THEN sellers are in clean control on the primary timeframe; bias entries down |`);
+    rule(`Confirmed seller control: ${structure.confirmedSellerControl}`, 'sellers are in clean control on the primary timeframe; bias entries down');
   }
 
   // Confirmation row.
   if (structure?.trigger) {
-    lines.push(`| IF ${structure.trigger} prints on the primary timeframe | THEN take entry at ${structure.entry ?? 'the defined entry level'} |`);
+    rule(`${structure.trigger} prints on the primary timeframe`, `take entry at ${structure.entry ?? 'the defined entry level'}`);
   } else if (!structure?.buyerConfirm && !structure?.sellerConfirm) {
     // No buyer or seller control level has been published yet. The
     // copy must NOT reference a "listed level" because none exists.
     // Operator-facing per the locked wording standard.
-    lines.push(`| IF no buy or sell level is reliable enough to publish | THEN limit orders are not supported yet — ATLAS must first identify a reliable buyer-control level or seller-control level before an entry, exit, and stop-loss can be published. |`);
-    lines.push(`| Status now | No buyer or seller control level is currently reliable enough to publish. |`);
+    rule('no buy or sell level is reliable enough to publish', 'limit orders are not supported yet — ATLAS must first identify a reliable buyer-control level or seller-control level before an entry, exit, and stop-loss can be published.');
+    lines.push('**Status now** — No buyer or seller control level is currently reliable enough to publish.');
   }
 
   // Stop loss row
   if (structure?.stopLoss != null) {
-    lines.push(`| IF price closes through ${structure.stopLoss} on the primary timeframe | THEN exit at market — the read is invalidated |`);
+    rule(`price closes through ${structure.stopLoss} on the primary timeframe`, 'exit at market — the read is invalidated');
   } else {
-    lines.push(`| IF ${termLink('Stop Loss')} is not yet defined | THEN entry is not yet supported — the operational risk standard requires a defined ${termLink('Stop Loss')} before risk can be priced. |`);
+    rule(`${termLink('Stop Loss')} is not yet defined`, `entry is not yet supported — the operational risk standard requires a defined ${termLink('Stop Loss')} before risk can be priced.`);
   }
 
   // Targets row
   if (structure?.targets?.length) {
-    lines.push(`| IF price reaches ${structure.targets[0]} | THEN scale or partial-close per plan; trail to break-even on remainder |`);
-    if (structure.targets[1]) lines.push(`| IF price reaches ${structure.targets[1]} | THEN reduce to runner; trail with structural stop |`);
+    rule(`price reaches ${structure.targets[0]}`, 'scale or partial-close per plan; trail to break-even on remainder');
+    if (structure.targets[1]) rule(`price reaches ${structure.targets[1]}`, 'reduce to runner; trail with structural stop');
   }
 
   // Event override rows
   const intel = calendar?.intel;
   const blockMatch = intel && intel.match(/—\s*([\d.]+)h from now/);
   if (blockMatch && parseFloat(blockMatch[1]) <= 2) {
-    lines.push(`| IF inside the 2h pre-event window | THEN new positions are not supported inside the pre-event window; existing setups should be trailed or reduced. |`);
-    lines.push(`| IF inside the first 5 minutes after release | THEN trading is not supported inside the first 5 minutes after release — wait for primary-timeframe structure to reform before reassessing. |`);
+    rule('inside the 2h pre-event window', 'new positions are not supported inside the pre-event window; existing setups should be trailed or reduced.');
+    rule('inside the first 5 minutes after release', 'trading is not supported inside the first 5 minutes after release — wait for primary-timeframe structure to reform before reassessing.');
   }
 
   // Macro override rows
   if (ctx?.vix?.level === 'High' || ctx?.vix?.level === 'Extreme') {
-    lines.push(`| IF VIX regime is High / Extreme | THEN halve position size and tighten stops |`);
+    rule('Market Volatility (VIX) regime is High / Extreme', 'halve position size and tighten stops');
   }
   if (ctx?.dxy?.bias === 'Bullish' && (input.symbol || '').endsWith('USD')) {
-    lines.push(`| IF the USD bias is Bullish AND the pair quotes vs USD | THEN bias entries with the USD direction unless structure clearly disagrees |`);
+    rule('the USD bias is Bullish AND the pair quotes vs USD', 'bias entries with the USD direction unless structure clearly disagrees');
   }
 
   return lines.join('\n');

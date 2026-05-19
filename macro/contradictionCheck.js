@@ -20,8 +20,8 @@ function check(text, ctx) {
   const renderedSymbol = ctx && ctx.renderedSymbol;
   const fail = function (reason) { return { ok: false, reason: reason }; };
 
-  // 1. Trade Status available + Stand Down stated together (contradiction)
-  if (/Trade Status[^a-zA-Z]*AVAILABLE/i.test(t) && /STAND DOWN|TRADE INVALID|ENTRY NOT AVAILABLE/i.test(t)) return fail('status_available_and_stand_down');
+  // 1. Trade Status available + entry-conditions-not-met stated together (contradiction)
+  if (/Trade Status[^a-zA-Z]*AVAILABLE/i.test(t) && /ENTRY CONDITIONS NOT MET|TRADE INVALID|ENTRY NOT AVAILABLE/i.test(t)) return fail('status_available_and_entry_conditions_not_met');
   // 2. Market Readiness <= 3/10 + active entry stated
   if (readiness != null && readiness <= 3 && /ENTRY CONFIRMED|TRADE CONFIRMED|execution unlocked/i.test(t)) return fail('readiness_low_but_active_entry');
   // 3. Macro Alignment Strong + macro neutral with no explanation
@@ -44,8 +44,10 @@ function check(text, ctx) {
   if (placeholderSent) return fail('placeholder_chart_sent');
   // 12. Blank chart sent
   if (blankChartSent) return fail('blank_chart_sent');
-  // 13. "confirmation" used without defining confirmation
-  if (/\bconfirmation\b/i.test(t) && !/(BOS|CHoCH|candle close|body close|primary timeframe)/i.test(t)) return fail('confirmation_used_without_definition');
+  // 13. "confirmation" used without defining confirmation. After the macro
+  //     language scrub, BOS / CHoCH become [Structure Break] / [Trend Shift],
+  //     so both forms count as a defining token.
+  if (/\bconfirmation\b/i.test(t) && !/(BOS|CHoCH|\[Structure Break\]|\[Trend Shift\]|candle close|body close|primary timeframe)/i.test(t)) return fail('confirmation_used_without_definition');
   // 16. Requested symbol differs from rendered symbol
   if (requestedSymbol && renderedSymbol && requestedSymbol !== renderedSymbol) return fail('symbol_requested_vs_rendered_mismatch');
   // 17. Equity symbol receives FX-scale price levels
