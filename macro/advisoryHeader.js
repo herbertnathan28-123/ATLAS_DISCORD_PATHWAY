@@ -146,7 +146,7 @@ function buildImproveWeaken({ jane, corey, htf, ltf, incoregoBlock, tradeProbabi
   } else if (htfBias === ltfBias && htfBias !== 'Neutral') {
     improves.push(`${htfBias.toLowerCase()} [Structure Break] on 15M / 30M with imbalance retained on the impulse`);
   }
-  if (incoregoBlock?.coreyEffectOnJaneProbability === 'weakens') improves.push('Macro pressure clears (DXY / VIX / yields no longer contradicting)');
+  if (incoregoBlock?.coreyEffectOnJaneProbability === 'weakens') improves.push('Macro pressure clears (US Dollar Strength (DXY) / Market Volatility (VIX) / yields no longer contradicting)');
   if (incoregoBlock?.activeCatalystWindow && /no high-impact|no active/i.test(incoregoBlock.activeCatalystWindow)) {
     // No catalyst is a positive — leave as a negative absence.
   } else if (incoregoBlock?.activeCatalystWindow) {
@@ -155,8 +155,8 @@ function buildImproveWeaken({ jane, corey, htf, ltf, incoregoBlock, tradeProbabi
   if (tradeProbability != null && tradeProbability < 4) improves.push('Trade Probability lifts from a clean 15M/30M body close inside the watch level + retained zone');
 
   // Weakens / cancels
-  if (htfBias === 'Neutral' || ltfBias === 'Neutral') weakens.push('Structure drifts inside the range without imbalance retained');
-  if (incoregoBlock?.coreyEffectOnJaneProbability === 'supports') weakens.push('Macro flips against the bias (DXY / VIX / yields rotate the other way)');
+  if (htfBias === 'Neutral' || ltfBias === 'Neutral') weakens.push('Structure drifts inside the current price range without imbalance retained');
+  if (incoregoBlock?.coreyEffectOnJaneProbability === 'supports') weakens.push('Macro flips against the bias (US Dollar Strength (DXY) / Market Volatility (VIX) / yields rotate the other way)');
   weakens.push('15M body close back through the trigger level inside two candles → invalidates the watch');
   if (jane?.cancellation && typeof jane.cancellation === 'string') weakens.unshift(remapAdvisoryWording(jane.cancellation));
   return { improves, weakens };

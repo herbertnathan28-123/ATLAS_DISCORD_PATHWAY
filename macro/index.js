@@ -64,13 +64,13 @@ async function buildMacroV3(input) {
 
   // Spec Part 15 — contradiction checker on the assembled string. The
   // "blocked" detection here uses presentation-layer phrases that survive
-  // the language scrub (STAND DOWN / NO ACTIVE TRADE / ENTRY NOT
-  // AVAILABLE / TRADE INVALID).
+  // the language scrub (ENTRY CONDITIONS NOT MET / NO ACTIVE TRADE / ENTRY
+  // NOT AVAILABLE / TRADE INVALID).
   const struct = input.structure || {};
   const qa = contradictionCheck.check(text, {
     symbol:           input.symbol,
     assetClass:       struct.assetClass || inferClass(input.symbol),
-    blocked:          /STAND DOWN|TRADE INVALID|ENTRY NOT AVAILABLE|HOLD — NO ACTIVE TRADE|NO VALID BUY OR SELL TARGET/i.test(text),
+    blocked:          /ENTRY CONDITIONS NOT MET|TRADE INVALID|ENTRY NOT AVAILABLE|HOLD — NO ACTIVE TRADE|NO VALID BUY OR SELL TARGET/i.test(text),
     readiness:        struct.readiness != null ? struct.readiness : null,
     vol:              input.ctx && input.ctx.vix && input.ctx.vix.level,
     entryZone:        struct.entry,

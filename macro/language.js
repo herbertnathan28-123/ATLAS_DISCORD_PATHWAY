@@ -32,6 +32,11 @@ const UNIVERSAL_BAN = [
   /\bmatches the macro direction\s*\(Neutral\)/gi,
   /\bAbstain \(0%\)/gi,
   // Newly locked banned terms (May 2026 wording standard).
+  /\bstand\s+aside\b/gi,
+  /\bstand\s+down\b/gi,
+  /\bsideways\b/gi,
+  /\bNO\s+new\s+entries\b/gi,
+  /\bNo\s+entry\s+authorised\b/gi,
   /\btrigger\b/gi,                        // use "confirmation" instead
   /\bauthoris(?:ed|e)\b/gi,
   /\bauthoriz(?:ed|e)\b/gi,
@@ -112,6 +117,18 @@ const TRANSLATE = [
   [/\bbroken resistance\b/gi, '[Structure Break] confirmation level'],
   [/\bhold above broken level\b/gi, 'hold above the confirmed structure point'],
   [/\bAbstain \(0%\)/gi, 'No active read'],
+  [/\bstand\s+aside\b/gi, 'entry conditions not met — monitor for confirmation'],
+  [/\bstand\s+down\b/gi, 'entry conditions not met — monitor for confirmation'],
+  [/\bsideways\b/gi, 'inside the current price band'],
+  [/\bNO\s+new\s+entries\b/gi, 'Entry not probable for this validity window'],
+  [/\bNo\s+entry\s+authorised\b/gi, 'Entry not probable for this validity window'],
+  [/\bUUP proxy quote\s+(\$[0-9]+(?:\.[0-9]+)?)/gi, 'US Dollar Strength (DXY) — tracked via UUP ETF — $1'],
+  [/\bVXX proxy\s+(\$[0-9]+(?:\.[0-9]+)?)/gi, 'Market Volatility (VIX) — tracked via VXX ETF — $1'],
+  [/\bDXY\s*\/\s*VIX\b/g, 'US Dollar Strength (DXY) / Market Volatility (VIX)'],
+  [/\bDXY\s+and\s+VIX\b/gi, 'US Dollar Strength (DXY) and Market Volatility (VIX)'],
+  [/(?<!\()DXY\b/g, 'US Dollar Strength (DXY)'],
+  [/(?<!\()VIX\b/g, 'Market Volatility (VIX)'],
+  [/\bpp\b/g, 'percentage points'],
   // Hard-coded retranslation of legacy wording so old packets, log lines,
   // and seed text still produce locked-spec output even before the
   // ban scan runs.

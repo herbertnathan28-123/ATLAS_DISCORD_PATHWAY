@@ -50,22 +50,23 @@ function build(input) {
     if (rows.length >= 5) break;
   }
 
-  lines.push(`| When (UTC) | Currency | Event | Impact | Forecast | Previous |`);
-  lines.push(`|---|---|---|---|---|---|`);
   for (const r of rows) {
     if (r.kind === 'single') {
       const e = r.item;
       const t = new Date(e.scheduled_time).toISOString().replace('T', ' ').slice(0, 16);
       const f = e.expected != null ? e.expected : (e.forecast != null ? e.forecast : '—');
       const p = e.previous != null ? e.previous : '—';
-      lines.push(`| ${t} | ${e.currency || '—'} | ${escapePipe(e.title || '—')} | ${e.impact || '—'} | ${escapePipe(String(f))} | ${escapePipe(String(p))} |`);
+      lines.push(`**${t} UTC · ${e.currency || '—'} · ${e.impact || '—'}:** ${e.title || '—'}`);
+      lines.push(`Forecast: ${String(f)} · Previous: ${String(p)}`);
     } else {
       // Inflation cluster — one row, comma-joined event names + earliest time.
       const earliest = r.items.reduce((m, e) => e.scheduled_time < m ? e.scheduled_time : m, r.items[0].scheduled_time);
       const t = new Date(earliest).toISOString().replace('T', ' ').slice(0, 16);
-      const titles = r.items.map(e => escapePipe(e.title || '—')).join(', ');
+      const titles = r.items.map(e => e.title || '—').join(', ');
       const impacts = [...new Set(r.items.map(e => e.impact).filter(Boolean))].join(' / ') || '—';
-      lines.push(`| ${t}+ | ${r.currency || '—'} | ${r.items.length} ${escapePipe(r.currency || '')} inflation prints (${titles}) | ${impacts} | grouped | grouped |`);
+      lines.push(`**${t}+ UTC · ${r.currency || '—'} · ${impacts}:** ${r.items.length} ${r.currency || ''} inflation prints`);
+      lines.push(`Events: ${titles}`);
+      lines.push('Forecast / Previous: grouped');
     }
   }
   lines.push('');
@@ -77,11 +78,11 @@ function build(input) {
       lines.push(`**${r.currency} inflation cluster — ${r.items.length} prints inside the active window.**`);
       lines.push('Why it matters: hot or soft surprises reprice the front end of the curve and move the ' + (r.currency || 'currency') + ' against high-beta majors.');
       lines.push('Likely impact: hot prints support ' + (r.currency || 'currency') + ' and pressure non-' + (r.currency || 'currency') + ' majors / metals; soft prints do the opposite.');
-      lines.push('Action rule: NO new entries inside ±2h of any print in this cluster. After the LAST print, wait for fresh primary-timeframe structure to reform before re-engaging.');
+      lines.push('Action rule: Entry not probable for this validity window during the ±2h window around any print in this cluster. After the LAST print, wait for fresh primary-timeframe structure to reform before re-engaging.');
       lines.push('');
     } else {
       const e = r.item;
-      lines.push(`**${e.title} (${e.currency || '—'})** — ${e.impact || 'standard'} impact. Action: NO new entries inside ±2h of release; resume after fresh primary-timeframe structure prints post-release.`);
+      lines.push(`**${e.title} (${e.currency || '—'})** — ${e.impact || 'standard'} impact. Action: Entry not probable for this validity window during the ±2h release window; resume after fresh primary-timeframe structure prints post-release.`);
       lines.push('');
     }
   }
@@ -92,7 +93,5 @@ function build(input) {
   }
   return lines.join('\n');
 }
-
-function escapePipe(s) { return String(s).replace(/\|/g, '\\|'); }
 
 module.exports = { build };
