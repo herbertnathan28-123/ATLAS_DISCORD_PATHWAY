@@ -50,7 +50,7 @@ function expectedBehaviour(input) {
   if (Math.abs(corey.score) < 0.10 && Math.abs(spidey.score) < 0.10) return 'Range with possible drift — neither buyers nor sellers in control.';
   if (corey.score > 0.15 && spidey.score > 0.15) return 'Continuation higher into nearest liquidity cluster, conditional on the bullish trigger firing.';
   if (corey.score < -0.15 && spidey.score < -0.15) return 'Continuation lower into nearest demand zone, conditional on the bearish trigger firing.';
-  if (Math.sign(corey.score) !== Math.sign(spidey.score)) return 'Chop — macro and structure disagree. Absorb remaining movement sideways until one side resolves.';
+  if (Math.sign(corey.score) !== Math.sign(spidey.score)) return 'Chop — macro and structure disagree. Absorb remaining movement inside the current price band until one side resolves.';
   return 'Conditions building — directional path not yet established.';
 }
 
@@ -98,14 +98,14 @@ function absorption(input, structure) {
   if (!structure) return 'no reliable directional assignment — pass structure data to populate this field.';
   if (structure.flow && /toward/i.test(structure.flow)) return 'upward into resistance/liquidity cluster — ' + structure.flow + '.';
   if (structure.flow && /away/i.test(structure.flow))   return 'downward into support/demand — ' + structure.flow + '.';
-  if (Math.abs((structure.score || 0)) < 0.10)          return 'sideways inside range — no clean directional pressure.';
+  if (Math.abs((structure.score || 0)) < 0.10)          return 'inside the current price range — no clean directional pressure.';
   return 'held back until catalyst — direction biased but not yet committed.';
 }
 
 function waitingFor(input, structure) {
   if (!structure) return 'A defined trigger condition with timeframe + level + close requirement.';
   if (structure.trigger) return structure.trigger;
-  return 'A defined trigger condition with timeframe + level + close requirement before any entry can be authorised.';
+  return 'A defined confirmation condition with timeframe + level + close requirement before entry can become probable.';
 }
 
 function highImpactInWindow(calendar, hours) {

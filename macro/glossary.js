@@ -11,13 +11,13 @@
 
 const TERMS = {
   BOS: '[Structure Break] — price closes beyond a prior swing high/low, marking a structural shift.',
-  CHoCH: '[Initial-direction reversal] — first counter-trend break that signals momentum has flipped.',
+  CHoCH: '[Trend Shift] — first counter-trend break that signals momentum has flipped.',
   liquidity_sweep: 'Liquidity Sweep — wick takes out a known cluster of stops then immediately reverses.',
   imbalance: 'Imbalance / FVG — a candle range with no overlap from neighbours; price often returns to fill it.',
   supply: 'Supply — origin candle of a strong down move; sellers expected on retest.',
   demand: 'Demand — origin candle of a strong up move; buyers expected on retest.',
   execution_confidence: 'Execution Confidence — the level of confidence required to take the trade now vs wait.',
-  market_driver: 'Market Driver — the upstream variable (DXY / VIX / yields / event) currently moving the market.',
+  market_driver: 'Market Driver — the upstream variable (US Dollar Strength (DXY) / Market Volatility (VIX) / yields / event) currently moving the market.',
   event_risk: 'Event Risk — scheduled or unscheduled high-impact catalyst that can override structure.',
   validity_window: 'Validity Window — the time/price range over which the current plan remains in force.',
   flow: 'Flow — directional pressure (toward / away from a level) inferred from order-flow proxies.',

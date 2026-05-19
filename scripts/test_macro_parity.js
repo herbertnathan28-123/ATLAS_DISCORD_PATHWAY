@@ -20,7 +20,7 @@ test('BOS internal tag surfaces only as Structure Break', () => {
 });
 
 test('CHoCH internal tag surfaces as plain-English reversal wording', () => {
-  assert.match(glossary.lookup('CHoCH'), /^\[Initial-direction reversal\]/);
+  assert.match(glossary.lookup('CHoCH'), /^\[Trend Shift\]/);
   assert.doesNotMatch(glossary.lookup('CHoCH'), /^CHoCH\b/);
 });
 

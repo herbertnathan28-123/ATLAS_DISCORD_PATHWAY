@@ -1766,18 +1766,17 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane, re
         historicalStatus = 'no-match';
       }
     } catch (_) { historicalStatus = 'unavailable'; }
-    // Corey Clone wired live (operator brief 2026-05-17 post-deploy).
-    // Status reads via the engine validator when an output is available;
-    // otherwise reports the truthful runtime state. The MI scheduler
-    // invokes Corey Clone per-tick — its status surfaces in the FOH
-    // packet's cloneStatus field.
-    let coreyCloneStatus = 'active: engine wired (per-tick invocation via MI scheduler)';
+    // Secondary macro model is not yet an implemented input to Jane on this
+    // route, so the public status must stay pending unless a future packet
+    // explicitly proves that it fed the final assessment.
+    const SECONDARY_MODEL_PENDING_STATUS = 'secondary macro model — pending';
+    let coreyCloneStatus = SECONDARY_MODEL_PENDING_STATUS;
     try {
       const cloneOut = opts && opts.coreyClone;
-      if (cloneOut) {
+      if (cloneOut && cloneOut.feedsJane === true) {
         const { validateCoreyClone } = require('./engine/validate/validateEngineIntelligence');
         const v = validateCoreyClone(cloneOut.packet || cloneOut);
-        coreyCloneStatus = 'active: ' + v.status.toLowerCase() + (v.validAnalogues != null ? ` (${v.validAnalogues} audit-grade analogue${v.validAnalogues === 1 ? '' : 's'})` : '');
+        coreyCloneStatus = 'secondary macro model — active: ' + v.status.toLowerCase() + (v.validAnalogues != null ? ` (${v.validAnalogues} audit-grade analogue${v.validAnalogues === 1 ? '' : 's'})` : '');
       }
     } catch (_) { /* leave default */ }
 
@@ -1962,23 +1961,6 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane, re
                  : 'no active trade signal';
     }
 
-    // Public-facing source labels. Internal engine names (corey, coreyClone,
-    // spidey, jane) are replaced with neutral keys per the dashboard surface
-    // separation lane (2026-05-12). The dashboard frontend should consume
-    // the neutral keys; the legacy keys are NOT included so a frontend
-    // regression can't silently leak engine names.
-    const sources = {
-      marketData:          marketDataAudit,
-      chartData:           `${chartDataStatus}: ${chartDataDetail}`,
-      quote:               quoteStatus,
-      ohlc:                `${ohlcStatus}: ${ohlcAuditLine}`,
-      macroContext:        coreyStatus,
-      secondaryMacroModel: coreyCloneStatus,
-      marketStructure:     spideyStatus,
-      finalAssessment:     janeStatus,
-      historicalReference: historicalStatus
-    };
-
     // sourceMissing is the same object as sourceMissingEarly (computed before
     // the resolver so the structured no-trade builders share the same view).
     const sourceMissing = sourceMissingEarly;
@@ -2026,6 +2008,23 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane, re
       `quote=${quoteStatus}`,
       `analysisOHLC=${ohlcAuditLine}`,
     ].join(' · ');
+
+    // Public-facing source labels. Internal engine names (corey, coreyClone,
+    // spidey, jane) are replaced with neutral keys per the dashboard surface
+    // separation lane (2026-05-12). The dashboard frontend should consume
+    // the neutral keys; the legacy keys are NOT included so a frontend
+    // regression can't silently leak engine names.
+    const sources = {
+      marketData:          marketDataAudit,
+      chartData:           `${chartDataStatus}: ${chartDataDetail}`,
+      quote:               quoteStatus,
+      ohlc:                `${ohlcStatus}: ${ohlcAuditLine}`,
+      macroContext:        coreyStatus,
+      secondaryMacroModel: coreyCloneStatus,
+      marketStructure:     spideyStatus,
+      finalAssessment:     janeStatus,
+      historicalReference: historicalStatus
+    };
 
     // Apply central advisory-wording remap to the action state and trade
     // status so the packet can never carry banned wording downstream.
@@ -2596,9 +2595,9 @@ function logDataSource(symbol, opts = {}) {
     ohlcLine = `ohlc=eligible:${eligible}`;
   }
 
-  // Corey / clone tags
+  // Macro / secondary model tags
   const coreyTag      = opts.corey      || 'eligible';
-  const coreyCloneTag = opts.coreyClone || 'active: engine wired (per-tick invocation via MI scheduler)';
+  const coreyCloneTag = opts.coreyClone || 'secondary macro model — pending';
   const janeTag       = opts.jane       || 'pending';
   spideyTag           = spideyTag       || 'pending';
 

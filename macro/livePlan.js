@@ -53,7 +53,7 @@ function build(input) {
   const probs = probabilityModel(corey, spidey);
   lines.push('**Most Likely Behaviour:**');
   lines.push('- Continuation — ' + probs.continuation + '% — price attempts to keep following the current dominant direction.');
-  lines.push('- Range — ' + probs.range + '% — price moves sideways between nearby liquidity.');
+  lines.push('- Range — ' + probs.range + '% — price holds inside the current liquidity band without establishing a directional move.');
   lines.push('- Reversal — ' + probs.reversal + '% — price rejects the current direction and moves the other way.');
   if (probs.note) { lines.push(''); lines.push('*' + probs.note + '*'); }
   lines.push('');
@@ -173,7 +173,7 @@ function nextStep(action, evOverride) {
   if (action.state.startsWith('ARMED')) return 'monitor for the buyer or seller control level to publish; do not pre-empt.';
   if (action.state.startsWith('CONFIRMATION APPROACHING')) return 'prepare order; verify event risk and spread before submission.';
   if (action.state.startsWith('CONDITIONS BUILDING')) return 'wait for one more full candle body close beyond the primary level on the primary timeframe.';
-  return 'stand aside until ATLAS publishes a reliable buyer or seller control level.';
+  return 'entry conditions not met — monitor for confirmation until ATLAS publishes a reliable buyer or seller control level.';
 }
 function formatLevel(p, ext) { return ext != null ? p + ' (extended ' + ext + ')' : String(p); }
 function pct(v) { const n = (v || 0); return (n >= 0 ? '+' : '') + Math.round(n * 100) + '%'; }
@@ -181,8 +181,8 @@ function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
 
 // Spec Part 4 helpers — Trade Status as a decision guide. Operator-facing.
 function plainEnglish(action) {
-  if (action.state.indexOf('TRADE INVALID') >= 0)         return 'The trade idea is invalid right now. Stand aside.';
-  if (action.state.indexOf('STAND DOWN') >= 0)            return 'Stand down. Conditions actively contradict any directional plan.';
+  if (action.state.indexOf('TRADE INVALID') >= 0)         return 'The trade idea is invalid right now. Entry conditions not met — monitor for confirmation.';
+  if (action.state.indexOf('ENTRY CONDITIONS NOT MET') >= 0) return 'Entry conditions not met — monitor for confirmation. Conditions actively contradict a directional plan.';
   if (action.state.indexOf('ENTRY NOT AVAILABLE') >= 0)   return 'Entry is not available. Either an event window is active, or the structure prerequisites are not in place.';
   if (action.state.indexOf('HOLD — NO ACTIVE') >= 0)      return 'Hold. The setup has not matured. Conditions are still building.';
   if (action.state.indexOf('CONDITIONS BUILDING') >= 0)   return 'Conditions are forming but not complete. Keep eyes on the primary timeframe.';
@@ -233,7 +233,7 @@ function buyerSellerControl(corey, spidey) {
   return 'Mixed — buyers and sellers contesting';
 }
 function targetStatus(action, hasEntry) {
-  if (/STAND DOWN|TRADE INVALID/.test(action.state))     return 'No valid target identified';
+  if (/ENTRY CONDITIONS NOT MET|TRADE INVALID/.test(action.state)) return 'No valid target identified';
   if (/HOLD — NO ACTIVE TRADE/.test(action.state))       return 'No valid target identified yet';
   if (/CONDITIONS BUILDING/.test(action.state))          return 'Building';
   if (/CONFIRMATION APPROACHING/.test(action.state))     return 'Confirmation close';
@@ -243,8 +243,8 @@ function targetStatus(action, hasEntry) {
   return hasEntry ? 'Active read' : 'No valid target identified yet';
 }
 function executionConfidence(action, jane) {
-  if (/STAND DOWN|TRADE INVALID|HOLD — NO ACTIVE/.test(action.state))
-    return 'Insufficient — stand aside until conditions stack.';
+  if (/ENTRY CONDITIONS NOT MET|TRADE INVALID|HOLD — NO ACTIVE/.test(action.state))
+    return 'Insufficient — entry conditions not met; monitor for confirmation through a full candle close or [Structure Break] before conditions stack.';
   const a = Math.abs(jane.composite);
   if (a >= 0.55) return 'High — institutional-grade';
   if (a >= 0.35) return 'Medium — actionable with discipline';

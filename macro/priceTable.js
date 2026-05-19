@@ -27,25 +27,21 @@ function build(input) {
     lines.push('');
   }
 
-  lines.push('| Row | Level | Note |');
-  lines.push('|---|---|---|');
-  lines.push(row('ENTRY POINT',           entry,       entry == null ? 'Not identified yet' : 'primary entry — pull the trigger here'));
+  lines.push(row('ENTRY POINT',           entry,       entry == null ? 'Not identified yet' : 'primary entry level — act only after confirmation'));
   lines.push(row('ENTRY EXTENDED',        entryExt,    entryExt == null ? (entry == null ? 'Not identified yet' : 'wider primary-zone fill if price retraces deeper') : 'wider entry zone for deeper retraces'));
   lines.push(row('EXIT POINT',            target,      target == null ? 'Not identified yet' : 'where the primary plan books the read'));
   lines.push(row('TREND',                 trend,       trend == null ? 'No directional read yet' : 'current trend frame on the primary timeframe'));
   if (entry == null) {
-    lines.push('| **NEUTRAL MARKET — NO BUY OR SELL TARGET** | Buyers and sellers balanced | ATLAS must publish a reliable buyer or seller control level before any level can be treated as a buy or sell. |');
+    lines.push(row('NEUTRAL MARKET — NO BUY OR SELL TARGET', 'Buyers and sellers balanced', 'ATLAS must publish a reliable buyer or seller control level before any level can be treated as a buy or sell.'));
   }
   lines.push(row('SET STOP LOSS',         stopLoss,    stopLoss == null ? 'Not identified yet' : 'primary protection — closes here on the primary TF invalidate the read'));
   lines.push(row('EXTENDED STOP LOSS',    stopLossExt, stopLossExt == null ? (stopLoss == null ? 'Not identified yet' : 'wider alternative protection for higher-noise sessions') : 'wider alternative protection'));
-  lines.push('| **SELECT ONE STOP LOSS ONLY** | — | use ONE stop, not both. Holding both at once is conflicting risk and will be rejected. |');
+  lines.push(row('SELECT ONE STOP LOSS ONLY', '—', 'use ONE stop, not both. Holding both at once is conflicting risk and will be rejected.'));
   lines.push('');
 
   // Reference rows (HIGH / CURRENT / LOW for orientation; NEVER labelled
   // "ENTRY" — entry only appears in the rows above).
   lines.push('### Reference levels');
-  lines.push('| Level | Value |');
-  lines.push('|---|---|');
   lines.push(refRow('HIGH',     high));
   lines.push(refRow('CURRENT',  lastClose));
   lines.push(refRow('LOW',      low));
@@ -67,11 +63,11 @@ function build(input) {
 
 function row(name, value, note) {
   const v = value == null ? 'Not identified yet' : (Number.isFinite(value) ? Number(value).toString() : value);
-  return `| **${name}** | ${v} | ${note} |`;
+  return `**${name}:** ${v} — ${note}`;
 }
 function refRow(name, value) {
   const v = value == null ? '—' : (Number.isFinite(value) ? Number(value).toString() : value);
-  return `| **${name}** | ${v} |`;
+  return `**${name}:** ${v}`;
 }
 
 module.exports = { build };

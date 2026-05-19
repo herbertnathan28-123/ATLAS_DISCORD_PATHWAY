@@ -6,7 +6,7 @@
 //                  retail, PMIs, rates, yields
 //   RE — Regional: session / regional pressure, correlated markets, regional
 //                  risk tone
-//   GO — Global:   DXY, VIX, yields, commodities, risk-on/off, geopolitical
+//   GO — Global:   US Dollar Strength (DXY), Market Volatility (VIX), yields, commodities, risk-on/off, geopolitical
 //                  / global catalyst pressure
 //
 // Builds a structured Corey contribution from `corey` (output of runCorey).
@@ -60,8 +60,8 @@ function buildInternal(symbol, assetClass, corey) {
       const equity = live?.equityIndex?.level;
       const bits = [];
       if (Number.isFinite(equity)) bits.push(`Index proxy level ${fmtNumber(equity, 2)}`);
-      if (Number.isFinite(vix)) bits.push(`VIX ${fmtNumber(vix, 2)} (vol regime input)`);
-      if (Number.isFinite(dxy)) bits.push(`DXY ${fmtNumber(dxy, 2)} cross-pressure`);
+      if (Number.isFinite(vix)) bits.push(`Market Volatility (VIX) ${fmtNumber(vix, 2)} (vol regime input)`);
+      if (Number.isFinite(dxy)) bits.push(`US Dollar Strength (DXY) ${fmtNumber(dxy, 2)} cross-pressure`);
       if (sector) bits.push(`Sector lens ${sector}${sectorScore != null ? ' score ' + fmtNumber(sectorScore, 2) : ''}`);
       return bits.length
         ? `Index ${symbol}: ${bits.join(' · ')}.`
@@ -128,19 +128,19 @@ function buildRegional(symbol, assetClass, corey) {
   return `Regional layer: ${bits.join(' · ')}.`;
 }
 
-// ── GLOBAL — DXY, VIX, yields, risk tone, geopolitical pressure ────────
+// ── GLOBAL — US Dollar Strength (DXY), Market Volatility (VIX), yields, risk tone, geopolitical pressure ────────
 function buildGlobal(symbol, assetClass, corey) {
   const g = corey?.internalMacro?.global || corey?.global || null;
   const live = corey?.live || g?.live || {};
   const bits = [];
-  if (g?.dxyBias)   bits.push(`DXY bias ${g.dxyBias}${Number.isFinite(g.dxyScore) ? ' (' + fmtNumber(g.dxyScore, 2) + ')' : ''}`);
-  else if (Number.isFinite(live?.dxy?.price)) bits.push(`DXY ${fmtNumber(live.dxy.price, 2)}`);
+  if (g?.dxyBias)   bits.push(`US Dollar Strength (DXY) bias ${g.dxyBias}${Number.isFinite(g.dxyScore) ? ' (' + fmtNumber(g.dxyScore, 2) + ')' : ''}`);
+  else if (Number.isFinite(live?.dxy?.price)) bits.push(`US Dollar Strength (DXY) ${fmtNumber(live.dxy.price, 2)}`);
   if (g?.riskEnv)   bits.push(`Risk tone ${g.riskEnv}${Number.isFinite(g.riskScore) ? ' (' + fmtNumber(g.riskScore, 2) + ')' : ''}`);
-  if (Number.isFinite(live?.vix?.price)) bits.push(`VIX ${fmtNumber(live.vix.price, 2)}`);
+  if (Number.isFinite(live?.vix?.price)) bits.push(`Market Volatility (VIX) ${fmtNumber(live.vix.price, 2)}`);
   if (Number.isFinite(live?.yield?.spread)) bits.push(`Yield curve ${fmtNumber(live.yield.spread, 2)}bp`);
   return bits.length
     ? `Global layer: ${bits.join(' · ')}.`
-    : `Global layer: DXY · VIX · yields · risk tone not detailed in current Corey run.`;
+    : `Global layer: US Dollar Strength (DXY) · Market Volatility (VIX) · yields · risk tone not detailed in current Corey run.`;
 }
 
 function deriveCatalystWindow(corey) {
@@ -196,19 +196,19 @@ function buildCloneBlock(coreyClone) {
   if (!coreyClone) {
     return {
       status: 'UNAVAILABLE',
-      sourceTag: 'unavailable: not implemented',
+      sourceTag: 'secondary macro model — pending',
       contribution: null,
-      note: 'Corey Clone unavailable — not implemented in current build. No second-pass validation has run. No contribution implied — do not infer agreement or disagreement from absence.'
+      note: 'Secondary macro model — pending. No second-pass validation has run, and no contribution is implied.'
     };
   }
   const c = coreyClone;
-  const sourceTag = String(c.source || c.sourceTag || c.status || 'unavailable: not implemented');
+  const sourceTag = String(c.source || c.sourceTag || c.status || 'secondary macro model — pending');
   if (/not[\s_-]?implemented|unavailable/i.test(sourceTag)) {
     return {
       status: 'UNAVAILABLE',
-      sourceTag,
+      sourceTag: 'secondary macro model — pending',
       contribution: null,
-      note: 'Corey Clone unavailable. No clone contribution is implied.'
+      note: 'Secondary macro model — pending. No contribution is implied.'
     };
   }
   const hasContribution = c.contribution && (
@@ -316,7 +316,7 @@ function renderIncoregoForDiscord({ symbol, incoregoBlock, jane, tradeProbabilit
     if (c.analogue)        lines.push(`Historical analogue: ${c.analogue}`);
     if (c.sourceConfidence)lines.push(`Source confidence: ${c.sourceConfidence}`);
   } else {
-    lines.push(incoregoBlock.coreyClone.note || 'Corey Clone unavailable / not implemented — no contribution implied.');
+    lines.push(incoregoBlock.coreyClone.note || 'Secondary macro model — pending. No contribution implied.');
   }
   return lines.join('\n');
 }

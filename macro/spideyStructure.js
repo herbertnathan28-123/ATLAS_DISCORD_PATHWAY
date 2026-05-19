@@ -75,7 +75,7 @@ function buildSpideyStructure({ symbol, htf = {}, ltf = {}, coverage = null }) {
     return sl ? { price: sl.level, time: sl.time, tf: refHtf.tf } : null;
   })();
 
-  const bodyCloseRequirement = `Trigger requires a body close beyond the level on ${refHtf?.tf || '15M/1H'} — wicks alone are not enough.`;
+  const bodyCloseRequirement = `Confirmation requires a body close beyond the level on ${refHtf?.tf || '15M/1H'} — wicks alone are not enough.`;
   const wickNotEnough = `A wick that pierces the level then closes back inside the prior range is a liquidity sweep, not a break. Wait for a body close beyond the level with the impulse imbalance retained.`;
 
   // Pullback / retest reference — last opposing swing on the LTF side.
