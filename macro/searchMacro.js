@@ -22,6 +22,7 @@ const { buildMarketIntelPacket } = require('../foh/buildMarketIntelPacket');
 const miViewModel = require('../foh/adapters/marketIntelViewModel');
 const miShell = require('../renderers/foh/marketIntelV3Shell');
 const { validateFohOutput } = require('../foh/validate/validateFohOutput');
+const { formatMacroSearchFoh } = require('./formatMacroSearchFoh');
 
 let coreyLive = null;
 try { coreyLive = require('../corey_live_data'); } catch (_e) { coreyLive = null; }
@@ -147,7 +148,7 @@ function fallbackAffectedMarketsForEvent(resolution) {
 function fallbackAffectedMarketsForSymbol(symbol) {
   const s = String(symbol || '').toUpperCase();
   if (isEquitySymbol(s)) {
-    const peers = SEMI_SYMBOLS.has(s) ? ['NVDA','MU','ASML'] : ['AAPL','MSFT','AMZN'];
+    const peers = SEMI_SYMBOLS.has(s) ? ['AMD','NVDA','MU','ASML'] : ['AAPL','MSFT','AMZN'];
     return Array.from(new Set([s, 'NAS100', 'US500', 'DXY', 'VIX'].concat(peers.filter(p => p !== s)))).slice(0, 9);
   }
   if (isIndexSymbol(s)) return [s, 'DXY', 'VIX', 'XAUUSD', 'USDJPY', 'NAS100', 'US500'].filter((v, i, a) => a.indexOf(v) === i);
@@ -315,47 +316,6 @@ function eventRowsForResponse(packet, resolution, focus) {
   return rows.slice(0, 5);
 }
 
-function displayInstrument(symbol) {
-  const s = String(symbol || '');
-  if (s === 'DXY') return 'US Dollar Strength (DXY)';
-  if (s === 'VIX') return 'Market Volatility (VIX)';
-  return s;
-}
-
-function userFacingText(text) {
-  return String(text || '')
-    .replace(/\bDXY\s*\/\s*VIX\b/g, 'US Dollar Strength (DXY) / Market Volatility (VIX)')
-    .replace(/\bDXY\s+and\s+VIX\b/gi, 'US Dollar Strength (DXY) and Market Volatility (VIX)')
-    .replace(/\bDXY\s*,\s*yields\s*,\s*VIX\b/gi, 'US Dollar Strength (DXY), yields, Market Volatility (VIX)')
-    .replace(/(?<!\()DXY\b/g, 'US Dollar Strength (DXY)')
-    .replace(/(?<!\()VIX\b/g, 'Market Volatility (VIX)')
-    .replace(/US Dollar Strength \(DXY\)\s*\/\s*yields\s*\/\s*Market Volatility \(VIX\)/g, 'US Dollar Strength (DXY), yields, and Market Volatility (VIX)');
-}
-
-function riskDiscs(score) {
-  const n = Math.max(1, Math.min(5, Math.round(Number(score) || 1)));
-  const active = n >= 5 ? '🔴' : n >= 4 ? '🟠' : n >= 3 ? '🟡' : '🔵';
-  return active.repeat(n) + '⚫'.repeat(Math.max(0, 5 - n));
-}
-
-function eventLine(e) {
-  const markets = Array.isArray(e && e.affectedMarkets) ? e.affectedMarkets
-    : Array.isArray(e && e.affectedInstruments) ? e.affectedInstruments
-    : [];
-  const affected = markets.length
-    ? markets.slice(0, 4).map(displayInstrument).join(', ')
-    : 'Affected markets pending';
-  const brief = e && e.briefUrl ? ('Full Brief: ' + e.briefUrl) : 'Full Brief: Brief Pending';
-  const parts = [
-    e && e.title ? e.title : 'Unnamed event',
-    e && e.currency ? '(' + e.currency + ')' : null,
-    e && (e.timeUTC || e.scheduledTimeUTC) ? '@ ' + (e.timeUTC || e.scheduledTimeUTC) + ' UTC' : null,
-    e && (e.expectedImpact || e.severity) ? '[' + (e.expectedImpact || e.severity) + ']' : null,
-    'affected: ' + affected,
-    brief,
-  ].filter(Boolean);
-  return '- ' + parts.join(' — ');
-}
 
 function deriveJaneFinalState(janeOut) {
   if (!janeOut || typeof janeOut !== 'object') return 'MONITORING';
@@ -365,12 +325,6 @@ function deriveJaneFinalState(janeOut) {
   if (trade === 'INVALID' || action === 'STAND_DOWN') return 'STAND_DOWN';
   if (trade === 'WAITING_FOR_CONFIRMATION' || trade === 'PARTIAL' || trade === 'MARGINAL' || action === 'WAIT') return 'MONITORING';
   return action || trade || 'MONITORING';
-}
-
-function currentReadLine(state) {
-  if (state === 'ARMED') return 'ARMED — Jane has a stronger validated state; follow the engine confirmation and degradation notes.';
-  if (state === 'STAND_DOWN') return 'STAND_DOWN — Jane rejected a confirmed execution read for this search.';
-  return 'MONITORING — no confirmed execution read yet.';
 }
 
 function buildEngineInput(macroPacket) {
@@ -394,82 +348,6 @@ function buildEngineInput(macroPacket) {
   };
 }
 
-function formatSearchResponse(ctx) {
-  const packet = ctx.macroPacket;
-  const focus = packet.primaryEventFocus;
-  const risk = packet.riskState;
-  const affected = (packet.affectedMarketsExpanded || []).slice(0, 10);
-  const transmission = packet.macroTransmissionMap && packet.macroTransmissionMap[0] || {};
-  const transmission2 = packet.macroTransmissionMap && packet.macroTransmissionMap[1] || null;
-  const keyEvents = eventRowsForResponse(packet, ctx.resolution, focus);
-  const source = packet.dataFreshness && packet.dataFreshness.calendar || {};
-  const lines = [];
-  lines.push('🔥 **THE CALL**');
-  lines.push('Primary focus: ' + userFacingText(focus.title || ctx.resolution.displayTarget) + (focus.currency ? ' / ' + focus.currency : ''));
-  lines.push('Risk state: ' + risk.label + ' — ' + userFacingText(risk.whyThisRating));
-  lines.push('Current read: ' + currentReadLine(ctx.janeFinalState));
-  lines.push('Best action: wait for confirmation before treating direction as reliable.');
-  lines.push('Next confirmation point: ' + userFacingText(focus.volatilityWindow || 'first confirmed close after the live risk window.'));
-  lines.push('');
-  lines.push('**ATLAS Macro Search — ' + ctx.resolution.displayTarget + '**');
-  lines.push('Generated: ' + packet.generatedAtUTC);
-  lines.push('');
-  lines.push('**RISK STATE**');
-  lines.push(riskDiscs(risk.scoreOutOf5) + ' / 5 — ' + risk.label);
-  lines.push('');
-  lines.push('Why:');
-  lines.push(userFacingText(risk.whyThisRating));
-  lines.push('');
-  lines.push('What this means:');
-  lines.push(userFacingText(focus.reversalRisk || 'Direction is not reliable until the first confirmed close agrees with live macro drivers.'));
-  lines.push('');
-  lines.push('Affected:');
-  lines.push(affected.length ? affected.slice(0, 6).map(m => displayInstrument(m.symbol)).join(', ') : 'None mapped by the live interpreter.');
-  lines.push('');
-  lines.push('**Affected instruments**');
-  lines.push(affected.length ? affected.map(m => '- ' + displayInstrument(m.symbol) + ' — ' + userFacingText(m.transmissionMechanism)).join('\n') : '- None mapped by the live interpreter.');
-  lines.push('');
-  lines.push('**Key events driving the read**');
-  lines.push(keyEvents.length ? keyEvents.map(eventLine).join('\n') : '- No matching live scheduled event in the current calendar window.');
-  lines.push('');
-  lines.push('**MARKET IMPACT**');
-  lines.push('Card 1:');
-  lines.push('What is happening: ' + userFacingText(transmission.driver || focus.title || 'Live macro driver state'));
-  lines.push('Why it matters: ' + userFacingText(transmission.mechanism || focus.whyPrimary || 'Macro drivers are setting risk conditions.'));
-  lines.push('What moves first: ' + (Array.isArray(transmission.affectedSymbols) ? transmission.affectedSymbols.slice(0, 5).map(displayInstrument).join(', ') : 'Lead FX and rate-sensitive markets.'));
-  lines.push('What confirms it: ' + userFacingText(transmission.whatStrengthensThis || 'The lead market confirms after the first 15-minute close.'));
-  lines.push('What weakens it: ' + userFacingText(transmission.whatWeakensThis || 'Live drivers fade or structure rejects the first move.'));
-  if (transmission2) {
-    lines.push('');
-    lines.push('Card 2:');
-    lines.push('What is happening: ' + userFacingText(transmission2.driver || 'Live cross-market drivers'));
-    lines.push('Why it matters: ' + userFacingText(transmission2.mechanism || 'Live drivers decide whether the calendar impulse is amplified or faded.'));
-    lines.push('What moves first: ' + (Array.isArray(transmission2.affectedSymbols) ? transmission2.affectedSymbols.slice(0, 5).map(displayInstrument).join(', ') : 'US Dollar Strength (DXY), yields, and Market Volatility (VIX).'));
-    lines.push('What confirms it: ' + userFacingText(transmission2.whatStrengthensThis || 'US Dollar Strength (DXY), yields, and Market Volatility (VIX) agree.'));
-    lines.push('What weakens it: ' + userFacingText(transmission2.whatWeakensThis || 'One or more live drivers reverses.'));
-  }
-  lines.push('');
-  lines.push('**What strengthens the read**');
-  lines.push(userFacingText(transmission.whatStrengthensThis || risk.whatWouldRaiseIt || 'US Dollar Strength (DXY), yields, Market Volatility (VIX), and the lead pair confirm the macro path after the first 15-minute close.'));
-  lines.push('');
-  lines.push('**What weakens the read**');
-  lines.push(userFacingText(transmission.whatWeakensThis || risk.whatWouldLowerIt || 'Live drivers fade or structure rejects the first macro impulse.'));
-  lines.push('');
-  lines.push('**Blocked / degraded**');
-  lines.push(ctx.degradationReason === 'none' ? 'None from the macro interpreter. Engine gates: Corey=' + ctx.coreyStatus + ', Corey Clone=' + ctx.cloneSummary.status + ' usableForDecision=' + ctx.cloneSummary.usableForDecision + ', Spidey=' + ctx.spideyStatus + '.' : userFacingText(ctx.degradationReason));
-  if (!ctx.cloneSummary.usableForDecision) {
-    lines.push('Historical reference: Not decision-grade yet. Current read is based on live macro / calendar / structure only.');
-  }
-  if (ctx.spideyStatus === 'PARTIAL' || ctx.spideyStatus === 'BLOCKED') {
-    lines.push('Structure: confirmation pending. No active execution zone is confirmed by this macro search.');
-  }
-  lines.push('');
-  lines.push('**Source note**');
-  lines.push('calendar_source=' + (source.source || 'none') + ' · mode=' + (source.mode || 'none') + ' · source_used=' + (Array.isArray(packet.sourceUsed) ? packet.sourceUsed.join('+') : packet.sourceUsed) + ' · confidence=' + packet.confidenceScore + ' · basis=' + packet.confidenceBasis);
-  lines.push('');
-  lines.push('_Jane remains final gate. FOH renders engine output only; no trade call is created from macro search alone._');
-  return userFacingText(lines.join('\n'));
-}
 
 function logProof(ctx) {
   const logs = [];
@@ -599,10 +477,17 @@ async function runMacroSearch(query, opts) {
     resolution,
     leadSymbol,
     macroPacket,
+    events: eventRowsForResponse(macroPacket, resolution, focus),
     coreyStatus: publicStatus(sourceStatus.corey),
     cloneSummary,
     spideyStatus,
     janeFinalState: deriveJaneFinalState(janeOut),
+    janeOut,
+    spideyOut,
+    liveCtx,
+    nowMs: opts.now || Date.now(),
+    currentPrice: opts.currentPrice != null ? opts.currentPrice : (liveCtx && liveCtx.lastPrice) || null,
+    currentDeltaPct: opts.currentDeltaPct != null ? opts.currentDeltaPct : (liveCtx && liveCtx.deltaPct) || null,
     fohRendered,
     degradationReason: degradation.length ? degradation.join('; ') : 'none',
   };
@@ -621,7 +506,7 @@ async function runMacroSearch(query, opts) {
     fohRendered,
     degradationReason: ctx.degradationReason,
     proofLogs,
-    content: formatSearchResponse(ctx),
+    content: formatMacroSearchFoh(ctx),
   };
 }
 
@@ -629,4 +514,5 @@ module.exports = {
   isMacroSearchQuery,
   resolveMacroSearch,
   runMacroSearch,
+  _private: { eventRowsForResponse, fallbackAffectedMarketsForSymbol, buildSymbolFocus, deriveJaneFinalState },
 };
