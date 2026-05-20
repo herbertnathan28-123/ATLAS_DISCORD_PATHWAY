@@ -84,4 +84,19 @@ assert.doesNotMatch(anchors.RANKED_EVENT_CALENDAR, /\|---|\| CCY \| IMPACT|Brief
 assert.match(anchors.RANKED_EVENT_CALENDAR, /Full Brief: https:\/\/atlas-fx-dashboard\.onrender\.com\/brief\?eventId=/, 'view-model carries clickable Full Brief link');
 assert.match(anchors.RANKED_EVENT_CALENDAR, /Full Brief blocked: missing forecast\/previous/, 'view-model carries specific blocked reason');
 
+delete process.env.ATLAS_FULL_BRIEF_BASE_URL;
+process.env.MARKET_INTEL_FULL_BRIEF_BASE_URL = 'https://atlas-fx-dashboard.onrender.com';
+const marketEnvDaily = buildDailyBulletinPayload(snapshot, { level: 'low' }, now, { macroIntelligencePacket: macroPacket });
+const marketEnvText = marketEnvDaily.dailyRoadmapMessages.map(m => m.content).join('\n');
+assert.match(marketEnvText, /https:\/\/atlas-fx-dashboard\.onrender\.com\/brief\?eventId=2026-05-20-1230-cad-inflation-rate-yoy-canada/, 'MARKET_INTEL_FULL_BRIEF_BASE_URL generates dashboard Full Brief link');
+
+process.env.ATLAS_FULL_BRIEF_BASE_URL = 'https://notion.so/private-brief-root';
+delete process.env.MARKET_INTEL_FULL_BRIEF_BASE_URL;
+const privateEnvDaily = buildDailyBulletinPayload(snapshot, { level: 'low' }, now, { macroIntelligencePacket: macroPacket });
+const privateEnvText = privateEnvDaily.dailyRoadmapMessages.map(m => m.content).join('\n');
+assert.doesNotMatch(privateEnvText, /notion\.(so|com|site)/i, 'private env Full Brief base URL is rejected');
+assert.match(privateEnvText, /Full Brief blocked: missing full-brief route/, 'private env Full Brief base URL falls back to specific route blocker');
+
+process.env.ATLAS_FULL_BRIEF_BASE_URL = 'https://atlas-fx-dashboard.onrender.com';
+
 console.log('[MARKET-INTEL-FULL-BRIEF-LINKS] PASS');
