@@ -70,6 +70,7 @@ assert.match(text, /12:30 UTC \/ 20:30 AWST · CAD · HIGH · \[Inflation Rate Y
 assert.match(text, /06:00 UTC \/ 14:00 AWST · GBP · HIGH · \[Unemployment Rate\]/, 'blocked event still renders mobile event bullet with UTC/AWST');
 assert.match(text, /Full Brief blocked: missing forecast\/previous/, 'blocked event states exact missing fields');
 assert.doesNotMatch(text, /FULL BRIEF \/ BRIEF PENDING|Full Brief: Brief Pending|— Brief Pending/, 'generic Brief Pending filler must not render');
+assert.doesNotMatch(text, /Brief Pending/, 'Market Intel output must not render generic Brief Pending filler');
 assert.doesNotMatch(text, /\|---|\| CCY \| IMPACT|TIME \|/, 'Discord output must avoid pipe tables');
 
 const packet = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { severity: 'HIGH' }, macroIntelligencePacket: macroPacket, eventClusters: [] } });

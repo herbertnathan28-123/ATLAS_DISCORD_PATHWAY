@@ -722,16 +722,16 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     ' · clusters=' + (Array.isArray(macroPacket.eventClusters) ? macroPacket.eventClusters.length : 0);
 
   // Control strip sits under the top boxed heading per the FOH
-  // download-controls spec. PNG / PDF are flagged Brief Pending
-  // because the 3-message daily_brief dispatch path does not yet
-  // thread the imagePayload through to a multipart attachment;
+  // download-controls spec. PNG / PDF use explicit attachment
+  // status because the 3-message daily_brief dispatch path does
+  // not yet thread the imagePayload through to a multipart attachment;
   // Full Calendar + Terminology are wired (the calendar feed
   // backing the roadmap is the live TradingView source, and the
   // Expanded Terminology block exists upstream); Full Briefs
   // defers to live brief routing.
   const controlStrip = _miControlStrip({
-    png: 'pending',
-    pdf: 'pending',
+    png: 'Not attached to this dispatch',
+    pdf: 'Not attached to this dispatch',
     calendar: 'available',
     glossary: 'available',
     dashboard: 'Per-event links / blockers below',
