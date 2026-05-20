@@ -72,8 +72,7 @@ function buildDiscordTextSummary(viewModel, opts) {
     lines.push(currentMarketRead || 'Primary focus: Broader market calendar\nRisk state: UNKNOWN\nCurrent read: MONITORING\nNext confirmation point: next ranked release window');
     lines.push('');
     lines.push("**TODAY'S RANKED EVENT CALENDAR**");
-    lines.push('TIME | CCY | IMPACT | EVENT | AFFECTED MARKETS | FULL BRIEF');
-    lines.push(viewModel.RANKED_EVENT_CALENDAR || 'No ranked events available · Brief Pending');
+    lines.push(viewModel.RANKED_EVENT_CALENDAR || 'No ranked events available · Full Brief blocked: missing ranked event/source packet');
     lines.push('');
   }
   lines.push('**' + viewModel.HEADER_TITLE + ' · ' + viewModel.HEADER_SUBTITLE + '**');
@@ -81,8 +80,8 @@ function buildDiscordTextSummary(viewModel, opts) {
   lines.push('Generated: ' + viewModel.GENERATED_AT_UTC);
   lines.push('');
   if (isMarketIntelCalendarSurface) {
-    lines.push('__Market Impact__');
-    lines.push(viewModel.MARKET_IMPACT);
+    lines.push('__Briefing Summary__');
+    lines.push(viewModel.BRIEFING_SUMMARY);
     lines.push('');
     lines.push('__Confirmation / Cancellation__');
     lines.push('Confirms: ' + viewModel.CONFIRMS_WHEN);
@@ -91,24 +90,22 @@ function buildDiscordTextSummary(viewModel, opts) {
     lines.push('__Source / Provenance__');
     lines.push(viewModel.SOURCE_PROVENANCE);
     lines.push('');
-    lines.push('__Briefing Summary__');
-    lines.push(viewModel.BRIEFING_SUMMARY);
+    lines.push('__Market Impact__');
+    lines.push(viewModel.MARKET_IMPACT);
     lines.push('');
   } else {
     lines.push('__Briefing Summary__');
     lines.push(viewModel.BRIEFING_SUMMARY);
     lines.push('');
-    lines.push('__Market Impact__');
-    lines.push(viewModel.MARKET_IMPACT);
-    lines.push('');
-  }
-  if (!isMarketIntelCalendarSurface) {
     lines.push('__Confirmation / Cancellation__');
     lines.push('Confirms: ' + viewModel.CONFIRMS_WHEN);
     lines.push('Cancels: ' + viewModel.CANCELS_WHEN);
     lines.push('');
     lines.push('__Source / Provenance__');
     lines.push(viewModel.SOURCE_PROVENANCE);
+    lines.push('');
+    lines.push('__Market Impact__');
+    lines.push(viewModel.MARKET_IMPACT);
     lines.push('');
   }
   lines.push('__Structure (Spidey Phase D)__');

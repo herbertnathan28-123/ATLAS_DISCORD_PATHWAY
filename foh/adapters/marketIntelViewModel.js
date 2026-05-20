@@ -139,23 +139,30 @@ function _fmtTheCall(c) {
 
 function _fmtRankedEventCalendar(rows) {
   if (!Array.isArray(rows) || !rows.length) {
-    return 'No selected-symbol release. Broader market calendar: Brief Pending until the next TradingView live packet resolves ranked events.';
+    return 'No selected-symbol release. Full Brief blocked: missing ranked event/source packet.';
   }
+  const awst = (r) => {
+    const iso = r && r.scheduledTimeUTC;
+    let d = iso ? new Date(iso) : null;
+    if ((!d || Number.isNaN(d.getTime())) && r && r.dateUTC && /^\d{2}:\d{2}$/.test(String(r.timeUTC))) {
+      d = new Date(r.dateUTC + 'T' + r.timeUTC + ':00.000Z');
+    }
+    if (!d || Number.isNaN(d.getTime())) return 'AWST pending';
+    const a = new Date(d.getTime() + 8 * 60 * 60 * 1000);
+    return String(a.getUTCHours()).padStart(2, '0') + ':' + String(a.getUTCMinutes()).padStart(2, '0') + ' AWST';
+  };
   return rows.slice(0, 6).map(r => {
     const markets = Array.isArray(r.affectedMarkets) && r.affectedMarkets.length
       ? r.affectedMarkets.slice(0, 4).map(_displayInstrument).join(', ')
       : 'Affected markets pending';
     const brief = r.fullBrief && !/notion\.(so|com|site)/i.test(String(r.fullBrief))
-      ? r.fullBrief
-      : 'Brief Pending';
+      ? 'Full Brief: ' + r.fullBrief
+      : 'Full Brief blocked: ' + (r.fullBriefBlockedReason || 'missing full-brief route');
     return [
-      _short(r.timeUTC || 'pending', 10),
-      _short(r.currency || 'multi', 5),
-      _short(r.impact || r.severity || 'MED', 8),
-      _short(r.title || 'Unnamed event', 32),
-      _short(markets, 58),
-      _short(brief, 24),
-    ].join(' | ');
+      '• ' + (r.timeUTC || 'pending') + ' UTC / ' + awst(r) + ' · ' + (r.currency || 'multi') + ' · ' + (r.title || 'Unnamed event') + ' · ' + (r.impact || r.severity || 'MED') + ' — ' + brief,
+      '  Affected: ' + _short(markets, 80),
+      '  Event ID: ' + (r.eventId || 'missing-event-id')
+    ].join('\n');
   }).join('\n');
 }
 
