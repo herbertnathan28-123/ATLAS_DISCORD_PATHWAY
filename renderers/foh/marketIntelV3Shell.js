@@ -59,14 +59,17 @@ function buildDiscordTextSummary(viewModel, opts) {
   opts = opts || {};
   const maxChars = Number.isFinite(opts.maxDiscordChunkChars) ? opts.maxDiscordChunkChars : RENDER_PARAMETERS.maxDiscordChunkChars;
   // Priority order — the live Discord surface is calendar-first.
-  // THE CALL + ranked event table lead, then Market Impact and
+  // CURRENT MARKET READ + ranked event table lead, then Market Impact and
   // source provenance fit before the Discord cap. Deeper operator
   // detail expands in the PDF/rendered cards if this summary truncates.
+  // Legacy `THE_CALL` viewmodel key is still consumed for backwards-compat
+  // with any caller that hasn't migrated to CURRENT_MARKET_READ yet.
   const lines = [];
-  const isMarketIntelCalendarSurface = !!(viewModel.THE_CALL || viewModel.RANKED_EVENT_CALENDAR);
+  const currentMarketRead = viewModel.CURRENT_MARKET_READ || viewModel.THE_CALL;
+  const isMarketIntelCalendarSurface = !!(currentMarketRead || viewModel.RANKED_EVENT_CALENDAR);
   if (isMarketIntelCalendarSurface) {
-    lines.push('🔥 **THE CALL**');
-    lines.push(viewModel.THE_CALL || 'Primary focus: Broader market calendar\nRisk state: UNKNOWN\nCurrent read: MONITORING\nNext confirmation point: next ranked release window');
+    lines.push('🔥 **CURRENT MARKET READ**');
+    lines.push(currentMarketRead || 'Primary focus: Broader market calendar\nRisk state: UNKNOWN\nCurrent read: MONITORING\nNext confirmation point: next ranked release window');
     lines.push('');
     lines.push("**TODAY'S RANKED EVENT CALENDAR**");
     lines.push('TIME | CCY | IMPACT | EVENT | AFFECTED MARKETS | FULL BRIEF');

@@ -90,7 +90,7 @@ const next72MacroPacket = {
 };
 const miNext72 = buildMarketIntelPacket({ engine: { kind: 'daily', mood: { severity: 'MED' }, eventClusters: [], macroIntelligencePacket: next72MacroPacket } });
 const miNext72Text = buildDiscordTextSummary(miViewModel.toViewModel(miNext72), { maxDiscordChunkChars: 100000 });
-if (/^🔥 \*\*THE CALL\*\*/.test(miNext72Text)) ok('MI next72 text leads with THE CALL'); else fail('MI next72 text does not lead with THE CALL');
+if (/^🔥 \*\*CURRENT MARKET READ\*\*/.test(miNext72Text)) ok('MI next72 text leads with CURRENT MARKET READ'); else fail('MI next72 text does not lead with CURRENT MARKET READ');
 if (/TODAY'S RANKED EVENT CALENDAR/.test(miNext72Text) && /TIME \| CCY \| IMPACT \| EVENT \| AFFECTED MARKETS \| FULL BRIEF/.test(miNext72Text)) ok('MI next72 text includes ranked calendar table header'); else fail('MI next72 text missing ranked calendar header');
 if (/GDP Growth Rate QoQ Prel/.test(miNext72Text) && /FOMC Member Speech/.test(miNext72Text)) ok('MI next72 text includes next72 events'); else fail('MI next72 text missing next72 event rows');
 if (/Brief Pending/.test(miNext72Text)) ok('MI next72 text shows Brief Pending fallback'); else fail('MI next72 text missing Brief Pending');

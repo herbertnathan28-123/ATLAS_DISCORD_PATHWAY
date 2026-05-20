@@ -38,8 +38,14 @@ function _scrubExternalLinks(html) {
 // ============================================================
 
 const DH_BANNED_PHRASES_USERFACING = Object.freeze([
+  // Legacy "THE CALL" header — banned doctrine-wide 2026-05-20. Both the
+  // boxed "🔥 **THE CALL**" and any bare "THE CALL" / "The Call" / "the
+  // call" surface leak (case-sensitive — the lowercase form is only a hit
+  // when it appears with the leading 🔥 marker, see below) get scrubbed.
   /🔥 \*\*THE CALL\*\*/g,
+  /🔥 THE CALL/g,
   /\bTHE CALL\b/g,
+  /\bThe Call\b/g,
   /risk basis unavailable/gi,
   /\bFRESH cards\b/g,
   /freshness: LIVE/gi,

@@ -34,7 +34,7 @@
 //   1. 📡 MARKET INTEL · MACRO SEARCH — <displayTarget>
 //   2. Control strip (PNG · PDF · Calendar · Expanded
 //      Terminology Hyperlinks · Full Brief)
-//   3. 🔥 THE CALL
+//   3. 🔥 CURRENT MARKET READ
 //   4. 📅 RANKED CALENDAR EVENTS
 //   5. ⚠️ RISK STATE
 //   6. 🌍 MARKET IMPACT
