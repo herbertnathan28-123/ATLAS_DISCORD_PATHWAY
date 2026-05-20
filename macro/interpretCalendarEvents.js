@@ -74,6 +74,66 @@ const MARKET_PROFILES = Object.freeze({
     levels: 'Asia range high/low; prior session high/low.',
     risk: 'Cross can reverse quickly if risk tone flips after the first macro impulse.',
   },
+  USDCAD: {
+    assetClass: 'FX pair',
+    mechanism: 'Direct CAD/USD inflation and rate-differential response; oil only confirms after the first USD/CAD impulse.',
+    stronger: 'Stronger Canadian data usually pressures USDCAD lower; stronger US data supports USDCAD if yields confirm.',
+    weaker: 'Weaker Canadian data supports USDCAD; weaker US data pressures it lower unless oil/risk tone contradicts.',
+    confirmation: '5-minute close beyond the pre-event range with USD yields or CAD rates confirming.',
+    invalidation: 'USDCAD fades back inside the pre-event range while rates stop confirming.',
+    levels: 'Pre-event range; prior New York high/low; first 15-minute balance.',
+    risk: 'Oil headlines can distort the CAD leg after the first reaction candle.',
+  },
+  CADJPY: {
+    assetClass: 'FX cross',
+    mechanism: 'CAD reaction plus JPY safe-haven/risk sensitivity; strongest when oil/risk tone and yen flow agree.',
+    stronger: 'Stronger CAD data or oil bid lifts CADJPY only if JPY haven demand stays contained.',
+    weaker: 'Weaker CAD data or risk-off yen demand pressures CADJPY.',
+    confirmation: 'CADJPY close agrees with oil/risk tone while USDJPY does not show dominant yen stress.',
+    invalidation: 'Equities reverse risk-off or JPY haven flow overwhelms the CAD impulse.',
+    levels: 'Asia range; prior session high/low; first 15-minute balance.',
+    risk: 'JPY safe-haven surges can override a clean Canadian data surprise.',
+  },
+  EURCAD: {
+    assetClass: 'FX cross',
+    mechanism: 'CAD repricing against euro-area relative rate path; EUR leg decides whether the CAD surprise travels.',
+    stronger: 'Stronger CAD data pressures EURCAD lower unless EUR rates rally harder.',
+    weaker: 'Weaker CAD data supports EURCAD if EURUSD/EUR crosses do not reject the move.',
+    confirmation: 'EURCAD close agrees with USDCAD inverse behaviour and EUR crosses stay aligned.',
+    invalidation: 'EUR leg reprices in the opposite direction or EURCAD returns inside the event range.',
+    levels: 'London/New York overlap range; prior session high/low.',
+    risk: 'EUR event risk can dominate the cross even when the CAD impulse is clean.',
+  },
+  GBPCAD: {
+    assetClass: 'FX cross',
+    mechanism: 'CAD repricing filtered through GBP event risk; higher beta than EURCAD and more sensitive to UK headlines.',
+    stronger: 'Stronger CAD data pressures GBPCAD lower if GBP risk is neutral.',
+    weaker: 'Weaker CAD data supports GBPCAD, but UK rate headlines can amplify or erase the move.',
+    confirmation: 'GBPCAD close agrees with USDCAD inverse behaviour and GBPUSD/EURGBP do not contradict.',
+    invalidation: 'GBP event risk flips the cross back into the pre-event range.',
+    levels: 'London high/low; pre-event range; first 15-minute balance.',
+    risk: 'GBP liquidity can thin sharply around London handoff and exaggerate false moves.',
+  },
+  AUDCAD: {
+    assetClass: 'FX cross',
+    mechanism: 'Commodity/risk-sensitive cross: CAD oil/rates impulse versus AUD risk proxy.',
+    stronger: 'Stronger CAD data or oil bid pressures AUDCAD lower unless China/risk beta lifts AUD harder.',
+    weaker: 'Weaker CAD data supports AUDCAD when risk tone is stable or AUD beta is already bid.',
+    confirmation: 'AUDCAD close agrees with oil, AUDUSD, and equity-risk direction.',
+    invalidation: 'Risk sentiment flips or oil fades the CAD leg within the first 15 minutes.',
+    levels: 'Asia range; commodity-session high/low; prior day midpoint.',
+    risk: 'AUD risk beta can dominate the cross during broad risk-on/risk-off rotations.',
+  },
+  NZDCAD: {
+    assetClass: 'FX cross',
+    mechanism: 'Risk/carry cross: CAD inflation surprise versus NZD risk beta and carry sensitivity.',
+    stronger: 'Stronger CAD data pressures NZDCAD lower if NZD risk beta is not leading higher.',
+    weaker: 'Weaker CAD data supports NZDCAD, especially when carry/risk appetite is firm.',
+    confirmation: 'NZDCAD close agrees with AUDCAD/NZDUSD and oil does not contradict CAD direction.',
+    invalidation: 'NZD risk beta flips or CAD oil/rates confirmation fades.',
+    levels: 'Asia range; prior session high/low; first 15-minute balance.',
+    risk: 'Thin NZD liquidity can exaggerate the first candle before confirmation arrives.',
+  },
   XAUUSD: {
     assetClass: 'metal',
     mechanism: 'Moves through USD strength, real yields, and risk sentiment.',
@@ -353,15 +413,25 @@ function clusterEvents(events) {
 function profileFor(symbol) {
   if (MARKET_PROFILES[symbol]) return MARKET_PROFILES[symbol];
   if (/^[A-Z]{6}$/.test(symbol)) {
+    const base = symbol.slice(0, 3);
+    const quote = symbol.slice(3, 6);
+    const baseRole = base === 'JPY' || base === 'CHF' ? 'safe-haven leg'
+      : base === 'AUD' || base === 'NZD' ? 'risk-beta leg'
+      : base === 'CAD' ? 'oil/rates-sensitive leg'
+      : base + ' policy/growth leg';
+    const quoteRole = quote === 'JPY' || quote === 'CHF' ? 'safe-haven pricing leg'
+      : quote === 'AUD' || quote === 'NZD' ? 'risk-beta pricing leg'
+      : quote === 'CAD' ? 'oil/rates-sensitive pricing leg'
+      : quote + ' policy/growth pricing leg';
     return {
       assetClass: 'FX pair',
-      mechanism: 'Moves through relative rate expectations and the home-currency surprise path.',
-      stronger: 'Stronger home-currency data supports the home side if broader USD/risk drivers do not contradict.',
-      weaker: 'Weaker home-currency data pressures the home side if the first structure close confirms.',
-      confirmation: '5-minute close in surprise direction plus lead currency confirmation.',
-      invalidation: 'Close back inside the pre-event range or opposing cross-currency flow.',
+      mechanism: symbol + ' reprices through the ' + base + ' ' + baseRole + ' versus the ' + quote + ' ' + quoteRole + '.',
+      stronger: 'Stronger ' + base + '-side data supports ' + symbol + '; stronger ' + quote + '-side data pressures it lower if confirmation agrees.',
+      weaker: 'Weaker ' + base + '-side data pressures ' + symbol + '; weaker ' + quote + '-side data supports it after the first structure close.',
+      confirmation: '5-minute close in the surprise direction plus ' + base + '/' + quote + ' lead-market confirmation.',
+      invalidation: symbol + ' closes back inside the pre-event range or opposing ' + base + '/' + quote + ' cross-flow rejects the impulse.',
       levels: 'Pre-event range; prior session high/low; first 15-minute balance.',
-      risk: 'Cross-currency flow can override the headline data reaction.',
+      risk: 'Cross-currency flow in either the ' + base + ' or ' + quote + ' leg can override the headline data reaction.',
     };
   }
   if (/40|50|100|500|225|30|NAS/.test(symbol)) {

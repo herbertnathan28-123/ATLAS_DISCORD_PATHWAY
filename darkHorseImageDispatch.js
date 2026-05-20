@@ -107,6 +107,8 @@ function buildDarkHorseImagePayload(ranking, volatility, opts) {
     }));
   const sev = _volSeverity(volatility && volatility.level);
   const allCount = Number.isFinite(ranking && ranking.allCount) ? ranking.allCount : 0;
+  const funnel = opts.funnel || (ranking && ranking.funnel) || {};
+  const buildingCount = Number.isFinite(funnel.promotedInternal) ? funnel.promotedInternal : top.filter(c => (c.score || 0) < 8).length;
 
   return {
     scanTime:        opts.scanTimeLabel || new Date().toISOString().replace('T', ' ').slice(0, 16) + ' UTC',
@@ -118,7 +120,7 @@ function buildDarkHorseImagePayload(ranking, volatility, opts) {
     sourceNote:      { source: 'TradingView', mode: 'LIVE', probabilityBasis: 'engine-derived' },
     briefingSummary: standouts.length
       ? (standouts.length + ' standout' + (standouts.length === 1 ? '' : 's') + ' on this scan. ' + standouts.map(s => s.symbol + ' (' + s.lifecycle + ')').join(' · ') + '.')
-      : 'No standouts on this scan window — driver-led tape.',
+      : '0 full standouts. ' + buildingCount + ' building candidate' + (buildingCount === 1 ? '' : 's') + ' detected. Why no full standout: no candidate cleared WATCH threshold; top candidates require structure, volume, or cleaner entry-quality confirmation.',
   };
 }
 

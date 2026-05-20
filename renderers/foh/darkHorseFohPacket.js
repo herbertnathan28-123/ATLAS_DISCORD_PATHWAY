@@ -243,10 +243,10 @@ function buildDarkHorseFohPacket(ranking, volatility, liveCtx, opts) {
     operatorGuidance,
     sourceNote: {
       available: true,
-      source: opts.source || 'TradingView',
+      source: opts.source || (Array.isArray(opts.sourceProvenance) && opts.sourceProvenance.length ? opts.sourceProvenance.map(s => s.provider + ':' + s.status).join(' · ') : 'TradingView'),
       mode:   opts.calendarMode || 'LIVE',
       probabilityBasis: 'engine-derived',
-      macroProxies: 'DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y',
+      macroProxies: 'US Dollar Strength (DXY) and Market Volatility (VIX) read through the Corey live layer; yield spread from FRED T10Y2Y',
     },
     glossaryTerms: {
       available: true,

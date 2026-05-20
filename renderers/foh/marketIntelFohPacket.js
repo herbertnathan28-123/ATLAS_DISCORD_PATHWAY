@@ -314,7 +314,7 @@ function buildDailyFohPacket(snapshot, geoCtx, liveCtx, helpers, mode, now) {
       source:    health.source_used   || 'unavailable',
       mode:      health.calendar_mode || 'UNAVAILABLE',
       probabilityBasis: clusters.length ? 'engine-derived' : 'insufficient evidence',
-      macroProxies: 'DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y',
+      macroProxies: 'US Dollar Strength (DXY), Market Volatility (VIX), yield curve via FRED T10Y2Y',
     },
     glossaryTerms: {
       available: true,
@@ -370,7 +370,7 @@ function buildEventFohPacket(rawEvent, geoCtx, liveCtx, helpers, mode, opts) {
       source:    health.source_used   || 'unavailable',
       mode:      health.calendar_mode || 'UNAVAILABLE',
       probabilityBasis: 'engine-derived',
-      macroProxies: 'DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y',
+      macroProxies: 'US Dollar Strength (DXY), Market Volatility (VIX), yield curve via FRED T10Y2Y',
     },
     glossaryTerms: {
       available: true,

@@ -110,7 +110,7 @@ function _standoutOutcome(s) {
       invalidatesContinuation: [
         'price closes through invalidation / exit ' + invalidationExit + ' on the trigger timeframe',
         'candle bodies shrinking after the initial confirmation — momentum exhausting',
-        'cross-asset (DXY / VIX / lead pair) loses confirmation alignment',
+        'cross-asset (US Dollar Strength (DXY) / Market Volatility (VIX) / lead pair) loses confirmation alignment',
       ],
       probableNextPath: [
         'price extends ' + directionWord + ' toward the next liquidity zone after entry reference ' + entryReference,
@@ -203,7 +203,7 @@ function buildDarkHorsePacket(opts) {
                   : '5–30 minutes; late-stage move — exit-or-skip cadence',
     whatToWatch: lead
       ? 'Watch ' + lead.symbol + ': trigger ' + (lead.decisionLevel || '(see standout card)') + '; invalidation ' + (lead.invalidation || '(see standout card)') + '.'
-      : 'Watch DXY, VIX, and the macro lead pair set by current Market Intel.',
+      : 'Watch US Dollar Strength (DXY), Market Volatility (VIX), and the macro lead pair set by current Market Intel.',
     chartStudyTimeframe: '1H structural map + 5M / 15M execution',
   };
   // Operationally-anchored stub used when a slot has no standout
@@ -233,7 +233,7 @@ function buildDarkHorsePacket(opts) {
         confirmsContinuation: [
           '15-min candle closes back through the invalidation level in the original direction',
           'next 15-min candle holds the level as new support/resistance',
-          'cross-asset (DXY / VIX) re-aligns with the original direction',
+          'cross-asset (US Dollar Strength (DXY) / Market Volatility (VIX)) re-aligns with the original direction',
         ],
         invalidatesContinuation: [
           'price stays on the wrong side of the invalidation level for two consecutive 15-min closes',
@@ -312,7 +312,7 @@ function buildDarkHorsePacket(opts) {
     dangerIf:     'A standout invalidates while you are positioned: flatten by the published invalidation / exit price. Do not average. Do not re-enter without a fresh structural test on a later scan.',
   };
   const provenance = {
-    sources: ['ATLAS Dark Horse scanner', 'Corey live macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y)'],
+    sources: ['ATLAS Dark Horse scanner', 'Corey live macro (US Dollar Strength (DXY), Market Volatility (VIX), yield curve via FRED T10Y2Y)'],
     dataFreshness: 'LIVE',
     confidenceBasis: 'engine-derived',
   };
