@@ -79,20 +79,20 @@ if (stripMatch && /Brief Pending/.test(stripMatch[1])) ok('PNG strip line declar
 if (stripMatch && /Brief Pending|Not generated/.test(stripMatch[2])) ok('PDF strip line declares Brief Pending / Not generated honestly'); else fail('PDF strip line not Brief Pending / Not generated');
 if (stripMatch && /Available/.test(stripMatch[3])) ok('Full Calendar strip line declares Available (TradingView feed is live)'); else fail('Full Calendar strip line not Available');
 if (stripMatch && /Available/.test(stripMatch[4])) ok('Terminology strip line declares Available'); else fail('Terminology strip line not Available');
-if (msg1.indexOf('📡 MARKET INTEL · DAILY ROADMAP') < msg1.indexOf('🖼️ PNG') && msg1.indexOf('🖼️ PNG') < msg1.indexOf('🔥 THE CALL')) ok('control strip sits between the report heading and THE CALL block'); else fail('control strip not positioned between report heading and THE CALL');
+if (msg1.indexOf('📡 MARKET INTEL · DAILY ROADMAP') < msg1.indexOf('🖼️ PNG') && msg1.indexOf('🖼️ PNG') < msg1.indexOf('🔥 CURRENT MARKET READ')) ok('control strip sits between the report heading and CURRENT MARKET READ block'); else fail('control strip not positioned between report heading and CURRENT MARKET READ');
 
-if (_boxRegex('🔥 THE CALL').test(msg1) && msg1.indexOf('🔥 THE CALL') < msg1.indexOf('HIGH-IMPACT CALENDAR EVENTS')) ok('message 1 includes coloured boxed 🔥 THE CALL header'); else fail('message 1 missing boxed THE CALL header');
+if (_boxRegex('🔥 CURRENT MARKET READ').test(msg1) && msg1.indexOf('🔥 CURRENT MARKET READ') < msg1.indexOf('HIGH-IMPACT CALENDAR EVENTS')) ok('message 1 includes coloured boxed 🔥 CURRENT MARKET READ header'); else fail('message 1 missing boxed CURRENT MARKET READ header');
 if (_boxRegex('📅 HIGH-IMPACT CALENDAR EVENTS').test(msg1)) ok('message 1 includes coloured boxed HIGH-IMPACT CALENDAR EVENTS header (renamed from TODAY\'S RANKED EVENT CALENDAR)'); else fail('message 1 missing boxed HIGH-IMPACT CALENDAR EVENTS header');
 if (_boxRegex('⚠️ RISK STATE').test(msg1)) ok('message 1 includes coloured boxed RISK STATE block'); else fail('message 1 missing boxed RISK STATE block');
 // Importance-based header colour doctrine 2026-05-18 — Tier-1
-// (ECB Rate Decision) in scope means THE CALL + CALENDAR headers
+// (ECB Rate Decision) in scope means CURRENT MARKET READ + CALENDAR headers
 // must render red ([1;31m). The cyan top-of-report heading
 // is unaffected because it tracks report identity, not impact.
-const callBoxIdx = msg1.indexOf('🔥 THE CALL');
+const callBoxIdx = msg1.indexOf('🔥 CURRENT MARKET READ');
 const calBoxIdx = msg1.indexOf('📅 HIGH-IMPACT CALENDAR EVENTS');
 const callPrefix = msg1.slice(Math.max(0, callBoxIdx - 30), callBoxIdx);
 const calPrefix = msg1.slice(Math.max(0, calBoxIdx - 30), calBoxIdx);
-if (/\[1;31m/.test(callPrefix)) ok('THE CALL box renders red because primary focus is a Tier-1 ECB Rate Decision'); else fail('THE CALL box not red despite Tier-1 primary focus', callPrefix);
+if (/\[1;31m/.test(callPrefix)) ok('CURRENT MARKET READ box renders red because primary focus is a Tier-1 ECB Rate Decision'); else fail('CURRENT MARKET READ box not red despite Tier-1 primary focus', callPrefix);
 if (/\[1;31m/.test(calPrefix)) ok('HIGH-IMPACT CALENDAR EVENTS box renders red because a Tier-1 row is in scope'); else fail('CALENDAR box not red despite Tier-1 row', calPrefix);
 if (/GDP Growth Rate QoQ Prel/.test(msg1) && /ECB Rate Decision/.test(msg1)) ok('ranked calendar surfaces Red + Amber rows from the next72 packet'); else fail('ranked calendar missing red/amber rows');
 if (/Brief Pending/.test(msg1)) ok('Full Brief column shows Brief Pending fallback'); else fail('message 1 missing Brief Pending');

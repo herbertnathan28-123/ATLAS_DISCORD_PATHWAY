@@ -404,7 +404,7 @@ function _miFilterByImpact(rows, opts) {
 }
 
 // Aggregate tier of the filtered ranked rows — drives the dynamic
-// box-header colour on the calendar / THE CALL sections per the
+// box-header colour on the calendar / CURRENT MARKET READ sections per the
 // operator heading colour doctrine 2026-05-18:
 //   any 🔴   → 'extreme'
 //   any 🟠   → 'high'
@@ -625,7 +625,7 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
 
   // Operator heading colour doctrine 2026-05-18 — boxed headings
   // carry colour by importance, not by section identity.
-  //   THE CALL                       — red if primary focus is
+  //   CURRENT MARKET READ            — red if primary focus is
   //                                    Tier-1 OR risk state is
   //                                    EXTREME; amber if a HIGH
   //                                    tier event is in scope;
@@ -646,7 +646,7 @@ function buildDailyRoadmapMessages(snapshot, geoCtx, now, opts) {
     _miBoxHeader('📡 MARKET INTEL · DAILY ROADMAP', { color: 'cyan' }),
     controlStrip,
     '',
-    _miBoxHeader('🔥 THE CALL', { color: callColor }),
+    _miBoxHeader('🔥 CURRENT MARKET READ', { color: callColor }),
     'Primary focus: ' + humanizeTitle(p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''),
     'Current read: MONITORING — calendar risk leads until Jane / structure confirms a tradable path.',
     'Next confirmation point: ' + _miExpandMacroLabels(p.volatilityWindow || p.confidenceBasis || 'next ranked release window and first confirmed 5M / 15M close.'),
@@ -2257,7 +2257,7 @@ function buildDailyBulletinPayload(snapshot, geoCtx, now, opts) {
   if (macroIntelligencePacket) {
     const p = macroIntelligencePacket.primaryEventFocus || {};
     const r = macroIntelligencePacket.riskState || {};
-    lines.push('🔥 **THE CALL**');
+    lines.push('🔥 **CURRENT MARKET READ**');
     lines.push('Primary focus: ' + (p.title || 'Broader market calendar') + (p.currency ? ' / ' + p.currency : ''));
     lines.push('Risk state: ' + (r.label || 'UNKNOWN') + (r.scoreOutOf5 != null ? ' ' + r.scoreOutOf5 + '/5' : '') + ' — ' + (r.whyThisRating || 'risk basis unavailable'));
     lines.push('Current read: MONITORING — no confirmed execution read yet; calendar risk leads until structure confirms.');
