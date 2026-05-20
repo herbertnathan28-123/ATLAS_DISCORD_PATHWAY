@@ -78,8 +78,8 @@ function sentimentFromTilt(t) {
 function describeDriver(ctx) {
   const d = ctx?.dxy, v = ctx?.vix, y = ctx?.yield;
   const parts = [];
-  if (d?.bias)        parts.push(`USD ${d.bias.toLowerCase()}`);
-  if (v?.level)       parts.push(`VIX ${v.level.toLowerCase()}`);
+  if (d?.bias)        parts.push(`US Dollar Strength (DXY) ${d.bias.toLowerCase()}`);
+  if (v?.level)       parts.push(`Market Volatility (VIX) ${v.level.toLowerCase()}`);
   if (y?.regime)      parts.push(`yield curve ${y.regime.toLowerCase()}`);
   return parts.length ? parts.join(' · ') : 'macro inputs initialising';
 }

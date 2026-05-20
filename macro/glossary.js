@@ -17,7 +17,7 @@ const TERMS = {
   supply: 'Supply — origin candle of a strong down move; sellers expected on retest.',
   demand: 'Demand — origin candle of a strong up move; buyers expected on retest.',
   execution_confidence: 'Execution Confidence — the level of confidence required to take the trade now vs wait.',
-  market_driver: 'Market Driver — the upstream variable (DXY / VIX / yields / event) currently moving the market.',
+  market_driver: 'Market Driver — the upstream variable (US Dollar Strength (DXY) / Market Volatility (VIX) / yields / event) currently moving the market.',
   event_risk: 'Event Risk — scheduled or unscheduled high-impact catalyst that can override structure.',
   validity_window: 'Validity Window — the time/price range over which the current plan remains in force.',
   flow: 'Flow — directional pressure (toward / away from a level) inferred from order-flow proxies.',

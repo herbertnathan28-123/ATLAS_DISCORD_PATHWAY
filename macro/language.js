@@ -119,7 +119,14 @@ const TRANSLATE = [
   [/\bENTRY NOT AUTHORISED\b/gi, 'ENTRY NOT AVAILABLE'],
   [/\bENTRY AUTHORIZED\b/gi, 'ENTRY CONFIRMED'],
   [/\bENTRY NOT AUTHORIZED\b/gi, 'ENTRY NOT AVAILABLE'],
-  [/\bDO NOT TRADE\b/g, 'STAND DOWN — NO ACTIVE TRADE'],
+  [/\bDO NOT TRADE\b/g, 'NO ACTIVE TRADE — ENTRY CONDITIONS NOT MET'],
+  // Surface scrub for legacy "STAND DOWN" / "stand aside" / "stand down" wording.
+  // Keep the action-state label consistent with actionStates.DO_NOT_TRADE.
+  [/\bSTAND DOWN\b/g, 'NO ACTIVE TRADE — ENTRY CONDITIONS NOT MET'],
+  [/\bStand down\b/g, 'Entry conditions not met'],
+  [/\bstand down\b/g, 'entry conditions not met'],
+  [/\bStand aside\b/g, 'Entry conditions not met — monitor for confirmation'],
+  [/\bstand aside\b/g, 'entry conditions not met — monitor for confirmation'],
   [/\bWAIT\s*[—-]\s*NO TRADE\b/g, 'HOLD — NO ACTIVE TRADE'],
   [/\bWAITING FOR TRIGGER\b/gi, 'WAITING FOR CONFIRMATION'],
   [/\bTRIGGER APPROACHING\b/gi, 'CONFIRMATION APPROACHING'],
@@ -167,7 +174,18 @@ const TRANSLATE = [
   [/\bSpidey\b/g, 'Market structure'],
   [/\bspidey\b/gi, 'market structure'],
   [/\bJane\b/g, 'Final assessment'],
-  [/\bjane\b/gi, 'final assessment']
+  [/\bjane\b/gi, 'final assessment'],
+  // Structure jargon → operator-readable surface labels.
+  // Internal logs / audit text continue to use BOS / CHoCH; the scrub only
+  // fires on user-facing macro text.
+  [/\bBOS\b/g,   '[Structure Break]'],
+  [/\bCHoCH\b/g, '[Trend Shift]'],
+  // Asset-class label scrub — keep `Equity — US-listed stock` on the user
+  // surface, never the bare word `EQUITY`. We intentionally match the
+  // standalone uppercase token so headings like "Asset class: EQUITY"
+  // become "Asset class: Equity — US-listed stock" without disturbing
+  // composite labels such as "equity index" or "equity options".
+  [/(?<![A-Za-z])EQUITY(?![A-Za-z])/g, 'Equity — US-listed stock']
 ];
 
 // Normalise an asset-class hint to one of: 'fx' | 'equity' | 'index' | 'commodity' | 'unknown'.

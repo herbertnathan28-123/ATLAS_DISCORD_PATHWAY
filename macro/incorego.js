@@ -195,20 +195,20 @@ function classifyCoreyStatus(coreyOk, hasContribution) {
 function buildCloneBlock(coreyClone) {
   if (!coreyClone) {
     return {
-      status: 'UNAVAILABLE',
-      sourceTag: 'unavailable: not implemented',
+      status: 'PENDING',
+      sourceTag: 'secondary macro model — pending',
       contribution: null,
-      note: 'Corey Clone unavailable — not implemented in current build. No second-pass validation has run. No contribution implied — do not infer agreement or disagreement from absence.'
+      note: 'Secondary macro model pending — not yet feeding the Final Assessment. No second-pass validation has run. No contribution implied — do not infer agreement or disagreement from absence.'
     };
   }
   const c = coreyClone;
-  const sourceTag = String(c.source || c.sourceTag || c.status || 'unavailable: not implemented');
-  if (/not[\s_-]?implemented|unavailable/i.test(sourceTag)) {
+  const sourceTag = String(c.source || c.sourceTag || c.status || 'secondary macro model — pending');
+  if (/not[\s_-]?implemented|unavailable|pending/i.test(sourceTag)) {
     return {
-      status: 'UNAVAILABLE',
+      status: 'PENDING',
       sourceTag,
       contribution: null,
-      note: 'Corey Clone unavailable. No clone contribution is implied.'
+      note: 'Secondary macro model pending. No clone contribution is implied.'
     };
   }
   const hasContribution = c.contribution && (

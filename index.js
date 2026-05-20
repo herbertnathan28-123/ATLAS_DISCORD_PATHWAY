@@ -808,7 +808,7 @@ function presenterQA(sections, ctx) {
   if (blankChartSent) return r('blank_chart_sent');
   if (!/Level: \w+/i.test(allText) && /TRIGGER MAP/i.test(allText) && /pending/i.test(allText) === false) return r('trigger_map_missing_levels');
   if (/lower timeframe/i.test(allText) && !/30M|15M|5M|1M|1H|4H/.test(allText)) return r('confirmation_timeframe_not_specified');
-  if (/\bconfirmation\b/i.test(allText) && !/(BOS|CHoCH|candle close|structure break)/i.test(allText)) return r('confirmation_used_without_definition');
+  if (/\bconfirmation\b/i.test(allText) && !/(BOS|CHoCH|\[Structure Break\]|\[Trend Shift\]|candle close|body close|structure break|primary timeframe)/i.test(allText)) return r('confirmation_used_without_definition');
   return { ok: true };
 }
 
@@ -1766,12 +1766,13 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane, re
         historicalStatus = 'no-match';
       }
     } catch (_) { historicalStatus = 'unavailable'; }
-    // Corey Clone wired live (operator brief 2026-05-17 post-deploy).
-    // Status reads via the engine validator when an output is available;
-    // otherwise reports the truthful runtime state. The MI scheduler
-    // invokes Corey Clone per-tick — its status surfaces in the FOH
-    // packet's cloneStatus field.
-    let coreyCloneStatus = 'active: engine wired (per-tick invocation via MI scheduler)';
+    // Corey Clone status — the secondary macro model is not yet feeding the
+    // Final Assessment, so the default truthful state is "pending". Only
+    // upgrade to "active" when the engine validator confirms a real packet
+    // has been produced and attached via opts.coreyClone. This removes the
+    // self-contradicting "active: engine wired" + "unavailable: not implemented"
+    // pair that surfaced in PR #56-era live output.
+    let coreyCloneStatus = 'secondary macro model — pending';
     try {
       const cloneOut = opts && opts.coreyClone;
       if (cloneOut) {
@@ -1962,6 +1963,42 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane, re
                  : 'no active trade signal';
     }
 
+    // last-price extraction — try every plausible field on corey/spidey/jane
+    // and keep the layer name so Source Status / Audit cannot contradict a
+    // visible dashboard price. Must be declared BEFORE the `sources` object
+    // construction below — quoteStatus / marketDataAudit are consumed there,
+    // and a const reference before declaration trips the temporal dead zone
+    // (Jane post fails with "Cannot access 'marketDataAudit' before initialization").
+    const assetClass = corey?.internalMacro?.assetClass
+                    || (/^[A-Z]{6}$/.test(symbol) ? 'fx'
+                        : /^(NAS100|US500|US30|DJI|GER40|UK100|SPX|NDX|HK50|JPN225)$/.test(symbol) ? 'index'
+                        : /XAU|XAG|OIL|BRENT|WTI|NATGAS/.test(symbol) ? 'commodity'
+                        : 'equity');
+    const priceCandidates = [
+      { source: 'Final assessment packet', value: jane?.lastPrice ?? jane?.currentPrice },
+      { source: 'Market structure HTF OHLC', value: spideyHTF?.currentPrice ?? spideyHTF?.lastPrice },
+      { source: 'Market structure LTF OHLC', value: spideyLTF?.currentPrice },
+      { source: 'Macro context quote', value: corey?.lastPrice ?? corey?.internalMacro?.lastPrice },
+    ];
+    const priceHit = priceCandidates.find(p => p.value != null && Number.isFinite(Number(p.value)));
+    const last = priceHit ? Number(priceHit.value) : null;
+    const quoteStatus = last != null
+      ? ('live: ' + priceHit.source)
+      : (chartOkCount > 0
+          ? 'live: chart-img chart layer (visible price from rendered chart)'
+          : 'pending: no visible price in dashboard packet');
+    const marketDataLive = chartOkCount > 0 || last != null || (coverageSummary && coverageSummary.okCount > 0);
+    const marketDataStatus = marketDataLive
+      ? 'LIVE'
+      : (chartTotal > 0 || coverageSummary) ? 'PARTIAL'
+      : 'PENDING';
+    const marketDataAudit = [
+      `Market Data: ${marketDataStatus}`,
+      `charts=${chartDataDetail}`,
+      `quote=${quoteStatus}`,
+      `analysisOHLC=${ohlcAuditLine}`,
+    ].join(' · ');
+
     // Public-facing source labels. Internal engine names (corey, coreyClone,
     // spidey, jane) are replaced with neutral keys per the dashboard surface
     // separation lane (2026-05-12). The dashboard frontend should consume
@@ -1993,39 +2030,6 @@ function postJanePacketToDashboard(symbol, corey, spideyHTF, spideyLTF, jane, re
     if (absentDecisionFields.length) {
       console.log(`[JANE-BUILD] absentDecisionFields=${absentDecisionFields.join(',')}`);
     }
-
-    const assetClass = corey?.internalMacro?.assetClass
-                    || (/^[A-Z]{6}$/.test(symbol) ? 'fx'
-                        : /^(NAS100|US500|US30|DJI|GER40|UK100|SPX|NDX|HK50|JPN225)$/.test(symbol) ? 'index'
-                        : /XAU|XAG|OIL|BRENT|WTI|NATGAS/.test(symbol) ? 'commodity'
-                        : 'equity');
-    // last-price extraction — try every plausible field on corey/spidey/jane
-    // and keep the layer name so Source Status / Audit cannot contradict a
-    // visible dashboard price.
-    const priceCandidates = [
-      { source: 'Final assessment packet', value: jane?.lastPrice ?? jane?.currentPrice },
-      { source: 'Market structure HTF OHLC', value: spideyHTF?.currentPrice ?? spideyHTF?.lastPrice },
-      { source: 'Market structure LTF OHLC', value: spideyLTF?.currentPrice },
-      { source: 'Macro context quote', value: corey?.lastPrice ?? corey?.internalMacro?.lastPrice },
-    ];
-    const priceHit = priceCandidates.find(p => p.value != null && Number.isFinite(Number(p.value)));
-    const last = priceHit ? Number(priceHit.value) : null;
-    const quoteStatus = last != null
-      ? ('live: ' + priceHit.source)
-      : (chartOkCount > 0
-          ? 'live: chart-img chart layer (visible price from rendered chart)'
-          : 'pending: no visible price in dashboard packet');
-    const marketDataLive = chartOkCount > 0 || last != null || (coverageSummary && coverageSummary.okCount > 0);
-    const marketDataStatus = marketDataLive
-      ? 'LIVE'
-      : (chartTotal > 0 || coverageSummary) ? 'PARTIAL'
-      : 'PENDING';
-    const marketDataAudit = [
-      `Market Data: ${marketDataStatus}`,
-      `charts=${chartDataDetail}`,
-      `quote=${quoteStatus}`,
-      `analysisOHLC=${ohlcAuditLine}`,
-    ].join(' · ');
 
     // Apply central advisory-wording remap to the action state and trade
     // status so the packet can never carry banned wording downstream.
@@ -2598,7 +2602,7 @@ function logDataSource(symbol, opts = {}) {
 
   // Corey / clone tags
   const coreyTag      = opts.corey      || 'eligible';
-  const coreyCloneTag = opts.coreyClone || 'active: engine wired (per-tick invocation via MI scheduler)';
+  const coreyCloneTag = opts.coreyClone || 'secondary macro model — pending';
   const janeTag       = opts.jane       || 'pending';
   spideyTag           = spideyTag       || 'pending';
 

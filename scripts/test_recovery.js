@@ -130,7 +130,7 @@ function ok(name, cond, info) {
   ok('(G) INCOREGO has IN/CO/RE/GO buckets', block.incorego.IN && block.incorego.CO && block.incorego.RE && block.incorego.GO, JSON.stringify(block.incorego));
   ok('(G) coreyStatus is OK or PARTIAL when corey present', block.coreyStatus !== 'UNAVAILABLE', block.coreyStatus);
   ok('(G) coreyEffectOnJaneProbability is supports/weakens/caps/neutral', /^(supports|weakens|caps|neutral)$/.test(block.coreyEffectOnJaneProbability));
-  ok('(G) coreyClone defaults to UNAVAILABLE / not implemented', block.coreyClone.status === 'UNAVAILABLE' && /not implemented/i.test(block.coreyClone.note));
+  ok('(G) coreyClone defaults to PENDING / secondary macro model pending', block.coreyClone.status === 'PENDING' && /pending/i.test(block.coreyClone.note));
 
   const text = renderIncoregoForDiscord({ symbol: 'US500', incoregoBlock: block, jane, tradeProbability: 4 });
   ok('(G) INCOREGO render contains COREY READ heading',  /COREY READ — US500/.test(text), text.slice(0,160));

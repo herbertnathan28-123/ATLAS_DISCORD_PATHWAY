@@ -113,7 +113,7 @@ function formatDataSourceLine(symbol, cov, extra = {}) {
     `calendar=${extra.calendar || 'unavailable'}`,
     `historical=${extra.historical || 'unavailable'}`,
     `corey=${extra.corey || 'unavailable'}`,
-    `coreyClone=${extra.coreyClone || 'unavailable: not implemented'}`,
+    `coreyClone=${extra.coreyClone || 'secondary macro model — pending'}`,
     `spidey=${extra.spidey || 'unavailable'}`,
     `jane=${extra.jane || 'unavailable'}`
   ];
