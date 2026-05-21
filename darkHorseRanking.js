@@ -185,6 +185,10 @@ function enrichCandidate(candidate, htfCandles, sectionAvgScore, opts) {
     symbol: candidate.symbol,
     section,
     sectionLabel: SECTION_LABEL[section],
+    marketGroup: candidate.marketGroup || opts.marketGroup || null,
+    marketGroupLabel: candidate.marketGroupLabel || opts.marketGroupLabel || null,
+    sourceProvider: candidate.sourceProvider || opts.sourceProvider || null,
+    providerProvenance: candidate.providerProvenance || opts.providerProvenance || null,
     safeHavenOverlay: isSafeHaven,
     direction: candidate.direction,
     score: candidate.score,
@@ -233,25 +237,30 @@ function atlasStateFromPhase(phase) {
 function rankCandidates(enriched, opts) {
   opts = opts || {};
   const sectionCap = opts.sectionCap || 2;          // default 2 per section
-  const sectionCapMax = opts.sectionCapMax || 3;    // up to 3 if dominant
+  const hasMarketGroups = (enriched || []).some(r => r && r.marketGroup);
+  const sectionCapMax = hasMarketGroups ? sectionCap : (opts.sectionCapMax || 3);
   const topN = opts.topN || 10;
+  const capKeyFor = r => (r && r.marketGroup) || (r && r.section) || 'other';
 
   // Sort all by score desc.
   const sorted = enriched.slice().sort((a, b) => (b.score - a.score) || (b.moveStrength - a.moveStrength));
 
-  // Bucket by section.
+  // Bucket by market group when registry metadata is present; fall
+  // back to the legacy section bucket for older fixtures.
   const bySection = {};
   for (const r of sorted) {
-    if (!bySection[r.section]) bySection[r.section] = [];
-    bySection[r.section].push(r);
+    const key = capKeyFor(r);
+    if (!bySection[key]) bySection[key] = [];
+    bySection[key].push(r);
   }
 
   // First pass: take up to `sectionCap` per section in score order.
   const out = [];
   const counts = {};
   for (const r of sorted) {
-    if ((counts[r.section] || 0) >= sectionCap) continue;
-    counts[r.section] = (counts[r.section] || 0) + 1;
+    const key = capKeyFor(r);
+    if ((counts[key] || 0) >= sectionCap) continue;
+    counts[key] = (counts[key] || 0) + 1;
     out.push(r);
     if (out.length >= topN) break;
   }
@@ -264,7 +273,7 @@ function rankCandidates(enriched, opts) {
   // Second pass: if a single section dominates AND we still have room,
   // raise its cap to sectionCapMax. (Only if already top in score.)
   if (out.length < topN) {
-    const topSection = out[0] ? out[0].section : null;
+    const topSection = out[0] ? capKeyFor(out[0]) : null;
     if (topSection && (counts[topSection] || 0) === sectionCap) {
       for (const r of (bySection[topSection] || [])) {
         if (out.includes(r)) continue;
@@ -283,9 +292,10 @@ function rankCandidates(enriched, opts) {
   if (out.length < topN) {
     for (const r of sorted) {
       if (out.includes(r)) continue;
-      if ((counts[r.section] || 0) >= sectionCapMax) continue;
+      const key = capKeyFor(r);
+      if ((counts[key] || 0) >= sectionCapMax) continue;
       out.push(r);
-      counts[r.section] = (counts[r.section] || 0) + 1;
+      counts[key] = (counts[key] || 0) + 1;
       if (out.length >= topN) break;
     }
   }
@@ -618,7 +628,7 @@ function nextReviewLine(nowMs, intervalMs) {
 
 // User-facing constants. Reused by the digest builder + harness.
 const DH_CRITERIA_PARAGRAPH =
-  '**Dark Horse criteria:** ATLAS FX regularly scans the global markets every 15 minutes to identify markets and instruments showing unusually strong or improving movement, clean structure, strong momentum, or early signs of a developing trend. The list highlights candidates worth closer review at that scan time. ⭐ marks the strongest standouts from the current group.';
+  '**Dark Horse criteria:** ATLAS FX regularly scans the currently supported registry markets every 15 minutes to identify markets and instruments showing unusually strong or improving movement, clean structure, strong momentum, or early signs of a developing trend. The scan transparency section states which regions were scanned, partial, unsupported, or degraded. The list highlights candidates worth closer review at that scan time. ⭐ marks the strongest standouts from the current group.';
 
 // ── NEW-SCAN BOUNDARY ─────────────────────────────────────────
 // Operator directive 2026-05-12. A 4-line boundary block sits at
@@ -1333,7 +1343,7 @@ function _buildLegacyRankedMovementDigestPayload(ranking, volatility, opts) {
     : `**State:** Monitoring only · no fully confirmed watch candidate this cycle, but ${top.length} developing standout${top.length === 1 ? ' is' : 's are'} being tracked for confirmation.`;
 
   const content =
-    `🐎 **DARK HORSE — GLOBAL MOVER RADAR (v1.1)**\n\n` +
+    `🐎 **DARK HORSE — REGISTRY MOVER RADAR (v1.1)**\n\n` +
     `${learningLinks.text}\n\n` +
     `${DH_CRITERIA_PARAGRAPH}\n\n` +
     `${stateLine}\n` +
@@ -1403,6 +1413,10 @@ async function buildRanking(candidates, candleProvider, opts) {
     enriched.push(enrichCandidate(c, candles, sectionAvg, {
       watchThreshold: opts.watchThreshold,
       macroEventLink: macroLink,
+      marketGroup: c.marketGroup,
+      marketGroupLabel: c.marketGroupLabel,
+      sourceProvider: c.sourceProvider,
+      providerProvenance: c.providerProvenance,
     }));
   }
   const ranking = rankCandidates(enriched, opts);

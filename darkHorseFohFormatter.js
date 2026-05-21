@@ -407,6 +407,45 @@ function buildBoostDetectorQuietPack(ctx) {
   return lines.join('\n');
 }
 
+function _joinLimited(list, emptyText) {
+  const arr = Array.isArray(list) ? list.filter(Boolean) : [];
+  if (!arr.length) return emptyText;
+  const shown = arr.slice(0, 8);
+  const suffix = arr.length > shown.length ? ' +' + (arr.length - shown.length) + ' more' : '';
+  return shown.join(' · ') + suffix;
+}
+
+function buildScanTransparency(ctx) {
+  const funnel = ctx && ctx.funnel || {};
+  const t = (ctx && ctx.scanTransparency) || funnel.scanTransparency || {};
+  const state = t.coverageState || 'PARTIAL';
+  const scanned = _joinLimited(t.scannedGroups, 'no provider-supported groups scanned');
+  const notScanned = _joinLimited(t.notScannedGroups, 'no enabled group was fully skipped');
+  const contributed = _joinLimited(t.providersContributed, 'none reported');
+  const failed = _joinLimited(t.providersFailed, 'none reported');
+  const partial = _joinLimited(t.partialGroups, 'none reported');
+  const lines = [
+    buildSectionSeparator('SCAN TRANSPARENCY', '🧭'),
+    '**Coverage state:** ' + state + ' — ATLAS only describes coverage as full when every enabled registry group is provider-supported and scanned successfully.',
+    '**What ATLAS scanned:** ' + scanned + '.',
+    '**What ATLAS did not scan:** ' + notScanned + '.',
+    '**Providers contributing:** ' + contributed + '.',
+    '**Providers failed / unavailable / unsupported:** ' + failed + '.',
+    '**Partial regions/categories:** ' + partial + '.',
+    '**Counts:** intended=' + (t.intendedUniverseCount == null ? 'pending' : t.intendedUniverseCount)
+      + ' · enabled=' + (t.enabledCount == null ? 'pending' : t.enabledCount)
+      + ' · provider-supported=' + (t.providerSupportedCount == null ? 'pending' : t.providerSupportedCount)
+      + ' · static-core=' + (t.staticCoreCount == null ? 'pending' : t.staticCoreCount)
+      + ' · dynamic-movers=' + (t.dynamicMoverCount == null ? 'pending' : t.dynamicMoverCount)
+      + ' · total-considered=' + (t.totalConsidered == null ? 'pending' : t.totalConsidered)
+      + ' · fetched=' + (t.fetchedSuccessfully == null ? 'pending' : t.fetchedSuccessfully)
+      + ' · failed=' + (t.failed == null ? 'pending' : t.failed)
+      + ' · unsupported=' + (t.unsupported == null ? 'pending' : t.unsupported)
+      + ' · duplicates-removed=' + (t.duplicatesRemoved == null ? 'pending' : t.duplicatesRemoved) + '.',
+  ];
+  return lines.join('\n');
+}
+
 // ── Expanded terminology row ─────────────────────────────────
 function buildTerminologyRow(learningLinks) {
   // When the URL map is wired, surface the Markdown-link form
@@ -797,6 +836,7 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
     ranking,
     funnel: opts.funnel || ranking.funnel || null,
     sourceProvenance: opts.sourceProvenance || ranking.sourceProvenance || [],
+    scanTransparency: opts.scanTransparency || (opts.funnel && opts.funnel.scanTransparency) || (ranking && ranking.scanTransparency) || null,
     top10Count: top.length,
     atThresholdCount: top.filter(x => (x.score || 0) >= 8).length,
     internalCount: internalArr.length,
@@ -894,10 +934,13 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
   // 12. Universe coverage (visual tag panel)
   blocks.push(buildUniverseCoverage(ctx));
 
-  // 13. Closing block — next review + upgrade / downgrade pair
+  // 13. Scan transparency — registry/provider coverage accounting.
+  blocks.push(buildScanTransparency(ctx));
+
+  // 14. Closing block — next review + upgrade / downgrade pair
   blocks.push(buildClosingBlock(ctx));
 
-  // 14. Advisory tail (no permission / directive wording)
+  // 15. Advisory tail (no permission / directive wording)
   blocks.push(
     '⚠️ Advisory only — ATLAS surfaces conditions and reference areas; '
     + 'it does not issue trading directives. Late-entry quality varies '
@@ -936,6 +979,7 @@ module.exports = {
   buildOperatorNote,
   buildTerminologyRow,
   buildUniverseCoverage,
+  buildScanTransparency,
   buildClosingBlock,
   sectionStatusTag,
   cardStatusTag,
