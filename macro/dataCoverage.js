@@ -14,10 +14,11 @@
 // Provider tags used by the recorder:
 //   'twelvedata' — TD primary
 //   'twelvedata-probe:<sym>' — TD via index probe list, with the candidate
+//   'eodhd'                  — EODHD explicit ticker route
 //   'fmp-fallback'           — FMP last-resort fallback
 //   'none'                   — both providers failed for this resolution
 
-const KNOWN_PROVIDERS = new Set(['twelvedata', 'fmp-fallback', 'none']);
+const KNOWN_PROVIDERS = new Set(['twelvedata', 'eodhd', 'fmp-fallback', 'none']);
 
 function createCoverage(symbol) {
   const perResolution = Object.create(null); // res -> { provider, candidate?, candles, error? }

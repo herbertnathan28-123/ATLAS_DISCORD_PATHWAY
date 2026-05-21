@@ -21,9 +21,28 @@
 // ============================================================
 
 const fomo = require('./darkHorseFomoControl');
+const dhUniverse = require('./darkHorseUniverse');
 
 // ── SECTIONS ─────────────────────────────────────────────────
 const SECTIONS = {
+  US_LARGE_CAP: 'us_large_cap',
+  US_MID_GROWTH: 'us_mid_growth',
+  US_TECH_MOMENTUM: 'us_tech_momentum',
+  US_INDICES: 'us_indices',
+  INTERNATIONAL_INDICES: 'international_indices',
+  ASX_EQUITIES: 'asx_equities',
+  FOREX_MAJORS: 'forex_majors',
+  FOREX_MINORS: 'forex_minors',
+  PRECIOUS_METALS: 'precious_metals',
+  INDUSTRIAL_METALS: 'industrial_metals',
+  ENERGY: 'energy',
+  AGRICULTURAL: 'agricultural',
+  SECTOR_ETFS: 'sector_etfs',
+  BONDS_RATES: 'bonds_rates',
+  VOLATILITY_MACRO: 'volatility_macro',
+
+  // Legacy buckets retained for fixtures and symbols outside the
+  // approved 15-category universe.
   FX_MAJORS:    'fx_majors',
   FX_CROSSES:   'fx_crosses',
   INDICES:      'indices',
@@ -34,6 +53,22 @@ const SECTIONS = {
 };
 
 const SECTION_LABEL = {
+  [SECTIONS.US_LARGE_CAP]:          'US Large Cap',
+  [SECTIONS.US_MID_GROWTH]:         'US Mid/Growth',
+  [SECTIONS.US_TECH_MOMENTUM]:      'US Tech/Momentum',
+  [SECTIONS.US_INDICES]:            'US Indices',
+  [SECTIONS.INTERNATIONAL_INDICES]: 'International Indices',
+  [SECTIONS.ASX_EQUITIES]:          'ASX Equities',
+  [SECTIONS.FOREX_MAJORS]:          'Forex Majors',
+  [SECTIONS.FOREX_MINORS]:          'Forex Minors',
+  [SECTIONS.PRECIOUS_METALS]:       'Precious Metals',
+  [SECTIONS.INDUSTRIAL_METALS]:     'Industrial Metals',
+  [SECTIONS.ENERGY]:                'Energy',
+  [SECTIONS.AGRICULTURAL]:          'Agricultural',
+  [SECTIONS.SECTOR_ETFS]:           'Sector ETFs',
+  [SECTIONS.BONDS_RATES]:           'Bonds/Rates',
+  [SECTIONS.VOLATILITY_MACRO]:      'Volatility / Macro Context',
+
   [SECTIONS.FX_MAJORS]:   'FX Majors',
   [SECTIONS.FX_CROSSES]:  'FX Crosses / Risk Pairs',
   [SECTIONS.INDICES]:     'Global Indices',
@@ -49,8 +84,8 @@ const FX_CROSS_SET   = new Set([
   'GBPAUD','GBPCAD','GBPCHF','AUDCAD','AUDNZD','NZDCAD',
 ]);
 const INDEX_SET      = new Set(['NAS100','US500','DJI','GER40','UK100','JPN225','HK50','SPX','NDX','IXIC','GSPC']);
-const COMMODITY_SET  = new Set(['XAUUSD','XAGUSD','USOIL','WTI','XPTUSD','XPDUSD','BRENT','NATGAS']);
-const EQUITY_SET     = new Set(['NVDA','AMD','ASML','AAPL','MSFT','META','GOOGL','AMZN','TSLA']);
+const COMMODITY_SET  = new Set(['XAUUSD','XAGUSD','USOIL','WTI','XPTUSD','XPDUSD','BRENT','NATGAS','COPPER']);
+const EQUITY_SET     = new Set(['NVDA','AMD','MU','ASML','AAPL','MSFT','META','GOOGL','AMZN','TSLA','SPY','QQQ','EWJ','EWG','BHP','CBA','UCO','UNG','CORN','WEAT','XLE','XLF','TLT','HYG','VIXY','UUP']);
 // Safe-haven overlay: pairs that ALSO act as defensives in stress.
 // Classification is exclusive — primary section wins; safe-haven is a
 // metadata flag we add to the rank record so the bulletin can say
@@ -59,6 +94,8 @@ const SAFE_HAVEN_OVERLAY = new Set(['USDJPY','USDCHF','XAUUSD']);
 
 function classifyToSection(symbol) {
   const s = String(symbol || '').toUpperCase();
+  const meta = dhUniverse.getBySymbol(s);
+  if (meta && meta.category) return meta.category;
   if (FX_MAJOR_SET.has(s))   return SECTIONS.FX_MAJORS;
   if (FX_CROSS_SET.has(s))   return SECTIONS.FX_CROSSES;
   if (INDEX_SET.has(s))      return SECTIONS.INDICES;
@@ -102,6 +139,144 @@ function computeMoveSpeed(candles) {
   const r = avg(recent), p = avg(prior);
   if (p === 0) return null;
   return Number((r / p).toFixed(2));
+}
+
+function _pctChange(from, to) {
+  const a = Number(from);
+  const b = Number(to);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a === 0) return null;
+  return ((b - a) / a) * 100;
+}
+
+function _fmtPct(v) {
+  if (!Number.isFinite(v)) return 'n/a';
+  return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+}
+
+function _fmtPriceMove(v) {
+  if (!Number.isFinite(v)) return 'n/a';
+  const abs = Math.abs(v);
+  const dp = abs >= 100 ? 2 : abs >= 1 ? 4 : 5;
+  return (v >= 0 ? '+$' : '-$') + abs.toFixed(dp);
+}
+
+function _averageAbsDailyMove(candles, lookback) {
+  if (!Array.isArray(candles) || candles.length < 3) return null;
+  const rows = candles.slice(-Math.min(lookback || 20, candles.length - 1) - 1);
+  const moves = [];
+  for (let i = 1; i < rows.length; i++) {
+    const pct = _pctChange(rows[i - 1].close, rows[i].close);
+    if (Number.isFinite(pct)) moves.push(Math.abs(pct));
+  }
+  if (!moves.length) return null;
+  return moves.reduce((s, v) => s + v, 0) / moves.length;
+}
+
+function computeGrowthMetrics(candidate, candles) {
+  const boost = (candidate && candidate.boostMetrics) || {};
+  const rows = Array.isArray(candles) ? candles.filter(c => c && Number.isFinite(c.close)) : [];
+  const last = rows[rows.length - 1] || null;
+  const prev = rows[rows.length - 2] || null;
+  const currentPrice = Number.isFinite(candidate && candidate.currentPrice)
+    ? Number(candidate.currentPrice)
+    : last && Number(last.close);
+  const dailyPctFromCandles = last && prev ? _pctChange(prev.close, last.close) : null;
+  const todayPct = Number.isFinite(boost.percentMove) ? Number(boost.percentMove) : dailyPctFromCandles;
+  const todayDollar = last && prev && Number.isFinite(last.close) && Number.isFinite(prev.close)
+    ? Number(last.close) - Number(prev.close)
+    : null;
+  const openReference = prev && Number.isFinite(prev.close) ? prev.close : null;
+  const base30 = rows.length >= 31 ? rows[rows.length - 31].close : null;
+  const growth30D = Number.isFinite(base30) ? _pctChange(base30, currentPrice) : null;
+  const thisYear = new Date().getUTCFullYear();
+  let ytdBase = null;
+  for (const c of rows) {
+    if (!Number.isFinite(c.time) || !Number.isFinite(c.close)) continue;
+    const y = new Date(c.time * 1000).getUTCFullYear();
+    if (y === thisYear) { ytdBase = c.close; break; }
+  }
+  const growthYTD = Number.isFinite(ytdBase) ? _pctChange(ytdBase, currentPrice) : null;
+  const avgAbsDailyMove = _averageAbsDailyMove(rows, 20);
+  const moveRateMultiple = Number.isFinite(todayPct) && Number.isFinite(avgAbsDailyMove) && avgAbsDailyMove > 0
+    ? Math.abs(todayPct) / avgAbsDailyMove
+    : null;
+  const aboveAverage = Number.isFinite(moveRateMultiple) ? moveRateMultiple >= 1 : null;
+  return {
+    todayPct: Number.isFinite(todayPct) ? Number(todayPct.toFixed(2)) : null,
+    todayDollar: Number.isFinite(todayDollar) ? Number(todayDollar.toFixed(5)) : null,
+    openReference: Number.isFinite(openReference) ? Number(openReference.toFixed(5)) : null,
+    growth30D: Number.isFinite(growth30D) ? Number(growth30D.toFixed(2)) : null,
+    growthYTD: Number.isFinite(growthYTD) ? Number(growthYTD.toFixed(2)) : null,
+    avgAbsDailyMove: Number.isFinite(avgAbsDailyMove) ? Number(avgAbsDailyMove.toFixed(2)) : null,
+    moveRateMultiple: Number.isFinite(moveRateMultiple) ? Number(moveRateMultiple.toFixed(2)) : null,
+    aboveAverage,
+    plainEnglish: buildMoveExplanation({
+      todayPct,
+      moveRateMultiple,
+      aboveAverage,
+      period: 'day',
+    }),
+  };
+}
+
+function _marketMoodScore(level) {
+  const v = String(level || '').toLowerCase();
+  if (/extreme|storm|high/.test(v)) return 5;
+  if (/elev/.test(v)) return 4;
+  if (/mod|form/.test(v)) return 3;
+  if (/quiet|low|calm/.test(v)) return 2;
+  return 3;
+}
+
+function temperatureMarkerFor(candidate, moveMetrics, opts) {
+  opts = opts || {};
+  const score = Number(candidate && candidate.score);
+  const phase = String(candidate && candidate.movePhase || '').toLowerCase();
+  const moodScore = Number.isFinite(opts.marketMoodScore)
+    ? opts.marketMoodScore
+    : _marketMoodScore(opts.marketMoodLevel);
+  const rate = Number(moveMetrics && moveMetrics.moveRateMultiple);
+  const late = phase === 'late' || phase === 'exhaustion';
+  const belowAverage = moveMetrics && moveMetrics.aboveAverage === false;
+  const exhausted = late || belowAverage || moodScore >= 4;
+  if (
+    Number.isFinite(score) && score >= 8 &&
+    Number.isFinite(rate) && rate >= 1.5 &&
+    (phase === 'early' || phase === 'mid') &&
+    moodScore <= 3
+  ) {
+    return { icon: '🔥', label: 'ON FIRE', code: 'on_fire', reason: 'strong momentum, clean structure, early lifecycle, and move rate above 1.5x average' };
+  }
+  if (Number.isFinite(score) && score <= 5) {
+    return { icon: '⚠️', label: 'CAUTION', code: 'caution', reason: 'score is at or below 5/10' };
+  }
+  if (exhausted) {
+    return { icon: '⚠️', label: 'CAUTION', code: 'caution', reason: late ? 'late-stage lifecycle' : moodScore >= 4 ? 'storm/elevated Market Mood reduces quality' : 'move rate is below average' };
+  }
+  if (Number.isFinite(score) && score >= 6) {
+    return { icon: '⭐', label: 'STANDOUT', code: 'standout', reason: 'quality structure with momentum building' };
+  }
+  return { icon: '⚠️', label: 'CAUTION', code: 'caution', reason: 'candidate has not qualified above the quality threshold' };
+}
+
+function buildMoveExplanation(metrics) {
+  metrics = metrics || {};
+  const pct = Number(metrics.todayPct);
+  if (!Number.isFinite(pct)) {
+    return 'Move rate is pending because this scan did not receive enough price history to compare the latest move with its average movement rate.';
+  }
+  const period = metrics.period || 'day';
+  const rel = metrics.aboveAverage == null
+    ? 'not yet comparable with'
+    : metrics.aboveAverage ? 'above' : 'below';
+  const rate = Number(metrics.moveRateMultiple);
+  const rateText = Number.isFinite(rate) ? ' (' + rate.toFixed(1) + 'x average)' : '';
+  const meaning = metrics.aboveAverage === true
+    ? 'momentum is expanding and continuation has a better path if structure holds'
+    : metrics.aboveAverage === false
+    ? 'momentum is not expanding, so late chase risk is higher'
+    : 'momentum quality cannot be confirmed yet';
+  return 'This instrument has moved ' + _fmtPct(pct) + ' in the last ' + period + '. That is ' + rel + ' its average movement rate for this period' + rateText + ' - ' + meaning + '.';
 }
 
 function classifyMovePhase(age, speed, score) {
@@ -174,17 +349,25 @@ function promotionTriggerTemplate(direction) {
 // Output: enriched rank record with all v1.1 fields.
 function enrichCandidate(candidate, htfCandles, sectionAvgScore, opts) {
   opts = opts || {};
-  const section = classifyToSection(candidate.symbol);
+  const meta = dhUniverse.getBySymbol(candidate.symbol);
+  const section = (meta && meta.category) || classifyToSection(candidate.symbol);
   const isSafeHaven = isSafeHavenOverlay(candidate.symbol);
   const moveAge = computeMoveAge(htfCandles, candidate.direction);
   const moveSpeed = computeMoveSpeed(htfCandles);
   const movePhase = classifyMovePhase(moveAge, moveSpeed, candidate.score);
   const relStr = computeRelativeStrength(candidate, sectionAvgScore);
+  const moveMetrics = computeGrowthMetrics(candidate, htfCandles);
+  const tempBase = { score: candidate.score, movePhase };
+  const temperatureMarker = temperatureMarkerFor(tempBase, moveMetrics, opts);
 
   return {
     symbol: candidate.symbol,
     section,
-    sectionLabel: SECTION_LABEL[section],
+    sectionLabel: (meta && meta.categoryLabel) || SECTION_LABEL[section],
+    eodhdTicker: (meta && meta.eodhdTicker) || candidate.eodhdTicker || null,
+    instrumentName: (meta && meta.name) || null,
+    amplifiedInstrument: !!(meta && meta.amplifiedInstrument),
+    riskDisclosure: (meta && meta.riskDisclosure) || null,
     safeHavenOverlay: isSafeHaven,
     direction: candidate.direction,
     score: candidate.score,
@@ -205,6 +388,8 @@ function enrichCandidate(candidate, htfCandles, sectionAvgScore, opts) {
     macroEventLink:          opts.macroEventLink || 'unavailable — no anchor event mapped to this symbol',
     whyNotWatch:             whyNotWatch(candidate.score, opts.watchThreshold || 8),
     atlasState:              atlasStateFromPhase(movePhase),
+    moveMetrics,
+    temperatureMarker,
     // Education-layer evidence anchors. partial when only 1D data
     // is wired (current state); pending when no candles arrived.
     // Follow-up: wire 15m/5m OHLC into the ranking pipeline so the
@@ -290,11 +475,19 @@ function rankCandidates(enriched, opts) {
     }
   }
 
+  const categoryTop2 = {};
+  for (const section of Object.keys(bySection)) {
+    categoryTop2[section] = bySection[section]
+      .filter(r => Number.isFinite(r.score) && r.score >= (opts.minCategoryScore || 5))
+      .slice(0, 2);
+  }
+
   return {
     top10: out.slice(0, topN),
     perSectionCount: counts,
     sectionsScanned: Object.keys(bySection),
     sectionCapsApplied,
+    categoryTop2,
   };
 }
 
@@ -1044,9 +1237,46 @@ function visualPatternProse(direction) {
   ];
 }
 
+function _temperatureSummaryLine(r) {
+  const marker = r && r.temperatureMarker || { icon: '⚠️', label: 'CAUTION' };
+  const m = r && r.moveMetrics || {};
+  const today = Number.isFinite(m.todayPct) ? _fmtPct(m.todayPct) + ' today' : 'move pending';
+  const d30 = Number.isFinite(m.growth30D) ? _fmtPct(m.growth30D) + ' (30D)' : '30D pending';
+  const ytd = Number.isFinite(m.growthYTD) ? _fmtPct(m.growthYTD) + ' (YTD)' : 'YTD pending';
+  return marker.icon + ' ' + marker.label + '  ' + today + '  ·  ' + d30 + '  ·  ' + ytd + '  ·  Score ' + (r && r.score != null ? r.score : 'n/a') + '/10';
+}
+
+function _moveMetricsLines(r) {
+  const m = r && r.moveMetrics || {};
+  const lines = [];
+  const today = Number.isFinite(m.todayPct) ? _fmtPct(m.todayPct) : 'n/a';
+  const dollars = Number.isFinite(m.todayDollar) ? _fmtPriceMove(m.todayDollar) : 'n/a';
+  lines.push('Move: ' + today + ' · ' + dollars + ' from daily open/reference');
+  lines.push('Growth (30D): ' + (Number.isFinite(m.growth30D) ? _fmtPct(m.growth30D) : 'pending'));
+  lines.push('Growth (YTD): ' + (Number.isFinite(m.growthYTD) ? _fmtPct(m.growthYTD) : 'pending'));
+  if (m.plainEnglish) lines.push(m.plainEnglish);
+  if (r && r.amplifiedInstrument && r.riskDisclosure) lines.push('Risk note: ' + r.riskDisclosure);
+  return lines;
+}
+
 // Canonical display order — kept stable across scans so the
 // reader's eye lands on the same section position each cycle.
 const SECTION_DISPLAY_ORDER = [
+  SECTIONS.US_LARGE_CAP,
+  SECTIONS.US_MID_GROWTH,
+  SECTIONS.US_TECH_MOMENTUM,
+  SECTIONS.US_INDICES,
+  SECTIONS.INTERNATIONAL_INDICES,
+  SECTIONS.ASX_EQUITIES,
+  SECTIONS.FOREX_MAJORS,
+  SECTIONS.FOREX_MINORS,
+  SECTIONS.PRECIOUS_METALS,
+  SECTIONS.INDUSTRIAL_METALS,
+  SECTIONS.ENERGY,
+  SECTIONS.AGRICULTURAL,
+  SECTIONS.SECTOR_ETFS,
+  SECTIONS.BONDS_RATES,
+  SECTIONS.VOLATILITY_MACRO,
   SECTIONS.FX_MAJORS,
   SECTIONS.FX_CROSSES,
   SECTIONS.INDICES,
@@ -1092,8 +1322,10 @@ function buildExpandedDetail(rank, idx, isStandout) {
     : null;
 
   const lines = [
-    `**${star}#${idx + 1} — ${r.symbol} ${arrowFor(r.direction)}**  ·  Section: ${r.sectionLabel}${r.safeHavenOverlay ? ' · safe-haven overlay' : ''}`,
+    `**${star}#${idx + 1} — ${_temperatureSummaryLine(r)}**`,
+    `**${r.symbol} ${arrowFor(r.direction)}**  ·  Section: ${r.sectionLabel}${r.safeHavenOverlay ? ' · safe-haven overlay' : ''}${r.eodhdTicker ? ' · EODHD ' + r.eodhdTicker : ''}`,
     `Direction: ${r.direction || 'neutral'}  ·  Score: ${r.score}/10`,
+    _moveMetricsLines(r).join('\n'),
     `Score breakdown:\n${breakdownLine}`,
     `Move strength: ${r.moveStrength}/10  ·  Move speed: ${speedStr}`,
     `Trend age: ${_translateChartJargon(plainTrendAge(r.moveAge, r.direction))}`,
@@ -1372,6 +1604,10 @@ function emitRankingLogs(ranking, log) {
     _log(`[DH-CANDIDATE] move_speed=${r.moveSpeed != null ? r.moveSpeed : 'unavailable'}`);
     _log(`[DH-CANDIDATE] move_age=${r.moveAge}`);
     _log(`[DH-CANDIDATE] move_phase=${r.movePhase}`);
+    _log(`[DH-CANDIDATE] temperature=${r.temperatureMarker ? r.temperatureMarker.code : 'unavailable'}`);
+    _log(`[DH-CANDIDATE] move_today_pct=${r.moveMetrics && r.moveMetrics.todayPct != null ? r.moveMetrics.todayPct : 'unavailable'}`);
+    _log(`[DH-CANDIDATE] growth_30d=${r.moveMetrics && r.moveMetrics.growth30D != null ? r.moveMetrics.growth30D : 'unavailable'}`);
+    _log(`[DH-CANDIDATE] growth_ytd=${r.moveMetrics && r.moveMetrics.growthYTD != null ? r.moveMetrics.growthYTD : 'unavailable'}`);
     _log(`[DH-CANDIDATE] relative_strength=${r.relativeStrength != null ? r.relativeStrength : 'unavailable'}`);
     _log(`[DH-CANDIDATE] structure_state=${(r.structureState || 'unavailable').slice(0, 80)}`);
     _log(`[DH-CANDIDATE] continuation_window=${r.continuationWindow}`);
@@ -1403,6 +1639,8 @@ async function buildRanking(candidates, candleProvider, opts) {
     enriched.push(enrichCandidate(c, candles, sectionAvg, {
       watchThreshold: opts.watchThreshold,
       macroEventLink: macroLink,
+      marketMoodLevel: opts.marketMoodLevel,
+      marketMoodScore: opts.marketMoodScore,
     }));
   }
   const ranking = rankCandidates(enriched, opts);
@@ -1419,6 +1657,7 @@ module.exports = {
   classifyToSection, isSafeHavenOverlay,
 
   computeMoveAge, computeMoveSpeed, classifyMovePhase,
+  computeGrowthMetrics, temperatureMarkerFor, buildMoveExplanation,
   lateEntryRiskFromPhase, continuationWindowFromPhase,
   computeRelativeStrength, perSectionAvgScores,
 

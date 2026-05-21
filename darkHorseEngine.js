@@ -9,6 +9,7 @@
 
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl');
+const dhUniverse = require('./darkHorseUniverse');
 
 // ── COREY LIVE — defensive optional require ───────────────────
 // Used solely to source VIX level for FOMO assessment. The
@@ -43,28 +44,9 @@ function getVixContext() {
 }
 
 // ── UNIVERSE ──────────────────────────────────────────────────
-// Full institutional universe — FX, indices, equities, commodities
-// Crypto excluded permanently — zero exceptions
-const DEFAULT_UNIVERSE = [
-  // FX Majors
-  'EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','USDCHF','NZDUSD',
-
-  // FX Crosses
-  'EURGBP','EURJPY','GBPJPY','AUDJPY','CADJPY','CHFJPY','EURAUD',
-  'EURCAD','GBPAUD','GBPCAD','GBPCHF','AUDCAD','AUDNZD','NZDCAD',
-
-  // Indices
-  'NAS100','US500','DJI','GER40','UK100','JPN225',
-
-  // Equities
-  'NVDA','AMD','ASML','AAPL','MSFT','META','GOOGL','AMZN','TSLA',
-
-  // Commodities
-  'XAUUSD','XAGUSD','USOIL',
-
-  // Safe-haven / defensive overlays
-  'DXY','USDCHF','USDJPY'
-];
+// Approved 2026-05-22 expanded universe: 15 categories, two eligible
+// instruments per category, crypto excluded permanently.
+const DEFAULT_UNIVERSE = dhUniverse.symbols({ includeContextOnly: true });
 
 const DH_UNIVERSE = DEFAULT_UNIVERSE;
 
@@ -78,7 +60,7 @@ const LIVE_MOVER_PROVIDER_DOCS = Object.freeze({
 const STATIC_UNIVERSE_SOURCE = {
   provider: 'atlas_static_core',
   status: 'ok',
-  detail: 'FX majors/crosses, metals, oil, indices, selected mega-cap equities, safe-havens',
+  detail: 'Expanded 15-category ATLAS Dark Horse universe; EODHD tickers registered; context-only macro overlays protected',
 };
 
 // Crypto exclusion filter — applied before every scan
@@ -99,7 +81,9 @@ function isCryptoBanned(symbol) {
 function normaliseDHSymbol(symbol) {
   const raw = String(symbol || '').trim().toUpperCase();
   if (!raw) return null;
-  const noExchange = raw.replace(/\.(US|NASDAQ|NYSE|NYSEARCA|AMEX)$/i, '');
+  const registrySymbol = dhUniverse.canonicalFromInput(raw);
+  if (registrySymbol) return isCryptoBanned(registrySymbol) ? null : registrySymbol;
+  const noExchange = raw.replace(/\.(US|AU|FOREX|COMM|NASDAQ|NYSE|NYSEARCA|AMEX|INDX)$/i, '');
   const cleaned = noExchange.replace(/[^A-Z0-9]/g, '');
   if (!cleaned || isCryptoBanned(cleaned)) return null;
   if (cleaned.length > 12) return null;
@@ -108,8 +92,16 @@ function normaliseDHSymbol(symbol) {
 
 function inferDHAssetClass(symbol) {
   const s = normaliseDHSymbol(symbol) || '';
+  const meta = dhUniverse.getBySymbol(s);
+  if (meta) {
+    if (meta.contextOnly) return 'macro_context';
+    if (meta.assetClass === 'fx') return 'fx';
+    if (meta.assetClass === 'metal' || meta.assetClass === 'commodity') return 'commodity';
+    if (meta.assetClass === 'bond') return 'bond';
+    return 'equity';
+  }
   if (/^[A-Z]{6}$/.test(s)) return 'fx';
-  if (['XAUUSD','XAGUSD','USOIL','WTI','BCOUSD','NATGAS'].includes(s)) return 'commodity';
+  if (['XAUUSD','XAGUSD','XPTUSD','USOIL','WTI','BCOUSD','NATGAS','COPPER'].includes(s)) return 'commodity';
   if (['NAS100','US500','DJI','US30','GER40','UK100','JPN225','HK50','DXY'].includes(s)) return 'index';
   if (['USDJPY','USDCHF','XAUUSD','DXY'].includes(s)) return 'safe_haven';
   return 'equity';
@@ -332,11 +324,25 @@ async function buildDynamicDarkHorseUniverse(opts) {
       moverBySymbol[m.symbol] = m;
     }
   }
+  const metadataBySymbol = {};
+  const categories = {};
+  const contextSymbols = [];
+  for (const sym of symbols) {
+    const meta = dhUniverse.getBySymbol(sym);
+    if (!meta) continue;
+    metadataBySymbol[sym] = meta;
+    if (!categories[meta.category]) categories[meta.category] = [];
+    categories[meta.category].push(sym);
+    if (meta.contextOnly) contextSymbols.push(sym);
+  }
   return {
     symbols,
     staticSymbols,
     moverSymbols,
     moverBySymbol,
+    metadataBySymbol,
+    categories,
+    contextSymbols,
     sourceProvenance: providerResults.map(p => ({
       provider: p.provider,
       status: p.status,
@@ -1598,8 +1604,61 @@ function passesLiquidityFilter(symbol, moverMeta, opts) {
   opts = opts || {};
   const volume = Number(moverMeta && moverMeta.volume);
   const min = Number.isFinite(opts.minEquityVolume) ? opts.minEquityVolume : 250000;
-  if (inferDHAssetClass(symbol) === 'equity' && Number.isFinite(volume) && volume > 0 && volume < min) {
+  const ac = inferDHAssetClass(symbol);
+  if ((ac === 'equity' || ac === 'bond') && Number.isFinite(volume) && volume > 0 && volume < min) {
     return { ok: false, reason: 'liquidity_volume_filter', detail: 'volume ' + volume + ' below minimum ' + min };
+  }
+  return { ok: true };
+}
+
+function _minutesInZone(dateLike, timeZone) {
+  const d = dateLike instanceof Date ? dateLike : new Date(dateLike || Date.now());
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const vals = {};
+  for (const p of parts) vals[p.type] = p.value;
+  const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return {
+    day: dayMap[vals.weekday] == null ? d.getUTCDay() : dayMap[vals.weekday],
+    mins: Number(vals.hour) * 60 + Number(vals.minute),
+  };
+}
+
+function _isCashSessionOpen(rule, now) {
+  if (rule === 'us_market_hours_only') {
+    const ny = _minutesInZone(now, 'America/New_York');
+    return ny.day >= 1 && ny.day <= 5 && ny.mins >= 9 * 60 + 30 && ny.mins < 16 * 60;
+  }
+  if (rule === 'asx_market_hours') {
+    const syd = _minutesInZone(now, 'Australia/Sydney');
+    return syd.day >= 1 && syd.day <= 5 && syd.mins >= 10 * 60 && syd.mins < 16 * 60;
+  }
+  return true;
+}
+
+function passesUniverseMetadataFilter(symbol, meta, opts) {
+  opts = opts || {};
+  if (!meta) return { ok: true };
+  if (meta.contextOnly || meta.tradeable === false) {
+    return {
+      ok: false,
+      reason: 'context_only_not_tradeable',
+      detail: symbol + ' is macro context only and cannot publish as a Dark Horse tradeable call',
+    };
+  }
+  if (opts.enforceSymbolSessions !== false && meta.sessionRule && meta.sessionRule !== 'default') {
+    if (!_isCashSessionOpen(meta.sessionRule, opts.now || Date.now())) {
+      return {
+        ok: false,
+        reason: 'session_filter',
+        detail: symbol + ' skipped by ' + meta.sessionRule,
+      };
+    }
   }
   return { ok: true };
 }
@@ -1620,11 +1679,14 @@ function buildScanFunnel(symbols, scored, rejected, watch, internal, ignored, un
   const rejectedSummary = buildRejectedSummary(rejected);
   rejectedSummary.movement_threshold = movementRejected.length;
   const failed = (rejectedSummary.source_failure || 0) + (rejectedSummary.score_exception || 0);
+  const rejectedTotal = (rejected || []).length;
   return {
     totalConsidered: symbols.length,
     fetchedSuccessfully: scored.length,
     rejectedSourceFailure: failed,
     rejectedLiquidityVolume: rejectedSummary.liquidity_volume_filter || 0,
+    rejectedContextOnly: rejectedSummary.context_only_not_tradeable || 0,
+    rejectedSessionFilter: rejectedSummary.session_filter || 0,
     rejectedMovementThreshold: movementRejected.length,
     promotedInternal: internal.length,
     promotedPreRadar: internal.filter(r => r.score >= DH_SCORE_INTERNAL && r.score < DH_SCORE_WATCH).length,
@@ -1637,10 +1699,11 @@ function buildScanFunnel(symbols, scored, rejected, watch, internal, ignored, un
       watch: watch.length,
       internal: internal.length,
       ignored: ignored.length,
+      rejected: rejectedTotal,
       failed,
-      total: watch.length + internal.length + ignored.length + failed,
+      total: watch.length + internal.length + ignored.length + rejectedTotal,
       expected: symbols.length,
-      ok: watch.length + internal.length + ignored.length + failed === symbols.length,
+      ok: watch.length + internal.length + ignored.length + rejectedTotal === symbols.length,
     },
     sourceProvenance: universeMeta && universeMeta.sourceProvenance || [],
     missingSources: universeMeta && universeMeta.missingSources || [],
@@ -1648,6 +1711,8 @@ function buildScanFunnel(symbols, scored, rejected, watch, internal, ignored, un
       staticCount: universeMeta && universeMeta.staticSymbols ? universeMeta.staticSymbols.length : 0,
       moverCount: universeMeta && universeMeta.moverSymbols ? universeMeta.moverSymbols.length : 0,
       duplicatesRemoved: universeMeta && universeMeta.duplicatesRemoved || 0,
+      categoryCount: universeMeta && universeMeta.categories ? Object.keys(universeMeta.categories).length : 0,
+      contextOnly: universeMeta && universeMeta.contextSymbols ? universeMeta.contextSymbols.length : 0,
     },
   };
 }
@@ -1704,6 +1769,13 @@ async function runDarkHorseScan(universeOrOpts) {
 
   for (const symbol of symbols) {
     try {
+      const meta = universeMeta.metadataBySymbol && universeMeta.metadataBySymbol[symbol] || null;
+      const metaGate = passesUniverseMetadataFilter(symbol, meta, opts);
+      if (!metaGate.ok) {
+        rejected.push({ symbol, reason: metaGate.reason, detail: metaGate.detail });
+        dhLog('INFO', `[FUNNEL] ${symbol} rejected reason=${metaGate.reason} detail=${metaGate.detail}`);
+        continue;
+      }
       const liq = passesLiquidityFilter(symbol, universeMeta.moverBySymbol[symbol], opts);
       if (!liq.ok) {
         rejected.push({ symbol, reason: liq.reason, detail: liq.detail });
@@ -1711,7 +1783,15 @@ async function runDarkHorseScan(universeOrOpts) {
         continue;
       }
       const r = await scoreInstrument(symbol, { mover: universeMeta.moverBySymbol[symbol] || null });
-      if (r) results.push(r);
+      if (r) {
+        if (meta) {
+          r.universeMeta = meta;
+          r.category = meta.category;
+          r.categoryLabel = meta.categoryLabel;
+          r.eodhdTicker = meta.eodhdTicker;
+        }
+        results.push(r);
+      }
       else rejected.push({ symbol, reason: 'source_failure', detail: 'OHLC unavailable or insufficient candles' });
     } catch (e) {
       dhLog('ERROR', `Score error for ${symbol}: ${e.message}`);
@@ -1729,7 +1809,7 @@ async function runDarkHorseScan(universeOrOpts) {
   const funnel = buildScanFunnel(symbols, results, rejected, watch, internal, ignored, universeMeta);
 
   dhLog('INFO', `━━━ Scan COMPLETE — WATCH:${watch.length} INTERNAL:${internal.length} IGNORED:${ignored.length} FAILED:${funnel.failed} TOTAL:${funnel.totalConsidered} ━━━`);
-  dhLog('INFO', `[DH-FUNNEL] considered=${funnel.totalConsidered} fetched=${funnel.fetchedSuccessfully} source_failed=${funnel.rejectedSourceFailure} liquidity_rejected=${funnel.rejectedLiquidityVolume} movement_rejected=${funnel.rejectedMovementThreshold} internal=${funnel.promotedInternal} watch=${funnel.promotedWatch} reconcile=${funnel.reconcile.ok ? 'ok' : 'mismatch'} total=${funnel.reconcile.total}/${funnel.reconcile.expected}`);
+  dhLog('INFO', `[DH-FUNNEL] considered=${funnel.totalConsidered} fetched=${funnel.fetchedSuccessfully} source_failed=${funnel.rejectedSourceFailure} liquidity_rejected=${funnel.rejectedLiquidityVolume} context_only=${funnel.rejectedContextOnly} session_filtered=${funnel.rejectedSessionFilter} movement_rejected=${funnel.rejectedMovementThreshold} internal=${funnel.promotedInternal} watch=${funnel.promotedWatch} reconcile=${funnel.reconcile.ok ? 'ok' : 'mismatch'} total=${funnel.reconcile.total}/${funnel.reconcile.expected}`);
 
   // Store internal candidates — no Discord output
   for (const r of internal) {
@@ -1899,6 +1979,7 @@ async function runDarkHorseScan(universeOrOpts) {
           const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
             topN: 10, sectionCap: 2, sectionCapMax: 3,
             watchThreshold: DH_SCORE_WATCH,
+            marketMoodLevel: volatility && volatility.level,
           });
           ranking.funnel = funnel;
           ranking.sourceProvenance = funnel.sourceProvenance;
@@ -2026,6 +2107,7 @@ async function runDarkHorseScan(universeOrOpts) {
         const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
           topN: 10, sectionCap: 2, sectionCapMax: 3,
           watchThreshold: DH_SCORE_WATCH,
+          marketMoodLevel: volatility && volatility.level,
         });
         ranking.funnel = funnel;
         ranking.sourceProvenance = funnel.sourceProvenance;
@@ -2222,6 +2304,7 @@ module.exports = {
   computeBoostMetrics,
   buildScanFunnel,
   rankableScanCandidates,
+  passesUniverseMetadataFilter,
   // Watch payload + dedupe surface — exported for tests + downstream consumers.
   buildDHPayload,
   enrichWatchCandidate,

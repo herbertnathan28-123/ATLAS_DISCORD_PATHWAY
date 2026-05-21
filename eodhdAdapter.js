@@ -99,6 +99,106 @@ async function historical(symbol, assetClass, opts) {
   return await _get('/api/eod/' + encodeURIComponent(t) + '?period=' + period + from + to);
 }
 
+const EODHD_PERIOD_BY_RESOLUTION = Object.freeze({
+  '1D': 'd',
+  '1W': 'w',
+});
+const EODHD_INTRADAY_BY_RESOLUTION = Object.freeze({
+  '60': '1h',
+  '30': '30m',
+  '15': '15m',
+  '5': '5m',
+  '1': '1m',
+});
+
+function _parseEodhdTime(row) {
+  const raw = row && (row.datetime || row.date || row.timestamp);
+  if (raw == null || raw === '') return null;
+  if (Number.isFinite(raw)) return Number(raw) > 1000000000000 ? Math.floor(Number(raw) / 1000) : Number(raw);
+  const s = String(raw);
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(s)
+    ? s + 'T00:00:00Z'
+    : s.replace(' ', 'T') + (s.includes('T') || /Z$/.test(s) ? '' : 'Z');
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? Math.floor(t / 1000) : null;
+}
+
+function _rowsToCandles(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map(row => {
+    const time = _parseEodhdTime(row);
+    const open = Number(row && row.open);
+    const high = Number(row && row.high);
+    const low = Number(row && row.low);
+    const close = Number(row && row.close);
+    const volume = row && row.volume != null ? Number(row.volume) : 0;
+    return { time, open, high, low, close, volume: Number.isFinite(volume) ? volume : 0 };
+  }).filter(c =>
+    Number.isFinite(c.time) &&
+    Number.isFinite(c.open) &&
+    Number.isFinite(c.high) &&
+    Number.isFinite(c.low) &&
+    Number.isFinite(c.close)
+  ).sort((a, b) => a.time - b.time);
+}
+
+async function intraday(symbol, assetClass, opts) {
+  if (!isEnabled()) return { ok: false, reason: 'EODHD disabled (no key)' };
+  opts = opts || {};
+  const t = opts.ticker || eodhdTicker(symbol, assetClass || 'equity');
+  const interval = opts.interval || '1h';
+  const nowSec = Math.floor(Date.now() / 1000);
+  const fromSec = opts.fromSec || (nowSec - 60 * 60 * 24 * 30);
+  const toSec = opts.toSec || nowSec;
+  return await _get(
+    '/api/intraday/' + encodeURIComponent(t)
+    + '?interval=' + encodeURIComponent(interval)
+    + '&from=' + encodeURIComponent(String(fromSec))
+    + '&to=' + encodeURIComponent(String(toSec))
+  );
+}
+
+async function ohlc(symbol, assetClass, opts) {
+  if (!isEnabled()) return { ok: false, reason: 'EODHD disabled (no key)' };
+  opts = opts || {};
+  const resolution = opts.resolution || '1D';
+  const count = Number.isFinite(opts.count) ? opts.count : 200;
+  const ticker = opts.ticker || eodhdTicker(symbol, assetClass || 'equity');
+  let res;
+  if (EODHD_PERIOD_BY_RESOLUTION[resolution]) {
+    res = await historical(ticker, assetClass, {
+      period: EODHD_PERIOD_BY_RESOLUTION[resolution],
+      from: opts.from,
+      to: opts.to,
+    });
+  } else if (EODHD_INTRADAY_BY_RESOLUTION[resolution]) {
+    const secondsByResolution = {
+      '60': 60 * 60,
+      '30': 30 * 60,
+      '15': 15 * 60,
+      '5': 5 * 60,
+      '1': 60,
+    };
+    const span = (secondsByResolution[resolution] || 60 * 60) * Math.max(count + 10, 60);
+    const nowSec = Math.floor(Date.now() / 1000);
+    res = await intraday(ticker, assetClass, {
+      ticker,
+      interval: EODHD_INTRADAY_BY_RESOLUTION[resolution],
+      fromSec: opts.fromSec || (nowSec - span),
+      toSec: opts.toSec || nowSec,
+    });
+  } else {
+    return { ok: false, reason: 'EODHD unsupported resolution: ' + resolution };
+  }
+  if (!res || !res.ok) return res || { ok: false, reason: 'EODHD request failed' };
+  const rows = Array.isArray(res.data) ? res.data
+    : Array.isArray(res.data && res.data.data) ? res.data.data
+    : [];
+  const candles = _rowsToCandles(rows).slice(-count);
+  if (!candles.length) return { ok: false, reason: 'EODHD no parseable candles', source: 'eodhd', ticker };
+  return { ok: true, data: candles, source: 'eodhd', ticker };
+}
+
 // Single boot-time probe. Logs status for AAPL.US and MU.US — these are
 // the symbols specified by the runtime spec. Failures do not throw.
 async function bootProbe() {
@@ -145,5 +245,7 @@ module.exports = {
   realtime,
   fundamentals,
   historical,
+  intraday,
+  ohlc,
   bootProbe
 };
