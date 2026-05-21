@@ -1287,6 +1287,20 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
   if (promoted > 0) {
     parts.push('');
     parts.push(_sectionBanner("⭝  STANDOUTS — TODAY'S STRONGEST MOVERS", 'gold'));
+    const tempLines = (ctx.standouts || []).slice(0, 5).map(s => {
+      const r = s.record || {};
+      const m = r.moveMetrics || {};
+      const marker = r.temperatureMarker || { icon: '??' };
+      const reason = marker.code === 'caution' && marker.reason ? '  ? ' + marker.reason : '';
+      return marker.icon + ' ' + (r.symbol || '?').padEnd(7)
+        + ' ' + _pctText(m.todayPct) + ' today'
+        + '  ?  ' + _pctText(m.growth30D) + ' (30D)'
+        + '  ?  Score ' + (r.score != null ? r.score : 'n/a') + '/10' + reason;
+    });
+    if (tempLines.length) {
+      parts.push('');
+      parts.push(tempLines.join('\n'));
+    }
   }
 
   return parts.join('\n');
@@ -1443,6 +1457,35 @@ function _moveTypeFieldValue(record) {
   const mt = moveType(record);
   const stage = moverStage(record);
   return mt + ' · ' + stage + ' stage';
+}
+
+function _pctText(v) {
+  return Number.isFinite(v) ? (v >= 0 ? '+' : '') + v.toFixed(1) + '%' : 'pending';
+}
+
+function _temperatureHeader(record) {
+  const marker = record && record.temperatureMarker || { icon: '??', label: 'CAUTION' };
+  const m = record && record.moveMetrics || {};
+  return marker.icon + ' ' + marker.label
+    + ' ? ' + _pctText(m.todayPct) + ' today'
+    + ' ? ' + _pctText(m.growth30D) + ' (30D)'
+    + ' ? ' + _pctText(m.growthYTD) + ' (YTD)'
+    + ' ? Score ' + (record && record.score != null ? record.score : 'n/a') + '/10';
+}
+
+function _temperatureFieldValue(record) {
+  const marker = record && record.temperatureMarker || { icon: '??', label: 'CAUTION', reason: 'quality reading pending' };
+  const m = record && record.moveMetrics || {};
+  const lines = [
+    '**' + _temperatureHeader(record) + '**',
+    'Move: ' + _pctText(m.todayPct) + ' today ? Growth (30D): ' + _pctText(m.growth30D) + ' ? Growth (YTD): ' + _pctText(m.growthYTD),
+  ];
+  if (m.plainEnglish) lines.push(m.plainEnglish);
+  if (marker.reason) lines.push('Marker reason: ' + marker.reason + '.');
+  if (record && record.amplifiedInstrument && record.riskDisclosure) {
+    lines.push('Risk note: ' + record.riskDisclosure);
+  }
+  return lines.join('\n');
 }
 
 function _whereToActFieldValue(record, bands, position, urlMap, nextReviewStamp, lifecycle, volatility) {
@@ -1612,6 +1655,7 @@ function _candidateEmbed(record, idx, total, isLast, opts, urlMap, volatility, c
   const fields = [
     { name: 'Move Type',         value: _moveTypeFieldValue(record), inline: true },
     { name: 'Direction',         value: _directionFieldValue(record.direction, urlMap), inline: true },
+    { name: 'Temperature / Growth', value: _temperatureFieldValue(record), inline: false },
     { name: 'Conviction',        value: _convictionFieldValue(record, stateBadge), inline: false },
     { name: 'ATLAS execution state', value: _executionAuthorityFieldValue(record, lifecycle, bands, position), inline: false },
     { name: 'ATLAS confirmation gate', value: _confirmationGateFieldValue(record, lifecycle, bands, urlMap), inline: false },
@@ -1632,7 +1676,11 @@ function _candidateEmbed(record, idx, total, isLast, opts, urlMap, volatility, c
     fields.push({ name: '⚠︝  Late-stage risk note', value: _lateStageCaveatFieldValue(), inline: false });
   }
 
-  const title = '🝎  ' + (record.symbol || '?') + '  ·  ' + stateBadge;
+  const temp = record.temperatureMarker || null;
+  const movePct = record.moveMetrics && Number.isFinite(record.moveMetrics.todayPct)
+    ? '  ?  ' + _pctText(record.moveMetrics.todayPct) + ' today'
+    : '';
+  const title = (temp ? temp.icon + '  ' : '🝎  ') + (record.symbol || '?') + '  ·  ' + stateBadge + movePct;
   const footerText = 'ATLAS · Dark Horse · standout ' + (idx + 1) + ' of ' + total
     + ' · ' + lifecycle.stage.toLowerCase() + ' lifecycle'
     + (isLast ? ' · next review ' + nextReview : '');

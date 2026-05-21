@@ -75,6 +75,7 @@ console.log(`[BOOT] MACRO_V3: ${MACRO_V3_ENABLED ? 'ENABLED' : 'DISABLED (legacy
 // Boot probe runs once and reports status for AAPL.US and MU.US per spec.
 // Probe is fire-and-forget; failures do not block startup.
 const eodhdAdapter = require('./eodhdAdapter');
+const darkHorseUniverse = require('./darkHorseUniverse');
 eodhdAdapter.bootProbe().catch((e) => {
   console.warn('[EODHD] bootProbe error: ' + (e && e.message));
 });
@@ -2475,8 +2476,8 @@ const STANCE=Object.freeze({HAWKISH:'Hawkish',DOVISH:'Dovish',NEUTRAL:'Neutral',
 const RATE_CYCLE=Object.freeze({HIKING:'Hiking',CUTTING:'Cutting',HOLDING:'Holding',N_A:'N/A'});
 const THRESHOLDS=Object.freeze({macroBullish:0.15,macroBearish:-0.15,fxBullish:0.20,fxBearish:-0.20,strongConfidence:0.60,moderateConfidence:0.30,tradeValidConfidence:0.45});
 const FX_QUOTES=new Set(['USD','EUR','GBP','JPY','AUD','NZD','CAD','CHF','SEK','NOK','DKK','SGD','HKD','CNH','CNY']);
-const EQUITY_SYMBOLS=new Set(['AMD','MU','ASML','MICRON','NVDA','AVGO','TSM','QCOM','AAPL','MSFT','META','GOOGL','AMZN','TSLA','INTC']);
-const COMMODITY_SYMBOLS=new Set(['XAUUSD','XAGUSD','XAUEUR','XAGEUR','USOIL','WTI','BRENT','BCOUSD','NATGAS']);
+const EQUITY_SYMBOLS=new Set(['AMD','MU','ASML','MICRON','NVDA','AVGO','TSM','QCOM','AAPL','MSFT','META','GOOGL','AMZN','TSLA','INTC','SPY','QQQ','EWJ','EWG','BHP','CBA','UCO','UNG','CORN','WEAT','XLE','XLF','TLT','HYG','VIXY','UUP']);
+const COMMODITY_SYMBOLS=new Set(['XAUUSD','XAGUSD','XPTUSD','XAUEUR','XAGEUR','USOIL','WTI','BRENT','BCOUSD','NATGAS','COPPER']);
 const INDEX_SYMBOLS=new Set(['NAS100','US500','US30','GER40','UK100','HK50','JPN225','SPX','NDX','DJI']);
 const SEMI_SYMBOLS=new Set(['AMD','MU','ASML','MICRON','NVDA','AVGO','TSM','QCOM','INTC']);
 const CURRENCY_COUNTRY=Object.freeze({USD:{country:'United States',weight:1.00},EUR:{country:'Eurozone',weight:1.00},GBP:{country:'United Kingdom',weight:0.90},JPY:{country:'Japan',weight:0.90},AUD:{country:'Australia',weight:0.85},NZD:{country:'New Zealand',weight:0.75},CAD:{country:'Canada',weight:0.85},CHF:{country:'Switzerland',weight:0.80},SEK:{country:'Sweden',weight:0.60},NOK:{country:'Norway',weight:0.60},DKK:{country:'Denmark',weight:0.55},SGD:{country:'Singapore',weight:0.65},HKD:{country:'Hong Kong',weight:0.55},CNH:{country:'China Offshore',weight:0.80},CNY:{country:'China',weight:0.85}});
@@ -2628,8 +2629,8 @@ const makeStubEcon=()=>({gdpMomentum:0.5,employment:0.5,inflationControl:0.5,fis
 function getPipSize(symbol){const s=normalizeSymbol(symbol);if(s.includes('JPY'))return{pipSize:0.01,dp:3};if(s==='XAGUSD'||s==='XAGEUR')return{pipSize:0.01,dp:3};if(s==='XAUUSD'||s==='XAUEUR')return{pipSize:0.10,dp:2};if(/BCOUSD|USOIL|WTI|BRENT/.test(s))return{pipSize:0.01,dp:3};if(/NATGAS/.test(s))return{pipSize:0.001,dp:4};if(INDEX_SYMBOLS.has(s)||/NAS|US500|US30|GER40|UK100|SPX|NDX|DJI|HK50|JPN225/.test(s))return{pipSize:1.0,dp:1};if(EQUITY_SYMBOLS.has(s)||SEMI_SYMBOLS.has(s))return{pipSize:0.01,dp:3};if(isFxPair(s))return{pipSize:0.0001,dp:5};return{pipSize:0.0001,dp:5};}
 function fmtPrice(n,symbol){if(n==null||!Number.isFinite(n))return'N/A';if(symbol){const{dp}=getPipSize(symbol);return Number(n).toFixed(dp);}if(n>100)return Number(n).toFixed(2);if(n>1)return Number(n).toFixed(4);return Number(n).toFixed(5);}
 
-const SYMBOL_OVERRIDES={XAUUSD:'OANDA:XAUUSD',XAGUSD:'OANDA:XAGUSD',BCOUSD:'OANDA:BCOUSD',USOIL:'OANDA:BCOUSD',NAS100:'OANDA:NAS100USD',US500:'OANDA:SPX500USD',US30:'OANDA:US30USD',GER40:'OANDA:DE30EUR',UK100:'OANDA:UK100GBP',NATGAS:'NYMEX:NG1!',MICRON:'NASDAQ:MU',AMD:'NASDAQ:AMD',ASML:'NASDAQ:ASML'};
-const TD_SYMBOL_MAP={XAUUSD:'XAU/USD',XAGUSD:'XAG/USD',BCOUSD:'BCO/USD',USOIL:'WTI/USD',NAS100:'NDX',US500:'SPX',US30:'DIA',DJI:'DIA',GER40:'DAX',UK100:'UKX',NATGAS:'NG/USD',EURUSD:'EUR/USD',GBPUSD:'GBP/USD',USDJPY:'USD/JPY',AUDUSD:'AUD/USD',NZDUSD:'NZD/USD',USDCAD:'USD/CAD',USDCHF:'USD/CHF',EURGBP:'EUR/GBP',EURJPY:'EUR/JPY',GBPJPY:'GBP/JPY',AUDJPY:'AUD/JPY',CADJPY:'CAD/JPY',NZDJPY:'NZD/JPY',CHFJPY:'CHF/JPY',EURCHF:'EUR/CHF',EURAUD:'EUR/AUD',EURCAD:'EUR/CAD',GBPAUD:'GBP/AUD',GBPCAD:'GBP/CAD',GBPCHF:'GBP/CHF',AUDCAD:'AUD/CAD',AUDCHF:'AUD/CHF',AUDNZD:'AUD/NZD',CADCHF:'CAD/CHF',NZDCAD:'NZD/CAD',NZDCHF:'NZD/CHF',MICRON:'MU',AMD:'AMD',ASML:'ASML',NVDA:'NVDA'};
+const SYMBOL_OVERRIDES={XAUUSD:'OANDA:XAUUSD',XAGUSD:'OANDA:XAGUSD',XPTUSD:'OANDA:XPTUSD',BCOUSD:'OANDA:BCOUSD',USOIL:'OANDA:BCOUSD',NAS100:'OANDA:NAS100USD',US500:'OANDA:SPX500USD',US30:'OANDA:US30USD',GER40:'OANDA:DE30EUR',UK100:'OANDA:UK100GBP',NATGAS:'NYMEX:NG1!',COPPER:'COMEX:HG1!',MICRON:'NASDAQ:MU',AMD:'NASDAQ:AMD',ASML:'NASDAQ:ASML',BHP:'ASX:BHP',CBA:'ASX:CBA',SPY:'AMEX:SPY',QQQ:'NASDAQ:QQQ',EWJ:'AMEX:EWJ',EWG:'AMEX:EWG',UCO:'AMEX:UCO',UNG:'AMEX:UNG',CORN:'AMEX:CORN',WEAT:'AMEX:WEAT',XLE:'AMEX:XLE',XLF:'AMEX:XLF',TLT:'NASDAQ:TLT',HYG:'AMEX:HYG',VIXY:'AMEX:VIXY',UUP:'AMEX:UUP'};
+const TD_SYMBOL_MAP={XAUUSD:'XAU/USD',XAGUSD:'XAG/USD',XPTUSD:'XPT/USD',BCOUSD:'BCO/USD',USOIL:'WTI/USD',COPPER:'HG',NAS100:'NDX',US500:'SPX',US30:'DIA',DJI:'DIA',GER40:'DAX',UK100:'UKX',NATGAS:'NG/USD',EURUSD:'EUR/USD',GBPUSD:'GBP/USD',USDJPY:'USD/JPY',AUDUSD:'AUD/USD',NZDUSD:'NZD/USD',USDCAD:'USD/CAD',USDCHF:'USD/CHF',EURGBP:'EUR/GBP',EURJPY:'EUR/JPY',GBPJPY:'GBP/JPY',AUDJPY:'AUD/JPY',CADJPY:'CAD/JPY',NZDJPY:'NZD/JPY',CHFJPY:'CHF/JPY',EURCHF:'EUR/CHF',EURAUD:'EUR/AUD',EURCAD:'EUR/CAD',GBPAUD:'GBP/AUD',GBPCAD:'GBP/CAD',GBPCHF:'GBP/CHF',AUDCAD:'AUD/CAD',AUDCHF:'AUD/CHF',AUDNZD:'AUD/NZD',CADCHF:'CAD/CHF',NZDCAD:'NZD/CAD',NZDCHF:'NZD/CHF',MICRON:'MU',AMD:'AMD',ASML:'ASML',NVDA:'NVDA'};
 const TD_INTERVAL_MAP={'1W':'1week','1D':'1day','240':'4h','60':'1h','30':'30min','15':'15min','5':'5min','1':'1min'};
 
 // ── FMP OHLC mapping ────────────────────────────────────────────────
@@ -2877,6 +2878,38 @@ function markFmpPremiumHit(symbol, resolution) {
   }
 }
 
+function _dhEodhdRoute(symbol) {
+  try {
+    const meta = darkHorseUniverse && darkHorseUniverse.getBySymbol
+      ? darkHorseUniverse.getBySymbol(symbol)
+      : null;
+    if (!meta || !meta.eodhdTicker) return null;
+    return meta;
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function fetchOHLCEODHD(symbol, resolution, count = 200, coverage = null) {
+  const meta = _dhEodhdRoute(symbol);
+  if (!meta) throw new Error('EODHD route not configured');
+  if (!eodhdAdapter || !eodhdAdapter.isEnabled || !eodhdAdapter.isEnabled()) {
+    throw new Error('EODHD_API_KEY not set');
+  }
+  const res = await eodhdAdapter.ohlc(symbol, meta.assetClass || inferAssetClass(symbol), {
+    ticker: meta.eodhdTicker,
+    resolution,
+    count,
+  });
+  if (!res || !res.ok || !Array.isArray(res.data) || !res.data.length) {
+    throw new Error((res && res.reason) || 'EODHD unavailable');
+  }
+  log('INFO', `[OHLC] EODHD ${symbol} ${resolution} ticker=${meta.eodhdTicker} candles=${res.data.length}`);
+  console.log(`[DATA-SOURCE-FETCH] symbol=${symbol} resolution=${resolution} provider=eodhd ticker=${meta.eodhdTicker} candles=${res.data.length}`);
+  if (coverage) coverage.record(resolution, 'eodhd', res.data.length, null, meta.eodhdTicker);
+  return res.data;
+}
+
 // ── FMP OHLC fetcher ─────────────────────────────────────────────────
 // Endpoints:
 //   intraday: GET /stable/historical-chart/{interval}?symbol=X&apikey=K
@@ -2953,6 +2986,16 @@ async function fetchOHLC(symbol, resolution, count = 200, coverage = null) {
   const fmpPremiumCold   = fmpPremiumActive(symbol, resolution);
   const fmpResSupported  = !!FMP_INTERVAL_MAP[resolution];
   const fmpUsable        = FMP_API_KEY && fmpResSupported && !fmpQuotaCold && !fmpPremiumCold;
+  const eodhdRoute       = _dhEodhdRoute(symbol);
+  const eodhdPrimary     = !!(eodhdRoute && eodhdRoute.eodhdPrimary);
+
+  if (eodhdPrimary) {
+    try {
+      return await fetchOHLCEODHD(symbol, resolution, count, coverage);
+    } catch (eodhdPrimaryErr) {
+      log('WARN', `[OHLC] EODHD-primary ${symbol} ${resolution} failed: ${(eodhdPrimaryErr && eodhdPrimaryErr.message) || 'unknown'}`);
+    }
+  }
 
   // Try TwelveData FIRST. fetchOHLCTDWithProbes records its own coverage
   // entries via the SYMBOL-MAP log; we still record the final outcome.
@@ -2964,6 +3007,14 @@ async function fetchOHLC(symbol, resolution, count = 200, coverage = null) {
   } catch (tdErr) {
     const tdReason = (tdErr && tdErr.message) || 'unknown';
     log('WARN', `[OHLC] TD ${symbol} ${resolution} failed: ${tdReason}`);
+
+    if (eodhdRoute && !eodhdPrimary) {
+      try {
+        return await fetchOHLCEODHD(symbol, resolution, count, coverage);
+      } catch (eodhdErr) {
+        log('WARN', `[OHLC] EODHD-fallback ${symbol} ${resolution} failed: ${(eodhdErr && eodhdErr.message) || 'unknown'}`);
+      }
+    }
 
     // FMP fallback — only when TD failed AND FMP isn't blocked.
     if (fmpUsable) {

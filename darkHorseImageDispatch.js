@@ -104,6 +104,10 @@ function buildDarkHorseImagePayload(ranking, volatility, opts) {
       dollarRisk:    c.dollarRiskLabel || null,
       rewardR:       c.rewardRLabel || null,
       sizeLabel:     c.sizeLabel || null,
+      moveMetrics:   c.moveMetrics || null,
+      temperatureMarker: c.temperatureMarker || null,
+      amplifiedInstrument: !!c.amplifiedInstrument,
+      riskDisclosure: c.riskDisclosure || null,
     }));
   const sev = _volSeverity(volatility && volatility.level);
   const allCount = Number.isFinite(ranking && ranking.allCount) ? ranking.allCount : 0;

@@ -34,6 +34,7 @@
     "qa:dh-pre-radar": "node scripts/test_dh_pre_radar_qa.js",
     "qa:dh-polish-mi-validator": "node scripts/test_dh_polish_mi_validator_qa.js",
     "qa:dh-prototype": "node tests/darkHorseDiscordPrototype.test.js",
+    "qa:dh-expanded-universe": "node tests/darkHorseExpandedUniverse.test.js",
     "qa:visual-pattern-library": "node scripts/test_visual_pattern_library_qa.js",
     "prebuild": "npm run doctrine:foundation"
   },

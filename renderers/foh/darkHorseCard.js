@@ -97,6 +97,8 @@ function renderStandout(s, idx, total) {
   const reason = s.reason ? `<div class="foh-dh-candidate-meta">${esc(s.reason)}</div>` : '';
   const decisionLevel = s.decisionLevel ? `<div class="foh-dh-candidate-meta">🎯 Decision level: <strong>${esc(s.decisionLevel)}</strong></div>` : '';
   const invalidation = s.invalidation ? `<div class="foh-dh-candidate-meta">❌ Invalidation: <strong>${esc(s.invalidation)}</strong></div>` : '';
+  const move = s.moveMetrics ? `<div class="foh-dh-candidate-meta">${esc((s.temperatureMarker && s.temperatureMarker.icon || '⚠️') + ' ' + (s.temperatureMarker && s.temperatureMarker.label || 'CAUTION'))} · Move <strong>${esc(s.moveMetrics.todayPct == null ? 'pending' : (s.moveMetrics.todayPct >= 0 ? '+' : '') + Number(s.moveMetrics.todayPct).toFixed(1) + '% today')}</strong> · 30D <strong>${esc(s.moveMetrics.growth30D == null ? 'pending' : (s.moveMetrics.growth30D >= 0 ? '+' : '') + Number(s.moveMetrics.growth30D).toFixed(1) + '%')}</strong> · YTD <strong>${esc(s.moveMetrics.growthYTD == null ? 'pending' : (s.moveMetrics.growthYTD >= 0 ? '+' : '') + Number(s.moveMetrics.growthYTD).toFixed(1) + '%')}</strong></div>` : '';
+  const riskNote = s.amplifiedInstrument && s.riskDisclosure ? `<div class="foh-dh-candidate-meta">⚠️ ${esc(s.riskDisclosure)}</div>` : '';
   const risk = s.pricePointPlan ? `<div class="foh-dh-candidate-meta">💲 Account risk: <strong>${esc(s.pricePointPlan.riskCap.text)}</strong>${s.rewardR ? ' · target <strong>' + esc(s.rewardR) + '</strong>' : ''}</div>` : (s.dollarRisk ? `<div class="foh-dh-candidate-meta">💲 Account risk: <strong>size by account percentage at invalidation</strong>${s.rewardR ? ' · target <strong>' + esc(s.rewardR) + '</strong>' : ''}</div>` : '');
   return `
   <div class="foh-dh-candidate ${lcClass}">
@@ -110,6 +112,8 @@ function renderStandout(s, idx, total) {
     <div class="foh-dh-candidate-meta"><em>${esc(lcLabel)}</em></div>
     ${firstDet}
     ${reason}
+    ${move}
+    ${riskNote}
     ${decisionLevel}
     ${invalidation}
     ${renderPricePointPlan(s.pricePointPlan)}
@@ -147,6 +151,12 @@ function _renderDhRichStandout(s, idx, total) {
   const lines = [];
   if (s.firstDetected) lines.push(`<div class="foh-dh-candidate-meta">First logged: <strong>${esc(s.firstDetected)}</strong>${s.durationAlive ? ' · First active: <strong>' + esc(s.firstDetected) + '</strong> · Still Dark Horse worthy after <strong>' + esc(s.durationAlive) + '</strong>' : ''}</div>`);
   if (s.whyFlagged)     lines.push(`<div class="foh-dh-candidate-meta">${esc(s.whyFlagged)}</div>`);
+  if (s.moveMetrics) {
+    const pct = v => v == null ? 'pending' : ((v >= 0 ? '+' : '') + Number(v).toFixed(1) + '%');
+    lines.push(`<div class="foh-dh-candidate-meta">${esc((s.temperatureMarker && s.temperatureMarker.icon || '⚠️') + ' ' + (s.temperatureMarker && s.temperatureMarker.label || 'CAUTION'))} · Move <strong>${esc(pct(s.moveMetrics.todayPct))}</strong> today · 30D <strong>${esc(pct(s.moveMetrics.growth30D))}</strong> · YTD <strong>${esc(pct(s.moveMetrics.growthYTD))}</strong></div>`);
+    if (s.moveMetrics.plainEnglish) lines.push(`<div class="foh-dh-candidate-meta">${esc(s.moveMetrics.plainEnglish)}</div>`);
+  }
+  if (s.amplifiedInstrument && s.riskDisclosure) lines.push(`<div class="foh-dh-candidate-meta">⚠️ ${esc(s.riskDisclosure)}</div>`);
   if (s.structureState) lines.push(`<div class="foh-dh-candidate-meta">📐 Structure: <strong>${esc(s.structureState)}</strong></div>`);
   if (s.decisionLevel)  lines.push(`<div class="foh-dh-candidate-meta">🎯 Decision level: <strong>${esc(s.decisionLevel)}</strong></div>`);
   if (s.confirmation)   lines.push(`<div class="foh-dh-candidate-meta">✅ Confirms: ${esc(s.confirmation)}</div>`);
