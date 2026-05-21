@@ -25,7 +25,8 @@ function candles(days, start, drift, lastJumpPct) {
   const base = Date.UTC(new Date().getUTCFullYear(), 0, 2) / 1000;
   for (let i = 0; i < days; i++) {
     const prev = close;
-    close = close * (1 + drift);
+    const signedDrift = i % 5 === 0 ? -drift : drift;
+    close = close * (1 + signedDrift);
     if (i === days - 1 && Number.isFinite(lastJumpPct)) close = prev * (1 + lastJumpPct / 100);
     out.push({
       time: base + i * 86400,
