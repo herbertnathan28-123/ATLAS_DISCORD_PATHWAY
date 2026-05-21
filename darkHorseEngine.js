@@ -81,8 +81,8 @@ function isCryptoBanned(symbol) {
 }
 
 // ── THRESHOLDS ────────────────────────────────────────────────
-const DH_SCORE_WATCH    = 8;  // ≥8 → post to Discord + trigger pipeline
-const DH_SCORE_INTERNAL = 5;  // 5–7 → store internally only
+const DH_SCORE_WATCH    = 7;  // ≥7 → post to Discord + trigger pipeline
+const DH_SCORE_INTERNAL = 5;  // 5–6 → store internally only
 
 // ── WEBHOOK ───────────────────────────────────────────────────
 // Webhook URL resolution — prefer the clearer per-channel env key
