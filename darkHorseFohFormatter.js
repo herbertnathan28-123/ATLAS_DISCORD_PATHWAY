@@ -334,6 +334,79 @@ function buildGlobalRead(ctx) {
   ].join('\n');
 }
 
+function buildBoostDetectorQuietPack(ctx) {
+  const top = Array.isArray(ctx && ctx.ranking && ctx.ranking.top10) ? ctx.ranking.top10 : [];
+  const funnel = ctx && ctx.funnel || {};
+  const sources = Array.isArray(ctx && ctx.sourceProvenance) ? ctx.sourceProvenance : [];
+  const building = top.filter(r => (r.score || 0) < (ctx.watchThreshold || 8)).slice(0, 3);
+  const fullStandouts = top.filter(r => (r.score || 0) >= (ctx.watchThreshold || 8)).length;
+  const sourceLine = sources.length
+    ? sources.map(s => s.provider + ':' + s.status + '(' + (s.count || 0) + ')').join(' · ')
+    : 'atlas_static_core:ok';
+  const rejectedSummary = funnel.rejectedSummary || {};
+  const rejectedBits = Object.keys(rejectedSummary).length
+    ? Object.keys(rejectedSummary).sort().map(k => k + '=' + rejectedSummary[k]).join(' · ')
+    : 'none';
+  const nextReview = ctx && ctx.nextReview || 'pending';
+  const lines = [
+    buildSectionSeparator('CURRENT MARKET SNAPSHOT', '🌐'),
+    fullStandouts + ' full standout' + (fullStandouts === 1 ? '' : 's') + '. '
+      + building.length + ' building candidate' + (building.length === 1 ? '' : 's') + ' detected.',
+    'Total considered: ' + (funnel.totalConsidered != null ? funnel.totalConsidered : ctx.universeSize)
+      + ' · fetched: ' + (funnel.fetchedSuccessfully != null ? funnel.fetchedSuccessfully : 'pending')
+      + ' · failed: ' + (funnel.failed != null ? funnel.failed : 0) + '.',
+    '',
+    buildSectionSeparator('MARKET CONDITIONS', '🎚️'),
+    'Market mood: ' + buildMarketMoodScale(ctx.volatility) + '. Scan condition: '
+      + (fullStandouts ? 'publication-grade candidate present' : 'movement visible, publication threshold not cleared') + '.',
+    '',
+    buildSectionSeparator('MARKET READ NOW', '📍'),
+    fullStandouts
+      ? 'A full standout is present; candidate cards below carry the active reference areas.'
+      : 'No candidate cleared WATCH threshold. ATLAS is still surfacing the strongest pressure pockets so the quiet scan remains useful.',
+    '',
+    buildSectionSeparator('PRE-RADAR / BUILDING', '🛰️'),
+  ];
+  if (building.length) {
+    for (const r of building) {
+      const pct = r.boostMetrics && Number.isFinite(r.boostMetrics.percentMove)
+        ? ' ' + (r.boostMetrics.percentMove > 0 ? '+' : '') + r.boostMetrics.percentMove + '%'
+        : '';
+      const reason = r.score >= 6 ? 'strong structure building, needs final confirmation'
+        : r.boostScore >= 5 ? 'high momentum, needs structure confirmation'
+        : 'building pressure, needs cleaner confirmation';
+      lines.push('• ' + r.symbol + pct + ' — ' + reason + ' (' + r.score + '/10).');
+    }
+  } else {
+    lines.push('No building candidate cleared the ranking funnel; see rejected summary for the blocker.');
+  }
+  lines.push(
+    '',
+    buildSectionSeparator('WHY NO FULL STANDOUT', '🤔'),
+    fullStandouts
+      ? 'At least one candidate cleared the full threshold; weaker candidates still require confirmation before promotion.'
+      : '- no candidate cleared WATCH threshold\n- top candidates require structure confirmation / volume confirmation / less late-entry risk',
+    '',
+    buildSectionSeparator('PROMOTION TRIGGERS', '⏫'),
+    'A building candidate promotes when percentage move, ATR displacement, volume/relative-volume, structure quality, and source confidence align above the WATCH score without late-entry risk dominating.',
+    '',
+    buildSectionSeparator('REJECTED/FUNNEL SUMMARY', '📊'),
+    'WATCH=' + (funnel.promotedWatch || 0)
+      + ' · INTERNAL/PRE-RADAR=' + (funnel.promotedInternal || 0)
+      + ' · IGNORED=' + (funnel.ignored || 0)
+      + ' · FAILED=' + (funnel.failed || 0)
+      + ' · reconcile=' + (funnel.reconcile && funnel.reconcile.ok ? 'ok' : 'pending') + '.',
+    'Rejected by reason: ' + rejectedBits + '.',
+    '',
+    buildSectionSeparator('SOURCE / PROVENANCE', '🧾'),
+    'Source: ' + sourceLine + '. Freshness: current scan. Next scan: ' + nextReview + '.'
+  );
+  if (Array.isArray(funnel.missingSources) && funnel.missingSources.length) {
+    lines.push('Missing/unsupported mover sources: ' + funnel.missingSources.map(s => s.provider + ' — ' + (s.detail || s.status)).join(' | ') + '.');
+  }
+  return lines.join('\n');
+}
+
 // ── Expanded terminology row ─────────────────────────────────
 function buildTerminologyRow(learningLinks) {
   // When the URL map is wired, surface the Markdown-link form
@@ -722,6 +795,8 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
     nowMs,
     volatility,
     ranking,
+    funnel: opts.funnel || ranking.funnel || null,
+    sourceProvenance: opts.sourceProvenance || ranking.sourceProvenance || [],
     top10Count: top.length,
     atThresholdCount: top.filter(x => (x.score || 0) >= 8).length,
     internalCount: internalArr.length,
@@ -773,6 +848,10 @@ function buildFohMovementDigestPayload(ranking, volatility, opts) {
 
   // 4. Market atmosphere with substructure
   blocks.push(buildGlobalRead(ctx));
+
+  // 4b. Required quiet-scan intelligence pack. This renders even
+  // when WATCH=0 so Dark Horse stays a boost detector, not an empty scanner.
+  blocks.push(buildBoostDetectorQuietPack(ctx));
 
   // 5. Expanded terminology row (placed early so the reader has
   //    vocabulary before the section radar / cards land).

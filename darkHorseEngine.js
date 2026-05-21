@@ -54,16 +54,32 @@ const DEFAULT_UNIVERSE = [
   'EURCAD','GBPAUD','GBPCAD','GBPCHF','AUDCAD','AUDNZD','NZDCAD',
 
   // Indices
-  'NAS100','US500','DJI','GER40','UK100',
+  'NAS100','US500','DJI','GER40','UK100','JPN225',
 
   // Equities
   'NVDA','AMD','ASML','AAPL','MSFT','META','GOOGL','AMZN','TSLA',
 
   // Commodities
-  'XAUUSD','XAGUSD'
+  'XAUUSD','XAGUSD','USOIL',
+
+  // Safe-haven / defensive overlays
+  'DXY','USDCHF','USDJPY'
 ];
 
 const DH_UNIVERSE = DEFAULT_UNIVERSE;
+
+const LIVE_MOVER_PROVIDER_DOCS = Object.freeze({
+  fmp: 'FMP stock-market movers: /api/v3/stock_market/gainers, /losers, /actives (US equities; key required)',
+  eodhd: 'EODHD screener can sort by change_p / volume for exchange-specific equity movers (key required)',
+  twelvedata: 'TwelveData supplies OHLC/quotes in this repo; no top-gainers/top-losers feed is wired here',
+  asx: 'ASX equities require separate exchange routing; not mixed into the US mover feed until symbol/exchange support is explicit',
+});
+
+const STATIC_UNIVERSE_SOURCE = {
+  provider: 'atlas_static_core',
+  status: 'ok',
+  detail: 'FX majors/crosses, metals, oil, indices, selected mega-cap equities, safe-havens',
+};
 
 // Crypto exclusion filter — applied before every scan
 const CRYPTO_BANNED = new Set([
@@ -78,6 +94,261 @@ function isCryptoBanned(symbol) {
     if (s.includes(kw)) return true;
   }
   return false;
+}
+
+function normaliseDHSymbol(symbol) {
+  const raw = String(symbol || '').trim().toUpperCase();
+  if (!raw) return null;
+  const noExchange = raw.replace(/\.(US|NASDAQ|NYSE|NYSEARCA|AMEX)$/i, '');
+  const cleaned = noExchange.replace(/[^A-Z0-9]/g, '');
+  if (!cleaned || isCryptoBanned(cleaned)) return null;
+  if (cleaned.length > 12) return null;
+  return cleaned;
+}
+
+function inferDHAssetClass(symbol) {
+  const s = normaliseDHSymbol(symbol) || '';
+  if (/^[A-Z]{6}$/.test(s)) return 'fx';
+  if (['XAUUSD','XAGUSD','USOIL','WTI','BCOUSD','NATGAS'].includes(s)) return 'commodity';
+  if (['NAS100','US500','DJI','US30','GER40','UK100','JPN225','HK50','DXY'].includes(s)) return 'index';
+  if (['USDJPY','USDCHF','XAUUSD','DXY'].includes(s)) return 'safe_haven';
+  return 'equity';
+}
+
+function uniqSymbols(symbols) {
+  const out = [];
+  const seen = new Set();
+  for (const sym of symbols || []) {
+    const s = normaliseDHSymbol(sym);
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+function dhHttpsJson(hostname, path, timeoutMs) {
+  return new Promise((resolve) => {
+    const req = https.request({
+      hostname,
+      path,
+      method: 'GET',
+      timeout: timeoutMs || 8000,
+      headers: { 'User-Agent': 'ATLAS-FX-DarkHorse/2.1', 'Accept': 'application/json' },
+    }, res => {
+      let data = '';
+      res.on('data', c => { data += c; });
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return resolve({ ok: false, reason: 'http_' + res.statusCode, statusCode: res.statusCode });
+        }
+        try { return resolve({ ok: true, data: JSON.parse(data), statusCode: res.statusCode }); }
+        catch (e) { return resolve({ ok: false, reason: 'parse_' + e.message }); }
+      });
+    });
+    req.on('error', e => resolve({ ok: false, reason: e.message }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, reason: 'timeout' }); });
+    req.end();
+  });
+}
+
+function _numberFromMover(row, keys) {
+  for (const k of keys) {
+    if (row && row[k] != null && row[k] !== '') {
+      const n = Number(String(row[k]).replace(/[%,$]/g, ''));
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
+}
+
+function normaliseMoverRow(row, source, listType) {
+  const symbol = normaliseDHSymbol(row && (row.symbol || row.ticker || row.code));
+  if (!symbol) return null;
+  const pct = _numberFromMover(row, ['changesPercentage','changePercentage','change_p','changePercent','pctChange']);
+  const volume = _numberFromMover(row, ['volume','avgVolume','averageVolume']);
+  const price = _numberFromMover(row, ['price','close','last','previousClose']);
+  return {
+    symbol,
+    source,
+    listType,
+    assetClass: inferDHAssetClass(symbol),
+    percentMove: pct,
+    volume,
+    price,
+    sourceConfidence: source === 'fmp' ? 0.85 : source === 'eodhd' ? 0.8 : 0.65,
+    rawName: row && (row.name || row.companyName || row.description) || null,
+  };
+}
+
+async function fetchFmpLiveMovers(opts) {
+  opts = opts || {};
+  const key = opts.fmpApiKey || process.env.FMP_API_KEY;
+  if (!key) {
+    return {
+      provider: 'fmp',
+      status: 'missing',
+      symbols: [],
+      candidates: [],
+      detail: 'FMP_API_KEY not set; gainers/losers/actives mover feed unavailable',
+    };
+  }
+  const endpoints = [
+    { listType: 'top_gainers',  path: '/api/v3/stock_market/gainers' },
+    { listType: 'top_decliners', path: '/api/v3/stock_market/losers' },
+    { listType: 'unusual_volume', path: '/api/v3/stock_market/actives' },
+  ];
+  const candidates = [];
+  const failures = [];
+  for (const ep of endpoints) {
+    const sep = ep.path.includes('?') ? '&' : '?';
+    const res = await dhHttpsJson('financialmodelingprep.com', ep.path + sep + 'apikey=' + encodeURIComponent(key), opts.timeoutMs || 8000);
+    if (!res.ok || !Array.isArray(res.data)) {
+      failures.push(ep.listType + ':' + (res.reason || 'non_array_response'));
+      continue;
+    }
+    for (const row of res.data.slice(0, opts.perListLimit || 12)) {
+      const m = normaliseMoverRow(row, 'fmp', ep.listType);
+      if (m) candidates.push(m);
+    }
+  }
+  return {
+    provider: 'fmp',
+    status: candidates.length ? 'ok' : 'failed',
+    symbols: uniqSymbols(candidates.map(c => c.symbol)),
+    candidates,
+    detail: candidates.length
+      ? 'FMP live movers loaded: gainers/decliners/actives'
+      : 'FMP mover endpoints returned no usable symbols' + (failures.length ? ' (' + failures.join(';') + ')' : ''),
+    failures,
+  };
+}
+
+async function fetchEodhdLiveMovers(opts) {
+  opts = opts || {};
+  const key = opts.eodhdApiKey || process.env.EODHD_API_KEY;
+  if (!key) {
+    return {
+      provider: 'eodhd',
+      status: 'missing',
+      symbols: [],
+      candidates: [],
+      detail: 'EODHD_API_KEY not set; screener-based movers unavailable',
+    };
+  }
+  const screens = [
+    { listType: 'top_gainers', sort: 'change_p.desc' },
+    { listType: 'top_decliners', sort: 'change_p.asc' },
+    { listType: 'unusual_volume', sort: 'volume.desc' },
+  ];
+  const candidates = [];
+  const failures = [];
+  for (const screen of screens) {
+    const query = '/api/screener?sort=' + encodeURIComponent(screen.sort)
+      + '&limit=' + encodeURIComponent(String(opts.perListLimit || 12))
+      + '&api_token=' + encodeURIComponent(key)
+      + '&fmt=json';
+    const res = await dhHttpsJson('eodhd.com', query, opts.timeoutMs || 8000);
+    const rows = Array.isArray(res.data && res.data.data) ? res.data.data
+      : Array.isArray(res.data) ? res.data : null;
+    if (!res.ok || !rows) {
+      failures.push(screen.listType + ':' + (res.reason || 'non_array_response'));
+      continue;
+    }
+    for (const row of rows) {
+      const m = normaliseMoverRow(row, 'eodhd', screen.listType);
+      if (m) candidates.push(m);
+    }
+  }
+  return {
+    provider: 'eodhd',
+    status: candidates.length ? 'ok' : 'failed',
+    symbols: uniqSymbols(candidates.map(c => c.symbol)),
+    candidates,
+    detail: candidates.length
+      ? 'EODHD screener movers loaded: change_p and volume sorts'
+      : 'EODHD screener returned no usable symbols' + (failures.length ? ' (' + failures.join(';') + ')' : ''),
+    failures,
+  };
+}
+
+async function buildDynamicDarkHorseUniverse(opts) {
+  opts = opts || {};
+  const staticSymbols = uniqSymbols(opts.staticUniverse || DH_UNIVERSE);
+  const providerResults = [Object.assign({ symbols: staticSymbols, candidates: [] }, STATIC_UNIVERSE_SOURCE)];
+  const moverCandidates = [];
+
+  if (Array.isArray(opts.liveMovers)) {
+    const injected = opts.liveMovers.map(row => normaliseMoverRow(row, row.source || 'test_fixture', row.listType || 'injected_mover')).filter(Boolean);
+    moverCandidates.push(...injected);
+    providerResults.push({
+      provider: 'injected',
+      status: injected.length ? 'ok' : 'failed',
+      detail: injected.length ? 'test/injected live movers supplied' : 'injected live movers empty',
+      symbols: injected.map(m => m.symbol),
+      candidates: injected,
+    });
+  } else if (typeof opts.liveMoversProvider === 'function') {
+    let provided;
+    try { provided = await opts.liveMoversProvider(); }
+    catch (e) { provided = { provider: 'custom', status: 'failed', reason: e.message, symbols: [], candidates: [] }; }
+    const rows = Array.isArray(provided && provided.candidates) ? provided.candidates
+      : Array.isArray(provided && provided.symbols) ? provided.symbols.map(symbol => ({ symbol, source: provided.provider || 'custom' }))
+      : [];
+    const normalised = rows.map(row => normaliseMoverRow(row, row.source || provided.provider || 'custom', row.listType || 'custom_mover')).filter(Boolean);
+    moverCandidates.push(...normalised);
+    providerResults.push(Object.assign({}, provided, {
+      provider: provided && provided.provider || 'custom',
+      status: normalised.length ? 'ok' : (provided && provided.status) || 'failed',
+      symbols: normalised.map(m => m.symbol),
+      candidates: normalised,
+    }));
+  } else if (opts.enableLiveMovers !== false) {
+    const fmp = await fetchFmpLiveMovers(opts);
+    const eodhd = await fetchEodhdLiveMovers(opts);
+    providerResults.push(fmp, eodhd, {
+      provider: 'twelvedata',
+      status: 'unsupported',
+      detail: LIVE_MOVER_PROVIDER_DOCS.twelvedata,
+      symbols: [],
+      candidates: [],
+    }, {
+      provider: 'asx',
+      status: 'unsupported',
+      detail: LIVE_MOVER_PROVIDER_DOCS.asx,
+      symbols: [],
+      candidates: [],
+    });
+    moverCandidates.push(...(fmp.candidates || []), ...(eodhd.candidates || []));
+  }
+
+  const moverSymbols = uniqSymbols(moverCandidates.map(m => m.symbol));
+  const symbols = uniqSymbols(staticSymbols.concat(moverSymbols));
+  const moverBySymbol = {};
+  for (const m of moverCandidates) {
+    if (!m || !m.symbol) continue;
+    const prior = moverBySymbol[m.symbol];
+    if (!prior || Math.abs(Number(m.percentMove) || 0) > Math.abs(Number(prior.percentMove) || 0)) {
+      moverBySymbol[m.symbol] = m;
+    }
+  }
+  return {
+    symbols,
+    staticSymbols,
+    moverSymbols,
+    moverBySymbol,
+    sourceProvenance: providerResults.map(p => ({
+      provider: p.provider,
+      status: p.status,
+      detail: p.detail || p.reason || null,
+      count: Array.isArray(p.symbols) ? p.symbols.length : Array.isArray(p.candidates) ? p.candidates.length : 0,
+      failures: p.failures || [],
+    })),
+    missingSources: providerResults.filter(p => p.status === 'missing' || p.status === 'unsupported' || p.status === 'failed')
+      .map(p => ({ provider: p.provider, status: p.status, detail: p.detail || p.reason || null })),
+    docs: LIVE_MOVER_PROVIDER_DOCS,
+    duplicatesRemoved: staticSymbols.length + moverSymbols.length - symbols.length,
+  };
 }
 
 // ── THRESHOLDS ────────────────────────────────────────────────
@@ -378,7 +649,92 @@ function scoreContinuation(htfCandles, ltfCandles) {
 // ============================================================
 // SCORE SINGLE INSTRUMENT
 // ============================================================
-async function scoreInstrument(symbol) {
+function avgTrueRange(candles, period) {
+  if (!Array.isArray(candles) || candles.length < 2) return null;
+  const n = Math.min(period || 14, candles.length - 1);
+  const rows = candles.slice(-n);
+  const trs = rows.map((c, idx) => {
+    const prev = candles[candles.length - n + idx - 1] || c;
+    return Math.max(
+      Math.abs((c.high || 0) - (c.low || 0)),
+      Math.abs((c.high || 0) - (prev.close || 0)),
+      Math.abs((c.low || 0) - (prev.close || 0))
+    );
+  });
+  return trs.reduce((s, v) => s + v, 0) / trs.length;
+}
+
+function computeBoostMetrics(symbol, htf, ltf, moverMeta, technicalScore, technicalDirection) {
+  const last = htf && htf[htf.length - 1] || null;
+  const prev = htf && htf[htf.length - 2] || null;
+  const lastClose = last && Number(last.close);
+  const prevClose = prev && Number(prev.close);
+  const candlePct = Number.isFinite(lastClose) && Number.isFinite(prevClose) && prevClose !== 0
+    ? ((lastClose - prevClose) / prevClose) * 100
+    : null;
+  const percentMove = Number.isFinite(moverMeta && moverMeta.percentMove)
+    ? Number(moverMeta.percentMove)
+    : candlePct;
+  const atr = avgTrueRange(htf, 14);
+  const atrRelativeMove = Number.isFinite(atr) && atr > 0 && last && Number.isFinite(last.high) && Number.isFinite(last.low)
+    ? Math.abs(last.close - prevClose) / atr
+    : null;
+  const latestVol = last && Number(last.volume);
+  const volBase = Array.isArray(htf) && htf.length > 20
+    ? htf.slice(-21, -1).map(c => Number(c.volume)).filter(Number.isFinite)
+    : [];
+  const avgVol = volBase.length ? volBase.reduce((s, v) => s + v, 0) / volBase.length : null;
+  const volumeRelative = Number.isFinite(latestVol) && Number.isFinite(avgVol) && avgVol > 0
+    ? latestVol / avgVol
+    : Number.isFinite(moverMeta && moverMeta.volume) ? 1 : null;
+  const ltfSpeed = Array.isArray(ltf) && ltf.length >= 10
+    ? (() => {
+        const recent = ltf.slice(-3);
+        const prior = ltf.slice(-10, -3);
+        const body = arr => arr.reduce((s, c) => s + Math.abs((c.close || 0) - (c.open || 0)), 0) / arr.length;
+        const p = body(prior);
+        return p > 0 ? body(recent) / p : null;
+      })()
+    : null;
+  const direction = technicalDirection
+    || (Number.isFinite(percentMove) ? (percentMove > 0 ? 'Bullish' : percentMove < 0 ? 'Bearish' : null) : null);
+  const assetClass = inferDHAssetClass(symbol);
+  const components = {
+    percentageMove: Math.min(2, Math.abs(percentMove || 0) >= 8 ? 2 : Math.abs(percentMove || 0) >= 3 ? 1.5 : Math.abs(percentMove || 0) >= 1 ? 1 : 0),
+    atrRelativeMove: Math.min(1.5, Number.isFinite(atrRelativeMove) ? (atrRelativeMove >= 1.5 ? 1.5 : atrRelativeMove >= 0.8 ? 1 : atrRelativeMove >= 0.45 ? 0.5 : 0) : 0),
+    volumeVsAverage: Math.min(1.25, Number.isFinite(volumeRelative) ? (volumeRelative >= 2 ? 1.25 : volumeRelative >= 1.25 ? 0.75 : 0) : 0),
+    speedOfMove: Math.min(1, Number.isFinite(ltfSpeed) ? (ltfSpeed >= 1.5 ? 1 : ltfSpeed >= 1.15 ? 0.5 : 0) : 0),
+    phaseQuality: technicalScore >= 5 ? 1 : technicalScore >= 3 ? 0.5 : 0,
+    structureQuality: technicalScore >= 7 ? 1.25 : technicalScore >= 5 ? 0.75 : technicalScore >= 3 ? 0.35 : 0,
+    continuationDistance: Number.isFinite(atrRelativeMove) && atrRelativeMove <= 2.4 ? 0.75 : Number.isFinite(atrRelativeMove) ? 0.25 : 0,
+    regimeContext: assetClass === 'safe_haven' || assetClass === 'index' || assetClass === 'commodity' ? 0.5 : 0.35,
+    assetClassRelevance: assetClass === 'equity' && moverMeta ? 0.75 : assetClass !== 'equity' ? 0.6 : 0.35,
+    sourceConfidence: Math.min(0.75, Number.isFinite(moverMeta && moverMeta.sourceConfidence) ? Number(moverMeta.sourceConfidence) * 0.75 : 0.35),
+  };
+  const score = Object.values(components).reduce((s, v) => s + v, 0);
+  return {
+    score: Math.max(0, Math.min(10, Number(score.toFixed(2)))),
+    components,
+    percentMove: Number.isFinite(percentMove) ? Number(percentMove.toFixed(2)) : null,
+    atrRelativeMove: Number.isFinite(atrRelativeMove) ? Number(atrRelativeMove.toFixed(2)) : null,
+    volumeRelative: Number.isFinite(volumeRelative) ? Number(volumeRelative.toFixed(2)) : null,
+    speedOfMove: Number.isFinite(ltfSpeed) ? Number(ltfSpeed.toFixed(2)) : null,
+    moveAge: null,
+    direction,
+    assetClass,
+    source: moverMeta && moverMeta.source || 'ohlc',
+    listType: moverMeta && moverMeta.listType || null,
+  };
+}
+
+function applyBoostScore(technicalTotal, boostScore) {
+  if (!Number.isFinite(boostScore) || boostScore <= 0) return technicalTotal;
+  const blended = Math.round((technicalTotal * 0.55) + (boostScore * 0.45));
+  return Math.max(technicalTotal, Math.min(10, blended));
+}
+
+async function scoreInstrument(symbol, context) {
+  context = context || {};
   if (isCryptoBanned(symbol)) {
     dhLog('WARN', `${symbol} — CRYPTO BANNED, skipping`);
     return null;
@@ -402,14 +758,14 @@ async function scoreInstrument(symbol) {
   const clean  = scoreCleanliness(htf);
   const cont   = scoreContinuation(htf, ltf);
 
-  const total = struct.score + mom.score + brk.score + clean.score + cont.score;
+  const technicalTotal = struct.score + mom.score + brk.score + clean.score + cont.score;
 
   // Determine dominant direction from scoring criteria
   const dirVotes = [struct.direction, mom.direction, brk.direction, clean.direction, cont.direction]
     .filter(Boolean);
   const bullVotes = dirVotes.filter(d => d === 'Bullish').length;
   const bearVotes = dirVotes.filter(d => d === 'Bearish').length;
-  const direction = bullVotes > bearVotes ? 'Bullish' : bearVotes > bullVotes ? 'Bearish' : null;
+  let direction = bullVotes > bearVotes ? 'Bullish' : bearVotes > bullVotes ? 'Bearish' : null;
 
   // Collect triggered reasons
   const reasons = [struct, mom, brk, clean, cont]
@@ -417,13 +773,23 @@ async function scoreInstrument(symbol) {
     .map(r => r.reason);
 
   // Build concise one-line summary for Dark Horse output
-  const summary = buildSummaryLine(struct, mom, brk, clean, cont, direction);
+  const boost = computeBoostMetrics(symbol, htf, ltf, context.mover || null, technicalTotal, direction);
+  const total = applyBoostScore(technicalTotal, boost.score);
+  if (!direction && boost.direction) direction = boost.direction;
 
-  dhLog('INFO', `${symbol} → ${total}/10 ${direction || 'Neutral'}`);
+  let summary = buildSummaryLine(struct, mom, brk, clean, cont, direction);
+  if (boost.percentMove != null && Math.abs(boost.percentMove) >= 3) {
+    summary = `${summary}; ${boost.percentMove > 0 ? '+' : ''}${boost.percentMove}% live mover pressure`;
+  }
+
+  dhLog('INFO', `${symbol} → ${total}/10 ${direction || 'Neutral'} technical=${technicalTotal}/10 boost=${boost.score}/10`);
 
   return {
     symbol,
     score:     total,
+    technicalScore: technicalTotal,
+    boostScore: boost.score,
+    boostMetrics: boost,
     direction,
     summary,
     reasons,
@@ -443,6 +809,7 @@ function buildSummaryLine(struct, mom, brk, clean, cont, direction) {
   // confirmed" → "Strong bearish structure with higher highs and
   // higher lows sequence confirmed" after the jargon translator.
   const seq = direction === 'Bullish' ? 'HH/HL' : 'LH/LL';
+  if (!direction) return 'Composite movement detected — direction still developing';
   if (brk.score === 2 && mom.score === 2) return `Clean breakout continuation with strong momentum`;
   if (brk.score === 2 && struct.score === 2) return `Clean breakout from ${direction === 'Bullish' ? 'bullish' : 'bearish'} structure`;
   if (struct.score === 2 && cont.score === 2) return `Strong trend acceleration with sustained ${direction === 'Bullish' ? 'higher highs' : 'lower lows'}`;
@@ -1218,13 +1585,92 @@ async function triggerPipeline(candidate) {
 //   runDarkHorseScan([symbols...])      — explicit universe
 //   runDarkHorseScan({ universe, vixLevel }) — explicit + VIX hint
 // ============================================================
+function buildRejectedSummary(rejected) {
+  const out = {};
+  for (const r of rejected || []) {
+    const key = r && r.reason || 'unknown';
+    out[key] = (out[key] || 0) + 1;
+  }
+  return out;
+}
+
+function passesLiquidityFilter(symbol, moverMeta, opts) {
+  opts = opts || {};
+  const volume = Number(moverMeta && moverMeta.volume);
+  const min = Number.isFinite(opts.minEquityVolume) ? opts.minEquityVolume : 250000;
+  if (inferDHAssetClass(symbol) === 'equity' && Number.isFinite(volume) && volume > 0 && volume < min) {
+    return { ok: false, reason: 'liquidity_volume_filter', detail: 'volume ' + volume + ' below minimum ' + min };
+  }
+  return { ok: true };
+}
+
+function buildScanFunnel(symbols, scored, rejected, watch, internal, ignored, universeMeta) {
+  const movementRejected = ignored.filter(r => (r.score || 0) < DH_SCORE_INTERNAL);
+  const topRejectedBuilding = movementRejected
+    .slice()
+    .sort((a, b) => (b.score - a.score) || (Math.abs((b.boostMetrics && b.boostMetrics.percentMove) || 0) - Math.abs((a.boostMetrics && a.boostMetrics.percentMove) || 0)))
+    .slice(0, 5)
+    .map(r => ({
+      symbol: r.symbol,
+      score: r.score,
+      percentMove: r.boostMetrics && r.boostMetrics.percentMove,
+      reason: 'below movement threshold; building but incomplete',
+      needs: r.score >= 4 ? 'structure or volume confirmation' : 'stronger movement and structure confirmation',
+    }));
+  const rejectedSummary = buildRejectedSummary(rejected);
+  rejectedSummary.movement_threshold = movementRejected.length;
+  const failed = (rejectedSummary.source_failure || 0) + (rejectedSummary.score_exception || 0);
+  return {
+    totalConsidered: symbols.length,
+    fetchedSuccessfully: scored.length,
+    rejectedSourceFailure: failed,
+    rejectedLiquidityVolume: rejectedSummary.liquidity_volume_filter || 0,
+    rejectedMovementThreshold: movementRejected.length,
+    promotedInternal: internal.length,
+    promotedPreRadar: internal.filter(r => r.score >= DH_SCORE_INTERNAL && r.score < DH_SCORE_WATCH).length,
+    promotedWatch: watch.length,
+    ignored: ignored.length,
+    failed,
+    rejectedSummary,
+    topRejectedBuilding,
+    reconcile: {
+      watch: watch.length,
+      internal: internal.length,
+      ignored: ignored.length,
+      failed,
+      total: watch.length + internal.length + ignored.length + failed,
+      expected: symbols.length,
+      ok: watch.length + internal.length + ignored.length + failed === symbols.length,
+    },
+    sourceProvenance: universeMeta && universeMeta.sourceProvenance || [],
+    missingSources: universeMeta && universeMeta.missingSources || [],
+    dynamicUniverse: {
+      staticCount: universeMeta && universeMeta.staticSymbols ? universeMeta.staticSymbols.length : 0,
+      moverCount: universeMeta && universeMeta.moverSymbols ? universeMeta.moverSymbols.length : 0,
+      duplicatesRemoved: universeMeta && universeMeta.duplicatesRemoved || 0,
+    },
+  };
+}
+
+function rankableScanCandidates(watch, internal, ignored) {
+  const building = (ignored || []).filter(r => {
+    const score = Number(r && r.score);
+    const boost = Number(r && r.boostScore);
+    const pct = Math.abs(Number(r && r.boostMetrics && r.boostMetrics.percentMove) || 0);
+    return (Number.isFinite(score) && score >= 3) || (Number.isFinite(boost) && boost >= 5) || pct >= 3;
+  });
+  return [...(watch || []), ...(internal || []), ...building];
+}
+
 async function runDarkHorseScan(universeOrOpts) {
   // Normalise input
   let universe = null;
   let vixLevel = null;
+  let opts = {};
   if (Array.isArray(universeOrOpts)) {
     universe = universeOrOpts;
   } else if (universeOrOpts && typeof universeOrOpts === 'object') {
+    opts = universeOrOpts;
     universe = universeOrOpts.universe || null;
     vixLevel = universeOrOpts.vixLevel || null;
   }
@@ -1239,20 +1685,37 @@ async function runDarkHorseScan(universeOrOpts) {
     };
   }
 
+  const universeMeta = await buildDynamicDarkHorseUniverse(Object.assign({}, opts, {
+    staticUniverse: (universe && universe.length) ? universe : (opts.staticUniverse || DH_UNIVERSE),
+    enableLiveMovers: opts.dynamicUniverse === false ? false : opts.enableLiveMovers,
+  }));
+
   // Apply crypto ban to universe
-  const symbols = ((universe && universe.length) ? universe : DH_UNIVERSE)
-    .filter(s => !isCryptoBanned(s));
+  const symbols = universeMeta.symbols.filter(s => !isCryptoBanned(s));
 
   dhLog('INFO', `━━━ Scan START — ${symbols.length} instruments ━━━`);
+  dhLog('INFO', `[DH-UNIVERSE] static=${universeMeta.staticSymbols.length} movers=${universeMeta.moverSymbols.length} total=${symbols.length} duplicates_removed=${universeMeta.duplicatesRemoved}`);
+  for (const src of universeMeta.sourceProvenance) {
+    dhLog('INFO', `[DH-SOURCE] provider=${src.provider} status=${src.status} count=${src.count} detail=${src.detail || 'n/a'}`);
+  }
 
   const results = [];
+  const rejected = [];
 
   for (const symbol of symbols) {
     try {
-      const r = await scoreInstrument(symbol);
+      const liq = passesLiquidityFilter(symbol, universeMeta.moverBySymbol[symbol], opts);
+      if (!liq.ok) {
+        rejected.push({ symbol, reason: liq.reason, detail: liq.detail });
+        dhLog('INFO', `[FUNNEL] ${symbol} rejected reason=${liq.reason} detail=${liq.detail}`);
+        continue;
+      }
+      const r = await scoreInstrument(symbol, { mover: universeMeta.moverBySymbol[symbol] || null });
       if (r) results.push(r);
+      else rejected.push({ symbol, reason: 'source_failure', detail: 'OHLC unavailable or insufficient candles' });
     } catch (e) {
       dhLog('ERROR', `Score error for ${symbol}: ${e.message}`);
+      rejected.push({ symbol, reason: 'score_exception', detail: e.message });
     }
   }
 
@@ -1263,7 +1726,10 @@ async function runDarkHorseScan(universeOrOpts) {
   const internal = results.filter(r => r.score >= DH_SCORE_INTERNAL && r.score < DH_SCORE_WATCH);
   const ignored  = results.filter(r => r.score < DH_SCORE_INTERNAL);
 
-  dhLog('INFO', `━━━ Scan COMPLETE — WATCH:${watch.length} INTERNAL:${internal.length} IGNORED:${ignored.length} ━━━`);
+  const funnel = buildScanFunnel(symbols, results, rejected, watch, internal, ignored, universeMeta);
+
+  dhLog('INFO', `━━━ Scan COMPLETE — WATCH:${watch.length} INTERNAL:${internal.length} IGNORED:${ignored.length} FAILED:${funnel.failed} TOTAL:${funnel.totalConsidered} ━━━`);
+  dhLog('INFO', `[DH-FUNNEL] considered=${funnel.totalConsidered} fetched=${funnel.fetchedSuccessfully} source_failed=${funnel.rejectedSourceFailure} liquidity_rejected=${funnel.rejectedLiquidityVolume} movement_rejected=${funnel.rejectedMovementThreshold} internal=${funnel.promotedInternal} watch=${funnel.promotedWatch} reconcile=${funnel.reconcile.ok ? 'ok' : 'mismatch'} total=${funnel.reconcile.total}/${funnel.reconcile.expected}`);
 
   // Store internal candidates — no Discord output
   for (const r of internal) {
@@ -1429,11 +1895,13 @@ async function runDarkHorseScan(universeOrOpts) {
             if (typeof _safeOHLC !== 'function') return null;
             try { return await _safeOHLC(sym, '1D', 100); } catch (_e) { return null; }
           };
-          const rankingUniverse = [...watch, ...internal];
+          const rankingUniverse = rankableScanCandidates(watch, internal, ignored);
           const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
             topN: 10, sectionCap: 2, sectionCapMax: 3,
             watchThreshold: DH_SCORE_WATCH,
           });
+          ranking.funnel = funnel;
+          ranking.sourceProvenance = funnel.sourceProvenance;
           rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
           // ── FOH_IMAGE_RENDER_ENABLED — opt-in image path ──
           // When the env flag is set, render the premium PNG+PDF
@@ -1447,8 +1915,10 @@ async function runDarkHorseScan(universeOrOpts) {
             try {
               const dhImage = require('./darkHorseImageDispatch');
               const imgRes = await dhImage.tryPostDarkHorseAsImage(DH_WEBHOOK_URL, ranking, volatility, {
-                universeSize: DH_UNIVERSE.length,
+                universeSize: funnel.totalConsidered,
                 watch, internal, ignored,
+                funnel,
+                sourceProvenance: funnel.sourceProvenance,
                 coreyLiveModule: _coreyLive,
               });
               if (imgRes && imgRes.ok) {
@@ -1459,7 +1929,7 @@ async function runDarkHorseScan(universeOrOpts) {
                   kind: 'movement_digest_foh_v1_0_image',
                 });
                 dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=image status=${imgRes.status} pdf_skipped=${imgRes.pdfSkipped ? 'true' : 'false'}`);
-                return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
+                return { watch, internal, ignored, rejected, funnel, volatility, scannedAt: new Date().toISOString() };
               }
               dhLog('WARN', `[DH-FOH-IMAGE] image render path returned not-ok reason=${imgRes && imgRes.reason}, falling through to text`);
             } catch (imgErr) {
@@ -1469,7 +1939,9 @@ async function runDarkHorseScan(universeOrOpts) {
           }
           const fohPayload = foh.buildDarkHorseFohPayload(ranking, volatility, {
             now: Date.now(),
-            universeSize: DH_UNIVERSE.length,
+            universeSize: funnel.totalConsidered,
+            funnel,
+            sourceProvenance: funnel.sourceProvenance,
             terminologyUrls: null,
           });
           // Sanitiser walker — wraps the existing fomo.sanitize so
@@ -1528,7 +2000,7 @@ async function runDarkHorseScan(universeOrOpts) {
               dhLog('ERROR', `[WEBHOOK] FOH digest NOT delivered — failed at message ${failedAt + 1}/${sanitisedPayload.messages.length}.`);
             }
           }
-          return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
+          return { watch, internal, ignored, rejected, funnel, volatility, scannedAt: new Date().toISOString() };
         } catch (fohErr) {
           dhLog('WARN', `[DH-FOH] v6 path failed, falling through to v1.3 legacy: ${fohErr.message}`);
           // Fall through to v1.3 chunked path below.
@@ -1549,12 +2021,14 @@ async function runDarkHorseScan(universeOrOpts) {
           try { return await _safeOHLC(sym, '1D', 100); }
           catch (_e) { return null; }
         };
-        // Universe for ranking = everything that scored > 0 on this scan.
-        const rankingUniverse = [...watch, ...internal];
+        // Universe for ranking = candidates that passed the movement/building funnel.
+        const rankingUniverse = rankableScanCandidates(watch, internal, ignored);
         const ranking = await rank.buildRanking(rankingUniverse, candleProvider, {
           topN: 10, sectionCap: 2, sectionCapMax: 3,
           watchThreshold: DH_SCORE_WATCH,
         });
+        ranking.funnel = funnel;
+        ranking.sourceProvenance = funnel.sourceProvenance;
         rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
         // Pre-Radar / Near-Miss lane (operator directive 2026-05-12).
         // The digest builder consumes the FULL scan output (internal +
@@ -1567,7 +2041,9 @@ async function runDarkHorseScan(universeOrOpts) {
         payload = fomo.sanitize(rank.buildRankedMovementDigestPayload(ranking, volatility, {
           internal,                          // 5–7 score band (Pre-Radar + Near-Miss universe)
           ignored,                           // <5 score (Universe Coverage counts only)
-          universeSize: DH_UNIVERSE.length,  // total symbols actually scanned this cycle
+          universeSize: funnel.totalConsidered,  // total symbols actually scanned this cycle
+          funnel,
+          sourceProvenance: funnel.sourceProvenance,
         }));
         kind = 'movement_digest_v1_1';
       } catch (rankErr) {
@@ -1697,7 +2173,7 @@ async function runDarkHorseScan(universeOrOpts) {
     }
   }
 
-  return { watch, internal, ignored, volatility, scannedAt: new Date().toISOString() };
+  return { watch, internal, ignored, rejected, funnel, volatility, scannedAt: new Date().toISOString() };
 }
 
 // ============================================================
@@ -1737,6 +2213,15 @@ module.exports = {
   getDHInternalStore,
   getDHCandidate,
   DH_UNIVERSE,
+  DEFAULT_UNIVERSE,
+  buildDynamicDarkHorseUniverse,
+  fetchFmpLiveMovers,
+  fetchEodhdLiveMovers,
+  normaliseDHSymbol,
+  inferDHAssetClass,
+  computeBoostMetrics,
+  buildScanFunnel,
+  rankableScanCandidates,
   // Watch payload + dedupe surface — exported for tests + downstream consumers.
   buildDHPayload,
   enrichWatchCandidate,

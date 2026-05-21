@@ -869,7 +869,7 @@ function buildMarketIntelPacket(opts) {
     dangerIf:     'Position is opposite the 5-min close direction by T+5 — exit immediately at next 1-min close. No averaging into a fresh catalyst-led move.',
   };
   const provenance = {
-    sources:          macroPacket && Array.isArray(macroPacket.sourceUsed) ? macroPacket.sourceUsed : [(engine.sourceNote && engine.sourceNote.source) || 'TradingView calendar', 'ATLAS macro (DXY=UUP-proxy · VIX=VXX-proxy · curve=FRED T10Y2Y)'],
+    sources:          macroPacket && Array.isArray(macroPacket.sourceUsed) ? macroPacket.sourceUsed : [(engine.sourceNote && engine.sourceNote.source) || 'TradingView calendar', 'ATLAS macro (US Dollar Strength (DXY), Market Volatility (VIX), yield curve via FRED T10Y2Y)'],
     dataFreshness:    (macroPacket && macroPacket.dataFreshness && macroPacket.dataFreshness.calendar && macroPacket.dataFreshness.calendar.mode) || (engine.sourceNote && engine.sourceNote.mode) || (liveCtx ? 'LIVE' : 'UNAVAILABLE'),
     confidenceBasis:  (macroPacket && macroPacket.confidenceBasis) || (engine.sourceNote && engine.sourceNote.probabilityBasis) || 'engine-derived',
   };
