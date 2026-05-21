@@ -1270,11 +1270,15 @@ function _bannerContent(ranking, volatility, opts, urlMap, ctx) {
       + '  ·  '
       + (lifecycleCounts.fading > 0 ? lifecycleCounts.fading + ' fading'                  : '0 fading')
       + '._';
+  const scanTransparency = opts && opts.scanTransparency || ranking && ranking.scanTransparency || null;
+  const bannerTitle = scanTransparency && scanTransparency.coverageState && scanTransparency.coverageState !== 'FULL'
+    ? '🝎  DARK HORSE — REGISTRY MOVER RADAR'
+    : '🝎  DARK HORSE — GLOBAL MOVER RADAR';
 
   const parts = [
     _prototypeNewScanDivider(nowMs, universeSize),
     '',
-    _sectionBanner('🝎  DARK HORSE — GLOBAL MOVER RADAR', 'gold'),
+    _sectionBanner(bannerTitle, 'gold'),
     '',
     standoutCountLine,
     '',
@@ -1724,7 +1728,42 @@ function _tailContent(ranking, volatility, opts, urlMap, ctx) {
     briefingParts.push('_Next scan ' + nextReview + '._');
   }
 
+  const transparency = _scanTransparencyTail(opts, ranking);
+  if (transparency) {
+    briefingParts.push('');
+    briefingParts.push(transparency);
+  }
+
   return briefingParts.join('\n');
+}
+
+function _scanTransparencyTail(opts, ranking) {
+  const t = opts && opts.scanTransparency || ranking && ranking.scanTransparency || opts && opts.funnel && opts.funnel.scanTransparency || null;
+  if (!t) return null;
+  const list = (arr, empty) => {
+    const clean = Array.isArray(arr) ? arr.filter(Boolean) : [];
+    if (!clean.length) return empty;
+    const shown = clean.slice(0, 5).join(' | ');
+    return shown + (clean.length > 5 ? ' | +' + (clean.length - 5) + ' more' : '');
+  };
+  return [
+    _subheading('Scan transparency', 'cyan'),
+    '_Coverage state: ' + (t.coverageState || 'PARTIAL') + '._',
+    '_Scanned: ' + list(t.scannedGroups, 'no provider-supported groups scanned') + '._',
+    '_Not scanned: ' + list(t.notScannedGroups, 'no skipped groups reported') + '._',
+    '_Providers: ' + list(t.providersContributed, 'none reported') + '._',
+    '_Provider gaps: ' + list(t.providersFailed, 'none reported') + '._',
+    '_Counts: intended=' + (t.intendedUniverseCount == null ? 'pending' : t.intendedUniverseCount)
+      + ' enabled=' + (t.enabledCount == null ? 'pending' : t.enabledCount)
+      + ' supported=' + (t.providerSupportedCount == null ? 'pending' : t.providerSupportedCount)
+      + ' static=' + (t.staticCoreCount == null ? 'pending' : t.staticCoreCount)
+      + ' movers=' + (t.dynamicMoverCount == null ? 'pending' : t.dynamicMoverCount)
+      + ' considered=' + (t.totalConsidered == null ? 'pending' : t.totalConsidered)
+      + ' fetched=' + (t.fetchedSuccessfully == null ? 'pending' : t.fetchedSuccessfully)
+      + ' failed=' + (t.failed == null ? 'pending' : t.failed)
+      + ' unsupported=' + (t.unsupported == null ? 'pending' : t.unsupported)
+      + ' duplicates_removed=' + (t.duplicatesRemoved == null ? 'pending' : t.duplicatesRemoved) + '._',
+  ].join('\n');
 }
 
 // ── Token doctrine — Discord-safe transformation (D1 + bracket) ─

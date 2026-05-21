@@ -9,6 +9,7 @@
 
 const https = require('https');
 const fomo  = require('./darkHorseFomoControl');
+const universeRegistry = require('./globalUniverseRegistry');
 
 // ── COREY LIVE — defensive optional require ───────────────────
 // Used solely to source VIX level for FOMO assessment. The
@@ -43,28 +44,10 @@ function getVixContext() {
 }
 
 // ── UNIVERSE ──────────────────────────────────────────────────
-// Full institutional universe — FX, indices, equities, commodities
-// Crypto excluded permanently — zero exceptions
-const DEFAULT_UNIVERSE = [
-  // FX Majors
-  'EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','USDCHF','NZDUSD',
-
-  // FX Crosses
-  'EURGBP','EURJPY','GBPJPY','AUDJPY','CADJPY','CHFJPY','EURAUD',
-  'EURCAD','GBPAUD','GBPCAD','GBPCHF','AUDCAD','AUDNZD','NZDCAD',
-
-  // Indices
-  'NAS100','US500','DJI','GER40','UK100','JPN225',
-
-  // Equities
-  'NVDA','AMD','ASML','AAPL','MSFT','META','GOOGL','AMZN','TSLA',
-
-  // Commodities
-  'XAUUSD','XAGUSD','USOIL',
-
-  // Safe-haven / defensive overlays
-  'DXY','USDCHF','USDJPY'
-];
+// Legacy 37-symbol static core retained as fallback only. The default
+// Dark Horse scan universe is assembled from globalUniverseRegistry.js.
+// Crypto excluded permanently — zero exceptions.
+const DEFAULT_UNIVERSE = universeRegistry.getStaticCoreSymbols();
 
 const DH_UNIVERSE = DEFAULT_UNIVERSE;
 
@@ -72,6 +55,7 @@ const LIVE_MOVER_PROVIDER_DOCS = Object.freeze({
   fmp: 'FMP stock-market movers: /api/v3/stock_market/gainers, /losers, /actives (US equities; key required)',
   eodhd: 'EODHD screener can sort by change_p / volume for exchange-specific equity movers (key required)',
   twelvedata: 'TwelveData supplies OHLC/quotes in this repo; no top-gainers/top-losers feed is wired here',
+  yahoo: 'Yahoo fallback is represented in the registry map but no Yahoo fetcher is wired in this repo',
   asx: 'ASX equities require separate exchange routing; not mixed into the US mover feed until symbol/exchange support is explicit',
 });
 
@@ -91,6 +75,10 @@ const CRYPTO_BANNED = new Set([
 function isCryptoBanned(symbol) {
   const s = symbol.toUpperCase();
   for (const kw of CRYPTO_BANNED) {
+    if (kw === 'USDC' || kw === 'USDT') {
+      if (s === kw || s === kw + 'USD') return true;
+      continue;
+    }
     if (s.includes(kw)) return true;
   }
   return false;
@@ -165,6 +153,9 @@ function _numberFromMover(row, keys) {
 function normaliseMoverRow(row, source, listType) {
   const symbol = normaliseDHSymbol(row && (row.symbol || row.ticker || row.code));
   if (!symbol) return null;
+  const registryRecord = universeRegistry.getRegistryRecord(symbol)
+    || universeRegistry.makeDynamicMoverRecord(symbol, source, row);
+  if (!universeRegistry.isProviderSupported(registryRecord)) return null;
   const pct = _numberFromMover(row, ['changesPercentage','changePercentage','change_p','changePercent','pctChange']);
   const volume = _numberFromMover(row, ['volume','avgVolume','averageVolume']);
   const price = _numberFromMover(row, ['price','close','last','previousClose']);
@@ -173,12 +164,56 @@ function normaliseMoverRow(row, source, listType) {
     source,
     listType,
     assetClass: inferDHAssetClass(symbol),
+    marketGroup: registryRecord.market_group,
+    coverageStatus: registryRecord.coverage_status,
+    providerPriority: registryRecord.provider_priority,
     percentMove: pct,
     volume,
     price,
     sourceConfidence: source === 'fmp' ? 0.85 : source === 'eodhd' ? 0.8 : 0.65,
     rawName: row && (row.name || row.companyName || row.description) || null,
   };
+}
+
+function rawMoverSymbol(row) {
+  return String(row && (row.symbol || row.ticker || row.code) || '').trim().toUpperCase();
+}
+
+function normaliseMoverRowsWithRegistry(rows, source, listType) {
+  const candidates = [];
+  const unsupported = [];
+  for (const row of rows || []) {
+    const raw = rawMoverSymbol(row);
+    if (!raw || isCryptoBanned(raw)) continue;
+    const regionGroup = universeRegistry.inferDynamicMoverGroup(raw, row);
+    if (regionGroup !== universeRegistry.MARKET_GROUPS.US_EQUITIES && !universeRegistry.getRegistryRecord(raw)) {
+      unsupported.push({
+        symbol: raw,
+        provider: source,
+        marketGroup: regionGroup,
+        reason: 'provider unsupported',
+        detail: 'dynamic mover belongs to a market without safeOHLC exchange routing',
+      });
+      continue;
+    }
+    const symbol = normaliseDHSymbol(raw);
+    if (!symbol) continue;
+    const registryRecord = universeRegistry.getRegistryRecord(symbol)
+      || universeRegistry.makeDynamicMoverRecord(symbol, source, row);
+    if (!universeRegistry.isProviderSupported(registryRecord)) {
+      unsupported.push({
+        symbol: raw,
+        provider: source,
+        marketGroup: registryRecord.market_group,
+        reason: 'provider unsupported',
+        detail: registryRecord.notes || 'registry marks this market unsupported for Dark Horse safeOHLC routing',
+      });
+      continue;
+    }
+    const m = normaliseMoverRow(Object.assign({}, row, { symbol }), source, listType);
+    if (m) candidates.push(m);
+  }
+  return { candidates, unsupported };
 }
 
 async function fetchFmpLiveMovers(opts) {
@@ -199,6 +234,7 @@ async function fetchFmpLiveMovers(opts) {
     { listType: 'unusual_volume', path: '/api/v3/stock_market/actives' },
   ];
   const candidates = [];
+  const unsupported = [];
   const failures = [];
   for (const ep of endpoints) {
     const sep = ep.path.includes('?') ? '&' : '?';
@@ -207,10 +243,9 @@ async function fetchFmpLiveMovers(opts) {
       failures.push(ep.listType + ':' + (res.reason || 'non_array_response'));
       continue;
     }
-    for (const row of res.data.slice(0, opts.perListLimit || 12)) {
-      const m = normaliseMoverRow(row, 'fmp', ep.listType);
-      if (m) candidates.push(m);
-    }
+    const normalised = normaliseMoverRowsWithRegistry(res.data.slice(0, opts.perListLimit || 12), 'fmp', ep.listType);
+    candidates.push(...normalised.candidates);
+    unsupported.push(...normalised.unsupported);
   }
   return {
     provider: 'fmp',
@@ -221,6 +256,7 @@ async function fetchFmpLiveMovers(opts) {
       ? 'FMP live movers loaded: gainers/decliners/actives'
       : 'FMP mover endpoints returned no usable symbols' + (failures.length ? ' (' + failures.join(';') + ')' : ''),
     failures,
+    unsupported,
   };
 }
 
@@ -242,6 +278,7 @@ async function fetchEodhdLiveMovers(opts) {
     { listType: 'unusual_volume', sort: 'volume.desc' },
   ];
   const candidates = [];
+  const unsupported = [];
   const failures = [];
   for (const screen of screens) {
     const query = '/api/screener?sort=' + encodeURIComponent(screen.sort)
@@ -255,10 +292,9 @@ async function fetchEodhdLiveMovers(opts) {
       failures.push(screen.listType + ':' + (res.reason || 'non_array_response'));
       continue;
     }
-    for (const row of rows) {
-      const m = normaliseMoverRow(row, 'eodhd', screen.listType);
-      if (m) candidates.push(m);
-    }
+    const normalised = normaliseMoverRowsWithRegistry(rows, 'eodhd', screen.listType);
+    candidates.push(...normalised.candidates);
+    unsupported.push(...normalised.unsupported);
   }
   return {
     provider: 'eodhd',
@@ -269,61 +305,290 @@ async function fetchEodhdLiveMovers(opts) {
       ? 'EODHD screener movers loaded: change_p and volume sorts'
       : 'EODHD screener returned no usable symbols' + (failures.length ? ' (' + failures.join(';') + ')' : ''),
     failures,
+    unsupported,
+  };
+}
+
+function registrySymbolMeta(row, sourceProvider) {
+  return {
+    symbol: row.canonical_symbol,
+    displaySymbol: row.display_symbol,
+    assetClass: row.asset_class,
+    marketGroup: row.market_group,
+    marketGroupLabel: universeRegistry.GROUP_LABELS[row.market_group] || row.market_group,
+    region: row.region,
+    exchange: row.exchange,
+    scanMode: row.scan_mode,
+    coverageStatus: row.coverage_status,
+    providerPriority: row.provider_priority,
+    providerSymbolMap: row.provider_symbol_map,
+    sourceProvider: sourceProvider || (row.scan_mode === universeRegistry.SCAN_MODE.STATIC_CORE ? 'atlas_static_core' : 'registry'),
+    staticCore: universeRegistry.isStaticCoreSymbol(row.canonical_symbol),
+    notes: row.notes,
+  };
+}
+
+function fallbackMeta(symbol, sourceProvider) {
+  const s = normaliseDHSymbol(symbol);
+  const row = s && universeRegistry.getRegistryRecord(s);
+  if (row) return registrySymbolMeta(row, sourceProvider);
+  return {
+    symbol: s,
+    displaySymbol: s,
+    assetClass: inferDHAssetClass(s),
+    marketGroup: inferDHAssetClass(s) === 'equity' ? universeRegistry.MARKET_GROUPS.US_EQUITIES : 'OTHER',
+    marketGroupLabel: inferDHAssetClass(s) === 'equity' ? 'US Equities' : 'Other',
+    region: 'UNKNOWN',
+    exchange: null,
+    scanMode: 'explicit_runtime',
+    coverageStatus: 'partial',
+    providerPriority: [],
+    providerSymbolMap: {},
+    sourceProvider: sourceProvider || 'explicit_runtime',
+    staticCore: universeRegistry.isStaticCoreSymbol(s),
+    notes: 'Explicit runtime symbol not found in Global Universe Registry.',
+  };
+}
+
+function buildInitialCoverage(records) {
+  const coverage = universeRegistry.buildCoverageSummary(records);
+  for (const g of Object.keys(coverage)) {
+    coverage[g].scanned = 0;
+    coverage[g].failed = 0;
+    coverage[g].source_failed = 0;
+    coverage[g].unsupported_dynamic = 0;
+    coverage[g].duplicates_removed = 0;
+    coverage[g].reasons = {};
+  }
+  return coverage;
+}
+
+function bumpCoverage(coverage, group, field, amount) {
+  const g = group || 'UNKNOWN';
+  if (!coverage[g]) {
+    coverage[g] = {
+      market_group: g,
+      label: universeRegistry.GROUP_LABELS[g] || g,
+      intended: 0,
+      provider_supported: 0,
+      unsupported: 0,
+      partial: 0,
+      scanned: 0,
+      failed: 0,
+      source_failed: 0,
+      unsupported_dynamic: 0,
+      duplicates_removed: 0,
+      reasons: {},
+    };
+  }
+  coverage[g][field] = (coverage[g][field] || 0) + (amount || 1);
+}
+
+function makeScanTransparency(universeMeta, funnel) {
+  const coverageRows = Object.values(universeMeta.coverageByGroup || {})
+    .sort((a, b) => String(a.market_group).localeCompare(String(b.market_group)));
+  const scannedGroups = coverageRows
+    .filter(g => (g.scanned || 0) > 0)
+    .map(g => `${g.market_group} ${g.scanned}/${g.intended}`);
+  const notScannedGroups = coverageRows
+    .filter(g => (g.intended || 0) > 0 && (g.scanned || 0) === 0)
+    .map(g => `${g.market_group} ${g.unsupported > 0 ? 'unsupported' : 'not_scanned'} (${g.intended})`);
+  const partialGroups = coverageRows
+    .filter(g => (g.partial || 0) > 0 || (g.unsupported || 0) > 0 || (g.failed || 0) > 0)
+    .map(g => g.market_group);
+  const providers = universeMeta.sourceProvenance || [];
+  const contributed = providers.filter(p => p.count > 0 && p.status !== 'failed' && p.status !== 'missing' && p.status !== 'unsupported')
+    .map(p => `${p.provider}:${p.status}(${p.count})`);
+  const failed = providers.filter(p => p.status === 'failed' || p.status === 'missing' || p.status === 'unsupported')
+    .map(p => `${p.provider}:${p.status}`);
+  let coverageState = 'PARTIAL';
+  if (universeMeta.totalConsidered === 0) coverageState = 'STATIC-FALLBACK';
+  else if ((funnel && funnel.failed > 0) || failed.some(x => /failed/.test(x))) coverageState = 'DEGRADED';
+  else if (universeMeta.unsupportedCount > 0 || partialGroups.length > 0) coverageState = 'PARTIAL';
+  else if (universeMeta.totalConsidered >= universeMeta.enabledCount && universeMeta.unsupportedCount === 0) coverageState = 'FULL';
+  return {
+    coverageState,
+    intendedUniverseCount: universeMeta.intendedUniverseCount,
+    enabledCount: universeMeta.enabledCount,
+    providerSupportedCount: universeMeta.providerSupportedCount,
+    staticCoreCount: Array.isArray(universeMeta.staticSymbols) ? universeMeta.staticSymbols.length : 0,
+    dynamicMoverCount: Array.isArray(universeMeta.moverSymbols) ? universeMeta.moverSymbols.length : 0,
+    totalConsidered: universeMeta.totalConsidered,
+    fetchedSuccessfully: funnel ? funnel.fetchedSuccessfully : 0,
+    failed: funnel ? funnel.failed : 0,
+    unsupported: universeMeta.unsupportedCount,
+    duplicatesRemoved: universeMeta.duplicatesRemoved,
+    scannedGroups,
+    notScannedGroups,
+    partialGroups,
+    providersContributed: contributed,
+    providersFailed: failed,
+    categoryCounts: universeMeta.coverageByGroup,
   };
 }
 
 async function buildDynamicDarkHorseUniverse(opts) {
   opts = opts || {};
-  const staticSymbols = uniqSymbols(opts.staticUniverse || DH_UNIVERSE);
-  const providerResults = [Object.assign({ symbols: staticSymbols, candidates: [] }, STATIC_UNIVERSE_SOURCE)];
+  const registryRecords = universeRegistry.getEnabledRegistry();
+  const scannableRecords = universeRegistry.getScannableRegistry();
+  const coverageByGroup = buildInitialCoverage(registryRecords);
+  const unsupported = registryRecords
+    .filter(r => !universeRegistry.isProviderSupported(r))
+    .map(r => ({
+      symbol: r.canonical_symbol,
+      provider: 'registry',
+      marketGroup: r.market_group,
+      reason: 'provider unsupported',
+      detail: r.notes || 'not wired to Dark Horse safeOHLC routing',
+    }));
+
+  const explicitBase = Array.isArray(opts.explicitUniverse) && opts.explicitUniverse.length
+    ? opts.explicitUniverse
+    : Array.isArray(opts.staticUniverse) && opts.staticUniverse.length
+      ? opts.staticUniverse
+      : null;
+  const baseRecords = explicitBase
+    ? uniqSymbols(explicitBase).map(s => {
+        const row = universeRegistry.getRegistryRecord(s);
+        return row || null;
+      }).filter(Boolean)
+    : scannableRecords;
+  const baseSymbols = explicitBase
+    ? uniqSymbols(explicitBase)
+    : uniqSymbols(baseRecords.map(r => r.canonical_symbol));
+  const staticSymbols = universeRegistry.getStaticCoreSymbols();
+  const symbolMetaBySymbol = {};
+  for (const row of baseRecords) {
+    const sym = normaliseDHSymbol(row.canonical_symbol);
+    if (!sym) continue;
+    symbolMetaBySymbol[sym] = registrySymbolMeta(row);
+  }
+  for (const sym of baseSymbols) {
+    if (!symbolMetaBySymbol[sym]) symbolMetaBySymbol[sym] = fallbackMeta(sym, explicitBase ? 'explicit_runtime' : 'registry');
+  }
+
+  const providerResults = [
+    Object.assign({ symbols: staticSymbols, candidates: [] }, STATIC_UNIVERSE_SOURCE, {
+      detail: 'legacy 37-symbol static core retained as fallback only',
+    }),
+    {
+      provider: 'registry',
+      status: 'ok',
+      detail: 'Global Universe Registry loaded; provider-supported records feed Dark Horse scan universe',
+      symbols: baseSymbols,
+      candidates: [],
+    },
+    {
+      provider: 'twelvedata',
+      status: 'mapped',
+      detail: 'OHLC/quote symbol maps present in registry; top-mover feed not wired',
+      symbols: scannableRecords.filter(r => r.provider_symbol_map && r.provider_symbol_map.twelvedata).map(r => r.canonical_symbol),
+      candidates: [],
+    },
+    {
+      provider: 'yahoo',
+      status: 'unsupported',
+      detail: LIVE_MOVER_PROVIDER_DOCS.yahoo,
+      symbols: [],
+      candidates: [],
+    },
+  ];
   const moverCandidates = [];
 
+  function acceptProviderResult(result) {
+    const p = result || {};
+    providerResults.push(p);
+    moverCandidates.push(...(p.candidates || []));
+    unsupported.push(...(p.unsupported || []));
+  }
+
   if (Array.isArray(opts.liveMovers)) {
-    const injected = opts.liveMovers.map(row => normaliseMoverRow(row, row.source || 'test_fixture', row.listType || 'injected_mover')).filter(Boolean);
-    moverCandidates.push(...injected);
-    providerResults.push({
+    const normalised = normaliseMoverRowsWithRegistry(opts.liveMovers, 'injected', 'injected_mover');
+    acceptProviderResult({
       provider: 'injected',
-      status: injected.length ? 'ok' : 'failed',
-      detail: injected.length ? 'test/injected live movers supplied' : 'injected live movers empty',
-      symbols: injected.map(m => m.symbol),
-      candidates: injected,
+      status: normalised.candidates.length ? 'ok' : (normalised.unsupported.length ? 'unsupported' : 'failed'),
+      detail: normalised.candidates.length ? 'test/injected live movers supplied' : 'injected live movers empty or unsupported',
+      symbols: normalised.candidates.map(m => m.symbol),
+      candidates: normalised.candidates,
+      unsupported: normalised.unsupported,
+    });
+    providerResults.push({
+      provider: 'fmp',
+      status: 'bypassed',
+      detail: 'injected live movers supplied for this scan/test; FMP fetch not called',
+      symbols: [],
+      candidates: [],
+    }, {
+      provider: 'eodhd',
+      status: 'bypassed',
+      detail: 'injected live movers supplied for this scan/test; EODHD fetch not called',
+      symbols: [],
+      candidates: [],
     });
   } else if (typeof opts.liveMoversProvider === 'function') {
     let provided;
     try { provided = await opts.liveMoversProvider(); }
-    catch (e) { provided = { provider: 'custom', status: 'failed', reason: e.message, symbols: [], candidates: [] }; }
+    catch (e) { provided = { provider: 'custom', status: 'failed', reason: e.message, symbols: [], candidates: [], unsupported: [] }; }
     const rows = Array.isArray(provided && provided.candidates) ? provided.candidates
       : Array.isArray(provided && provided.symbols) ? provided.symbols.map(symbol => ({ symbol, source: provided.provider || 'custom' }))
       : [];
-    const normalised = rows.map(row => normaliseMoverRow(row, row.source || provided.provider || 'custom', row.listType || 'custom_mover')).filter(Boolean);
-    moverCandidates.push(...normalised);
-    providerResults.push(Object.assign({}, provided, {
-      provider: provided && provided.provider || 'custom',
-      status: normalised.length ? 'ok' : (provided && provided.status) || 'failed',
-      symbols: normalised.map(m => m.symbol),
-      candidates: normalised,
+    const providerName = provided && provided.provider || 'custom';
+    const normalised = normaliseMoverRowsWithRegistry(rows, providerName, 'custom_mover');
+    acceptProviderResult(Object.assign({}, provided, {
+      provider: providerName,
+      status: normalised.candidates.length ? 'ok' : (provided && provided.status) || (normalised.unsupported.length ? 'unsupported' : 'failed'),
+      symbols: normalised.candidates.map(m => m.symbol),
+      candidates: normalised.candidates,
+      unsupported: (provided && provided.unsupported || []).concat(normalised.unsupported),
     }));
   } else if (opts.enableLiveMovers !== false) {
     const fmp = await fetchFmpLiveMovers(opts);
     const eodhd = await fetchEodhdLiveMovers(opts);
-    providerResults.push(fmp, eodhd, {
-      provider: 'twelvedata',
-      status: 'unsupported',
-      detail: LIVE_MOVER_PROVIDER_DOCS.twelvedata,
-      symbols: [],
-      candidates: [],
-    }, {
+    acceptProviderResult(fmp);
+    acceptProviderResult(eodhd);
+    providerResults.push({
       provider: 'asx',
       status: 'unsupported',
       detail: LIVE_MOVER_PROVIDER_DOCS.asx,
       symbols: [],
       candidates: [],
     });
-    moverCandidates.push(...(fmp.candidates || []), ...(eodhd.candidates || []));
+  } else {
+    providerResults.push({
+      provider: 'fmp',
+      status: 'disabled',
+      detail: 'live mover fetch disabled for this scan',
+      symbols: [],
+      candidates: [],
+    }, {
+      provider: 'eodhd',
+      status: 'disabled',
+      detail: 'live mover fetch disabled for this scan',
+      symbols: [],
+      candidates: [],
+    });
   }
 
   const moverSymbols = uniqSymbols(moverCandidates.map(m => m.symbol));
-  const symbols = uniqSymbols(staticSymbols.concat(moverSymbols));
+  const symbols = uniqSymbols(baseSymbols.concat(moverSymbols));
+  for (const sym of moverSymbols) {
+    if (!symbolMetaBySymbol[sym]) {
+      const mover = moverCandidates.find(m => m.symbol === sym);
+      const row = universeRegistry.getRegistryRecord(sym)
+        || universeRegistry.makeDynamicMoverRecord(sym, mover && mover.source || 'dynamic_mover', mover || {});
+      symbolMetaBySymbol[sym] = registrySymbolMeta(row, mover && mover.source || 'dynamic_mover');
+    } else if (moverCandidates.some(m => m.symbol === sym)) {
+      symbolMetaBySymbol[sym].sourceProvider = moverCandidates.find(m => m.symbol === sym).source;
+    }
+  }
+  for (const sym of symbols) {
+    const meta = symbolMetaBySymbol[sym] || fallbackMeta(sym);
+    bumpCoverage(coverageByGroup, meta.marketGroup, 'scanned', 1);
+  }
+  for (const u of unsupported) {
+    if (u.provider !== 'registry') bumpCoverage(coverageByGroup, u.marketGroup, 'unsupported_dynamic', 1);
+  }
+
   const moverBySymbol = {};
   for (const m of moverCandidates) {
     if (!m || !m.symbol) continue;
@@ -332,22 +597,41 @@ async function buildDynamicDarkHorseUniverse(opts) {
       moverBySymbol[m.symbol] = m;
     }
   }
+  const rawTotal = baseSymbols.length + moverSymbols.length;
+  const duplicatesRemoved = rawTotal - symbols.length;
+  for (const sym of baseSymbols) {
+    if (moverSymbols.includes(sym)) {
+      const meta = symbolMetaBySymbol[sym] || fallbackMeta(sym);
+      bumpCoverage(coverageByGroup, meta.marketGroup, 'duplicates_removed', 1);
+    }
+  }
+  const sourceProvenance = providerResults.map(p => ({
+    provider: p.provider,
+    status: p.status,
+    detail: p.detail || p.reason || null,
+    count: Array.isArray(p.symbols) ? p.symbols.length : Array.isArray(p.candidates) ? p.candidates.length : 0,
+    failures: p.failures || [],
+    unsupported: p.unsupported || [],
+  }));
   return {
     symbols,
+    registrySymbols: baseSymbols,
     staticSymbols,
     moverSymbols,
     moverBySymbol,
-    sourceProvenance: providerResults.map(p => ({
-      provider: p.provider,
-      status: p.status,
-      detail: p.detail || p.reason || null,
-      count: Array.isArray(p.symbols) ? p.symbols.length : Array.isArray(p.candidates) ? p.candidates.length : 0,
-      failures: p.failures || [],
-    })),
+    symbolMetaBySymbol,
+    sourceProvenance,
     missingSources: providerResults.filter(p => p.status === 'missing' || p.status === 'unsupported' || p.status === 'failed')
       .map(p => ({ provider: p.provider, status: p.status, detail: p.detail || p.reason || null })),
+    unsupported,
+    unsupportedCount: unsupported.length,
     docs: LIVE_MOVER_PROVIDER_DOCS,
-    duplicatesRemoved: staticSymbols.length + moverSymbols.length - symbols.length,
+    duplicatesRemoved,
+    intendedUniverseCount: registryRecords.length,
+    enabledCount: registryRecords.length,
+    providerSupportedCount: scannableRecords.length,
+    totalConsidered: symbols.length,
+    coverageByGroup,
   };
 }
 
@@ -790,6 +1074,10 @@ async function scoreInstrument(symbol, context) {
     technicalScore: technicalTotal,
     boostScore: boost.score,
     boostMetrics: boost,
+    marketGroup: context.marketGroup || (context.meta && context.meta.marketGroup) || null,
+    marketGroupLabel: context.marketGroupLabel || (context.meta && context.meta.marketGroupLabel) || null,
+    sourceProvider: context.sourceProvider || (context.meta && context.meta.sourceProvider) || (context.mover && context.mover.source) || null,
+    providerProvenance: context.meta || null,
     direction,
     summary,
     reasons,
@@ -1620,10 +1908,36 @@ function buildScanFunnel(symbols, scored, rejected, watch, internal, ignored, un
   const rejectedSummary = buildRejectedSummary(rejected);
   rejectedSummary.movement_threshold = movementRejected.length;
   const failed = (rejectedSummary.source_failure || 0) + (rejectedSummary.score_exception || 0);
-  return {
+  const categoryCounts = Object.assign({}, universeMeta && universeMeta.coverageByGroup || {});
+  for (const r of rejected || []) {
+    const group = r && r.marketGroup || 'UNKNOWN';
+    if (!categoryCounts[group]) {
+      categoryCounts[group] = {
+        market_group: group,
+        label: universeRegistry.GROUP_LABELS[group] || group,
+        intended: 0,
+        provider_supported: 0,
+        unsupported: 0,
+        partial: 0,
+        scanned: 0,
+        failed: 0,
+        source_failed: 0,
+        unsupported_dynamic: 0,
+        duplicates_removed: 0,
+        reasons: {},
+      };
+    }
+    categoryCounts[group].failed = (categoryCounts[group].failed || 0) + 1;
+    if (r.reason === 'source_failure') categoryCounts[group].source_failed = (categoryCounts[group].source_failed || 0) + 1;
+    categoryCounts[group].reasons = categoryCounts[group].reasons || {};
+    categoryCounts[group].reasons[r.reason || 'unknown'] = (categoryCounts[group].reasons[r.reason || 'unknown'] || 0) + 1;
+  }
+  if (universeMeta) universeMeta.coverageByGroup = categoryCounts;
+  const funnel = {
     totalConsidered: symbols.length,
     fetchedSuccessfully: scored.length,
     rejectedSourceFailure: failed,
+    unsupported: universeMeta && universeMeta.unsupportedCount || 0,
     rejectedLiquidityVolume: rejectedSummary.liquidity_volume_filter || 0,
     rejectedMovementThreshold: movementRejected.length,
     promotedInternal: internal.length,
@@ -1644,12 +1958,37 @@ function buildScanFunnel(symbols, scored, rejected, watch, internal, ignored, un
     },
     sourceProvenance: universeMeta && universeMeta.sourceProvenance || [],
     missingSources: universeMeta && universeMeta.missingSources || [],
+    providerProvenance: universeMeta && universeMeta.sourceProvenance || [],
+    categoryCounts,
     dynamicUniverse: {
       staticCount: universeMeta && universeMeta.staticSymbols ? universeMeta.staticSymbols.length : 0,
       moverCount: universeMeta && universeMeta.moverSymbols ? universeMeta.moverSymbols.length : 0,
       duplicatesRemoved: universeMeta && universeMeta.duplicatesRemoved || 0,
+      intendedUniverseCount: universeMeta && universeMeta.intendedUniverseCount || 0,
+      enabledCount: universeMeta && universeMeta.enabledCount || 0,
+      providerSupportedCount: universeMeta && universeMeta.providerSupportedCount || 0,
+      totalConsidered: universeMeta && universeMeta.totalConsidered || symbols.length,
     },
   };
+  funnel.scanTransparency = makeScanTransparency(universeMeta || {}, funnel);
+  return funnel;
+}
+
+function formatUniverseLogLine(universeMeta) {
+  const meta = universeMeta || {};
+  return `[DH-UNIVERSE] intended=${meta.intendedUniverseCount || 0} enabled=${meta.enabledCount || 0} supported=${meta.providerSupportedCount || 0} static=${Array.isArray(meta.staticSymbols) ? meta.staticSymbols.length : 0} movers=${Array.isArray(meta.moverSymbols) ? meta.moverSymbols.length : 0} total=${meta.totalConsidered || (Array.isArray(meta.symbols) ? meta.symbols.length : 0)} duplicates_removed=${meta.duplicatesRemoved || 0}`;
+}
+
+function formatCoverageLogLines(categoryCounts) {
+  return Object.values(categoryCounts || {})
+    .sort((a, b) => String(a.market_group).localeCompare(String(b.market_group)))
+    .map(cov => `[DH-COVERAGE] group=${cov.market_group} intended=${cov.intended || 0} scanned=${cov.scanned || 0} failed=${cov.failed || 0} unsupported=${(cov.unsupported || 0) + (cov.unsupported_dynamic || 0)}`);
+}
+
+function formatFunnelLogLine(funnel) {
+  const f = funnel || {};
+  const rec = f.reconcile || {};
+  return `[DH-FUNNEL] considered=${f.totalConsidered || 0} fetched=${f.fetchedSuccessfully || 0} source_failed=${f.rejectedSourceFailure || 0} unsupported=${f.unsupported || 0} liquidity_rejected=${f.rejectedLiquidityVolume || 0} movement_rejected=${f.rejectedMovementThreshold || 0} internal=${f.promotedInternal || 0} watch=${f.promotedWatch || 0} reconcile=${rec.ok ? 'ok' : 'mismatch'} total=${rec.total || 0}/${rec.expected || 0}`;
 }
 
 function rankableScanCandidates(watch, internal, ignored) {
@@ -1686,15 +2025,17 @@ async function runDarkHorseScan(universeOrOpts) {
   }
 
   const universeMeta = await buildDynamicDarkHorseUniverse(Object.assign({}, opts, {
-    staticUniverse: (universe && universe.length) ? universe : (opts.staticUniverse || DH_UNIVERSE),
+    explicitUniverse: (universe && universe.length) ? universe : null,
+    staticUniverse: opts.staticUniverse || null,
     enableLiveMovers: opts.dynamicUniverse === false ? false : opts.enableLiveMovers,
   }));
 
   // Apply crypto ban to universe
   const symbols = universeMeta.symbols.filter(s => !isCryptoBanned(s));
+  universeMeta.totalConsidered = symbols.length;
 
   dhLog('INFO', `━━━ Scan START — ${symbols.length} instruments ━━━`);
-  dhLog('INFO', `[DH-UNIVERSE] static=${universeMeta.staticSymbols.length} movers=${universeMeta.moverSymbols.length} total=${symbols.length} duplicates_removed=${universeMeta.duplicatesRemoved}`);
+  dhLog('INFO', formatUniverseLogLine(universeMeta));
   for (const src of universeMeta.sourceProvenance) {
     dhLog('INFO', `[DH-SOURCE] provider=${src.provider} status=${src.status} count=${src.count} detail=${src.detail || 'n/a'}`);
   }
@@ -1704,18 +2045,26 @@ async function runDarkHorseScan(universeOrOpts) {
 
   for (const symbol of symbols) {
     try {
+      const meta = universeMeta.symbolMetaBySymbol[symbol] || fallbackMeta(symbol);
       const liq = passesLiquidityFilter(symbol, universeMeta.moverBySymbol[symbol], opts);
       if (!liq.ok) {
-        rejected.push({ symbol, reason: liq.reason, detail: liq.detail });
+        rejected.push({ symbol, reason: liq.reason, detail: liq.detail, marketGroup: meta.marketGroup });
         dhLog('INFO', `[FUNNEL] ${symbol} rejected reason=${liq.reason} detail=${liq.detail}`);
         continue;
       }
-      const r = await scoreInstrument(symbol, { mover: universeMeta.moverBySymbol[symbol] || null });
+      const r = await scoreInstrument(symbol, {
+        mover: universeMeta.moverBySymbol[symbol] || null,
+        meta,
+        marketGroup: meta.marketGroup,
+        marketGroupLabel: meta.marketGroupLabel,
+        sourceProvider: meta.sourceProvider,
+      });
       if (r) results.push(r);
-      else rejected.push({ symbol, reason: 'source_failure', detail: 'OHLC unavailable or insufficient candles' });
+      else rejected.push({ symbol, reason: 'source_failure', detail: 'OHLC unavailable or insufficient candles', marketGroup: meta.marketGroup });
     } catch (e) {
       dhLog('ERROR', `Score error for ${symbol}: ${e.message}`);
-      rejected.push({ symbol, reason: 'score_exception', detail: e.message });
+      const meta = universeMeta.symbolMetaBySymbol[symbol] || fallbackMeta(symbol);
+      rejected.push({ symbol, reason: 'score_exception', detail: e.message, marketGroup: meta.marketGroup });
     }
   }
 
@@ -1729,7 +2078,8 @@ async function runDarkHorseScan(universeOrOpts) {
   const funnel = buildScanFunnel(symbols, results, rejected, watch, internal, ignored, universeMeta);
 
   dhLog('INFO', `━━━ Scan COMPLETE — WATCH:${watch.length} INTERNAL:${internal.length} IGNORED:${ignored.length} FAILED:${funnel.failed} TOTAL:${funnel.totalConsidered} ━━━`);
-  dhLog('INFO', `[DH-FUNNEL] considered=${funnel.totalConsidered} fetched=${funnel.fetchedSuccessfully} source_failed=${funnel.rejectedSourceFailure} liquidity_rejected=${funnel.rejectedLiquidityVolume} movement_rejected=${funnel.rejectedMovementThreshold} internal=${funnel.promotedInternal} watch=${funnel.promotedWatch} reconcile=${funnel.reconcile.ok ? 'ok' : 'mismatch'} total=${funnel.reconcile.total}/${funnel.reconcile.expected}`);
+  for (const line of formatCoverageLogLines(funnel.categoryCounts)) dhLog('INFO', line);
+  dhLog('INFO', formatFunnelLogLine(funnel));
 
   // Store internal candidates — no Discord output
   for (const r of internal) {
@@ -1902,6 +2252,7 @@ async function runDarkHorseScan(universeOrOpts) {
           });
           ranking.funnel = funnel;
           ranking.sourceProvenance = funnel.sourceProvenance;
+          ranking.scanTransparency = funnel.scanTransparency;
           rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
           // ── FOH_IMAGE_RENDER_ENABLED — opt-in image path ──
           // When the env flag is set, render the premium PNG+PDF
@@ -1919,6 +2270,7 @@ async function runDarkHorseScan(universeOrOpts) {
                 watch, internal, ignored,
                 funnel,
                 sourceProvenance: funnel.sourceProvenance,
+                scanTransparency: funnel.scanTransparency,
                 coreyLiveModule: _coreyLive,
               });
               if (imgRes && imgRes.ok) {
@@ -1929,7 +2281,7 @@ async function runDarkHorseScan(universeOrOpts) {
                   kind: 'movement_digest_foh_v1_0_image',
                 });
                 dhLog('INFO', `[DH-CHANNEL] env_key=${DH_WEBHOOK_ENV_KEY} target_channel=${DH_TARGET_CHANNEL} send_result=ok kind=image status=${imgRes.status} pdf_skipped=${imgRes.pdfSkipped ? 'true' : 'false'}`);
-                return { watch, internal, ignored, rejected, funnel, volatility, scannedAt: new Date().toISOString() };
+                return { watch, internal, ignored, rejected, funnel, volatility, scanTransparency: funnel.scanTransparency, scannedAt: new Date().toISOString() };
               }
               dhLog('WARN', `[DH-FOH-IMAGE] image render path returned not-ok reason=${imgRes && imgRes.reason}, falling through to text`);
             } catch (imgErr) {
@@ -1942,6 +2294,7 @@ async function runDarkHorseScan(universeOrOpts) {
             universeSize: funnel.totalConsidered,
             funnel,
             sourceProvenance: funnel.sourceProvenance,
+            scanTransparency: funnel.scanTransparency,
             terminologyUrls: null,
           });
           // Sanitiser walker — wraps the existing fomo.sanitize so
@@ -2000,7 +2353,7 @@ async function runDarkHorseScan(universeOrOpts) {
               dhLog('ERROR', `[WEBHOOK] FOH digest NOT delivered — failed at message ${failedAt + 1}/${sanitisedPayload.messages.length}.`);
             }
           }
-          return { watch, internal, ignored, rejected, funnel, volatility, scannedAt: new Date().toISOString() };
+          return { watch, internal, ignored, rejected, funnel, volatility, scanTransparency: funnel.scanTransparency, scannedAt: new Date().toISOString() };
         } catch (fohErr) {
           dhLog('WARN', `[DH-FOH] v6 path failed, falling through to v1.3 legacy: ${fohErr.message}`);
           // Fall through to v1.3 chunked path below.
@@ -2029,6 +2382,7 @@ async function runDarkHorseScan(universeOrOpts) {
         });
         ranking.funnel = funnel;
         ranking.sourceProvenance = funnel.sourceProvenance;
+        ranking.scanTransparency = funnel.scanTransparency;
         rank.emitRankingLogs(ranking, (line) => dhLog('INFO', line));
         // Pre-Radar / Near-Miss lane (operator directive 2026-05-12).
         // The digest builder consumes the FULL scan output (internal +
@@ -2044,6 +2398,7 @@ async function runDarkHorseScan(universeOrOpts) {
           universeSize: funnel.totalConsidered,  // total symbols actually scanned this cycle
           funnel,
           sourceProvenance: funnel.sourceProvenance,
+          scanTransparency: funnel.scanTransparency,
         }));
         kind = 'movement_digest_v1_1';
       } catch (rankErr) {
@@ -2173,7 +2528,18 @@ async function runDarkHorseScan(universeOrOpts) {
     }
   }
 
-  return { watch, internal, ignored, rejected, funnel, volatility, scannedAt: new Date().toISOString() };
+  return {
+    watch,
+    internal,
+    ignored,
+    rejected,
+    funnel,
+    volatility,
+    scanTransparency: funnel.scanTransparency,
+    providerProvenance: funnel.providerProvenance,
+    categoryCounts: funnel.categoryCounts,
+    scannedAt: new Date().toISOString()
+  };
 }
 
 // ============================================================
@@ -2214,6 +2580,7 @@ module.exports = {
   getDHCandidate,
   DH_UNIVERSE,
   DEFAULT_UNIVERSE,
+  GLOBAL_UNIVERSE_REGISTRY: universeRegistry,
   buildDynamicDarkHorseUniverse,
   fetchFmpLiveMovers,
   fetchEodhdLiveMovers,
@@ -2221,6 +2588,9 @@ module.exports = {
   inferDHAssetClass,
   computeBoostMetrics,
   buildScanFunnel,
+  formatUniverseLogLine,
+  formatCoverageLogLines,
+  formatFunnelLogLine,
   rankableScanCandidates,
   // Watch payload + dedupe surface — exported for tests + downstream consumers.
   buildDHPayload,
